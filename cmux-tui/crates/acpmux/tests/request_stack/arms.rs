@@ -335,6 +335,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_VIEW, Run(json!({"sessionId": "$S", "visible": true}))),
         (method::MUX_TYPING, Run(json!({"sessionId": "$S", "on": true}))),
         (method::MUX_MARK_UNREAD, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_MARK_READ, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_APP_REPLY,
             Any(
@@ -345,6 +346,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_HARNESS_INVENTORY_WATCH, Run(json!({"enabled": true}))),
         (method::MUX_WATCH, Run(json!({}))),
         (method::MUX_EVENTS, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_ROWS, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_ATTACHMENT,
             Run(

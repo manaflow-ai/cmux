@@ -1,0 +1,267 @@
+name: cmux-rd Windows host
+
+# On landings and dispatch, not pull requests: a pull request into feat-cmux-next may start at most
+# ci/steps.toml's pr_jobs (it only goes down) and no PR job runs Windows to take the selftest as a step;
+# the live proof needs the ios-e2e environment, which pull request events do not reach. Listed in
+# .github/post-merge-checks.json; manaflow-ai/cmuxterm-hq#10846 tracks moving the selftest onto PRs.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-rd-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: Windows capture and encode selftest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
+    timeout-minutes: 20
+    # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # cmux-rd-host is its own cargo workspace; a feat-cmux-next run saves the cache.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui/crates/cmux-rd-host -> target
+          shared-key: cmux-rd-windows-host
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Build the Windows host
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: cargo build --locked --no-default-features --features bench
+
+      - name: Capture and encode a real desktop sample
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = cargo run --locked --no-default-features --features bench -- windows-selftest --frames 60 --codec openh264
+          $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
+          $result = $json | ConvertFrom-Json
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+
+  live-windows-host:
+    name: Windows live host (tailnet)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    environment: ios-e2e
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Print OIDC subject (no secret)
+        shell: pwsh
+        env:
+          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $audience = [Uri]::EscapeDataString($env:OIDC_AUDIENCE)
+          $uri = "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience"
+          $response = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri $uri
+          $segment = $response.value.Split('.')[1].Replace('-', '+').Replace('_', '/')
+          $segment = $segment.PadRight($segment.Length + (4 - $segment.Length % 4) % 4, '=')
+          $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($segment)) | ConvertFrom-Json
+          Write-Output "OIDC sub: $($claims.sub)"
+          Write-Output "OIDC aud: $($claims.aud)"
+
+      - name: Join the CI tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          tags: tag:e2e-backend
+          hostname: cmux-rd-win-${{ github.run_id }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build the Windows host
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: cargo build --locked --no-default-features --features bench
+
+      - name: Serve the Windows desktop to the viewer
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Static-frame suppression is intentional; animate a small runner-local
+          # window so the passive viewer records a meaningful FPS sample.
+          $motion = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
+          $ip = (tailscale ip -4).Trim()
+          Add-Content $env:GITHUB_STEP_SUMMARY "Tailnet address: ${ip}:4103"
+          $log = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.log'
+          $err = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.err'
+          try {
+          $process = Start-Process -FilePath '.\target\debug\cmux-rd.exe' `
+            -ArgumentList @('host', '--bind', $ip, '--single-tenant-overlay', '1', '--port', '4103', '--max-fps', '30', '--codec', 'openh264') `
+            -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
+          Add-Content $env:GITHUB_STEP_SUMMARY "Host PID: $($process.Id)"
+          $deadline = (Get-Date).AddMinutes(11)
+          while ((Get-Date) -lt $deadline) {
+            if ($process.HasExited) {
+              Get-Content $log, $err -ErrorAction SilentlyContinue
+              throw "Windows host exited with code $($process.ExitCode)"
+            }
+            Start-Sleep -Seconds 5
+          }
+          Get-Content $log, $err -ErrorAction SilentlyContinue
+          } finally {
+            if ($motion -and -not $motion.HasExited) {
+              Stop-Process -Id $motion.Id -Force
+            }
+          }
+
+  live-macos-viewer:
+    name: macOS live viewer (tailnet)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 15
+    environment: ios-e2e
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Print OIDC subject (no secret)
+        env:
+          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          query = urllib.parse.urlencode({"audience": os.environ["OIDC_AUDIENCE"]})
+          url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&" + query
+          request = urllib.request.Request(
+              url,
+              headers={"Authorization": f"Bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"},
+          )
+          token = json.load(urllib.request.urlopen(request))["value"]
+          segment = token.split(".")[1]
+          segment += "=" * (-len(segment) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(segment))
+          print(f"OIDC sub: {claims.get('sub')}")
+          print(f"OIDC aud: {claims.get('aud')}")
+          PY
+
+      - name: Preserve an existing runner tailnet identity
+        id: tailnet
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/cmux-rd-tailnet.json"
+          if command -v tailscale >/dev/null 2>&1 && tailscale status --json > "$state"; then
+            python3 - "$state" <<'PY'
+          import json
+          import sys
+
+          state = json.load(open(sys.argv[1]))
+          node = state.get("Self") or {}
+          if state.get("BackendState") != "Running" or not node.get("Online") or not node.get("TailscaleIPs"):
+              raise SystemExit("existing runner Tailscale is not online; leave its identity unchanged")
+          PY
+            echo 'existing=true' >> "$GITHUB_OUTPUT"
+          else
+            ./scripts/e2e/require-fresh-tailnet-host.sh
+            echo 'existing=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Join the CI tailnet on a fresh runner
+        if: steps.tailnet.outputs.existing == 'false'
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          tags: tag:e2e-backend
+          hostname: cmux-rd-mac-${{ github.run_id }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build the macOS viewer bench
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: cargo build --locked --no-default-features --features bench
+
+      - name: Connect to Windows and measure the stream
+        working-directory: cmux-tui/crates/cmux-rd-host
+        env:
+          HOST: cmux-rd-win-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 210); do
+            if nc -z -w 2 "$HOST" 4103; then break; fi
+            if [ "$attempt" -eq 210 ]; then
+              echo "Windows host did not accept TCP on $HOST:4103" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          # The benchmark accepts SocketAddr, which requires a numeric address.
+          host_ip="$(python3 -c 'import os, socket; print(socket.gethostbyname(os.environ["HOST"]))')"
+          target/debug/cmux-rd bench --addr "$host_ip:4103" --carrier stream --input none --duration-s 10 --decoder videotoolbox \
+            > "$RUNNER_TEMP/cmux-rd-live.json" 2> "$RUNNER_TEMP/cmux-rd-live.log"
+          cat "$RUNNER_TEMP/cmux-rd-live.log"
+          cat "$RUNNER_TEMP/cmux-rd-live.json" | tee "$GITHUB_STEP_SUMMARY"
+          python3 - "$RUNNER_TEMP/cmux-rd-live.json" <<'PY'
+          import json
+          import sys
+
+          report = json.load(open(sys.argv[1]))
+          first = float(report.get("first_frame_ms", 0))
+          fps = float(report.get("fps", 0))
+          if first <= 0 or fps <= 0:
+              raise SystemExit(f"invalid live metrics: first_frame_ms={first}, fps={fps}")
+          print(f"live proof: first_frame_ms={first:.1f}, fps={fps:.2f}")
+          PY
+
+      - name: Upload live proof report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-rd-windows-live-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/cmux-rd-live.json
+            ${{ runner.temp }}/cmux-rd-live.log
+          if-no-files-found: ignore
+          retention-days: 3

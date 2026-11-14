@@ -58,7 +58,7 @@ extension CloudStartChat {
     func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
         let machines = services.machines, cloud = services.cloud
-        if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+        await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
@@ -73,9 +73,7 @@ extension CloudStartChat {
         var invocation = invocation
         if let id = plan.machine, !listed.contains(id) {
             await cloud.refresh() // List a platform-reserved or project machine before attaching.
-            // A remembered machine that is gone (deleted, or of another backend) is dropped, never
-            // shown: the send makes a new machine instead (DEV 9fa9b1c3: "No Cloud machine has the
-            // id vm_c813daded688a74e806f." on a first send).
+            // A remembered machine that is gone (deleted, other backend) is dropped: the send makes a new one (DEV 9fa9b1c3).
             if machines.session(id) == nil {
                 cloud.logger.info("cloud start chat: the planned machine \(id, privacy: .public) is gone; making a new one")
                 plan.machine = nil
@@ -103,12 +101,14 @@ extension CloudStartChat {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
                 throw failure
             }
-            // Unpinned, a retry would plan afresh and could open the chat on another machine.
-            _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        invocation.arguments["machine"]?.stringValue.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
-        return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin or attach deletes a machine made for this start
+            if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
+            id.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
+            return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        }
     }
 
     /// `answer`, or its error as the person reads it.

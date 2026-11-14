@@ -6,8 +6,9 @@ use acpmux_book::index::{
     DiskSnapshot, HOT_WINDOW_MS, IndexLog, ListFilter, ReadSide, SortedSnapshot,
 };
 use serde_json::value::RawValue;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::Command;
 use tempfile::{TempDir, tempdir};
 
@@ -79,10 +80,8 @@ fn millisecond_fixture_keeps_the_page_byte_budget_exact() {
 
 fn full_tail_fixture(count: usize, generations: usize) -> (TempDir, u64) {
     let (dir, _) = fixture(count, false, false);
-    let trigger = std::fs::metadata(dir.path().join("index.snap"))
-        .expect("snapshot size")
-        .len()
-        .max(1024 * 1024);
+    let trigger =
+        fs::metadata(dir.path().join("index.snap")).expect("snapshot size").len().max(1024 * 1024);
     let mut log = IndexLog::open(dir.path().join("index.log")).expect("open full tail");
     for generation in 0..generations {
         let mut n = 0;
@@ -139,7 +138,7 @@ fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
 }
 
 fn rss_kb() -> u64 {
-    std::fs::read_to_string("/proc/self/status")
+    fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {
             status.lines().find_map(|line| {
@@ -152,7 +151,7 @@ fn rss_kb() -> u64 {
 }
 
 pub(super) fn rss_fields_kb() -> (u64, u64, u64) {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
         status
             .lines()
@@ -192,8 +191,7 @@ fn child_startup() {
         .expect("child boot")
         .parse::<u64>()
         .expect("numeric child boot");
-    let (hub, mut writer) =
-        Hub::open(std::path::Path::new(&dir), boot, || 19).expect("open disk hub");
+    let (hub, mut writer) = Hub::open(Path::new(&dir), boot, || 19).expect("open disk hub");
     let mut sub = Sub::new("child", "list");
     sub.window = Some(PAGE_ROWS as u16);
     let frame = hub.list_window(&sub).expect("first window");
@@ -271,7 +269,7 @@ fn child_startup() {
     println!("V2_GATE_CHILD_RSS_KB={}", rss_kb());
 }
 
-fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
+fn exec_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
     let start = std::time::Instant::now();
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
@@ -316,12 +314,7 @@ fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> 
 }
 
 #[cfg(feature = "allocation-metrics")]
-fn exec_attribution_child(
-    dir: &std::path::Path,
-    test_name: &str,
-    boot: u64,
-    mode: &str,
-) -> Vec<String> {
+fn exec_attribution_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> Vec<String> {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
         .arg(test_name)
@@ -357,7 +350,7 @@ fn exec_attribution_child(
     points
 }
 
-fn make_disk_index(dir: &std::path::Path, index: &SummaryIndex) -> SummaryIndex {
+fn make_disk_index(dir: &Path, index: &SummaryIndex) -> SummaryIndex {
     SortedSnapshot::write(dir.join("index.snap"), index).expect("write page fixture");
     SummaryIndex::from_disk(
         DiskSnapshot::open(dir.join("index.snap")).expect("open snapshot"),

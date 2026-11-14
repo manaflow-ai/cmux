@@ -58,6 +58,33 @@ fn an_uninstalled_rotation_is_recovered_from_both_generations() {
 }
 
 #[test]
+fn compaction_skips_a_corrupt_middle_snapshot_row() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("index.snap");
+    let mut index = SummaryIndex::new();
+    for (id, activity) in [("first", 3), ("corrupt", 2), ("last", 1)] {
+        let mut row = Summary::new(id);
+        row.last_activity = activity;
+        index = index.apply(index.seq() + 1, row);
+    }
+    SortedSnapshot::write(&path, &index).unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let first_len =
+        u32::from_le_bytes(bytes.get(4096..4100).unwrap().try_into().unwrap()) as usize + 12;
+    let middle = 4096 + first_len;
+    *bytes.get_mut(middle + 8).unwrap() ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+
+    let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+    let captured = SummaryIndex::from_disk(Some(disk), 1);
+    let result =
+        Compaction::new(dir.path().to_owned(), 0, captured.seq()).run(Arc::new(captured)).unwrap();
+    let names: Vec<_> = result.snapshot.rows().map(|row| row.unwrap().chat_id.clone()).collect();
+    assert_eq!(names, ["first", "last"]);
+    assert_eq!(result.skipped_snapshot_rows, 1);
+}
+
+#[test]
 fn an_empty_rotated_active_log_keeps_the_closed_generations_sequence() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("index.log");

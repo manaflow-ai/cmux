@@ -89,7 +89,8 @@ if [[ "$tools_only" == 1 ]]; then
   # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
   # macOS 14, so they run on a Mac older than this worker's SDK.
   swift_target="$(uname -m)-apple-macos14.0"
-  for tool in preflight scene ocr; do
+  # window-id and marker-locate: the third-party viewers' tools (gui-viewer.sh), for a prebuilt= viewer Mac.
+  for tool in preflight scene ocr window-id marker-locate; do
     swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
   done
   swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
@@ -163,9 +164,12 @@ EOF
   cat "$out/summary.md"
 }
 
-if [[ -n "$viewer_of" ]]; then
-  # The viewer Mac of a two-Mac run: no scene, marker or grants here (the viewers only receive and
-  # send input over the network). It builds each target and serves the host Mac's view verbs.
+# The viewer Mac of a two-Mac run: no scene or marker here. It builds each target and serves the host
+# Mac's view verbs. cmux's own viewers only receive and send input over the network, so they need no
+# grants; a third-party viewer measured from outside (gui-viewer.sh: observe posts input and captures
+# the display) does, and its target's `caps` says `viewer-grants`. Then the viewer half takes the same
+# grant check, and the same launcher, as a host run below before it serves.
+serve_viewer() {
   printf '%s\n' "$peer_token" >"$work/peer-token"
   chmod 600 "$work/peer-token"
   IFS=',' read -r -a names <<<"$targets"
@@ -179,7 +183,13 @@ if [[ -n "$viewer_of" ]]; then
   status=$?
   finish "the viewer Mac of a two-Mac run (host $viewer_of): the host Mac's step has the results"
   exit "$status"
-fi
+}
+viewer_grants=0
+IFS=',' read -r -a names <<<"$targets"
+for name in "${names[@]}"; do
+  bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx viewer-grants && viewer_grants=1
+done
+[[ -n "$viewer_of" && "$viewer_grants" == 0 ]] && serve_viewer
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 if [[ -n "$prebuilt" ]]; then
@@ -251,6 +261,7 @@ if ! granted "$grants"; then
   finish "the step's processes lack Screen Recording or Accessibility on this worker ($grants)"
   exit 3
 fi
+[[ -n "$viewer_of" ]] && serve_viewer
 
 if [[ -n "$lan" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"
@@ -347,7 +358,17 @@ for name in "${names[@]}"; do
   fi
   ran=1
 
+  # A target whose `caps` verb prints window-only (cu-png, rd-window: no input path to time) skips
+  # the latency stage, and eval.py then judges it on its window rows alone. Every other target
+  # answers `caps` with nothing or an error and runs both stages.
+  window_only=0
+  if bash "$script" caps 2>/dev/null | grep -qx window-only; then
+    window_only=1
+    : >"$dir/window-only"
+  fi
+
   # Latency: the marker (cmux-rd-host/scripts/mac-marker) above everything, then the host.
+  if [[ "$window_only" == 0 ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE $name latency"
   export EVAL_MARKER_LOG="$EVAL_STATE/marker.log"
   "$EVAL_BIN/cmux-rd-marker" --verbose >"$EVAL_MARKER_LOG" 2>&1 &
@@ -371,6 +392,7 @@ for name in "${names[@]}"; do
   bash "$script" host-stop
   kill "$marker" 2>/dev/null || true
   wait "$marker" 2>/dev/null || true
+  fi
 
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
   # each time); eval.py reports each number's median and keeps every repeat's.

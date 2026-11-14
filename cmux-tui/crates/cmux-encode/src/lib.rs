@@ -1,9 +1,11 @@
 //! Video encoders every rd source shares (rd change C7 step 3;
 //! plans/cmux-next/remote-desktop-c7.md): the I420 picture and its BGRX
-//! conversion, the `H264Encoder` trait, and OpenH264 under the binary rule in
-//! [`openh264`]. x264 (GPL) stays in the cmux-rd host binary and never enters
+//! conversion, the codec seam (module `codec`: [`VideoEncoder`], [`VideoDecoder`]
+//! and each codec's framing; [`H264Encoder`] is the encoder trait's older name),
+//! and OpenH264 under the binary rule in [`openh264`]. x264 (GPL) stays in the cmux-rd host binary and never enters
 //! this crate; macOS hosts use VideoToolbox (module `videotoolbox`, macOS only).
 
+mod codec;
 mod picture;
 
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
@@ -20,6 +22,9 @@ pub mod dynlib;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
 
+/// The encoder trait's name from before VP9 and AV1 (every H.264 source still uses it).
+pub use codec::VideoEncoder as H264Encoder;
+pub use codec::{Codec, VideoDecoder, VideoEncoder, annexb_nals, av1_obus};
 pub use picture::{I420, bgrx_rect_to_i420};
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -34,15 +39,4 @@ pub struct EncCfg {
     pub threads: u16,
     /// Screen content (text, UI) rather than camera video.
     pub screen_content: bool,
-}
-
-/// One in-process low-latency H.264 encoder producing Annex-B access units.
-pub trait H264Encoder: Send {
-    /// Encodes one picture into `out` (empty when the encoder skipped the frame).
-    /// `pts` is the capture time in microseconds. Returns true for an IDR.
-    fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool>;
-    /// Retargets the bitrate (congestion control); small changes may be ignored.
-    fn set_bitrate(&mut self, kbps: u32);
-    fn kbps(&self) -> u32;
-    fn name(&self) -> String;
 }

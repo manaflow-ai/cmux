@@ -46,9 +46,8 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
-     default column stays --cv-column's width. */
-  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
+  /* Keep fractional CSS pixels: rounding here makes the on-screen edges wobble as page zoom changes. */
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -228,12 +227,18 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
-  --cv-bubble-pad-block: calc(2.5 * var(--grid-base));
-  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
+  /* Codex's 10 px block padding, 16 at the sides and the 12 corner, at the chat's density text scale, so the
+     bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
+     mirrors it. */
+  /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
+     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
+  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base));
+  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -1032,8 +1037,9 @@
    age's hover box and its tooltip never move (Leo, 2026-11-08: "sometimes the just now and whatever,
    it becomes a bit weird ... Sometimes that one, like, flashes or flickers a bit"). Before, the box
    grew by a word's width when "just now" turned into "1 minute ago", and the tooltip over it jumped.
-   The width it keeps is its first hour's widest words ("59 minutes ago", MessageTime's
-   data-age-widest) laid out in the row's own font as a hidden zero-height line, never a guessed
+   The width it keeps is its first hour's widest words (every wording that hour writes, one per line
+   in MessageTime's data-age-widest: "59 minutes ago" in English, "22 minuty temu" in Polish) laid
+   out in the row's own font as a hidden zero-height block, never a guessed
    em count: a fixed 8em fit one machine's font and was 2.75 short on another's, so the box still
    grew at "59 minutes ago". A longer age (a day's, another language's) still takes its own width. */
 .cv-user__actions .cv-message-footer-row > .cv-user__time {
@@ -1048,6 +1054,7 @@
   overflow: hidden;
   height: 0;
   visibility: hidden;
+  white-space: pre;
   content: attr(data-age-widest);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
@@ -2104,6 +2111,59 @@ pre.cv-math-source {
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
+}
+/* A live drag (a pane divider or window edge) flows the mounted rows (VirtualTranscript FLOW_CLASS):
+   they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
+   the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
+   the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
+   the latest row. The rows are placed again once the width holds.
+   The gap is a length the transcript writes on each mounted row as the rows start to flow
+   (--acpmux-flow-gap, VirtualTranscript `anchorFlow`; 0 on the last one). It does not inherit: a
+   write styles the row alone, not what it holds. No rule here reads a row's place among its
+   siblings (:last-child and the like): such a rule makes the page style the row before a new one
+   again each time a row arrives, drag or no drag. */
+@property --acpmux-flow-gap {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.acpmux-thread.acpmux-thread--flow {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  padding-top: var(--acpmux-flow-start, 0px);
+  padding-bottom: 0;
+}
+/* A view that follows the latest row: the box ends where that row rests when the chat fills the
+   view (--acpmux-flow-end), and the rows hang from its end, so rows too tall for it go up past its
+   top, as a scroll to the end shows them. Two struts place rows that leave it free room, with no
+   read of a row: the one above takes that room first, up to the first row's place in a chat the
+   view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
+   rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
+   order; only a strut's size changes with the rows'. */
+.acpmux-thread.acpmux-thread--flow-end {
+  justify-content: flex-end;
+  height: var(--acpmux-flow-end);
+  padding-top: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::before {
+  content: "";
+  flex: 0 1 var(--acpmux-flow-start, 100%);
+  min-height: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::after {
+  content: "";
+  flex: 1 0 0px;
+}
+.acpmux-thread--flow > .acpmux-row {
+  position: relative;
+  flex: none;
+  top: auto !important;
+  right: auto;
+  left: auto;
+  margin-top: 0 !important;
+  margin-bottom: var(--acpmux-flow-gap);
 }
 .acpmux-row__gap {
   position: absolute;
@@ -3347,9 +3407,15 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
     transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
 }
-/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
-   fold's body does (fold.ts foldMotion.duration). */
-:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) and the app's motion
+   gate (`data-cmux-motion`, ui/motion/motionMode.ts) snap it too, as the fold's body does (fold.ts). */
+:root:is(
+    [data-agent-move="instant"],
+    [data-agent-motion="off"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  .cv-rotor {
   transition: none;
 }
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
@@ -5554,7 +5620,12 @@ a.cv-sha:focus-visible {
 .cv-turn-error {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2);
+  gap: var(--transient-surface-gap);
+}
+.ui-transient-error {
+  /* Error cards are the inline member of Notice: their recovery-specific layout remains intact,
+     while material, spacing and action roles are shared with transient notices. */
+  --glass-tint: var(--transient-surface-veil);
 }
 .cv-turn-error__cause {
   display: flex;
@@ -5592,10 +5663,11 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error__primary {
   border-color: transparent;
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  background: var(--transient-action-fill);
+  color: var(--transient-action-ink);
 }
 .cv-turn-error__primary:hover {
-  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
 }
 /* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
@@ -5679,6 +5751,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   padding: var(--grid-cards-padding);
+  /* Transcript cards keep the established grid geometry (12px), while their material and actions
+     follow the transient role. */
   border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
@@ -5738,6 +5812,21 @@ a.cv-sha:focus-visible {
   .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
+  /* A sent prompt, its pictures and the thinking row that came with it are in place at once, never
+     the ordinary fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do
+     it."). None at all, not a 0 clock: the clamp above makes a fade 0.01ms, whose first frame drew
+     the prompt at opacity 0. */
+  /* Another agent's message (a user-kind line row, "Received 2 messages") is no send: it keeps its fade.
+     A turn with work draws "Working for" between the prompt and its thinking row (turns.ts,
+     liveTurnClock `top`): the thinking row is still the send's. "Working for" comes later, with the
+     turn's first work, and fades as any arrival does. */
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .cv-user .cv-enter,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter,
+  .acpmux-thinking.acpmux-row--enter[data-send-thinking] {
+    animation: none;
+  }
 }
 
 /* SEND-ENTRANCE (Leo 2026-11-07, ask-bc3f176943: "there's space that's given to the user's message,
@@ -5751,6 +5840,9 @@ a.cv-sha:focus-visible {
  * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
  * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
  * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
+ * The scale's send step is 0 today (Leo 2026-11-11: "that slow settle animation is just so bad.
+ * Like, just do it."), Reduce Motion included: the bubble, the thinking row and the thread are in
+ * place in the frame the composer empties; these rules play only for a page that sets the token.
  * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
  * on an ancestor); the product's is `reveal`. */
 @keyframes cv-send-reveal {
@@ -5778,8 +5870,14 @@ a.cv-sha:focus-visible {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
-  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+  /* Only a prompt, never another agent's message (a user-kind line row, "Received 2 messages"):
+     on the send's 0 clock that popped in whole with the next turn's live line under it. Its
+     thinking row may sit under "Working for" (liveTurnClock `top`), which comes later with the
+     turn's first work and fades on the ordinary clock. */
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter,
+  .acpmux-thinking.acpmux-row--enter[data-send-thinking] {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
@@ -7587,9 +7685,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   z-index: var(--layer-dropdown);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding-inline: 8px 12px;
+  /* Its frame follows Text Size as its label (--text-control) does (--ui-px, ui/popupSurface.css):
+     a 28 px pill at 16 pt clipped the label's descenders (Leo 2026-11-12: "it doesn't follow"). */
+  gap: calc(4 * var(--ui-px, 1px));
+  height: calc(28 * var(--ui-px, 1px));
+  /* Bounded to the window (fixed: 100% is the viewport), with an 8-px-per-side margin at the Text Size. */
+  max-width: calc(100% - 16 * var(--ui-px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
@@ -7599,13 +7703,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
-  line-height: 20px;
+  line-height: calc(20 * var(--ui-px, 1px));
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 .cv-selection-reply[data-look="icon"] {
-  width: 28px;
+  width: calc(28 * var(--ui-px, 1px));
   padding: 0;
   justify-content: center;
 }

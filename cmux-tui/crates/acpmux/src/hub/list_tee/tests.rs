@@ -39,6 +39,85 @@ fn removing_a_deadline_prevents_a_late_mark() {
     assert!(state.take().is_empty());
 }
 
+#[test]
+fn a_stalled_deadline_marks_once_until_a_new_turn_deadline() {
+    let state = TeeState::default();
+    let mut expiries = Expiries::default();
+    expiries.set_stalled("chat", Some(100));
+    expiries.mark_stalled_due(&state, 100);
+    assert_eq!(state.take(), vec!["chat".to_owned()]);
+
+    // Re-reading the same quiet turn after its mark must not emit another op.
+    expiries.set_stalled("chat", Some(100));
+    expiries.mark_stalled_due(&state, 1_000);
+    assert!(state.take().is_empty());
+
+    // A later model sign creates a new crossing and is eligible for one mark.
+    expiries.set_stalled("chat", Some(200));
+    expiries.mark_stalled_due(&state, 200);
+    assert_eq!(state.take(), vec!["chat".to_owned()]);
+}
+
+#[test]
+fn fired_stalled_rechecks_rotate_past_one_batch() {
+    let mut expiries = Expiries::default();
+    for n in 0..(BATCH * 2) {
+        expiries.set_stalled(&format!("chat-{n}"), Some(100));
+    }
+    let _ = expiries.take_stalled_due(100);
+    let _ = expiries.take_stalled_due(100);
+    let first = expiries.fired_for_recheck();
+    let second = expiries.fired_for_recheck();
+    assert_eq!(first.len(), BATCH);
+    assert_eq!(second.len(), BATCH);
+    assert!(first.iter().all(|entry| !second.contains(entry)));
+}
+
+#[test]
+fn walk_memory_accounts_a_page_and_each_pending_id() {
+    let state = TeeState::default();
+    let ids = HashSet::from(["one".to_owned(), "long-id".to_owned()]);
+    state.record_walk_id_memory(&ids);
+    state.record_walk_page_memory(123, 0);
+    assert_eq!(state.walk_peak_memory().0, 123);
+    assert_eq!(
+        state.walk_peak_memory().3,
+        (ids.iter().map(String::capacity).sum::<usize>()
+            + ids.capacity().next_power_of_two().max(8) * WALK_ID_STATE_BYTES
+            + std::mem::size_of::<[usize; 2]>()) as u64
+    );
+    state.record_walk_id_memory(&HashSet::new());
+    state.record_walk_page_memory(100, 0);
+    assert_eq!(state.walk_peak_memory(), (123, 0, 123, state.walk_peak_memory().3));
+}
+
+#[test]
+fn walk_memory_counts_cold_summary_storage_in_addition_to_arc_slots() {
+    let mut row = Summary::new("cold");
+    row.title = "title with spare capacity".repeat(4);
+    let expected_floor = std::mem::size_of::<Summary>()
+        + 2 * std::mem::size_of::<usize>()
+        + row.chat_id.capacity()
+        + row.title.capacity()
+        + row.harness.capacity()
+        + row.state.capacity()
+        + row.origin.capacity()
+        + row.extra.get().len();
+    assert!(TeeState::summary_owned_bytes(&row) >= expected_floor);
+}
+
+#[test]
+fn origin_remove_is_preserved_before_a_reconnect() {
+    let state = TeeState::default();
+    state.origin("peer", OriginState::Removed, 10);
+    state.origin("peer", OriginState::Connected, 20);
+    state.origin("peer", OriginState::Down, 30);
+
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Removed, 10)]);
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Down, 30)]);
+    assert!(state.take_origins(1).is_empty());
+}
+
 #[tokio::test]
 async fn one_hundred_thousand_stream_appends_do_not_mark() {
     let hub = memory_hub();
@@ -157,7 +236,7 @@ async fn a_held_v1_load_submits_no_removal() {
     let index = acpmux_book::index::SummaryIndex::new().apply(1, Summary::new("still-loading"));
     let (hub, writer) = acpmux_core::hub::Hub::new(index);
     let v2 = Arc::new(V2::new(hub, writer));
-    let (_, task) = start_v2_tee(v1, v2.clone());
+    let (_, task) = start_v2_tee(v1.clone(), v2.clone());
     let mut task = Box::pin(task);
     std::future::poll_fn(|cx| {
         assert!(task.as_mut().poll(cx).is_pending());
@@ -230,6 +309,121 @@ async fn an_unchanged_second_start_appends_no_record_and_sends_no_op() {
 }
 
 #[tokio::test]
+async fn reconcile_corrects_a_stale_typed_archived_bit() {
+    let v1 = memory_hub();
+    let session = v1.insert_test_session(meta("archived"));
+    v1.edit_test_meta(&session, |meta| {
+        meta.tags.insert(
+            "archived".into(),
+            crate::store::Tag { value: "true".into(), expires_at: None },
+        );
+    });
+    let stale = Summary::new("archived");
+    assert!(!stale.archived);
+    let index = acpmux_book::index::SummaryIndex::new().apply(1, stale);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = Arc::new(V2::new(hub, writer));
+    let (_, task) = start_v2_tee(v1, v2.clone());
+    let tee = tokio::spawn(task);
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    // timeout: Test-only deadline detects an archive that never reaches the v2 row; no user request is cancelled.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if v2.hub.snapshot().get("archived").is_some_and(|row| row.archived) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reconcile did not replace the stale archive bit");
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn quiet_live_turn_crossing_marks_without_another_record() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    // The task ticks once a second. The old deadline is due on the first tick,
+    // while the unmarked chunk below moves it past that tick.
+    config.stalled_turn_ms = Some(1_500);
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
+    let mut metadata = meta("quiet");
+    metadata.status = crate::store::SessionStatus::Running;
+    let session = v1.insert_test_session(metadata);
+    let mut turn = TurnInfo::prompted("test", "quiet", "turn", "prompt", Control::Local);
+    turn.started_at = crate::store::now_ms().saturating_sub(1_000);
+    *session.turn.lock().unwrap() = Some(turn);
+    session.last_model_at.store(0, Ordering::Relaxed);
+
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let v2 = Arc::new(V2::new(hub, writer));
+    let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let (_, task) = start_v2_tee(v1.clone(), v2.clone());
+    let tee = tokio::spawn(task);
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    let initial = next(&subscription.receiver).await;
+    let acpmux_core::hub::ListItem::Summary(initial) = initial else {
+        panic!("startup walk did not publish the summary");
+    };
+    let initial_extra: serde_json::Value =
+        serde_json::from_str(initial.summary.extra.get()).unwrap();
+    assert!(initial_extra.pointer("/turn/stalledSince").is_none_or(serde_json::Value::is_null));
+
+    // This chunk is deliberately unmarked. The tap would advance this clock
+    // for a real model update; the test sets it directly because append() is
+    // the low-level logging API and does not impersonate the agent tap.
+    v1.append(&session, "in", "agent_message_chunk", serde_json::json!({"delta": "x"}));
+    session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
+    tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
+    assert!(subscription.receiver.try_next().is_none(), "the old crossing must be rescheduled");
+
+    let crossing =
+        // timeout: Test-only deadline detects a quiet-turn crossing that never fires; no user request is cancelled.
+        tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
+            .await
+            .expect("quiet-turn deadline did not mark the row");
+    let acpmux_core::hub::ListItem::Summary(crossing) = crossing else {
+        panic!("quiet-turn crossing was not a summary");
+    };
+    let crossing_extra: serde_json::Value =
+        serde_json::from_str(crossing.summary.extra.get()).unwrap();
+    assert!(
+        crossing_extra.pointer("/turn/stalledSince").and_then(serde_json::Value::as_u64).is_some()
+    );
+    assert!(crossing.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
+    assert!(subscription.receiver.try_next().is_none(), "the crossing emits one summary");
+
+    // Config contention must not drop fired-turn tracking. Once released,
+    // this unmarked chunk still gets a later crossing without a row mark.
+    let config_guard = v1.config.write().await;
+    v1.append(&session, "in", "agent_message_chunk", serde_json::json!({"delta": "y"}));
+    session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
+    tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
+    assert!(subscription.receiver.try_next().is_none(), "the fired crossing must be rescheduled");
+    drop(config_guard);
+    let second =
+        // timeout: Test-only deadline detects a repeated crossing that never fires; no user request is cancelled.
+        tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
+            .await
+            .expect("repeated quiet-turn deadline did not mark the row");
+    let acpmux_core::hub::ListItem::Summary(second) = second else {
+        panic!("repeated quiet-turn crossing was not a summary");
+    };
+    assert!(second.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
+    assert!(subscription.receiver.try_next().is_none(), "the repeated crossing emits one summary");
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn eleven_thousand_rows_reconcile_with_a_thousand_changes_between_pages() {
     use std::future::Future as _;
     let v1 = memory_hub();
@@ -297,7 +491,7 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     let tee = tokio::spawn(task);
     let mut summaries = HashSet::new();
     let mut gone = HashSet::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         match next(&subscribed.receiver).await {
             ListItem::Summary(event) => {
                 summaries.insert(event.summary.chat_id.clone());
@@ -305,12 +499,12 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
             ListItem::Gone { chat_id, .. } => {
                 gone.insert(chat_id);
             }
-            _ => panic!("a three-row walk must not lag"),
+            _ => panic!("the startup walk must not lag"),
         }
     }
     assert_eq!(summaries, HashSet::from(["existing".to_owned(), "new".to_owned()]));
-    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned()]));
-    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_some());
+    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned(), "peer-chat".to_owned()]));
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_none());
     let session = v1.sessions.lock().unwrap().remove("existing").unwrap();
     let mut purged = super::super::row_log::row_event("existing");
     Arc::make_mut(&mut purged.record).kind = "purged".into();
@@ -326,6 +520,256 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn saved_peer_cache_waits_for_remote_reconciliation() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    config.peers.insert(
+        "saved".into(),
+        crate::config::PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
+    let mut cached = Summary::new("cached");
+    cached.origin = "saved".into();
+    let mut missing = Summary::new("missing");
+    missing.origin = "saved".into();
+    let mut forgotten = Summary::new("forgotten");
+    forgotten.origin = "forgotten-peer".into();
+    let index = acpmux_book::index::SummaryIndex::new()
+        .apply(1, cached.clone())
+        .apply(2, missing)
+        .apply(3, forgotten);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = V2::new(hub, writer);
+    let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let state = TeeState::default();
+
+    // The local half runs before the deferred peer-start gate. A cached row is not
+    // treated as gone while v1 has not loaded the peer's table yet.
+    let _ = reconcile(&v1, &v2, &state).await;
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
+    // A running peer may mark a row before the saved-peer cache is loaded. The tee
+    // observes the mark but must not turn the cache's temporary absence into a gone.
+    state.mark_remote("saved", "missing");
+    let mut expiries = Expiries::default();
+    drain_marks(&v1, &v2, &state, &mut expiries);
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
+    // This remote row models load_peer_cache after start_saved_peers. The remote half now
+    // compares the complete table, so the missing row is gone and a removed origin is cut.
+    let remote = Hub::remote_summary(
+        "saved",
+        serde_json::json!({"sessionId":"cached", "name":"cached", "status":"idle"}),
+    );
+    let receipt = crate::session_identity::SessionReceipt::new("saved", "cached", None, 1);
+    v1.remote_sessions.write().insert(
+        "saved/cached".into(),
+        RemoteSession { peer: "saved".into(), summary: remote.into(), receipt },
+    );
+    state.remote_ready();
+    reconcile_remote(&v1, &v2, &state).await;
+    while state.has_pending() {
+        drain_marks(&v1, &v2, &state, &mut expiries);
+    }
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+
+    let snapshot = v2.hub.snapshot();
+    assert!(snapshot.get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(snapshot.get_row(&RowKey::new("saved", "missing")).is_none());
+    assert!(snapshot.get_row(&RowKey::new("forgotten-peer", "forgotten")).is_none());
+}
+
+#[tokio::test]
+async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliation() {
+    use crate::config::{Config, PeerConfig, StoreMode};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-v2-saved-peer-start");
+    let peers_dir = dir.path().join("peers");
+    std::fs::create_dir_all(&peers_dir).unwrap();
+    std::fs::write(
+        peers_dir.join("saved.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "lastSeen": 7,
+            "downSince": crate::store::now_ms().saturating_sub(11_000),
+            "sessions": [{
+                "sessionId": "cached",
+                "name": "cached",
+                "status": "running",
+                "updatedAt": 5,
+                "sessionReceipt": {
+                    "hostId": "saved",
+                    "muxSessionId": "cached",
+                    "agentSessionId": null,
+                    "generation": 1
+                }
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    config.peers.insert(
+        "saved".into(),
+        PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+
+    v1.start_saved_peers().await;
+
+    assert!(state.remote_ready.load(Ordering::Acquire));
+    let rows = v1.remote_sessions();
+    assert_eq!(rows.len(), 1, "the cache row was not loaded: {rows:?}");
+    assert_eq!(rows[0]["sessionId"], "cached");
+    assert_eq!(rows[0]["stale"], true);
+    let origins = state.take_origins(4);
+    assert!(
+        origins.iter().any(|(id, state, _)| id == "saved" && *state == OriginState::Stale),
+        "an old cached outage must start stale: {origins:?}"
+    );
+    if let Some(peer) = v1.peer_by_name("saved") {
+        peer.stop();
+    }
+}
+
+#[tokio::test]
+async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation() {
+    use crate::config::{Config, PeerConfig, StoreMode};
+
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    config.peers.insert(
+        "saved".into(),
+        PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+    v1.begin_shutdown();
+
+    v1.start_saved_peers().await;
+
+    assert!(!state.remote_ready.load(Ordering::Acquire));
+    assert!(v1.peers.lock().unwrap().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
+    let v1 = memory_hub();
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("empty", "ws://127.0.0.1:9/empty", None, None, tx);
+    let generation = peer.generation;
+    peer.seed_last_seen(Some(crate::store::now_ms().saturating_sub(40_000)));
+    v1.peers.lock().unwrap().insert("empty".into(), peer);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+
+    let send = |notice| async {
+        let mut settled = v1.peer("empty").unwrap().settled();
+        v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        settled.changed().await.unwrap();
+    };
+
+    send(crate::peer::PeerNotice::Disconnected("reset".into())).await;
+    let first = state.take_origins(1);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].0, "empty");
+    assert_eq!(first[0].1, OriginState::Down);
+    assert!(state.take_remote(1).is_empty(), "a drop with no rows emits no row mark");
+
+    // A flap before the deadline gets a connected record and never a stale record.
+    send(crate::peer::PeerNotice::Connected).await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
+    send(crate::peer::PeerNotice::Disconnected("flap".into())).await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
+    tokio::time::advance(std::time::Duration::from_secs(9)).await;
+    tokio::task::yield_now().await;
+    assert!(state.take_origins(1).is_empty(), "a short flap does not become stale");
+    send(crate::peer::PeerNotice::Connected).await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
+
+    // The next continuous outage emits stale exactly when its grace ends, even without rows.
+    send(crate::peer::PeerNotice::Disconnected("outage".into())).await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
+    tokio::time::advance(std::time::Duration::from_secs(10)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Stale);
+    assert!(state.take_remote(1).is_empty());
+
+    // Failed retries after stale do not append another origin record.
+    for _ in 0..10 {
+        send(crate::peer::PeerNotice::Disconnected("retry".into())).await;
+    }
+    assert!(state.take_origins(1).is_empty());
+    send(crate::peer::PeerNotice::Connected).await;
+    assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
+
+    assert!(!state.has_pending());
+}
+
+#[tokio::test]
+async fn an_already_stale_origin_does_not_append_a_second_record() {
+    let record = acpmux_book::index::OriginRecord {
+        seq: 1,
+        id: "peer".into(),
+        state: OriginState::Stale,
+        since: 7,
+        extra: None,
+    };
+    let index = acpmux_book::index::SummaryIndex::new().apply_origin(1, record);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = V2::new(hub, writer);
+    let state = TeeState::default();
+    state.origin("peer", OriginState::Stale, 99);
+    let mut expiries = Expiries::default();
+    drain_marks(&memory_hub(), &v2, &state, &mut expiries);
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+    let snapshot = v2.hub.snapshot();
+    let origin = snapshot.origin("peer").unwrap();
+    assert_eq!(origin.state, OriginState::Stale);
+    assert_eq!(origin.since, 7);
+    assert_eq!(v2.hub.snapshot().seq(), 1);
 }
 
 #[tokio::test]
@@ -547,4 +991,19 @@ async fn a_tag_expiry_reaches_the_subscriber_without_another_record() {
     let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
+}
+
+#[test]
+fn due_clock_work_continues_without_waiting_for_another_tick() {
+    let state = TeeState::default();
+    let mut expiries = Expiries::default();
+    for n in 0..(BATCH + 1) {
+        expiries.set_stalled(&format!("quiet-{n}"), Some(100));
+    }
+    expiries.mark_stalled_due(&state, 100);
+    assert!(expiries.has_due(100));
+    assert_eq!(state.take().len(), BATCH);
+    expiries.mark_stalled_due(&state, 100);
+    assert!(!expiries.has_due(100));
+    assert_eq!(state.take().len(), 1);
 }

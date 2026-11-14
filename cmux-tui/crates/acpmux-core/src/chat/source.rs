@@ -127,6 +127,24 @@ pub trait RawSource: Send + 'static {
     fn identity(&self) -> &[u8];
     /// Changes whenever a previously delivered line can read differently.
     fn stamp(&self) -> u64;
+    /// A file source inside a derived book must retain its path and inode at swap.
+    fn file_path(&self) -> Option<&Path> {
+        None
+    }
+    /// At most `max` bytes of the line that starts at `place`, from `offset` in it, and whether
+    /// the line ends there. A queue head, a waiting prompt's `blob` and a body read back use it,
+    /// so none of them reads a line whole. A source that cannot answers `Unsupported`.
+    fn read_at(&mut self, _place: u64, _offset: u64, _max: usize) -> io::Result<Piece> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "this source reads no part of a line"))
+    }
+}
+
+/// Part of one line, from [`RawSource::read_at`]. `bytes` holds no newline.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Piece {
+    pub bytes: Vec<u8>,
+    /// The line ends where `bytes` ends.
+    pub ends: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,6 +159,7 @@ pub struct ReadStats {
 pub struct FileSource {
     file: File,
     identity: Vec<u8>,
+    path: std::path::PathBuf,
     cursor: u64,
     looked: u64,
     stats: ReadStats,
@@ -165,6 +184,7 @@ impl FileSource {
         Ok(Self {
             file,
             identity: identity.into_bytes(),
+            path,
             cursor: 0,
             looked: 0,
             stats: ReadStats::default(),
@@ -175,7 +195,7 @@ impl FileSource {
         self.stats
     }
 
-    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> io::Result<()> {
+    fn read_exact_at(&mut self, offset: u64, bytes: &mut [u8]) -> io::Result<()> {
         self.file.seek(SeekFrom::Start(offset))?;
         self.file.read_exact(bytes)?;
         self.stats.bytes = self.stats.bytes.saturating_add(bytes.len() as u64);
@@ -184,6 +204,10 @@ impl FileSource {
 }
 
 impl RawSource for FileSource {
+    fn file_path(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
+
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
         let length = self.hint()?;
         let mut budget = CHUNK_BYTES;
@@ -213,7 +237,7 @@ impl RawSource for FileSource {
         let count =
             usize::try_from((length - base).min(budget as u64)).map_err(io::Error::other)?;
         let mut bytes = vec![0; count];
-        self.read_at(base, &mut bytes)?;
+        self.read_exact_at(base, &mut bytes)?;
         // With an unfinished prefix, finish just that line. With none, return every
         // whole line in the chunk. No partial prefix is read again until it completes.
         let newline = if prefix != 0 {
@@ -240,7 +264,7 @@ impl RawSource for FileSource {
             // allocate only here; every prior scan yielded to the actor's mailbox.
             let size = usize::try_from(end - place).map_err(io::Error::other)?;
             bytes.resize(size, 0);
-            self.read_at(place, &mut bytes)?;
+            self.read_exact_at(place, &mut bytes)?;
         } else {
             bytes.truncate(newline + 1);
         }
@@ -263,7 +287,7 @@ impl RawSource for FileSource {
             return Ok(true);
         }
         let mut byte = [0];
-        self.read_at(place - 1, &mut byte)?;
+        self.read_exact_at(place - 1, &mut byte)?;
         self.stats.holds_bytes = self.stats.holds_bytes.saturating_add(1);
         Ok(byte == [b'\n'])
     }
@@ -284,6 +308,25 @@ impl RawSource for FileSource {
     }
     fn stamp(&self) -> u64 {
         1
+    }
+
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> io::Result<Piece> {
+        let length = self.hint()?;
+        let at = place.checked_add(offset).ok_or_else(|| invalid("raw position overflow"))?;
+        if at > length {
+            return Err(invalid("a part of a line past the file"));
+        }
+        let count = usize::try_from((length - at).min(max as u64)).map_err(io::Error::other)?;
+        let mut bytes = vec![0; count];
+        self.read_exact_at(at, &mut bytes)?;
+        let ends = match bytes.iter().position(|byte| *byte == b'\n') {
+            Some(newline) => {
+                bytes.truncate(newline);
+                true
+            }
+            None => false,
+        };
+        Ok(Piece { bytes, ends })
     }
 }
 
@@ -479,6 +522,14 @@ mod tests {
             god.0 as f64 / small.0 as f64,
             god.1 as f64 / small.1 as f64
         );
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+            writeln!(
+                output,
+                "{{\"name\":\"v2.pr03a.source_read_bounds\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"bytes\"}}",
+                small.0, god.0
+            )?;
+        }
         Ok(())
     }
 }

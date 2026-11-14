@@ -1540,7 +1540,6 @@ CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Billing.swift	billing.* control methods: thin call to Stack session client
 CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	auth.status/cloud.machines control methods reading CloudService (thin)
 CmuxNextApp	extension	AppControl	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	auth.status/cloud.machines control methods reading CloudService (thin)
-CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Mobile.swift	mobile control verbs, thin call
 CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Remote.swift	remote.machines control method reading registry (thin)
 CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift	updates.* control methods over Sparkle updater (platform)
 CmuxNextApp	extension	AppControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift	vm.agent_key.create: thin call to cmux VM API with Stack session
@@ -3020,7 +3019,6 @@ CmuxNextApp	struct	PersonalGroupLife	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	extension	PersonalSidebar	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/PersonalSidebar+MixedOrder.swift	Mixed order group placement and drop math (Swift copy of Rust order concept)
 CmuxNextApp	enum	PersonalSidebar	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/PersonalSidebar.swift	from enum PersonalSidebar:10: Personal sidebar sections/order computed from personal state
 CmuxNextApp	struct	PersonalSidebarPlanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/PersonalSidebarPlanner.swift	Personal drop planner: which rows a drop writes
-CmuxNextApp	enum	PhoneIncognitoHiding	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/PhoneIncognitoHiding.swift	Phone incognito hiding id set
 CmuxNextApp	class	SessionRegistrar	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SessionRegistrar.swift	from class SessionRegistrar:15: Session registry sync/migration with connected sessions
 CmuxNextApp	extension	ShellWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow+ContentAreaMotion.swift	ShellWindow content area motion
 CmuxNextApp	extension	ShellWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow+Events.swift	ShellWindow event handling (AppKit)
@@ -6761,9 +6759,6 @@ CmuxNextDesign	extension	CALayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextDesign	struct	SystemScrollers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	from struct SystemScrollers:17: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerRadius.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelDefaults	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	GlyphMask	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/GlyphMask.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelParityProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6771,6 +6766,9 @@ CmuxNextDesign	class	LabelSelectionView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextDesign	enum	LabelText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	MarqueeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/MarqueeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/NSTextView+UndoableReplace.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TitleFade	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleFade.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -7925,6 +7923,7 @@ CmuxNextHome	struct	HomeStarterStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	enum	HomeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStrings.swift	AppKit/SwiftUI view or platform code
 CmuxNextHomeModel	struct	HomeSwitchKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeSwitchKeys.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeThemePalette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeThemePalette.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeUnavailableLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeUnavailableLabel.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeVoiceDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from class HomeVoiceDictation:28: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	DictationSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
 CmuxNextHome	protocol	HomeDictationEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
@@ -8554,16 +8553,6 @@ CmuxNextMobile	struct	LineSplitter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources
 CmuxNextMobile	protocol	MobileByteLane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/MobileByteLane.swift	byte lane seam
 CmuxNextMobile	class	ResumeOnce	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/ResumeOnce.swift	continuation guard
 CmuxNextMobile	class	UnixSocketLane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/UnixSocketLane.swift	Unix socket I/O with connect deadline
-CmuxNextMobile	struct	IrxByteLane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/IrxByteLane.swift	irx lane to byte lane adapter
-CmuxNextMobile	struct	MobileAttachTicket	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileAttachTicket.swift	attach ticket and URL building for phone
-CmuxNextMobile	protocol	MobileHostAuth	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileHostConfiguration.swift	account seam for host registration
-CmuxNextMobile	struct	MobileHostConfiguration	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileHostConfiguration.swift	from protocol MobileHostAuth:5: account seam for host registration
-CmuxNextMobile	struct	MobileHostHistory	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileHostHistory.swift	history marker of old always-on behavior
-CmuxNextMobile	struct	MobileHostKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileHostKeys.swift	installation id and endpoint key storage
-CmuxNextMobile	struct	MobileIrxConnectionServer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileIrxConnectionServer.swift	irx connection lanes: keepalives, control repair, splices
-CmuxNextMobile	extension	MobileIrxHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileIrxHost+Endpoint.swift	endpoint readiness backoff 5 s to 300 s, accept loop, permission enforcement
-CmuxNextMobile	extension	MobileIrxHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileIrxHost+Ticket.swift	ticket failure error
-CmuxNextMobile	actor	MobileIrxHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Host/MobileIrxHost.swift	irx host actor: phases, endpoint, lanes
 CmuxNextMobile	protocol	MobileHostBrowserHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	remote browser host seam
 CmuxNextMobile	protocol	MobileHostSurfaceHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	from protocol MobileHostBrowserHosting:6: remote browser host seam
 CmuxNextMobile	struct	MobileHostSurfaceClosures	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostBrowserHosting.swift	from protocol MobileHostBrowserHosting:6: remote browser host seam
@@ -8607,7 +8596,6 @@ CmuxNextMobile	struct	DaemonRenderFrame	0	MIRROR	0	100	Packages/macOS/CmuxNext/S
 CmuxNextMobile	struct	DaemonRenderGridState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/RenderGrid/DaemonRenderGridState.swift	grid state rebuilt from daemon render frames
 CmuxNextMobile	struct	DaemonRenderStyleTable	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/RenderGrid/DaemonRenderStyleTable.swift	style interning for render grid
 CmuxNextMobile	struct	MobileHostCloudLinks	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostCloudLink.swift	hand-written need_cloud_links answer type for hostd (wire type, #31795); backlog F14
-CmuxNextMobileHost	struct	CloudMobileAuth	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/CloudMobileAuth.swift	Pairing seed, notices and last picks handed to acpmux
 CmuxNextMobileHost	class	IPhoneBrowserHosts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneBrowserHosts.swift	Starts local CEF remote browser host per phone tab (process API)
 CmuxNextMobileHost	extension	IPhoneHostService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Page.swift	Phone host service wiring, pairing and remote control rules
 CmuxNextMobileHost	extension	IPhoneHostService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Pairing.swift	Phone host service wiring, pairing and remote control rules
@@ -8622,8 +8610,6 @@ CmuxNextMobileHost	struct	MobileHostPhoneCredentials	0	LOGIC	100	0	Packages/macO
 CmuxNextMobileHost	class	MobilePageProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePageProvider.swift	from class MobilePageProvider:9: QR image, strings or page provider seam
 CmuxNextMobileHost	struct	NewChatPicks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/NewChatPicks.swift	Pairing seed, notices and last picks handed to acpmux
 CmuxNextMobileHost	struct	PairingQRCode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PairingQRCode.swift	QR image, strings or page provider seam
-CmuxNextMobileHost	class	PhoneAdmission	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PhoneAdmission.swift	from class PhoneAdmission:10: Phone admission, approver key sync and credentials policy
-CmuxNextMobileHost	extension	IPhoneHostService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PhoneAdmission.swift	from class PhoneAdmission:10: Phone admission, approver key sync and credentials policy
 CmuxNextMobileHost	extension	MobileHostCloudLink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobileHostCloudLink+Machine.swift	machine ownership rule for the phone directory (live link, cached owner, creator; #31795); backlog F14
 CmuxNextNowPlaying	class	BrowserTabsNowPlaying	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/BrowserTabsNowPlaying.swift	from class BrowserTabsNowPlaying:13: now playing hosting
 CmuxNextNowPlaying	class	AdapterLineSplitter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/MediaRemoteAdapter.swift	from enum SystemNowPlayingCommand:6: now playing hosting
@@ -9233,12 +9219,7 @@ CmuxNextPhone	struct	SurfaceFrameFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	tab-key parse (copies hostd cloud_desktop_of), refusal codes, per-tab sources, liveness watch LOGIC; refusal codes and tab key repeat hostd MIRROR (#31795); F14
 CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
 CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
-CmuxNextPhoneAccess	class	MobileHostService	0	MIXED	49	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileHostService.swift	MobileHostService: listener start/stop lifecycle PLATFORM; generation, allowed/account gate, follower wiring LOGIC
-CmuxNextPhoneAccess	class	MobileHostStatus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileHostStatus.swift	from class MobileHostStatus:10: phone listener status value (phase, phones usable)
 CmuxNextPhoneAccess	enum	MobilePairingState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobilePairingState.swift	mobile pairing step state machine
-CmuxNextPhoneAccess	class	MobileReadinessRelay	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileReadinessRelay.swift	platform glue
-CmuxNextPhoneAccess	class	PhoneAccessFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessFollower.swift	Phone Access setting -> listener on/off + startSessions follower
-CmuxNextPhoneAccess	enum	PhoneAccessMigration	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessFollower.swift	from class PhoneAccessFollower:10: Phone Access setting -> listener on/off + startSessions follower
 CmuxNextPopups	class	BrowserPopupWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindow.swift	NSWindow for browser popup
 CmuxNextPopups	enum	BrowserPopupWindowGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindowGeometry.swift	popup window size rules (Chrome AdjustToFit)
 CmuxNextPopups	class	BrowserPopupWindows	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindows.swift	popup window controller

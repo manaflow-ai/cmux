@@ -70,6 +70,10 @@ impl Supervisor {
             if inner.safe_mode.is_some() && super::safe_mode::holds_off(package) {
                 return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
             }
+            // Paused by its budget: no host until Resume (budget.rs).
+            if !preview && inner.ladders.get(app).is_some_and(|l| l.paused.is_some()) {
+                return Err(ApiError::new("apps.paused", super::budget::PAUSED));
+            }
             if self.config.host_binary.is_none() {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
             }
@@ -90,6 +94,7 @@ impl Supervisor {
                     export: export.clone(),
                     context: context.clone(),
                     reset: replacing,
+                    budget: Default::default(),
                 },
             );
             outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
@@ -203,6 +208,9 @@ impl Supervisor {
         // Every path to a host (mount, run, restart) ends here.
         if inner.safe_mode.is_some() && super::safe_mode::holds_off(&package) {
             return self.end_host_locked(inner, key, super::safe_mode::OFF, "off");
+        }
+        if !key.preview && inner.ladders.get(&key.app).is_some_and(|l| l.paused.is_some()) {
+            return self.end_host_locked(inner, key, super::budget::PAUSED, "paused");
         }
         // The print the local watch last read (no disk work under the lock).
         // A save since then makes the folder's print differ from it, and the
@@ -506,13 +514,7 @@ impl Supervisor {
             }
             FromHost::Scene { mount, ops } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let record = inner.mounts.get_mut(&mount_key).expect("mount");
-                let mut event =
-                    json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
-                if std::mem::take(&mut record.reset) {
-                    event.set("reset", Value::Bool(true));
-                }
-                vec![Out::Client(mount_key.client, event)]
+                self.scene_locked(inner, key, &mount_key, ops, Instant::now())
             }
             FromHost::Call { cb, name, params, options } => {
                 self.call_locked(inner, key, cb, name, params, options)
@@ -543,17 +545,22 @@ impl Supervisor {
                 outs.extend(self.idle_check_locked(inner, key));
                 outs
             }
-            FromHost::Fatal { reason, entry } => self.log_locked(
-                inner,
-                &key.app,
-                "error",
-                format!("{entry}: the app hit its {} limit", reason.as_str()),
-            ),
+            FromHost::Fatal { reason, entry } => {
+                let mut outs = self.log_locked(
+                    inner,
+                    &key.app,
+                    "error",
+                    format!("{entry}: the app hit its {} limit", reason.as_str()),
+                );
+                outs.extend(self.vm_killed_locked(inner, key, reason, Instant::now()));
+                outs
+            }
         }
     }
 
     /// Records a daemon event subscription when the grant can read the
-    /// stream's family (`agent.changed` needs what `agent.list` needs).
+    /// stream's declared `reads` op (`theme.changed` needs what `settings.get` needs), or a
+    /// provider stream's family (`agent_cli.changed` needs what `agent_cli.list` needs).
     fn subscribe_locked(
         &self,
         inner: &mut Inner,
@@ -622,8 +629,15 @@ impl Supervisor {
         let mut outs =
             self.log_locked(inner, &key.app, "error", format!("host crashed: {}", exit.describe()));
         outs.push(Out::Broadcast(json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": exit.describe() })));
+        let healthy = inner
+            .hosts
+            .get(key)
+            .is_some_and(|host| host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER));
+        if healthy && let Some(ladder) = inner.ladders.get_mut(&key.app) {
+            ladder.healthy();
+        }
         let host = inner.hosts.get_mut(key).expect("host");
-        if host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER) {
+        if healthy {
             host.backoff.reset();
             host.crashes = 0;
         }
@@ -721,5 +735,7 @@ fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
 fn mark_reset(inner: &mut Inner, key: &HostKey) {
     for mount in inner.mounts.values_mut().filter(|m| m.host == *key) {
         mount.reset = true;
+        // Held ops of the old process would land on the new tree.
+        mount.budget.clear_pending();
     }
 }

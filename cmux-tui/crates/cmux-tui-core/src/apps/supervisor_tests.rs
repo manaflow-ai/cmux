@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FromHost, ToHost};
+use cmux_app_host::{FatalReason, FromHost, ToHost};
 use serde_json::{Value, json};
 
 use super::catalog::Sources;
@@ -52,7 +52,12 @@ fn scripted_app_host() {
                 });
             }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
-            ToHost::Mount { mount, export, .. } => {
+            ToHost::Mount { mount, export, ctx } => {
+                // `timeout`: the render runs past its entry deadline, every time.
+                if ctx["timeout"] == true {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "mount".into() });
+                    std::process::exit(70);
+                }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
                     continue;
@@ -60,7 +65,7 @@ fn scripted_app_host() {
                 if export == "renderLive" {
                     send(FromHost::Subscribe {
                         sub: 1,
-                        stream: "workspace.changed".into(),
+                        stream: ctx["stream"].as_str().unwrap_or("workspace.changed").into(),
                         filter: json!({}),
                     });
                 }
@@ -109,9 +114,11 @@ fn scripted_app_host() {
                     .find(|(c, _)| *c == cb)
                     .map(|(_, m)| m.clone())
                     .unwrap_or_default();
+                // One node per call: two answers in one frame stay two ops
+                // when the supervisor coalesces them (budget.rs).
                 send(FromHost::Scene {
                     mount,
-                    ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
+                    ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
             ToHost::Run { cb, export, gesture, .. } => {
@@ -302,7 +309,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g", "settings:read": "s" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -497,6 +504,7 @@ fn default_apps_are_installed_with_required_scopes() {
             "actions:run",
             "integration:github:read",
             "net:api.example.com",
+            "settings:read",
             "storage:local",
             "terminal:write",
             "workspace:read",
@@ -614,6 +622,31 @@ fn daemon_events_reach_subscribed_apps() {
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
 }
 
+/// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
+/// `reads` op is `settings.get`, not a `settings.list`/`theme.list` family op), and only that app.
+#[test]
+fn settings_and_theme_events_reach_apps_that_read_settings() {
+    for stream in ["settings.changed", "theme.changed"] {
+        let f = fixture();
+        f.install("cmux/demo");
+        f.install("local/spy");
+        f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.supervisor.logs(CLIENT, "cmux/demo", true);
+        f.supervisor.publish(stream, json!({}));
+        f.wait(stream, |e| e["event"] == "apps-log" && e["message"] == "event 1");
+        let heard = |app: &str| {
+            f.supervisor.logs(CLIENT, app, false)["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["message"] == "event 1")
+        };
+        assert!(heard("cmux/demo"), "{stream}: the app granted settings:read");
+        assert!(!heard("local/spy"), "{stream}: an app without settings:read");
+    }
+}
+
 #[test]
 fn rejects_and_noops_still_settle() {
     let f = fixture();
@@ -707,9 +740,12 @@ fn view_state_ops_need_a_live_token_for_this_app_spent_once() {
         .unwrap();
     let mut results = Vec::new();
     while results.len() < 2 {
+        // Both answers may come in one coalesced batch.
         let update =
             f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
-        results.push(update["ops"][0]["props"]["result"].clone());
+        for op in update["ops"].as_array().into_iter().flatten() {
+            results.push(op["props"]["result"].clone());
+        }
     }
     // Answers arrive in any order: a refusal is immediate, an accepted call
     // answers from its worker thread.
@@ -1021,3 +1057,6 @@ mod run_lifecycle;
 
 #[path = "supervisor_rollback_tests.rs"]
 mod rollback_tolerance;
+
+#[path = "supervisor_budget_tests.rs"]
+mod budget;

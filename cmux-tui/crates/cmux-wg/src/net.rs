@@ -34,6 +34,7 @@ use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
 use crate::timers::TimerSchedule;
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
+use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::watchdog::Watchdog;
@@ -55,6 +56,7 @@ pub struct WgNet {
     max_datagram: usize,
     drops: Arc<DropCounters>,
     ultra: Arc<UltraCounters>,
+    choice: UltraChoice,
     driver: Option<JoinHandle<()>>,
 }
 
@@ -101,10 +103,25 @@ impl WgNet {
     /// Start the tunnel on a caller-built underlay, for example a
     /// [`crate::Multipath`]. The configured endpoint is ignored: the underlay
     /// owns addressing. Ultra mode is `CMUX_WG_ULTRA` when set, else the
-    /// config's [`WgConfig::ultra`] ([`UltraMode::resolve`]).
+    /// config's [`WgConfig::ultra`] ([`UltraChoice::resolve`]).
     pub fn start_with_underlay(config: WgConfig, underlay: impl Underlay) -> Result<Self, WgError> {
-        let mode = UltraMode::resolve(config.ultra);
-        Self::start_with_ultra(config, underlay, mode)
+        let choice = UltraChoice::resolve(config.ultra);
+        Self::start_with_choice(config, underlay, choice)
+    }
+
+    /// [`WgNet::start_with_underlay`] with the ultra choice (Off, Auto,
+    /// Always) set by the caller instead of `CMUX_WG_ULTRA` and
+    /// [`WgConfig::ultra`].
+    pub fn start_with_choice(
+        config: WgConfig,
+        underlay: impl Underlay,
+        choice: UltraChoice,
+    ) -> Result<Self, WgError> {
+        let mode = choice.start_mode();
+        let mut net =
+            Self::start_negotiating(config, underlay, mode, Negotiation::new(mode), choice.auto())?;
+        net.choice = choice;
+        Ok(net)
     }
 
     /// [`WgNet::start_with_underlay`] with ultra mode set by the caller
@@ -114,7 +131,7 @@ impl WgNet {
         underlay: impl Underlay,
         mode: UltraMode,
     ) -> Result<Self, WgError> {
-        Self::start_negotiating(config, underlay, mode, Negotiation::new(mode))
+        Self::start_negotiating(config, underlay, mode, Negotiation::new(mode), None)
     }
 
     /// A tunnel that behaves as a build without the in-tunnel ultra hello:
@@ -126,7 +143,7 @@ impl WgNet {
         underlay: impl Underlay,
         mode: UltraMode,
     ) -> Result<Self, WgError> {
-        Self::start_negotiating(config, underlay, mode, Negotiation::without_hello(mode))
+        Self::start_negotiating(config, underlay, mode, Negotiation::without_hello(mode), None)
     }
 
     fn start_negotiating(
@@ -134,6 +151,7 @@ impl WgNet {
         underlay: impl Underlay,
         mode: UltraMode,
         negotiation: Negotiation,
+        auto: Option<AutoUltra>,
     ) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
@@ -143,19 +161,37 @@ impl WgNet {
         let ultra = Arc::new(UltraCounters::default());
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
-        let driver = Driver::new(config, underlay, negotiation, commands_rx, Arc::clone(&wake))?;
+        let driver =
+            Driver::new(config, underlay, negotiation, auto, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
         let drops = Arc::clone(&driver.pacer.drops);
         let handle = tokio::spawn(driver.run());
         let commands = commands_tx;
         let driver = Some(handle);
-        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, drops, ultra, driver })
+        let choice = UltraChoice::from(mode);
+        Ok(Self {
+            commands,
+            wake,
+            wakeups,
+            routes,
+            addresses,
+            max_datagram,
+            drops,
+            ultra,
+            choice,
+            driver,
+        })
     }
 
     /// What ultra mode ([`crate::UltraMode`], `CMUX_WG_ULTRA`) sent and
     /// rebuilt so far.
     pub fn ultra_stats(&self) -> UltraStats {
         self.ultra.snapshot()
+    }
+
+    /// The ultra choice this tunnel started with (Off, Auto or Always).
+    pub fn ultra_choice(&self) -> UltraChoice {
+        self.choice
     }
 
     /// How many times the driver task has woken since it started: datagrams,
@@ -337,6 +373,8 @@ struct Driver {
     pace_deadline: Option<Instant>,
     /// The ultra mode agreed with the peer inside the tunnel.
     negotiation: Negotiation,
+    /// Ultra mode's Auto: off on a clean link, on from the first loss.
+    auto: Option<AutoUltra>,
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
@@ -360,6 +398,7 @@ impl Driver {
         config: WgConfig,
         underlay: UltraUnderlay,
         negotiation: Negotiation,
+        auto: Option<AutoUltra>,
         commands: mpsc::Receiver<Command>,
         wake: Arc<Notify>,
     ) -> Result<Self, WgError> {
@@ -395,6 +434,7 @@ impl Driver {
             pacer: Pacer::default(),
             pace_deadline: None,
             negotiation,
+            auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
@@ -482,6 +522,7 @@ impl Driver {
             }
             // Ahead of the pass's data, so the peer keeps that data for
             // rebuilding.
+            self.run_ultra_auto();
             self.run_ultra_hello();
             self.underlay.flush();
             self.service();
@@ -516,13 +557,16 @@ impl Driver {
                     // (WireGuard roaming); this is also how the answering side
                     // learns its peer in the first place. A cookie reply (the
                     // rate limiter's answer) proves only the public key.
-                    if classify(packet) != DatagramClass::WireGuardCookieReply {
+                    // Nor does it begin a session: the handshake it
+                    // answers is unchecked, so it leaves the watchdog armed.
+                    let cookie = classify(packet) == DatagramClass::WireGuardCookieReply;
+                    if !cookie {
                         self.underlay.authenticated(origin);
                         self.schedule.on_activity(Instant::now());
                     }
                     self.underlay.send(packet);
                     // An answered handshake message begins a new session.
-                    if handshake && !input.is_empty() {
+                    if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
                     }
                     input = &[];
@@ -535,18 +579,32 @@ impl Driver {
                     // turns rebuilding on keeps that datagram too.
                     let hello = ultra_hello::decode(packet)
                         .filter(|_| allowed && self.negotiation.intercepts());
+                    // So is a note of the counters the peer sent on other
+                    // paths, so the meter skips them before it sees the gap.
+                    let off_path = ultra_auto::decode_off_path(packet).filter(|_| allowed);
+                    if let Some(counters) = &off_path {
+                        self.underlay.off_path(counters);
+                    }
                     if let Some(hello) = hello {
-                        let mode = self.negotiation.receive(hello);
-                        self.underlay.set_mode(mode);
+                        self.negotiation.receive(hello);
+                        // Field by field (not `apply_ultra_mode`): `packet`
+                        // still borrows the scratch buffer.
+                        if self.underlay.set_mode(self.negotiation.mode()) {
+                            self.stack.link_repairs_losses();
+                        }
+                        self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);
                     self.watchdog.on_inbound_data();
-                    if hello.is_some() {
-                        // Taken above; a hello is not activity.
+                    if hello.is_some() || off_path.is_some() {
+                        // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
                         // A probe is answered here and is not activity.
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-                        probing::receive(tunn, &mut self.underlay, scratch, probe, origin.path);
+                        let mut sent = Vec::new();
+                        let path = origin.path;
+                        probing::receive(tunn, &mut self.underlay, scratch, probe, path, &mut sent);
+                        self.tell_off_path(&sent);
                     } else if allowed
                         && let Some((source, destination, payload)) = crate::udp::parse(packet)
                     {
@@ -580,6 +638,8 @@ impl Driver {
         {
             fresh |= self.pacer.push(packet, now);
         }
+        // A segment sent again turns Auto on before it leaves.
+        self.run_ultra_auto();
         self.pace_deadline = None;
         // Without a session boringtun would hold the segment through the
         // handshake, and the pacer would time that wait as a round trip.

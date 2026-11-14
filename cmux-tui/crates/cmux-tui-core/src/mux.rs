@@ -193,6 +193,7 @@ mod agent_chat_notices;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
+pub(crate) mod chat_index;
 mod client_resize;
 mod cloud_conversations;
 mod construct;
@@ -726,6 +727,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
     /// The editor and app project sources' file watch (`state/project_watch.rs`).
     pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
@@ -858,9 +861,9 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// The laps of this owner's open (registry, restore, adoption), until
-    /// the owner's start takes them for `startup-timings.jsonl`.
-    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// The laps of this owner's open (registry, restore, adoption), until the owner's start
+    /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
+    startup_timings: startup_record::StartupLaps,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -1217,4 +1220,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

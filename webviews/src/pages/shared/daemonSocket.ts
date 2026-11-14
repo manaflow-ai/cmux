@@ -25,6 +25,14 @@ type Pending = { resolve(data: unknown): void; reject(error: unknown): void };
 const OPERATION_PROTOCOL = "cmux.protocol/2";
 /** The longest a page waits for one operation's answer. */
 const OPERATION_TIMEOUT_MS = 20_000;
+/** The longest the WebSocket upgrade may take, and then the first command's answer (`identify`):
+ *  a daemon on the same machine or tailnet answers both in milliseconds. Past either the connect
+ *  fails (`unreachable`, `unresponsive`) and the caller's backoff tries again, instead of a page
+ *  that stays on "connecting" with no error (the protocol adapter's 5 s, protocol/adapters/websocket.ts). */
+export const CONNECT_TIMEOUT_MS = 8_000;
+
+/** What the daemon says about itself (`identify`), read once as the connect's first command. */
+export type DaemonIdentity = { capabilities?: string[] } & Record<string, unknown>;
 
 function daemonError(code: string, message: string): DaemonError {
   const error = new Error(message) as DaemonError;
@@ -41,6 +49,7 @@ export class DaemonSocket {
   private readonly listeners = new Set<(event: Record<string, unknown>) => void>();
   private readonly closeListeners = new Set<(reason: string) => void>();
   private endpoint = "";
+  private identified: DaemonIdentity = {};
 
   /** The WebSocket URL this connection opened (no credential in it): the daemon's origin, where
    * its listener also serves plain HTTP paths such as attachment download links. */
@@ -48,20 +57,46 @@ export class DaemonSocket {
     return this.endpoint;
   }
 
-  /** Opens and authenticates. Resolves once the daemon accepts protocol frames. */
-  static async connect(url: string, auth: DaemonAuth): Promise<DaemonSocket> {
+  /** The daemon's `identify` answer, read by `connect`. */
+  get identity(): DaemonIdentity {
+    return this.identified;
+  }
+
+  /** Opens, authenticates and checks the daemon answers. Resolves once it answered `identify`,
+   *  its first command; an open socket alone proves nothing (a daemon that stopped reading). */
+  static async connect(url: string, auth: DaemonAuth, timeoutMs = CONNECT_TIMEOUT_MS): Promise<DaemonSocket> {
     const client = new DaemonSocket();
-    await client.open(url, auth);
+    try {
+      await client.open(url, auth, timeoutMs);
+      client.identified = await client.request<DaemonIdentity>("identify", {}, timeoutMs).catch((error: unknown) => {
+        throw (error as DaemonError).code === "timeout" ? daemonError("unresponsive", (error as Error).message) : error;
+      });
+    } catch (error) {
+      client.close();
+      throw error;
+    }
     return client;
   }
 
-  private open(url: string, auth: DaemonAuth): Promise<void> {
+  private open(url: string, auth: DaemonAuth, timeoutMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;
       this.endpoint = url;
       let ready = false;
+      // The upgrade that never completes (a listener that accepted and stalled, a relay that holds
+      // it): the socket is given up, and its late close changes nothing.
+      let upgrade: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+        upgrade = undefined;
+        reject(daemonError("unreachable", `the WebSocket upgrade got no answer in ${timeoutMs} ms`));
+        socket.close();
+      }, timeoutMs);
+      const upgraded = () => {
+        if (upgrade !== undefined) clearTimeout(upgrade);
+        upgrade = undefined;
+      };
       socket.addEventListener("open", () => {
+        upgraded();
         if ("origin" in auth) {
           // The relay authenticated upstream. If it attached no credential, the daemon closes on the
           // first protocol frame (1008, or another close code through the relay), which rejects
@@ -104,6 +139,7 @@ export class DaemonSocket {
         this.receive(value);
       });
       socket.addEventListener("close", (event) => {
+        upgraded();
         const reason = event.code === 1008 ? "authentication failed" : `closed (${event.code})`;
         if (!ready) reject(daemonError(event.code === 1008 ? "auth_rejected" : "unreachable", reason));
         const code = event.code === 1008 ? "auth_rejected" : "disconnected";
@@ -144,14 +180,32 @@ export class DaemonSocket {
     }
   }
 
-  /** One raw command; resolves to its `data`, rejects with the daemon's `error_code`. */
-  request<T = Record<string, unknown>>(cmd: string, params: Record<string, unknown> = {}): Promise<T> {
+  /** One raw command; resolves to its `data`, rejects with the daemon's `error_code`. With
+   *  `timeoutMs`, one left unanswered rejects with `timeout`, naming the command. */
+  request<T = Record<string, unknown>>(
+    cmd: string,
+    params: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): Promise<T> {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN)
       return Promise.reject(daemonError("disconnected", "not connected"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (data) => resolve(data as T), reject });
+      const timer =
+        timeoutMs === undefined
+          ? undefined
+          : setTimeout(() => {
+              if (this.pending.delete(id)) reject(daemonError("timeout", `${cmd} got no answer in ${timeoutMs} ms`));
+            }, timeoutMs);
+      const settle = (done: () => void) => {
+        clearTimeout(timer);
+        done();
+      };
+      this.pending.set(id, {
+        resolve: (data) => settle(() => resolve(data as T)),
+        reject: (error) => settle(() => reject(error)),
+      });
       socket.send(JSON.stringify({ ...params, id, cmd }));
     });
   }

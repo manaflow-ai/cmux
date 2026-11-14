@@ -1,7 +1,9 @@
 use super::*;
 use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
+use std::fs;
+use std::path::Path;
 
-fn fixture(path: &std::path::Path, count: u64) {
+fn fixture(path: &Path, count: u64) {
     let mut index = SummaryIndex::new();
     for n in 0..count {
         let mut row = Summary::new(format!("row-{n:05}"));
@@ -54,6 +56,63 @@ fn hydration_does_not_restore_a_removed_or_moved_snapshot_row() {
     let window: Window<Summary> = frame.decode_json().unwrap();
     assert_eq!(window.rows.len(), 1);
     assert_eq!(window.rows.first().unwrap().last_activity, 200);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn hydration_skips_a_corrupt_middle_snapshot_row_and_counts_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    for (id, activity) in [("first", 3), ("corrupt", 2), ("last", 1)] {
+        let mut row = Summary::new(id);
+        row.last_activity = activity;
+        index = index.apply(index.seq() + 1, row);
+    }
+    let path = dir.path().join("index.snap");
+    SortedSnapshot::write(&path, &index).unwrap();
+
+    // Snapshot records are [length, crc, body, trailing length]. Preserve
+    // both frame lengths while invalidating only the middle record's CRC.
+    let mut bytes = fs::read(&path).unwrap();
+    let first_len =
+        u32::from_le_bytes(bytes.get(4096..4100).unwrap().try_into().unwrap()) as usize + 12;
+    let middle = 4096 + first_len;
+    *bytes.get_mut(middle + 8).unwrap() ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    writer.start_hydration();
+    while writer.hydration.is_some() {
+        writer.process_batch();
+    }
+    assert!(hub.snapshot().get("first").is_some());
+    assert!(hub.snapshot().get("corrupt").is_none());
+    assert!(hub.snapshot().get("last").is_some());
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    let (other, _) = Hub::new(SummaryIndex::new());
+    assert_eq!(other.damaged_snapshot_frames(), 0);
+    for _ in 0..3 {
+        let frame = hub.list_window(&Sub::new("again", "list")).unwrap();
+        let window: Window<Summary> = frame.decode_json().unwrap();
+        assert_eq!(window.rows.len(), 2);
+    }
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    writer = tokio::task::spawn_blocking(move || {
+        writer.next_compaction = Some(std::time::Instant::now());
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    writer.finish_compaction(true).await;
+    writer = tokio::task::spawn_blocking(move || {
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    assert!(writer.hydration.is_none());
+    assert_eq!(hub.damaged_snapshot_frames(), 0);
+    assert_eq!(other.damaged_snapshot_frames(), 0);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -116,7 +175,7 @@ fn open_recovers_when_initial_log_was_renamed_before_the_next_generation_exists(
     log.append(Summary::new("before-rename")).unwrap();
     log.sync().unwrap();
     drop(log);
-    std::fs::rename(&log_path, dir.path().join("index.log.1")).unwrap();
+    fs::rename(&log_path, dir.path().join("index.log.1")).unwrap();
     assert!(!log_path.exists());
     assert!(!dir.path().join("index.log.2").exists());
 
