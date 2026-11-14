@@ -7,7 +7,8 @@
 // paywall): it records an incident, alerts, and reports it to analytics. It
 // never refunds or cancels; that is a support decision.
 
-import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from "drizzle-orm";
+import { after } from "next/server";
 
 import { cloudDb } from "../../db/client";
 import { appleSubscriptions, billingDoubleSubscriptionIncidents, stripeSubscriptions } from "../../db/schema";
@@ -32,7 +33,7 @@ const APPLE_BILLABLE_STATUSES = ["active", "grace_period", "billing_retry"] as c
 
 export type DoubleBillingDetector =
   | "stripe_checkout"
-  | "stripe_subscription_created"
+  | "stripe_subscription"
   | "apple_transaction"
   | "daily_scan";
 
@@ -234,12 +235,27 @@ export type ApplePurchaseGuardDependencies = {
 };
 
 /**
+ * Open Checkout sessions can only predate the App Store purchase (checkout
+ * refuses new ones once a subscription may bill), so expiry runs only when a
+ * billing period started within the last session lifetime: the first
+ * purchase, a renewal, a resubscribe or a recovery. Other notifications
+ * (auto-renew changes, refunds, retries of old ledger rows) skip the
+ * Stripe calls.
+ */
+function startedBillingPeriodRecently(row: AppleEntitlementRow, now: Date): boolean {
+  const start = row.purchaseDate?.getTime();
+  return start !== undefined && now.getTime() - start <= CHECKOUT_SESSION_LIFETIME_MS + 5 * 60 * 1000;
+}
+
+/**
  * Runs after an App Store purchase, renewal or other state change is
  * recorded for the user (the app-posted transaction route and every applied
  * notification). When the user holds an App Store subscription that may
- * bill, it first expires their open personal Stripe Checkout sessions, then
- * records an incident if they already pay Stripe too. Never throws: an App
- * Store purchase must never fail or retry because of Stripe.
+ * bill and started a billing period recently, it first expires their open
+ * personal Stripe Checkout sessions, then records an incident if they
+ * already pay Stripe too. Never throws: an App Store purchase must never
+ * fail or retry because of Stripe. A failed expiry alerts; the webhook's
+ * incident check covers a session that then completes.
  */
 export async function guardApplePurchase(
   userId: string,
@@ -249,10 +265,17 @@ export async function guardApplePurchase(
     const detection = deps.detection ?? defaultDoubleBillingDependencies();
     const now = deps.now?.() ?? new Date();
     const appleRows = await detection.store.appleSubscriptions(userId);
-    if (appleRows.some((row) => appleSubscriptionMayBill(row, now))) {
+    if (appleRows.some((row) => appleSubscriptionMayBill(row, now) && startedBillingPeriodRecently(row, now))) {
       const client = deps.stripe();
       if (client) {
         const result = await expireOpenPersonalCheckoutSessions(userId, client, now);
+        if (result.failed.length > 0) {
+          captureBillingError(new Error("Open Stripe Checkout sessions could not be expired after an App Store purchase"), {
+            operation: "expire_open_checkout_sessions",
+            stackUserId: userId,
+            failed: result.failed.length,
+          });
+        }
         if (result.expired.length > 0 || result.failed.length > 0 || result.truncated) {
           console.info("billing: expired open Stripe Checkout sessions after an App Store purchase", {
             stackUserId: userId,
@@ -271,6 +294,23 @@ export async function guardApplePurchase(
     captureBillingError(error, { operation: "expire_open_checkout_sessions", stackUserId: userId });
   }
   await reportDoubleBillingForUser(userId, "apple_transaction", deps.detection);
+}
+
+/**
+ * `guardApplePurchase` after the response: the App Store post and the
+ * notification answer without waiting on Stripe. Outside a request (tests,
+ * scripts) it runs inline.
+ */
+export async function guardApplePurchaseAfterResponse(
+  userId: string,
+  deps?: ApplePurchaseGuardDependencies,
+): Promise<void> {
+  const task = () => guardApplePurchase(userId, deps);
+  try {
+    after(task);
+  } catch {
+    await task();
+  }
 }
 
 function defaultApplePurchaseGuardDependencies(): ApplePurchaseGuardDependencies {
@@ -465,8 +505,7 @@ export async function appleSubscriptionBlockingStripeCheckout(
   options: { readonly now?: Date; readonly rows?: (userId: string) => Promise<AppleEntitlementRow[]> } = {},
 ): Promise<AppleEntitlementRow | null> {
   const rows = await (options.rows ?? appleRowsOrEmpty)(userId);
-  // Lightweight database doubles in older tests may return non-array values.
-  if (!Array.isArray(rows)) return null;
+  if (!Array.isArray(rows)) throw new Error("App Store subscription read returned no rows array");
   const now = options.now ?? new Date();
   return rows.find((row) => appleSubscriptionMayBill(row, now)) ?? null;
 }
@@ -594,7 +633,9 @@ export function databaseDoubleBillingStore(db: () => ReturnType<typeof cloudDb> 
       return rows.map((row) => row.userId);
     },
     resolveIncidentsExcept: async ({ keepIds, keepUserIds, now }) => {
-      const conditions = [isNull(billingDoubleSubscriptionIncidents.resolvedAt)];
+      // Only incidents last seen before this scan started: one a webhook
+      // opened mid-scan stays open instead of resolving and re-alerting.
+      const conditions = [isNull(billingDoubleSubscriptionIncidents.resolvedAt), lt(billingDoubleSubscriptionIncidents.lastDetectedAt, now)];
       if (keepIds.length > 0) conditions.push(notInArray(billingDoubleSubscriptionIncidents.id, [...keepIds]));
       if (keepUserIds.length > 0) conditions.push(notInArray(billingDoubleSubscriptionIncidents.userId, [...keepUserIds]));
       const resolved = await db()

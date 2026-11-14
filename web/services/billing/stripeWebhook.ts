@@ -378,9 +378,14 @@ async function reconcileSubscriptionEvent(
   const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
   const result = await applySubscriptionEntitlementUpdate(subscription, dependencies);
   // A personal subscription can start outside Checkout (an operator, an
-  // invoice); the same incident check covers it.
-  if (event.type === "customer.subscription.created" && !("skipped" in result) && result.scope === "user" && result.isActive) {
-    await dependencies.reportDoubleBilling?.(result.stackUserId, "stripe_subscription_created");
+  // invoice) or come back from unpaid or a scheduled cancellation through
+  // the portal; the same incident check covers both. Repeats only update
+  // the incident, so checking every active update is safe.
+  if (
+    (event.type === "customer.subscription.created" || event.type === "customer.subscription.updated") &&
+    !("skipped" in result) && result.scope === "user" && result.isActive
+  ) {
+    await dependencies.reportDoubleBilling?.(result.stackUserId, "stripe_subscription");
   }
   return "skipped" in result
     ? { skipped: unmappedSkip }

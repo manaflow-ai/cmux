@@ -94,7 +94,9 @@ describe("double billing store", () => {
     const repeat = await store.recordIncident(incident({ detectedBy: "daily_scan", appleStatus: "billing_retry" }));
     expect(repeat).toEqual({ id: first.id, opened: false });
 
-    expect(await store.resolveIncidentsExcept({ keepIds: [], keepUserIds: [], now: NOW })).toBe(1);
+    // An incident seen at the scan's start time is not resolved by that scan.
+    expect(await store.resolveIncidentsExcept({ keepIds: [], keepUserIds: [], now: NOW })).toBe(0);
+    expect(await store.resolveIncidentsExcept({ keepIds: [], keepUserIds: [], now: new Date(NOW.getTime() + 1000) })).toBe(1);
     expect((await store.listIncidents({ includeResolved: false, limit: 10 }))).toEqual([]);
     const [resolved] = await store.listIncidents({ includeResolved: true, limit: 10 });
     expect(resolved).toMatchObject({ id: first.id, firstDetectedBy: "stripe_checkout", detectedBy: "daily_scan", appleStatus: "billing_retry" });
@@ -107,7 +109,7 @@ describe("double billing store", () => {
     const keep = await store.recordIncident(incident());
     await store.recordIncident(incident({ userId: "user-b", stripeSubscriptionId: "sub_b" }));
     await store.recordIncident(incident({ userId: "user-c", stripeSubscriptionId: "sub_c" }));
-    expect(await store.resolveIncidentsExcept({ keepIds: [keep.id], keepUserIds: ["user-b"], now: NOW })).toBe(1);
+    expect(await store.resolveIncidentsExcept({ keepIds: [keep.id], keepUserIds: ["user-b"], now: new Date(NOW.getTime() + 1000) })).toBe(1);
     const open = await store.listIncidents({ includeResolved: false, limit: 10 });
     expect(open.map((row) => row.userId).sort()).toEqual(["user-a", "user-b"]);
   });

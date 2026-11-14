@@ -268,6 +268,13 @@ describe("team checkout for a buyer with a personal App Store plan", () => {
     expect(sessionParams().custom_text).toBeUndefined();
   });
 
+  test("a failed App Store read drops the warning but never blocks the team purchase", async () => {
+    Object.defineProperty(dbRows, "appleSubscriptions", { get: () => { throw new Error("db down"); } });
+    const response = await checkoutGet("plan=team&teamId=team-b");
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    expect(sessionParams().custom_text).toBeUndefined();
+  });
+
   test("a Sandbox App Store plan gets no warning", async () => {
     dbRows.appleSubscriptions = [{ ...appleRow, environment: "Sandbox" }];
     await checkoutGet("plan=team&teamId=team-b");

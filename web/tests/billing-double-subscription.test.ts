@@ -112,6 +112,7 @@ function memoryStore(input: {
       let count = 0;
       for (const row of incidents) {
         if (row.resolvedAt || keepIds.includes(row.id) || keepUserIds.includes(row.write.userId)) continue;
+        if (row.write.detectedAt.getTime() >= now.getTime()) continue;
         row.resolvedAt = now;
         count += 1;
       }
@@ -221,7 +222,7 @@ describe("scanDoubleBilling", () => {
     const store = memoryStore({ apple: appleRows, stripe: { u1: [stripeSub] } });
     await scanDoubleBilling(deps(store));
     appleRows.u1 = [apple({ status: "expired", expiresAt: new Date(NOW.getTime() - DAY) })];
-    await scanDoubleBilling(deps(store));
+    await scanDoubleBilling(deps(store, new Date(NOW.getTime() + DAY)));
     appleRows.u1 = [apple()];
     const result = await scanDoubleBilling(deps(store, new Date(NOW.getTime() + 2 * DAY)));
     expect(result.newIncidents).toBe(1);
@@ -315,9 +316,12 @@ describe("guardApplePurchase", () => {
     return { store, deps: { stripe: () => input.client ?? null, detection: deps(store), now: () => NOW } };
   }
 
+  const recent = (overrides: Partial<AppleEntitlementRow> = {}) =>
+    apple({ purchaseDate: new Date(NOW.getTime() - 60 * 60 * 1000), ...overrides });
+
   test("an App Store purchase that may bill expires the user's open Stripe sessions", async () => {
     const stripe = fakeStripe([personal("cs_open", "u1")]);
-    const { store, deps: guard } = guardDeps({ apple: [apple()], client: stripe.client });
+    const { store, deps: guard } = guardDeps({ apple: [recent()], client: stripe.client });
     await guardApplePurchase("u1", guard);
     expect(stripe.expired).toEqual(["cs_open"]);
     expect(store.incidents).toEqual([]);
@@ -331,8 +335,14 @@ describe("guardApplePurchase", () => {
     expect(store.incidents[0]!.write.detectedBy).toBe("apple_transaction");
   });
 
+  test("a billing period that started over a day ago makes no Stripe calls (renewal-status, refund notifications)", async () => {
+    const stripe = fakeStripe([personal("cs_open", "u1")]);
+    await guardApplePurchase("u1", guardDeps({ apple: [apple({ purchaseDate: new Date(NOW.getTime() - 2 * DAY) })], client: stripe.client }).deps);
+    expect(stripe.listCalls).toEqual([]);
+  });
+
   test("an App Store row that cannot bill (Sandbox, expired) leaves Stripe sessions open", async () => {
-    for (const row of [apple({ environment: "Sandbox" }), apple({ status: "expired", expiresAt: new Date(NOW.getTime() - DAY) })]) {
+    for (const row of [recent({ environment: "Sandbox" }), recent({ status: "expired", expiresAt: new Date(NOW.getTime() - DAY) })]) {
       const stripe = fakeStripe([personal("cs_open", "u1")]);
       await guardApplePurchase("u1", guardDeps({ apple: [row], client: stripe.client }).deps);
       expect(stripe.listCalls).toEqual([]);
@@ -342,8 +352,9 @@ describe("guardApplePurchase", () => {
 
   test("a Stripe outage never throws and the incident check still runs", async () => {
     const stripe = fakeStripe([], { failList: true });
-    const { store, deps: guard } = guardDeps({ apple: [apple()], stripeSubs: [stripeSub], client: stripe.client });
+    const { store, deps: guard } = guardDeps({ apple: [recent()], stripeSubs: [stripeSub], client: stripe.client });
     await expect(guardApplePurchase("u1", guard)).resolves.toBeUndefined();
+    expect(stripe.listCalls).toHaveLength(1);
     expect(store.incidents).toHaveLength(1);
   });
 

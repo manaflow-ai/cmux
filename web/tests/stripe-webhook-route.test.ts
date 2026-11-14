@@ -213,18 +213,24 @@ describe("Stripe billing webhook route", () => {
     expect(reportDoubleBilling).not.toHaveBeenCalled();
   });
 
-  test("customer.subscription.created runs the check for an active personal subscription only", async () => {
+  test("customer.subscription.created and .updated run the check for an active personal subscription only", async () => {
     currentEvent = { id: "evt_created", type: "customer.subscription.created", data: { object: { id: "sub_1" } } };
     expect((await POST(webhookRequest())).status).toBe(200);
-    expect(reportDoubleBilling.mock.calls).toEqual([["user_1", "stripe_subscription_created"]]);
+    expect(reportDoubleBilling.mock.calls).toEqual([["user_1", "stripe_subscription"]]);
 
     reportDoubleBilling.mockClear();
     applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: false };
     expect((await POST(webhookRequest())).status).toBe(200);
     expect(reportDoubleBilling).not.toHaveBeenCalled();
 
+    // A lapsed subscription paid again in the portal comes back as an update.
     applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: true };
     currentEvent = { id: "evt_updated", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } };
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling.mock.calls).toEqual([["user_1", "stripe_subscription"]]);
+
+    reportDoubleBilling.mockClear();
+    applySubscriptionUpdateResult = { scope: "team", stackTeamId: "team_1", isActive: true };
     expect((await POST(webhookRequest())).status).toBe(200);
     expect(reportDoubleBilling).not.toHaveBeenCalled();
   });

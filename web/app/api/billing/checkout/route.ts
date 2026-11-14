@@ -350,6 +350,19 @@ async function stripePersonalCheckout(
     const stackUserId = checkoutPrincipalId(user.id, "user");
     captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
+    // An App Store subscriber changes plans in the App Store; a Stripe
+    // subscription on top would bill them twice for one entitlement. That
+    // includes an App Store subscription that grants nothing right now but
+    // can still charge (billing retry past grace, auto-renew on): if Apple
+    // recovers it, both would bill. Checked before the portal route too: the
+    // portal would let a lapsed (unpaid, cancelling) Stripe subscription be
+    // paid or renewed next to the App Store one. A failed read throws: fail
+    // closed.
+    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id);
+    if (appStoreSubscription) {
+      captureCheckoutDecision(user.id, plan, appStoreSubscription.planId, "app_store_managed", attribution, interval);
+      return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+    }
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
     // Keep stale Upgrade links from opening a second subscription. Any
     // currently active row (even behind a newer canceled one) means the portal
@@ -359,16 +372,6 @@ async function stripePersonalCheckout(
     // cancellation, so a cancelling subscriber gets the plain portal and Renew.
     if (hasExistingPersonalSubscription(stripeBillingStatus)) {
       return existingSubscriptionRedirect(request, user.id, plan, interval, stripeBillingStatus, attribution);
-    }
-    // An App Store subscriber changes plans in the App Store; a Stripe
-    // subscription on top would bill them twice for one entitlement. That
-    // includes an App Store subscription that grants nothing right now but
-    // can still charge (billing retry past grace, auto-renew on): if Apple
-    // recovers it, both would bill. A failed read throws: fail closed.
-    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id);
-    if (appStoreSubscription) {
-      captureCheckoutDecision(user.id, plan, appStoreSubscription.planId, "app_store_managed", attribution, interval);
-      return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // A granting Sandbox plan (an allowlisted tester) is App Store managed too.
@@ -550,7 +553,11 @@ async function stripeTeamCheckout(
     // A Team plan is billed to the team and is a different product, so a
     // personal App Store plan does not block it. The buyer still sees, on the
     // payment page, that the Team plan does not end the App Store one.
-    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id);
+    // A failed read only drops the warning; it must not block an allowed purchase.
+    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id).catch((error: unknown) => {
+      captureBillingError(error, { route: "/api/billing/checkout", plan: "team", operation: "app_store_warning" });
+      return null;
+    });
     if (appStoreSubscription) {
       captureCheckoutDecision(user.id, "team", appStoreSubscription.planId, "app_store_warning", attribution, interval);
     }

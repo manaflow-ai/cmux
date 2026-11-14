@@ -1186,6 +1186,19 @@ describe("billing checkout route", () => {
       expect(createStripeSession).not.toHaveBeenCalled();
     });
 
+    test("sends an App Store subscriber with a lapsed Stripe subscription to App Store billing, not the portal", async () => {
+      // The portal would let the unpaid Stripe subscription be paid next to the App Store one.
+      stripeConfigured = true;
+      appleSubscriptionRows = [appleRow()];
+      stripeCustomerRows = [{ id: "cus_unpaid" }];
+      stripeSubscriptionRows = [{ id: "sub_unpaid", status: "unpaid", cancelAtPeriodEnd: false }];
+      const user = { ...signedInUser, clientReadOnlyMetadata: {} };
+      userResponses = [user, user];
+      const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro"));
+      expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+      expect(createStripeSession).not.toHaveBeenCalled();
+    });
+
     test.each<[string, Record<string, unknown>]>([
       ["a Sandbox row (free, never charges)", { environment: "Sandbox" }],
       ["billing retry with auto-renew off (Apple stops retrying)", { autoRenewEnabled: false }],

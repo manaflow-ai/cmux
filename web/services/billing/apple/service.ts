@@ -11,6 +11,7 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
+import { guardApplePurchaseAfterResponse } from "../doubleBilling";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
@@ -98,11 +99,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
-    guardDoubleBilling: async (userId) => {
-      // The guard never fails a purchase; the daily scan catches a miss.
-      const guard = await import("../doubleBilling").catch(() => null);
-      await guard?.guardApplePurchase(userId);
-    },
+    guardDoubleBilling: (userId) => guardApplePurchaseAfterResponse(userId),
     now: () => new Date(),
   };
   return defaultDependencies;
