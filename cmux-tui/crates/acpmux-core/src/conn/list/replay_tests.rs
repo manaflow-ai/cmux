@@ -33,7 +33,7 @@ async fn paused_mid_replay_releases_the_snapshot_before_credit_returns() {
         let mut sub = Sub::new("paused", "list");
         sub.cursor = Some(Cursor(0));
         sub.edition = Some(0);
-        let delivery = open(&hub, &sub).unwrap();
+        let delivery = open(&hub, &sub, false).unwrap();
         assert!(matches!(delivery.mode, Mode::Replay(_)));
         let weak = delivery.receiver.replay_snapshot_probe().unwrap();
         delivery.receiver.reposition(delivery.cursor.0);
@@ -50,6 +50,7 @@ async fn paused_mid_replay_releases_the_snapshot_before_credit_returns() {
             delivery.mode,
             resume,
             held.clone(),
+            false,
         ));
         tokio::time::timeout(Duration::from_secs(5), async {
             while !held.paused.load(Ordering::Acquire) {
