@@ -111,6 +111,8 @@ import {
   rememberTail,
   shareReadAhead,
   olderThanShown,
+  hostTailOf,
+  type TailHandOver,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -3631,6 +3633,19 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail();
   }
 
+  /// The chat on screen for a pane about to open on it (`chat.subagentPane`): kept on this page as
+  /// `handOverCurrentTail` keeps it, and returned for the request to carry (`handOver`) instead of
+  /// a `chat.tail` of its own, which could reach the host after the pane's open had read it (#36650).
+  tailHandOver(): TailHandOver | undefined {
+    const kept = this.rememberCurrentTail(true, false);
+    const tail = kept && hostTailOf(kept.tail);
+    if (kept && tail) return { sessionId: kept.sessionId, tail };
+    // Nothing to carry, or nothing fits the host's bound: the host hears it as before (a tail cut
+    // to nothing forgets what it held).
+    if (kept) this.rememberCurrentTail();
+    return undefined;
+  }
+
   /// A client with no connection that shows one recorded session as it stood at a point in it
   /// (session replay, replay/ReplayScreen.tsx). `seekReplay` moves the point; nothing is ever sent.
   static replay(sessionId: string, events: EventRecord[], listener: Listener): AcpmuxDirectClient {
@@ -4461,11 +4476,14 @@ export class AcpmuxDirectClient {
   /// (`replayThrough`, a fork's preview), would be kept half-read.
   ///
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
-  /// host alone and not into this page's map (tailCache.ts `rememberTail`).
-  private rememberCurrentTail(forThisPage = true): void {
+  /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
+  /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
-    if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+    if (!sessionId || !tail) return undefined;
+    rememberTail(sessionId, tail, forThisPage, toHost);
+    return { sessionId, tail };
   }
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they

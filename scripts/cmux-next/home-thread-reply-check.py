@@ -18,7 +18,7 @@ No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui
 
 Usage: home-thread-reply-check.py --tag <tag> [--app APP] [--out DIR]
 """
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, json, os, signal, socket, subprocess, sys, time
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
@@ -268,7 +268,10 @@ finally:
     exited = poll(lambda: process.poll() is not None, timeout=30)
     safe_print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)  # the app this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
