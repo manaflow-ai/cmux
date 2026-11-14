@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43590757379",
+  "recorded_at": "2026-11-14T11:43:02Z",
+  "reason": "cmux-tui afc0f6d786be changes the image's cmux-tui (pinned 3e60389e1b0d)",
+  "dry_run": false,
+  "cmux_tui": "afc0f6d786bef208e22fc5bfacd9b4a982503b13",
+  "fixes": [
+    {
+      "sha": "afc0f6d786bef208e22fc5bfacd9b4a982503b13",
+      "mergedAt": "2026-11-14T03:14:28-08:00",
+      "subject": "CMUX-572: measure congestion loss over packet-weighted windows (#42979)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T11:43:02Z",
+    "snapshot_id": "sh-35894c05b79f4ba5854eba8a5680af30",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43590757379): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "009bea64d5939b74c095cf7f979fd47e768c49c6",
+    "image": "cloud-native-auto-afc0f6d7-43590757379-1",
+    "revision": "ci-43590757379-1",
+    "at": "2026-11-14T11:43:02Z"
+  },
+  "rolled_back": false
+}
