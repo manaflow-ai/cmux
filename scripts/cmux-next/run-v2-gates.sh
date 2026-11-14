@@ -23,19 +23,19 @@ run() {
 }
 
 run_book() {
-  run cargo test --release -p acpmux-book --lib "$1" -- --ignored --nocapture
+  run cargo test --release -p acpmux-book --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
 run_core() {
-  run cargo test --release -p acpmux-core --lib "$1" -- --ignored --nocapture
+  run cargo test --release -p acpmux-core --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
 run_acpmux_lib() {
-  run cargo test --profile gate -p acpmux --lib "$1" -- --ignored --nocapture
+  run cargo test --profile gate -p acpmux --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
 run_acpmux_test() {
-  run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture
+  run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture --test-threads=1
 }
 
 # acpmux-book (release)
@@ -60,7 +60,7 @@ run_group acpmux-book book_gates
 # acpmux-client has no v2 gate rows on this base; compile its ignored-test
 # target once so the crate remains part of the release gate build set.
 client_gates() {
-  run cargo test --release -p acpmux-client --lib -- --ignored --nocapture
+  run cargo test --release -p acpmux-client --lib -- --ignored --nocapture --test-threads=1
 }
 run_group acpmux-client client_gates
 
