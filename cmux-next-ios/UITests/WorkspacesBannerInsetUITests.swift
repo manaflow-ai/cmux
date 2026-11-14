@@ -59,6 +59,9 @@ final class WorkspacesBannerInsetUITests: XCTestCase {
         attach(app, "banner")
         XCTAssertGreaterThanOrEqual(line.frame.minY, banner.frame.maxY - 0.5,
                                     "the first line \(line.frame) starts under the banner \(banner.frame)")
+        // ...and only by the banner's slot (the banner plus its 8 pt above and below), not more.
+        XCTAssertLessThanOrEqual(line.frame.minY, restingTop + banner.frame.height + 16 + 2,
+                                 "the first line \(line.frame) moved down by the banner's slot only (rests at \(restingTop))")
         XCTAssertTrue(line.isHittable, "a tap on the first line hits it, not the banner")
 
         // A tap hides the banner: the list moves back up to where it rests without one.
