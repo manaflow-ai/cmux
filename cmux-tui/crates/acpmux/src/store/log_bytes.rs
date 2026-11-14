@@ -404,13 +404,13 @@ impl LocalStore {
             chunk.read += std::mem::take(&mut segment.read);
             let length = offset + (out.len() - kept) as u64;
             out.truncate(kept);
-            let last = position + 1 == listing.segments.len();
+            let is_last = position + 1 == listing.segments.len();
             // A full last segment, or a fork's history (`000000`, never appended to): the store
             // may have started the next one since the listing. The next one's name is its
             // index + 1, so one look at that name says, and the directory is listed only when
             // it is there.
             let full = length >= self.segment_bytes || segment.index == 0;
-            if last
+            if is_last
                 && !relisted
                 && full
                 && self

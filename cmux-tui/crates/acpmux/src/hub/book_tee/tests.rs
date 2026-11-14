@@ -180,6 +180,51 @@ async fn a_line_v1_appends_marks_its_chat_and_reaches_the_book_through_the_drain
     assert_eq!(book_rows(&book), translated_of(home.hub.store.as_ref(), &chat(0)));
 }
 
+/// The poll is a 5 s backstop (`HINT_POLL`): a caught-up actor reads each v1 line because the
+/// tee told it, well inside that, and its poll never is what woke it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_caught_up_chat_reads_each_line_on_the_tee_s_notice_not_the_backstop_poll() {
+    let home = home(&[(chat(0), 40, 64 << 10)], true).await;
+    let tee = home.tee().clone();
+    let hub = home.hub.clone();
+    let drain_task = tokio::spawn({
+        let tee = tee.clone();
+        async move { drain(&hub, &tee).await }
+    });
+    let book = home.book(&chat(0));
+    let seq = home.prompt(&chat(0), "first");
+    wait_for("the first line's place saved", Duration::from_secs(60), || {
+        cursor(&book) == Some(seq + 1)
+    })
+    .await;
+    let handle = tee.registry().get(&chat(0)).unwrap();
+    assert!(handle.wait_ready().await);
+    assert_eq!(acpmux_core::chat::HINT_POLL, Duration::from_secs(5));
+    let mut slowest = Duration::ZERO;
+    for n in 0..20 {
+        let session = home.session(&chat(0));
+        let started = Instant::now();
+        let seq = home.prompt(&chat(0), &format!("live {n}"));
+        // A prompt settles at once, and a settled row past a second of the last checkpoint
+        // checkpoints: each line's place is saved without a close.
+        wait_for("the line's place saved", Duration::from_secs(4), || {
+            session.book_hint.load(Ordering::SeqCst) == seq && cursor(&book) == Some(seq + 1)
+        })
+        .await;
+        slowest = slowest.max(started.elapsed());
+        tokio::time::sleep(Duration::from_millis(1_050)).await;
+    }
+    let wakes = handle.wakes();
+    let (notice, poll) =
+        (wakes.by_notice.load(Ordering::SeqCst), wakes.by_poll.load(Ordering::SeqCst));
+    eprintln!("wakes by notice {notice}, by poll {poll}, slowest line to its book {slowest:?}");
+    assert_eq!(poll, 0, "the backstop poll woke the actor {poll} times");
+    assert!(notice >= 20, "{notice} wakes by notice for 20 lines");
+    assert!(slowest < Duration::from_secs(1), "a line took {slowest:?} to its book");
+    drain_task.abort();
+    assert!(tee.registry().evict(&chat(0)));
+}
+
 /// A source whose reads wait while `gate` holds.
 struct Gate {
     inner: Box<dyn RawSource>,
@@ -215,13 +260,13 @@ async fn a_notice_to_a_full_mailbox_or_a_failed_chat_is_dropped_and_loses_nothin
     // Chat 0's actor waits in a read while 300 notices come: the mailbox holds 256.
     let gate = Arc::new(std::sync::RwLock::new(()));
     let closed = gate.write().unwrap();
-    let mut config = config(&home.hub, &tee, &home.session(&chat(0))).unwrap();
-    let inner = config.source_factory.clone();
+    let mut first = config(&home.hub, &tee, &home.session(&chat(0))).unwrap();
+    let inner = first.source_factory.clone();
     let shared = gate.clone();
-    config.source_factory = Arc::new(move || {
+    first.source_factory = Arc::new(move || {
         Ok(Box::new(Gate { inner: inner()?, gate: shared.clone() }) as Box<dyn RawSource>)
     });
-    let (handle, _) = tee.registry().start(config).unwrap();
+    let (handle, _) = tee.registry().start(first).unwrap();
     let mut seq = 0;
     for n in 0..300 {
         seq = home.prompt(&chat(0), &format!("while full {n}"));
@@ -238,14 +283,14 @@ async fn a_notice_to_a_full_mailbox_or_a_failed_chat_is_dropped_and_loses_nothin
     assert_eq!(cursor(&book), Some(seq + 1), "every line the notices told of is in the book");
 
     // Chat 1's actor fails at every start: its notices are dropped and none waits in its mailbox.
-    let mut config = config(&home.hub, &tee, &home.session(&chat(1))).unwrap();
-    config.source_factory = Arc::new(|| Err(std::io::Error::other("a source that never opens")));
-    config.supervision = acpmux_core::life::Policy {
+    let mut failing = config(&home.hub, &tee, &home.session(&chat(1))).unwrap();
+    failing.source_factory = Arc::new(|| Err(std::io::Error::other("a source that never opens")));
+    failing.supervision = acpmux_core::life::Policy {
         first_wait: Duration::from_millis(1),
         max_wait: Duration::from_millis(2),
         ..Default::default()
     };
-    let (failed, _) = tee.registry().start(config).unwrap();
+    let (failed, _) = tee.registry().start(failing).unwrap();
     wait_for("the chat failed", Duration::from_secs(30), || failed.health() == Health::Failed)
         .await;
     let dropped = tee.counters.dropped.load(Ordering::SeqCst);

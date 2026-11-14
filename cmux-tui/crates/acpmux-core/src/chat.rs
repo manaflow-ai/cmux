@@ -169,6 +169,17 @@ pub struct ChatConfig {
     pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
     /// The permits a chunk of history takes; None reads with none (an actor a test drives).
     pub history: Option<Arc<HistoryPermits>>,
+    /// What woke the caught-up actor to read, shared with its handle.
+    pub wakes: Arc<Wakes>,
+}
+
+/// How often a caught-up actor read because a notice came (a `wake`) or because its poll saw
+/// the hint move with no notice: the poll is the backstop, so a tee that tells every line
+/// shows no wake by poll.
+#[derive(Default, Debug)]
+pub struct Wakes {
+    pub by_notice: AtomicU64,
+    pub by_poll: AtomicU64,
 }
 
 impl ChatConfig {
@@ -184,6 +195,7 @@ impl ChatConfig {
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
             edition_random: Arc::new(system_random_edition),
             history: None,
+            wakes: Arc::default(),
         }
     }
 
@@ -283,9 +295,14 @@ pub struct ChatHandle {
     queued: Arc<Mutex<usize>>,
     health: tokio::sync::watch::Receiver<crate::life::Health>,
     failures: Arc<AtomicU64>,
+    wakes: Arc<Wakes>,
 }
 
 impl ChatHandle {
+    pub fn wakes(&self) -> &Wakes {
+        &self.wakes
+    }
+
     pub fn failures(&self) -> u64 {
         self.failures.load(Ordering::Relaxed)
     }
@@ -387,6 +404,7 @@ impl ChatActor {
             queued: queued.clone(),
             health: health_receiver,
             failures: failures.clone(),
+            wakes: config.wakes.clone(),
         };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
@@ -978,8 +996,15 @@ enum Wait {
 /// mailbox is empty), a stop, or `IDLE_AFTER` with none of them.
 fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) -> Wait {
     let started = Instant::now();
+    let mut polled = false;
     loop {
-        if stop.load(Ordering::Acquire) || state.source.hint().ok() != state.seen_hint {
+        if stop.load(Ordering::Acquire) {
+            return Wait::Read;
+        }
+        if state.source.hint().ok() != state.seen_hint {
+            if polled {
+                state.config.wakes.by_poll.fetch_add(1, Ordering::Relaxed);
+            }
             return Wait::Read;
         }
         let left = IDLE_AFTER.saturating_sub(started.elapsed());
@@ -987,8 +1012,13 @@ fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) 
             return Wait::Idle;
         }
         match rx.recv_timeout(left.min(state.config.hint_poll.max(Duration::from_millis(1)))) {
-            Ok(request) => return Wait::Request(request),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(request) => {
+                if matches!(request, Request::Wake) {
+                    state.config.wakes.by_notice.fetch_add(1, Ordering::Relaxed);
+                }
+                return Wait::Request(request);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => polled = true,
             Err(mpsc::RecvTimeoutError::Disconnected) => return Wait::Closed,
         }
     }
