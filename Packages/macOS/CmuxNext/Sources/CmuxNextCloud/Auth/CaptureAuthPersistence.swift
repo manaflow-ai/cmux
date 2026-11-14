@@ -52,6 +52,25 @@ public struct CaptureAuthCleanupResult: Codable, Equatable, Sendable {
 public struct CaptureAuthPersistence: Sendable {
     public init() {}
 
+    /// Non-mutating ownership validation used before the process auth writer is
+    /// frozen. Cleanup revalidates the same marker in ``run`` after the fence,
+    /// so a lease cannot freeze a process that it does not own.
+    public func preflight(configuration: CloudConfiguration, phase: CaptureAuthCleanupPhase,
+                          leaseID: String, requestedBundleIdentifier: String,
+                          homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser)
+        -> CaptureAuthCleanupResult? {
+        guard validLease(leaseID) else { return .failure(.invalidLease) }
+        guard requestedBundleIdentifier == configuration.bundleID, !requestedBundleIdentifier.isEmpty else {
+            return .failure(.bundleMismatch)
+        }
+        guard phase == .cleanup else { return nil }
+        let marker = markerURL(configuration: configuration, homeDirectory: homeDirectory)
+        guard let markerData = try? Data(blockingContentsOf: marker) else { return .failure(.ownershipMissing) }
+        let expected = Data((leaseID + "\n" + requestedBundleIdentifier).utf8)
+        guard markerData == expected else { return .failure(.ownershipMismatch) }
+        return nil
+    }
+
     public func run(configuration: CloudConfiguration, phase: CaptureAuthCleanupPhase,
                     leaseID: String, requestedBundleIdentifier: String,
                     homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> CaptureAuthCleanupResult {

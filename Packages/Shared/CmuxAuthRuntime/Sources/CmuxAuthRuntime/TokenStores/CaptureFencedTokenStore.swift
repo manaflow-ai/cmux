@@ -12,8 +12,16 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
     private var freezeWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(base: any StackAuthTokenStoreProtocol) { self.base = base }
-    public func getStoredAccessToken() async -> String? { await base.getStoredAccessToken() }
-    public func getStoredRefreshToken() async -> String? { await base.getStoredRefreshToken() }
+    public func getStoredAccessToken() async -> String? {
+        guard beginWrite() else { return nil }
+        defer { endWrite() }
+        return await base.getStoredAccessToken()
+    }
+    public func getStoredRefreshToken() async -> String? {
+        guard beginWrite() else { return nil }
+        defer { endWrite() }
+        return await base.getStoredRefreshToken()
+    }
     public func setTokens(accessToken: String?, refreshToken: String?) async {
         guard beginWrite() else { return }
         defer { endWrite() }
@@ -44,12 +52,12 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
         }
         freezing = true
         await waitForWriters()
+        await base.captureAwaitIdle()
         frozen = true
         freezing = false
         let waiters = freezeWaiters
         freezeWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
-        await base.captureAwaitIdle()
     }
     public func captureAwaitIdle() async {
         await waitForWriters()
@@ -74,8 +82,4 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
         guard activeWriters > 0 else { return }
         await withCheckedContinuation { idleWaiters.append($0) }
     }
-}
-
-public extension StackAuthTokenStoreProtocol {
-    func captureAwaitIdle() async {}
 }

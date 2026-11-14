@@ -416,13 +416,19 @@ public final class CloudAuth {
             captureCleanupWaiters.removeAll()
             for waiter in waiters { waiter.resume() }
         }
+        let configuration = configuration
+        if let preflight = await Task.detached(priority: .utility, operation: {
+            CaptureAuthPersistence().preflight(configuration: configuration, phase: phase, leaseID: leaseID,
+                                               requestedBundleIdentifier: requestedBundleIdentifier)
+        }).value {
+            return preflight
+        }
         await waitForCaptureTokenReaders()
         await captureTokenStore?.captureAwaitIdle()
         guard !browserSignIn.isSigningIn, !coordinator.isLoading, !coordinator.isRestoringSession else {
             return .failure(.authNotQuiescent)
         }
         if phase == .cleanup { await captureTokenStore?.freezeForCapture() }
-        let configuration = configuration
         return await Task.detached(priority: .utility) {
             CaptureAuthPersistence().run(configuration: configuration, phase: phase, leaseID: leaseID,
                                          requestedBundleIdentifier: requestedBundleIdentifier)

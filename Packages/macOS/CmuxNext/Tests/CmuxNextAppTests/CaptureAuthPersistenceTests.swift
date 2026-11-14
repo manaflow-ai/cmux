@@ -37,4 +37,20 @@ struct CaptureAuthPersistenceTests {
                                                   requestedBundleIdentifier: configuration.bundleID ?? "", homeDirectory: home)
         #expect(result == CaptureAuthCleanupResult(ok: false, code: .ownershipMismatch))
     }
+
+    @Test func cleanupPreflightRejectsWrongOwnerBeforeAnyFence() throws {
+        let configuration = CloudConfiguration.unavailable
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let marker = configuration.credentialsDirectory(homeDirectory: home).appendingPathComponent("capture-auth-lease")
+        try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(("owned-lease\n" + (configuration.bundleID ?? "")).utf8).write(to: marker)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let result = CaptureAuthPersistence().preflight(
+            configuration: configuration, phase: .cleanup,
+            leaseID: "0123456789abcdef01234567",
+            requestedBundleIdentifier: configuration.bundleID ?? "", homeDirectory: home
+        )
+        #expect(result == CaptureAuthCleanupResult(ok: false, code: .ownershipMismatch))
+    }
 }
