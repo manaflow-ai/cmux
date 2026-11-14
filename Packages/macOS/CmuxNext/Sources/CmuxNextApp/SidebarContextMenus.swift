@@ -42,7 +42,7 @@ enum SidebarContextMenus {
                 for item in trailing { menu.addItem(item) }
             }
             // Customize Menu… ends the menu, after a pinned tile's own rows.
-            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow) }
+            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow, target: target) }
             if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu

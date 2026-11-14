@@ -1,0 +1,145 @@
+{
+  "title": "An extension's contributes.menus rows in the workspace and tab right-click menus, then a manifest save renames one with no relaunch; needs --whole-host for the menu shots",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Menus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Menus workspace",
+      "cmux": [
+        "workspace",
+        "name:Menus",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Save the extension (cmux-app.json with contributes.menus, catalog.json, main.js)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Menus",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo ZnVuY3Rpb24gY29weUJyYW5jaChhcmdzKSB7CiAgY211eC50b2FzdCh7IHRpdGxlOiAiQ29weSBCcmFuY2g6ICIgKyBhcmdzLnRhcmdldC5raW5kICsgIiAiICsgYXJncy50YXJnZXQuaWQsIHRvbmU6ICJzdWNjZXNzIiB9KQogIHJldHVybiB7IG9rOiB0cnVlIH0KfQpnbG9iYWxUaGlzLl9fY211eEFwcEV4cG9ydHMgPSB7IGNvcHlCcmFuY2ggfQo= | base64 -d > \"$D/main.js\" && echo eyAiZmFtaWx5IjogImxvY2FsLmN1c3RvbWl6ZSIsICJvcGVyYXRpb25zIjogWwogIHsgIm5hbWUiOiAibG9jYWwuY3VzdG9taXplLmNvcHlfYnJhbmNoIiwgIm93bmVyIjogImFwcDpsb2NhbC9jdXN0b21pemUiLCAiY2xhc3MiOiAicmVhZCIsICJyaXNrIjogInJlYWQiLAogICAgImlkZW1wb3RlbmN5IjogImZvcmJpZGRlbiIsICJpbnB1dCI6IHsgInR5cGUiOiAib2JqZWN0IiB9LCAiZG9jcyI6ICJDb3BpZXMgdGhlIHJpZ2h0LWNsaWNrZWQgd29ya3NwYWNlJ3MgYnJhbmNoLiIsICJzaW5jZSI6ICIxIiwgImV4cG9ydCI6ICJjb3B5QnJhbmNoIiB9Cl0gfQo= | base64 -d > \"$D/catalog.json\" && echo ewogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIkFkZHMgQ29weSBCcmFuY2ggdG8gdGhlIHdvcmtzcGFjZSBhbmQgdGFiIG1lbnVzLiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImNhdGFsb2ciOiAiY2F0YWxvZy5qc29uIiwKICAiY29udHJpYnV0ZXMiOiB7CiAgICAibWVudXMiOiBbCiAgICAgIHsgImlkIjogImNvcHktYnJhbmNoIiwgInRhcmdldCI6ICJ3b3Jrc3BhY2UiLCAidGl0bGUiOiAiQ29weSBCcmFuY2giLCAiaWNvbiI6IHsgInN5bWJvbCI6ICJhcnJvdy50cmlhbmdsZS5icmFuY2giIH0sICJvcCI6ICJsb2NhbC5jdXN0b21pemUuY29weV9icmFuY2giIH0sCiAgICAgIHsgImlkIjogImNvcHktYnJhbmNoLXRhYiIsICJ0YXJnZXQiOiAidGFiIiwgInRpdGxlIjogIkNvcHkgQnJhbmNoIiwgImljb24iOiB7ICJzeW1ib2wiOiAiYXJyb3cudHJpYW5nbGUuYnJhbmNoIiB9LCAib3AiOiAibG9jYWwuY3VzdG9taXplLmNvcHlfYnJhbmNoIiB9CiAgICBdCiAgfQp9Cg== | base64 -d > \"$D/cmux-app.json\" && echo saved\r"
+      ],
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "The workspace menu ends with the extension's Copy Branch",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "workspace"
+        }
+      },
+      "wait": 2,
+      "display": true,
+      "optional": "the menu shot needs --whole-host"
+    },
+    {
+      "title": "Close the menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    },
+    {
+      "title": "The tab menu ends with it too",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "tab"
+        }
+      },
+      "wait": 2,
+      "display": true,
+      "optional": "the menu shot needs --whole-host"
+    },
+    {
+      "title": "Close the menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    },
+    {
+      "title": "Save the manifest again: the workspace row is now Copy Branch Name",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Menus",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; echo ewogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMSIsCiAgImRlc2NyaXB0aW9uIjogIkFkZHMgQ29weSBCcmFuY2ggdG8gdGhlIHdvcmtzcGFjZSBhbmQgdGFiIG1lbnVzLiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImNhdGFsb2ciOiAiY2F0YWxvZy5qc29uIiwKICAiY29udHJpYnV0ZXMiOiB7CiAgICAibWVudXMiOiBbCiAgICAgIHsgImlkIjogImNvcHktYnJhbmNoIiwgInRhcmdldCI6ICJ3b3Jrc3BhY2UiLCAidGl0bGUiOiAiQ29weSBCcmFuY2ggTmFtZSIsICJpY29uIjogeyAic3ltYm9sIjogImFycm93LnRyaWFuZ2xlLmJyYW5jaCIgfSwgIm9wIjogImxvY2FsLmN1c3RvbWl6ZS5jb3B5X2JyYW5jaCIgfSwKICAgICAgeyAiaWQiOiAiY29weS1icmFuY2gtdGFiIiwgInRhcmdldCI6ICJ0YWIiLCAidGl0bGUiOiAiQ29weSBCcmFuY2giLCAiaWNvbiI6IHsgInN5bWJvbCI6ICJhcnJvdy50cmlhbmdsZS5icmFuY2giIH0sICJvcCI6ICJsb2NhbC5jdXN0b21pemUuY29weV9icmFuY2giIH0KICAgIF0KICB9Cn0K | base64 -d > \"$D/cmux-app.json\" && echo edited\r"
+      ],
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "The next right-click shows the new title, no relaunch",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "workspace"
+        }
+      },
+      "wait": 2,
+      "display": true,
+      "optional": "the menu shot needs --whole-host"
+    },
+    {
+      "title": "Close the menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    }
+  ]
+}

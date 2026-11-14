@@ -157,3 +157,35 @@ fn apps_list_names_the_watched_local_folder() {
     let local = f.state.join("apps/local");
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
+
+/// Sets `local/spy`'s `contributes.menus` to one workspace-row row titled `title`.
+fn save_spy_menu(state: &Path, version: &str, title: &str) {
+    let path = state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!(version);
+    manifest["contributes"] = json!({ "menus": [{ "id": "go", "target": "workspace", "title": title, "op": "local.spy.go" }] });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// A save that adds or retitles a `contributes.menus` row reaches the apps
+/// list with `apps-changed`, which the Mac's right-click menus read on their
+/// next open: no relaunch (base red: the schema had no `menus`, so the save
+/// was refused and the app left the list).
+#[test]
+fn a_save_that_changes_a_menu_row_lists_it_on_apps_changed() {
+    let f = fixture();
+    let mut prints = f.supervisor.reload_local_apps(&Default::default());
+    for (version, title) in [("1.0.1", "Copy Branch"), ("1.0.2", "Copy Branch Name")] {
+        save_spy_menu(&f.state, version, title);
+        prints = f.supervisor.reload_local_apps(&prints);
+        f.wait("apps-changed for the save", |e| {
+            e["event"] == "apps-changed"
+                && e["app"] == "local/spy"
+                && e["transaction"] == "local-reload"
+        });
+        let spy = app_entry(&f.supervisor.list(), "local/spy");
+        assert_eq!(spy["version"], version, "{spy}");
+        assert_eq!(spy["manifest"]["contributes"]["menus"][0]["title"], title, "{spy}");
+    }
+}

@@ -373,6 +373,14 @@
             "$ref": "#/$defs/toolbarItem"
           },
           "description": "At most 4 per app; the shell shows a few and puts the rest in the overflow menu."
+        },
+        "menus": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/menuItem"
+          },
+          "description": "Rows the app adds to cmux's own right-click menus, after the built-in rows (one group per menu, before Customize Menu)."
         }
       }
     },
@@ -1131,6 +1139,59 @@
         },
         "args": {
           "type": "object"
+        }
+      }
+    },
+    "menuItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target",
+        "title",
+        "op"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "target": {
+          "enum": [
+            "workspace",
+            "tab",
+            "terminal"
+          ],
+          "description": "The menu: workspace is a sidebar workspace row's, tab a tab's, terminal a terminal's right-click menu. The op gets the right-clicked object as args.target {kind, id}."
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "icon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "symbol"
+          ],
+          "properties": {
+            "symbol": {
+              "$ref": "#/$defs/symbol"
+            }
+          }
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96,
+          "description": "One of the app's own catalog ops, run with apps-run."
+        },
+        "args": {
+          "type": "object"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Order among the menu's app rows (then app id, then declaration order)."
         }
       }
     },
