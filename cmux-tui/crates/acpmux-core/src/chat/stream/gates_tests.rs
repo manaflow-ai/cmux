@@ -847,7 +847,8 @@ fn split_page_from_append_probe() {
                 }
             }
         }
-        let parts: [(&str, fn(&Split) -> u64); 6] = [
+        type Part = (&'static str, fn(&Split) -> u64);
+        let parts: [Part; 6] = [
             ("page_ns", |s| s.page_ns),
             ("page_minflt", |s| s.page_minflt),
             ("page_inblock", |s| s.page_inblock),
