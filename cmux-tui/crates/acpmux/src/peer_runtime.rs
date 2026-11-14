@@ -222,7 +222,7 @@ impl Peer {
     }
 
     /// What its last handshake would have said of attachments: a test's peer that never ran.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
         let mut features = self.features.lock_or_recover();
         features.retain(|f| f != crate::attach::FEATURE);
@@ -737,6 +737,7 @@ impl Peer {
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
+            "parked": link.parked(crate::store::now_ms()),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,

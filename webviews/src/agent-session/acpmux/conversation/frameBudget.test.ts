@@ -3,7 +3,7 @@
 // the animation... it just goes into minimal ish mode?").
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createFrameBudget, FrameBudgetState, HEALTHY_FOR, IDLE_FRAMES, minimalMotion } from "./frameBudget";
+import { createFrameBudget, FrameBudgetState, HEALTHY_FOR, IDLE_FRAMES, minimalMotion, rowsMoved } from "./frameBudget";
 import { motionMode } from "../../../ui/motion/motionMode";
 
 const FRAME = 1000 / 60;
@@ -47,7 +47,7 @@ test("load the chat keeps meeting goes minimal; one long task or a page back fro
   expect(state.minimal).toBe(true);
 });
 
-test("the chat's mark: its gate moves nothing, the rest of the page moves on, the loop stops when idle, and dispose takes it away", () => {
+test("the chat's mark: its gate moves nothing, the rest of the page moves on, the loop stops when idle, minimal or not, and dispose takes it away", () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=chat class=acpmux-shell><div id=row></div></div><nav id=sidebar></nav></body></html>",
     { pretendToBeVisual: true },
@@ -55,11 +55,16 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   const doc = dom.window.document;
   const chat = doc.getElementById("chat")!;
   const queue: ((time: number) => void)[] = [];
+  const timers: { at: number; callback: () => void }[] = [];
   let now = 0;
   const budget = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
+    later: (callback, ms) => timers.push({ at: now + ms, callback }) - 1,
+    cancelLater: (handle) => {
+      timers[handle] = { at: Infinity, callback: () => {} };
+    },
   });
   const run = (gap: number) => {
     now += gap;
@@ -78,13 +83,19 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   expect(minimalMotion(doc.getElementById("sidebar"))).toBe(false);
   expect(motionMode(doc, doc.getElementById("sidebar"))).not.toBe("none");
   expect(motionMode(doc)).not.toBe("none");
-  // Healthy again: the mark goes, and with no poke the loop stops.
+  // Idle in its minimal motion: the loop stops after IDLE_FRAMES as it does moving, and reads no
+  // frames to prove the chat healthy (it read up to 600 of a chat at rest).
   let frames = 0;
   while (run(FRAME) > 0 && frames < 2000) frames += 1;
+  expect(frames).toBeLessThan(IDLE_FRAMES);
+  expect(queue.length).toBe(0);
+  expect(budget.minimal).toBe(true);
+  // No work for HEALTHY_FOR: the chat is healthy again, and the mark goes, on one timer.
+  expect(timers.filter((timer) => timer.at < Infinity).length).toBe(1);
+  now += HEALTHY_FOR;
+  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
   expect(budget.minimal).toBe(false);
   expect(chat.hasAttribute("data-chat-motion")).toBe(false);
-  expect(frames).toBeLessThan(2000);
-  expect(queue.length).toBe(0);
   // Idle: a poke reads IDLE_FRAMES frames and stops.
   budget.poke();
   let idle = 0;
@@ -117,4 +128,20 @@ test("a page that pins its motion is never marked minimal", () => {
   expect(motionMode(doc, chat)).not.toBe("none");
   budget.dispose();
   expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
+});
+
+test("fresh row objects that change no row are no work; a row that comes, goes or moves on is", () => {
+  const rows = [
+    { id: "a", version: 1, text: "hi" },
+    { id: "b", version: 3, text: "there" },
+  ];
+  // The pane's commit at rest: the same rows, rebuilt (a switch's second events page).
+  const rebuilt = rows.map((row) => ({ ...row }));
+  expect(rowsMoved(rows, rows)).toBe(false);
+  expect(rowsMoved(rows, rebuilt)).toBe(false);
+  expect(rowsMoved([], [])).toBe(false);
+  expect(rowsMoved(rows, [...rebuilt, { id: "c", version: 1, text: "new" }])).toBe(true);
+  expect(rowsMoved(rows, rebuilt.slice(1))).toBe(true);
+  expect(rowsMoved(rows, [rebuilt[0]!, { ...rebuilt[1]!, version: 4 }])).toBe(true);
+  expect(rowsMoved(rows, [rebuilt[1]!, rebuilt[0]!])).toBe(true);
 });

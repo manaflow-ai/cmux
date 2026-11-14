@@ -944,12 +944,23 @@ async fn compaction_finishes_the_startup_hot_read_and_releases_waiters() {
 }
 
 #[tokio::test]
-async fn failed_hydration_does_not_release_the_remote_mark_drain() {
+async fn a_truncated_snapshot_releases_the_remote_mark_drain_only_with_a_rebuild() {
+    // A snapshot cut short under the hydrating reader is a structural boundary:
+    // since #42834 it asks for a rebuild instead of failing hydration, so the
+    // drain is released, and the next writer turn rebuilds; the rebuild epoch
+    // makes every source walk again, and the drain never keeps the cut rows.
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("index.snap");
     SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
     fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
     writer.process_batch();
-    assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
+    tokio::time::timeout(std::time::Duration::from_secs(1), hub.wait_hydrated())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hub.rebuild_count(), 0);
+    writer.process_batch();
+    assert_eq!(hub.rebuild_count(), 1);
+    assert!(hub.snapshot().get_row(&RowKey::new("peer", "live")).is_none());
 }

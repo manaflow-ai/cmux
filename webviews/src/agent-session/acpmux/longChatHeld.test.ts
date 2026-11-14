@@ -173,6 +173,20 @@ test("a chat followed at its latest row holds at most HELD_RECORDS records howev
   }
 }, 300_000);
 
+// What a chat left open holds is bounded by what a chat of a few hundred turns holds whole: held 5,000 to 10,000
+// records, a god chat's streamed thought and tool call cost 1.5x to 1.8x a 600-turn chat's, and its heap 1.4x
+// (bench/transcript-replay.bench.ts FIXTURE=god against --turns 600). One older page's worth is kept at a cut.
+test("a chat left open holds at most two older pages of records, and keeps one at a cut", async () => {
+  const chat = await streamed(16_000, true);
+  try {
+    expect(chat.most).toBeLessThanOrEqual(4_000 + TURN);
+    expect(chat.events().length).toBeGreaterThanOrEqual(2_000);
+    expect(chat.events().at(-1)!.seq).toBe(chat.total);
+  } finally {
+    chat.cleanup();
+  }
+}, 300_000);
+
 test("a chat the reader scrolled up in keeps every record it holds", async () => {
   const chat = await streamed(12_000, false);
   try {

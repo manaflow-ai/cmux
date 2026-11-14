@@ -333,6 +333,11 @@ impl Hub {
                     self.end_background_subagents(&session);
                     // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
                     self.end_loop_goal(&session);
+                    // And a turn it ran on its own: its line ends here, as a hosted agent's does on
+                    // the host's exit (`tap.rs`), so a direct agent's never spins on in the pane
+                    // (`background_turn.rs`). One the host's exit ended already is no second record.
+                    session.harness_turn.store(false, Ordering::SeqCst);
+                    self.end_background_turn(&session, "exit");
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;

@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -162,6 +162,20 @@ class RegressionTests(unittest.TestCase):
     def test_noise_under_the_floor_does_not(self):
         regs = cron.find_regressions({"x.input_to_commit": row(5.6)}, {"x.input_to_commit": row(5.0)}, 16.67, 16.67, budgets_mod)
         self.assertEqual(regs, [])
+
+    def test_terminal_throughput_rows_are_stored_never_judged(self):
+        # MB/s and the NEXT/Ghostty ratio are higher-is-better: a faster run must not read as a regression, and the
+        # rows stay reporting only (the CMUX-571 goal reads terminal.throughput.ratio).
+        now = {"terminal.throughput.next_mb_s@cmux20-bench": row(400.0, unit="MB/s", floor=40.0),
+               "terminal.throughput.ratio@cmux20-bench": row(2.0, unit="x", floor=0.1)}
+        base = {"terminal.throughput.next_mb_s@cmux20-bench": row(100.0, unit="MB/s", floor=10.0),
+                "terminal.throughput.ratio@cmux20-bench": row(0.5, unit="x", floor=0.1)}
+        self.assertEqual(cron.find_regressions(now, base, 8.33, 8.33, budgets_mod), [])
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio@cmux20-bench"), "throughput")
+        report = {"rows": [{"name": "terminal.throughput.ratio", "p50": 0.8, "p95": 0.8, "unit": "x", "budget": None,
+                            "floor": 0.1}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
+        self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
 
     def test_newly_over_target_regresses_under_ten_percent(self):
         # A frame row's target at 60 Hz is 20.8 ms: 20.0 -> 21.5 is +7.5 % but crosses it by more than the floor.
@@ -611,6 +625,30 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.state_growth.god.chat_reopen.heap_bytes_per_op@linux"), "web-ui-growth")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-growth")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "state-growth"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_infinite_items_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("infinite-items"))
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
+        runs = cron.linux_bench_runs("/r", "infinite-items")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
+        argv, cwd, _ = runs["suite"]
+        self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
+        self.assertIn("pages=0", argv)
+        self.assertEqual(cwd, "/r")
+        rows = cron.rows_of_part(cron.PART_BY_NAME["infinite-items"], {"rows": [
+            {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_million_event_chat_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-million"))
+        self.assertEqual(cron.part_for_row("webui.million_event_chat.long.older_page@linux"), "web-ui-million")
+        self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1941,6 +1979,17 @@ class RateLimitTests(unittest.TestCase):
             ok2 = cron.commit_on_branch("o/r", "f" * 40, ok.verified())
             self.assertTrue(ok2("a" * 40))
         self.assertEqual(len(asked), 1, "the state's verified commits need no compare call")
+
+    def test_a_commit_the_shallow_checkout_cannot_place_is_asked_of_github(self):
+        # The partial clone fetched the commit alone (cat-file finds it), with no path to the tip.
+        asked = []
+        with mock.patch.object(cron, "gh_request", lambda p, *a, **k: asked.append(p) or {"status": "ahead"}), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=0)), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False):
+            ok = cron.commit_on_branch("o/r", "f" * 40)
+            self.assertTrue(ok("a" * 40), "a bisect step older than the checkout's depth stays in the state")
+            self.assertEqual(ok.verified(), ["a" * 40])
+        self.assertEqual(len(asked), 1)
 
     def test_a_rate_limited_compare_is_raised_not_read_as_off_the_branch(self):
         with mock.patch.object(cron, "gh_request", mock.Mock(side_effect=cron.RateLimited("x"))), \

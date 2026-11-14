@@ -25,7 +25,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use super::computer_use_gate::{self, Gate};
+use super::computer_use_gate::{self, AppCaller, Gate};
+use super::cua_recovery;
 use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
@@ -167,6 +168,9 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Where lists from earlier starts are kept (`upstream_listing.rs`).
     listings: Option<PathBuf>,
+    /// The legacy computer use proxy's current endpoint, read when a call finds the
+    /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
+    endpoint: Option<cua_recovery::EndpointSource>,
 }
 
 /// Why a request has no result.
@@ -343,7 +347,17 @@ impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
         let listings = super::upstream_listing::default_dir();
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+        let endpoint = cua_recovery::applies(&spec).then(cua_recovery::acpmux_endpoint);
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            listings,
+            endpoint,
+        }
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -351,6 +365,43 @@ impl Upstream {
     pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
         self.listings = dir;
         self
+    }
+
+    /// The same server, recovered as the computer use proxy with endpoints from `source`.
+    #[cfg(test)]
+    pub(super) fn with_endpoint(mut self, source: cua_recovery::EndpointSource) -> Self {
+        self.endpoint = Some(source);
+        self
+    }
+
+    /// The pid of its running process (tests kill it).
+    #[cfg(test)]
+    pub(super) fn pid(&self) -> Option<u32> {
+        let conn = self.conn.as_ref()?;
+        Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
+    }
+
+    /// Whether its process runs and its output is open (tests).
+    #[cfg(test)]
+    pub(super) fn alive(&self) -> bool {
+        self.conn.as_ref().is_some_and(|conn| conn.alive())
+    }
+
+    /// Whether a call that found the helper unreachable recovers (`cua_recovery.rs`).
+    fn recovers(&self) -> bool {
+        self.endpoint.is_some()
+    }
+
+    /// Before a retry: the current endpoint goes in the spec, and the proxy starts again
+    /// (it gives up on a helper for good after one failed connection).
+    fn reconnect_for_retry(&mut self) {
+        if let Some(socket) = self.endpoint.as_ref().and_then(|source| source())
+            && cua_recovery::apply(&mut self.spec, &socket)
+        {
+            eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+        }
+        self.conn = None;
+        self.failed = None;
     }
 
     /// Whether the server's process runs.
@@ -597,11 +648,24 @@ pub(super) struct ProxiedCall {
     pub meta: Option<Value>,
     /// A computer use call's setup check (`computer_use_gate`).
     pub gate: Gate,
+    /// The app, for a helper restart when the computer use helper stays unreachable
+    /// (`cua_recovery.rs`). `None`: recovery only reconnects.
+    pub app: Option<AppCaller>,
+}
+
+/// One try of a proxied call.
+enum Tried {
+    /// The server's result or a final error, as the call answers.
+    Done(Value),
+    /// The computer use helper was not reached and the call did not run: why.
+    Unreachable(String, Value),
 }
 
 impl ProxiedCall {
     /// The server's result, or a tool error with the call's state. A
-    /// computer use call first waits for setup when it is not done.
+    /// computer use call first waits for setup when it is not done, and one that finds
+    /// the helper unreachable reconnects, restarts the helper and retries
+    /// (`cua_recovery.rs`).
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
         if let Gate::Check(check) = self.gate
             && let Some(result) = check.run()
@@ -609,28 +673,79 @@ impl ProxiedCall {
             return result;
         }
         let mut upstream = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(message) = upstream.connect() {
-            let error = json!({"code": "upstream.failed",
-                "message": format!("{}: {message}", upstream.name()),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+        let recovers = upstream.recovers();
+        let started = Instant::now();
+        let mut restarted = false;
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let left = cap.map(|cap| cap.saturating_sub(started.elapsed()));
+            let (why, failure) = match Self::once(
+                &mut upstream,
+                &self.name,
+                &self.arguments,
+                self.meta.as_ref(),
+                left,
+            ) {
+                Tried::Done(result) => return result,
+                Tried::Unreachable(why, failure) => (why, failure),
+            };
+            let wait = cua_recovery::backoff(tries);
+            let out_of_time = left.is_some_and(|left| left <= wait + Duration::from_secs(1));
+            if !recovers || tries >= cua_recovery::TRIES || out_of_time {
+                if !recovers {
+                    return failure;
+                }
+                let error = cua_recovery::gave_up(&why, tries, restarted, started.elapsed());
+                return super::tool_error(super::envelope(error, "not_run", None));
+            }
+            // From the second retry on the helper itself may be down: the app restarts it.
+            if tries >= 2
+                && let Some(app) = &self.app
+            {
+                restarted |= cua_recovery::restart_helper(app);
+            }
+            std::thread::sleep(wait);
+            upstream.reconnect_for_retry();
         }
-        let Some(tool) = upstream.owns(&self.name) else {
-            let error = json!({"code": "upstream.failed", "message": format!(
-                "{}: the server no longer lists {}", upstream.name(), self.name),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+    }
+
+    /// One try: connect, then call.
+    fn once(
+        upstream: &mut Upstream,
+        name: &str,
+        arguments: &Value,
+        meta: Option<&Value>,
+        cap: Option<Duration>,
+    ) -> Tried {
+        let server = upstream.name().to_owned();
+        let failed = |message: String, state: &'static str| {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{server}: {message}"),
+                "details": {}, "retryable": state == "not_run"});
+            super::tool_error(super::envelope(error, state, None))
         };
-        match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
-            Ok(result) => result,
+        if let Err(message) = upstream.connect() {
+            // The proxy did not start, so the call cannot have run: always safe to retry.
+            let result = failed(message.clone(), "not_run");
+            return Tried::Unreachable(message, result);
+        }
+        let Some(tool) = upstream.owns(name) else {
+            return Tried::Done(failed(format!("the server no longer lists {name}"), "not_run"));
+        };
+        match upstream.call(&tool, arguments.clone(), meta, cap) {
+            // The proxy answers an unreached helper as an error result: the call did not run.
+            Ok(result) => match cua_recovery::error_text(&result) {
+                Some(text) if cua_recovery::unreachable(&text) => Tried::Unreachable(text, result),
+                _ => Tried::Done(result),
+            },
             Err((message, state)) => {
-                let error = json!({
-                    "code": "upstream.failed",
-                    "message": format!("{}: {message}", upstream.name()),
-                    "details": {},
-                    "retryable": state == "not_run",
-                });
-                super::tool_error(super::envelope(error, state, None))
+                let result = failed(message.clone(), state);
+                if state == "not_run" && cua_recovery::unreachable(&message) {
+                    Tried::Unreachable(message, result)
+                } else {
+                    Tried::Done(result)
+                }
             }
         }
     }
@@ -710,6 +825,7 @@ impl<B: super::Backend> super::Server<B> {
             None
         };
         let arguments = Value::Object(arguments.clone());
+        let app = computer_use.as_ref().and_then(|_| self.backend.app_caller());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(
                 &tool,
@@ -722,6 +838,6 @@ impl<B: super::Backend> super::Server<B> {
             None => Gate::Run,
         };
         let meta = self.call_meta.clone();
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate, app })
     }
 }

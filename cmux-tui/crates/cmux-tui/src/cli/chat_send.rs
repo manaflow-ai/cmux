@@ -466,11 +466,20 @@ where
                 let reserved = matches!(on, "cloud" | "vm" | "vm:new");
                 if let Some(found) = (!reserved).then(|| joined(on)).flatten() {
                     let machine = found?;
-                    return Ok(Place::Acp(if session.contains('/') {
-                        session.to_owned()
-                    } else {
-                        format!("{}/{session}", machine.host)
-                    }));
+                    return match session.split_once('/') {
+                        None => Ok(Place::Acp(format!("{}/{session}", machine.host))),
+                        Some((host, _)) if host.eq_ignore_ascii_case(&machine.host) => {
+                            Ok(Place::Acp(session.to_owned()))
+                        }
+                        // `--on` was checked, so the session's own machine must be the one it
+                        // names: never a check of one machine and a send to another.
+                        Some((host, _)) => Err(refusal(
+                            "chat_target.mismatch",
+                            format!("{session} runs on {host}, but --on {on} is {}", machine.host),
+                            "leave out --on: the session id names its machine",
+                            json!({"session_id": session, "on": on, "host": machine.host}),
+                        )),
+                    };
                 }
                 return Err(refusal(
                     "chat_target.no_route",
@@ -494,8 +503,16 @@ where
         }
         None => {}
     }
-    // HOST/NAME: a chat on another machine, which acpmux routes (never an app tab's id).
-    if session.contains('/') {
+    // HOST/NAME: a chat on another machine, which acpmux routes (never an app tab's id). HOST
+    // gets the start's account check (`joined::resolve`, one check for both): a revoked machine,
+    // or one the hub lists that the account's list could not vouch for, gets no prompt. An
+    // offline one still does (the hub keeps it), and a HOST no joined machine names is a peer's.
+    if let Some((host, _)) = session.split_once('/') {
+        if let Some(Err(error)) = joined(host)
+            && error.get("code").and_then(Value::as_str) != Some("chat_target.unavailable")
+        {
+            return Err(error);
+        }
         return Ok(Place::Acp(session.to_owned()));
     }
     // No app (CI, a headless agent): only this machine's chats are reachable.

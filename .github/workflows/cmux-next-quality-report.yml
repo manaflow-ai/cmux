@@ -15,6 +15,11 @@ name: cmux-next quality report
 #     per 5 commits on the route App's checks-read token;
 #   - the nightly speed budget: merge to feed p50 and p95 against 30 min, nightlies over it and the largest stage,
 #     from the history nightly-speed.yml keeps in the cmuxterm-hq issue "cmux NEXT nightly speed budget" (read token).
+#   - the first-user journey (Leo, 2026-11-12: "We need to, like, actually properly, like, click through and utilize
+#     every single thing"): the newest results of the web click-through (first-user-journey-web.yml) and the iOS
+#     simulator walk (first-user-journey-ios.yml) here, and the fresh-user Mac walk (cmuxterm-hq
+#     first-user-journey-mac.yml), as cells by harness and sign-in state with their reds by rule. HQ
+#     docs/qa/first-user-journey.md.
 # The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
 # report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
 # is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
@@ -153,6 +158,22 @@ jobs:
             --json databaseId -q '.[0].databaseId')"
           [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
 
+      # Each surface's newest results artifact, on the read token (actions read here and on cmuxterm-hq). A surface
+      # that cannot be read is n/a in the report with the reason; one older than 48 h is stale.
+      - name: Fetch the first-user journey results
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: |
+          for row in "web $GITHUB_REPOSITORY first-user-journey-web.yml" \
+                     "ios $GITHUB_REPOSITORY first-user-journey-ios.yml" \
+                     "mac manaflow-ai/cmuxterm-hq first-user-journey-mac.yml"; do
+            set -- $row
+            python3 -I scripts/cmux-next/quality-report.py fetch-journey --repo "$2" --workflow "$3" \
+              --artifact "first-user-journey-$1" --dir "$RUNNER_TEMP/journey/$1" || true
+          done
+
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
         env:
@@ -163,9 +184,13 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/quality"
           mkdir -p "$out"
+          journey=()
+          for surface in web ios mac; do
+            journey+=(--first-user-journey "$RUNNER_TEMP/journey/$surface/results.json")
+          done
           report_args=(report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed \
+            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed "${journey[@]}" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
           # God-vs-small rows from the v2 bench and the degenerate lab, merged into one input.
