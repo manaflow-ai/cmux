@@ -171,13 +171,11 @@ FROM coderouter_claude_accounts WHERE visibility = 'team' GROUP BY team_id, kind
 
 The database tests in `tests/coderouter-vm-scope-db-behavior.test.ts` cover
 cross-team grants, spoofed headers, private visibility, pool revocation, and
-VM deletion. `scripts/coderouter/verify-vm-scope.ts` exercises the real Freestyle
-edge and guest CLI against an isolated development backend using disposable
-Stack identities and account metadata. The runner requires
-`CMUX_SCOPE_E2E_ENVIRONMENT=isolated-development`, the approved development
-Stack project, and matching API/SQL instances on the shared backend host. It verifies account listing and routing
-denial after revocation, without importing customer credentials or invoking a
-paid upstream model. Route traces include `cmux.coderouter.pool_id`.
+VM deletion. The internal `scripts/coderouter/verify-vm-scope.ts` probe is
+retired and creates no classic Cloud machines. NEXT Cloud model-plane checks
+live in cmux-platform. For a NEXT machine/link smoke, use
+`web/scripts/cmux-vm-image/dev-e2e.ts` from the repository root on
+`feat-cmux-next`. Route traces include `cmux.coderouter.pool_id`.
 
 The ownership migration is an atomic cutover for small catalogs, with an
 explicit precondition of at most 10,000 rows and 32 MiB per existing table.
