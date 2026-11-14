@@ -76,6 +76,9 @@ const PROFILE = process.env.PROFILE === "1";
 /// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
 /// DevTools trace on: its time is not a clean measurement, its counts are.
 const PROBE = process.env.PROBE === "1";
+/// `CLOCK=cpu` times each burst in main-thread CPU time (`threadTicks`), not wall time: a busy shared runner
+/// stretches wall time by whatever else it runs (p95 swung 40% between runs), CPU time much less.
+const CPU_CLOCK = process.env.CLOCK === "cpu";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -493,6 +496,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     if (!play!.socket) throw new Error(`${log.name}: the pane never attached`);
     await rest(page);
     const heapBefore = await heapMb(cdp);
+    // CLOCK=cpu: the per-update rows count the renderer main thread's CPU time in its tasks, not their wall
+    // time, which also counts the time a task waits on a busy shared runner.
+    const clock = CPU_CLOCK ? ((await cpuSession(page, true)) ?? cdp) : cdp;
     const since = await page.evaluate(() => performance.now());
     const bursts: BurstResult[] = [];
     const inBurst = new Map<number, (typeof log.bursts)[number]>();
@@ -504,7 +510,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       if (burst) {
         await paint(page, 2);
         if (PROFILE) await cdp.send("Profiler.start");
-        const taskBefore = await metric(cdp, "TaskDuration");
+        const taskBefore = await metric(clock, "TaskDuration");
         const windowStart = await page.evaluate(() => performance.now());
         const playBurst = async () => {
           for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
@@ -539,7 +545,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
           await playBurst();
           await paint(page, 2);
         }
-        const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
+        const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
         const dom = await domSize(page);

@@ -100,7 +100,7 @@ function chat(count: number) {
   for (let index = 0; index < count; index++) {
     const id = index === count - 1 ? LIVE_THINKING : index === count - 2 ? "reply" : `row-${index}`;
     const row = makeRow(id, index * ROW, ROW);
-    row.previousElementSibling = rows.at(-1) ?? null;
+    (row as { previousElementSibling: Element | null }).previousElementSibling = rows.at(-1) ?? null;
     rows.push(row);
   }
   const attrs = new Set<string>();
