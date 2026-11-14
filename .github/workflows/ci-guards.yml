@@ -908,6 +908,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
 
+      # A same-repository macOS job offers an owned Mac before Blacksmith ("job pinned to a paid queue").
+      - name: Validate that no same-repository macOS job is pinned to a paid queue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_paid_queue_pin.py
+
       - name: Validate that every script a workflow runs by path is executable in git
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_workflow_scripts_are_executable.py
