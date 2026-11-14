@@ -87,6 +87,25 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `terminal.changed` | `terminal:read` | a terminal starts, ends or changes its title or folder |
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
+| `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
+
+## Test it
+
+`cmux-extension-sdk/testing` runs an extension the way cmux does, with no cmux running: the fake
+host loads the same runtime bundle cmux ships, and the validator is the one `cmux apps validate` runs.
+
+```ts
+import { FakeHost, pack, validatePackage, manifestSchema, interfaceContract } from "cmux-extension-sdk/testing"
+
+const host = new FakeHost(await pack("."), { app: { id: "local/my-ext", version: "0.1.0" }, apiVersion: "1.0.0" })
+host.handlers = { "workspace.list": () => ({ ok: true, body: { value: [] } }) }
+host.mount("s", "renderSection")
+await host.settle()
+```
+
+Every first-party extension with tests runs them this way as a fork, with only this package
+beside it (`bun first-party-apps/fork-check.ts`); `runtime-files.json` lists the runtime files the
+package ships.
 
 ## The Rust API
 

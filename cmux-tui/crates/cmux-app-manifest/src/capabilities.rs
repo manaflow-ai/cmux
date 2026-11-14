@@ -173,9 +173,13 @@ pub const VIEW_STATE_OPS: &[&str] = &[
 /// open a panel without one.
 pub const PANEL_OPS: &[&str] = &["fs.pick"];
 
+/// Ops that change what the person has seen or chosen about their chats: an app
+/// marks a chat read or pins it only in answer to a tap, never on its own.
+pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.

@@ -2,8 +2,8 @@
 // sample's budget: timers and upstream reads before (hand-rolled cmux.timer.every) and after
 // (cmux.watch), counted the same way.
 import { beforeAll, describe, expect, test } from "bun:test"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { FakeHost } from "./fake-host.ts"
 
 const root = join(import.meta.dir, "../../../../..")
@@ -241,5 +241,32 @@ describe("cmux-extension-sdk", () => {
     expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
     expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
     expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
+  })
+})
+
+describe("cmux-extension-sdk/testing", () => {
+  const sdk = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript")
+
+  test("an extension's tests get the fake host, the packer and the validator from the package", async () => {
+    const testing = await import(join(sdk, "src/testing.ts"))
+    expect(testing.FakeHost).toBe(FakeHost)
+    const host = new testing.FakeHost(await testing.pack(join(root, "examples/extensions/activity")))
+    expect(typeof host.global.__cmuxAppExports.renderSection).toBe("function")
+    expect(testing.validatePackage(join(root, "first-party-apps/caffeinate")).errors).toEqual([])
+    expect(new testing.SchemaValidator(testing.manifestSchema()).validate({})).not.toEqual([])
+    expect(testing.interfaceContract("cmux.section/1")).toBeDefined()
+    for (const bad of ["cmux.section", "cmux.section/x", "../x/1", "cmux.nothing/1"]) expect(testing.interfaceContract(bad)).toBeUndefined()
+  })
+
+  test("runtime-files.json lists every cmux-app-host file the package reads", () => {
+    const list = JSON.parse(readFileSync(join(sdk, "runtime-files.json"), "utf8")) as { root: string; files: string[] }
+    const shipped = list.files.map((file) => join(sdk, list.root, file))
+    for (const path of shipped) expect([path, existsSync(path)]).toEqual([path, true])
+    const sources = ["src/index.ts", "src/testing.ts"].map((f) => join(sdk, f))
+    const read = new Set<string>()
+    for (const file of sources) {
+      for (const m of readFileSync(file, "utf8").matchAll(/["'](\.\.\/\.\.\/\.\.\/cmux-app-host\/[^"']+)["']/g)) read.add(join(dirname(file), m[1]!))
+    }
+    for (const path of read) expect([path, shipped.some((s) => path === s || path.startsWith(s + "/"))]).toEqual([path, true])
   })
 })

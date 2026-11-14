@@ -325,6 +325,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/seen",
       "params": {
         "$ref": "#/types/SeenParams"
@@ -2080,6 +2090,24 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_signed_in",
       "params": true,
       "result": true
     },

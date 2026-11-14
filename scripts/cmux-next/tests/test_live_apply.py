@@ -39,6 +39,11 @@ class ClassifyTests(unittest.TestCase):
                                        ("A", "scripts/cmux-next/tests/test_x.py")]), "no-app")
         self.assertEqual(self.verdict([("M", "images/cmux-vm/inputs.lock.json")]), "no-app")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/ci-target-graph.json")]), "no-app")
+        self.assertEqual(self.verdict([("M", "examples/extensions/activity/src/main.ts")]), "no-app")
+        self.assertEqual(self.verdict([("M", "design/terminal-chat-toggle-gallery.html")]), "no-app")
+        # The screen detector under cmux-tui/bindings/examples/ ships in the app: a daemon restart, not no-app.
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/examples/rust-agent-screen-detection/src/lib.rs")]),
+                         "daemon")
 
     def test_a_web_change_is_live(self):
         self.assertEqual(self.verdict([("M", "webviews/src/agent-pane/Composer.tsx"), ("M", "docs/a.md")]), "web-live")

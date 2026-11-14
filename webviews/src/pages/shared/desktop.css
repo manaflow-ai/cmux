@@ -123,8 +123,9 @@ body {
   --ds-glass-popover-art-tint: 50%;
   --ds-glass-popover-blur: blur(24px) saturate(1.25);
   --ds-glass-popover-radius: 24px;
-  /* glass menu (level): menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass) */
+  /* glass menu (level): every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers) */
   --ds-glass-menu-tint: 78%;
+  --ds-glass-menu-veil: 40%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-menu-radius: 32px;
   /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
