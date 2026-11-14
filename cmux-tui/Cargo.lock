@@ -2646,6 +2646,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3252,6 +3253,19 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
+]
+
+[[package]]
+name = "desktop-lease"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-process",
+ "cmux-scope",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
