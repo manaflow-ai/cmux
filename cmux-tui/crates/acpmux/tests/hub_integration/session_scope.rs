@@ -6,7 +6,8 @@
 //!
 //! A fake `systemd-run` on the profile's PATH logs each call and, unless told
 //! to fail, runs the command after `--` as the real one does. A fake
-//! `systemctl` beside it logs the sessions slice's limits.
+//! `systemctl` beside it logs the sessions slice's limits and the scope's
+//! stop once the chat ends.
 
 use super::*;
 
@@ -23,8 +24,13 @@ fn fake_systemd_run(dir: &std::path::Path) -> String {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let systemctl = dir.join("systemctl");
-    std::fs::write(&systemctl, "#!/bin/sh\necho \"systemctl $*\" >> \"$FAKE_SCOPE_LOG\"\n")
-        .unwrap();
+    // Beside itself, not from the env: the scope's stop runs with only the
+    // user manager's variables.
+    std::fs::write(
+        &systemctl,
+        "#!/bin/sh\necho \"systemctl $*\" >> \"$(dirname \"$0\")/scope.log\"\n",
+    )
+    .unwrap();
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default())
 }
@@ -86,9 +92,24 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
     ] {
         assert!(line.contains(part), "{part:?} in {line:?}");
     }
+    // The harness's scope has a unit acpmux named, and the chat's end stopped
+    // exactly that unit, once (nothing it left behind keeps the scope alive).
+    let unit = line
+        .split(' ')
+        .find_map(|arg| arg.strip_prefix("--unit="))
+        .unwrap_or_else(|| panic!("a named unit in {line:?}"));
+    assert!(unit.starts_with("acpmux-session-") && unit.ends_with(".scope"), "{unit}");
+    let stops: Vec<&String> =
+        log.iter().filter(|l| l.starts_with("systemctl --user stop")).collect();
+    assert_eq!(stops, [&format!("systemctl --user stop --no-block -- {unit}")], "{log:?}");
+    let at = |needle: &str| log.iter().position(|l| l.contains(needle)).unwrap();
+    assert!(at("fake_claude.py") < at("--user stop"), "stopped after it started");
     // The slice that caps every session together was read, then got its
     // limits (the fake shows none) in bytes and tasks, before the launch.
-    let calls: Vec<&String> = log.iter().filter(|l| l.starts_with("systemctl ")).collect();
+    let calls: Vec<&String> = log
+        .iter()
+        .filter(|l| l.starts_with("systemctl ") && !l.starts_with("systemctl --user stop"))
+        .collect();
     assert_eq!(calls.len(), 2, "{log:?}");
     assert_eq!(
         calls[0],
@@ -107,7 +128,6 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
             && set.ends_with(&format!(" TasksMax={tasks} MemorySwapMax=infinity")),
         "{set}"
     );
-    let at = |needle: &str| log.iter().position(|l| l.contains(needle)).unwrap();
     assert!(at("set-property") < at("fake_claude.py"), "the slice is limited before it fills");
     // The probe ran outside the slice.
     let probe = log.iter().find(|l| l.contains("scope probe")).unwrap();
@@ -121,6 +141,8 @@ async fn a_chat_starts_unscoped_when_systemd_cannot_make_a_scope() {
     // slice is left alone.
     assert!(!log.is_empty() && log.iter().all(|l| l.contains("--scope")), "{log:?}");
     assert!(launches(&log).is_empty(), "{log:?}");
+    // No scope was made, so none is stopped.
+    assert!(!log.iter().any(|l| l.contains("--user stop")), "{log:?}");
 }
 
 #[tokio::test]
