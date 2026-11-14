@@ -415,6 +415,28 @@ mod tests {
     }
 
     #[test]
+    fn work_tree_entry_takes_its_top_folder_through_real_folders_only() {
+        let top = fresh_folder();
+        let root = top.join("real/root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file"), "inside").unwrap();
+        std::os::unix::fs::symlink("real", top.join("link")).unwrap();
+        std::os::unix::fs::symlink("real/root", top.join("root-link")).unwrap();
+
+        // The path of a top folder, as git gives it, has real folders only.
+        let mut tree = Tree::open(&root).unwrap();
+        assert_eq!(text(&mut tree, "file").as_deref(), Some("inside"));
+        // A link is no folder of that path, at the top folder and above it.
+        assert!(Tree::open(&top.join("root-link")).is_none(), "the top folder is a link");
+        assert!(Tree::open(&top.join("link/root")).is_none(), "a folder above is a link");
+        // The path is a list of names from the root of the file system.
+        assert!(Tree::open(&top.join("real/../real/root")).is_none(), "a path with `..`");
+        assert!(Tree::open(Path::new("real/root")).is_none(), "a path from no root");
+
+        std::fs::remove_dir_all(top).unwrap();
+    }
+
+    #[test]
     fn work_tree_entry_gives_a_link_by_its_target_text_and_a_file_by_one_stat_entry() {
         let top = fresh_folder();
         let root = top.join("root");
