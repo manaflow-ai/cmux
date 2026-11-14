@@ -176,12 +176,8 @@ public struct WorkspaceScreen: View {
             }
     }
 
-    // A workspace can host a chat: its toast must retain the held chat rendering.
-    private var transientMaterial: CmuxMobileTransientMaterial? {
-        if showsGrid { return .standard }
-        guard let id = source.activeTabID, let tab = source.workspaceTab(id), tab.kind != .agent else { return nil }
-        return .standard
-    }
+    // Workspace overlays share the same material over every tab, including chat.
+    private let transientMaterial: CmuxMobileTransientMaterial = .standard
 
     private var toast: some View {
         let placement = ToastPlacement(screen: showsGrid ? .grid : .page)

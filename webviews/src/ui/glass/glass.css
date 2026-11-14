@@ -17,6 +17,11 @@
   /* The theme surface the tint mixes from (WebTheme.swift: the page color made opaque). */
   /* glass-opaque-allow: the color --glass-tint mixes from at 40-60%; never painted as a fill itself */
   --glass-surface: var(--cmux-surface-solid, Canvas);
+  /* Shared native/web transient material; roles retain their geometry and contrast policy. */
+  --transient-surface-veil: light-dark(
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-light-veil-alpha) * 100%), transparent),
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-dark-veil-alpha) * 100%), transparent)
+  );
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
@@ -141,16 +146,16 @@
    frost (the mode, below). */
 .ui-popup.ui-glass,
 .ui-card.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   /* On the App's glass (HOST GLASS, below) every popup and card lays the same veil of the theme
      surface: the model menu's since cmux#37794 (gallery ui.host-glass model-40: 0% let the
      wallpaper's color into the row text, 70% read solid). Before, only the model menus had it and
      every other popup was clear, so the model picker and the context card read as two materials
      side by side (gallery ui.menu-material). */
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent);
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
 }
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card).ui-glass {
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
@@ -383,10 +388,10 @@
 .ui-tooltip.ui-card.ui-glass {
   border-color: transparent;
 }
-/* A tooltip carries text over whatever is under it, so its glass is the tooltip frost
+/* A tooltip carries text over whatever is under it, so it keeps the contrast-fitted veil
    (desktop.css --tooltip-*: the host's --cmux-tooltip-tint, the least alpha of the popup surface at
-   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) and its stronger
-   blur, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
+   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) over the shared
+   transient frost, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
    it. Reduce Transparency's !important rules below still make it opaque. A chart's tooltip
    (pages/chief-usage .cu-tooltip) is a tooltip too. */
 .ui-tooltip.ui-glass:not(.ui-card),
@@ -394,7 +399,7 @@
 .ui-title-tooltip.ui-glass,
 .cu-tooltip.ui-glass {
   --glass-tint: var(--tooltip-tint);
-  --glass-backdrop: var(--tooltip-blur);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--tooltip-shadow);
 }
 

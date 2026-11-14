@@ -402,7 +402,7 @@ struct CheckpointsScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
-        .cmuxMobileToast($toast)
+        .cmuxMobileToast($toast, material: .standard)
         .sensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in

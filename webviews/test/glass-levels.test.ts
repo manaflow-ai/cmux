@@ -35,16 +35,18 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
 
 // Leo, 2026-11-11: "The point is, the styles mix and they don't look good. So they need to look good."
 // Every floating popup and card (menus, popovers, pickers, hover cards, the context card) is one
-// material: the menu level, and one veil on the App's glass. No surface keeps a tint of its own.
-test("every popup and hover card is one material: the menu level and one veil on the App's glass", () => {
+// material: the shared transient token, and one veil on the App's glass. No surface keeps a tint of its own.
+test("every popup and hover card uses the transient material and one veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
   expect(at).toBeGreaterThanOrEqual(0);
   const rule = glass.slice(at, glass.indexOf("}", at));
-  expect(rule).toContain("var(--ds-glass-menu-tint)");
-  expect(rule).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+  expect(rule).toContain("var(--ds-transient-web-tint)");
   expect(rule).toContain(
-    "--host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent)",
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
+  expect(rule).toContain(
+    "--host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent)",
   );
   // No popup names the popover level, and no menu a second rule of its own.
   expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);

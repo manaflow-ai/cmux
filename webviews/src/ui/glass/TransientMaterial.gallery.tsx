@@ -20,8 +20,10 @@ function TransientMaterialGallery({ look, scheme }: Props) {
     margin: 0,
     width: "100%",
     padding: "var(--ds-space-3)",
-    "--glass-tint": fill(menu),
-    "--glass-backdrop": "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+    "--glass-tint": fill(before ? "var(--ds-glass-menu-tint)" : menu),
+    "--glass-backdrop": before
+      ? "var(--ds-glass-menu-blur)"
+      : "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
   } as CSSProperties;
   const sheet = {
     ...surface,
@@ -44,7 +46,9 @@ function TransientMaterialGallery({ look, scheme }: Props) {
           color: "var(--cmux-text)",
           "--cmux-text": scheme === "dark" ? "rgb(240 240 242)" : "rgb(26 26 29)",
           "--glass-surface": scheme === "dark" ? "rgb(28 28 30)" : "rgb(252 252 252)",
-          "--transient-surface-veil": fill(veil),
+          "--transient-surface-veil": before
+            ? `color-mix(in srgb, var(--ds-material-neutral-${scheme}) ${scheme === "dark" ? "42%" : "55%"}, transparent)`
+            : fill(veil),
         } as CSSProperties
       }
     >
@@ -91,7 +95,7 @@ function TransientMaterialGallery({ look, scheme }: Props) {
                   ? "var(--ds-glass-chip-blur)"
                   : "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
                 "--glass-backdrop": before
-                  ? "var(--ds-glass-popover-blur)"
+                  ? "var(--ds-glass-chip-blur)"
                   : "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
                 "--glass-tint": "var(--tooltip-tint)",
               } as CSSProperties
@@ -135,10 +139,16 @@ function TransientMaterialGallery({ look, scheme }: Props) {
 
 export default componentEntry<Props>({
   id: "ui.transient-material",
-  title: "Non-chat transient material",
+  title: "Shared transient material",
   area: "Pages",
   height: 540,
-  covers: ["pages/shared/transientMaterial.css", "ui/Notice.tsx", "ui/Tooltip.tsx"],
+  covers: [
+    "ui/glass/glass.css",
+    "ui/popupSurface.css",
+    "pages/shared/transientMaterial.css",
+    "ui/Notice.tsx",
+    "ui/Tooltip.tsx",
+  ],
   load: async () => TransientMaterialGallery,
   variants: Object.fromEntries(
     (["light", "dark"] as const).flatMap((scheme) =>
