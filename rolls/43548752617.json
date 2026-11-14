@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43548752617",
+  "recorded_at": "2026-11-14T03:00:53Z",
+  "reason": "cmux-tui 20fdb235cb31 changes the image's cmux-tui (pinned 3711bd6c4297)",
+  "dry_run": false,
+  "cmux_tui": "20fdb235cb31ab5c8c84c6622e1e5b5524a85a82",
+  "fixes": [
+    {
+      "sha": "8cd842a2ffa93b7eae5c9dbd5fdfe277391eed29",
+      "mergedAt": "2026-11-14T02:22:45Z",
+      "subject": "agent service v2: origin state follows the peer link (#42720)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T03:00:53Z",
+    "snapshot_id": "sh-fd02940fc11046b293ff04542404b1a3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43548752617): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "19ca10a479ce97df2a007374a6f694b17b2059fe",
+    "image": "cloud-native-auto-20fdb235-43548752617-1",
+    "revision": "ci-43548752617-1",
+    "at": "2026-11-14T03:00:53Z"
+  },
+  "rolled_back": false
+}
