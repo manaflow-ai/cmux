@@ -55,8 +55,11 @@ jobs:
           # one this workflow dispatched for that SHA (github-actions[bot], lane
           # appstore). A new dispatch per push would also let the gate's
           # concurrency group cancel a queued one, a red with no blocker found.
-          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/runs?event=workflow_dispatch&head_sha=$sha&per_page=20" \
-            --jq '[.workflow_runs[] | select(.actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
+          # The repository's run list, matched on each run's workflow path: the
+          # gate's file exists only on feat-cmux-next, not in this branch's
+          # .github/workflows.
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
           if [[ -z "$run_id" ]]; then
             # return_run_details: the reply names the run this dispatch made, so a
             # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
