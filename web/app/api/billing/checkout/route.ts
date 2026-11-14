@@ -67,6 +67,8 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
+import { appleSubscriptionBlockingStripeCheckout } from "../../../../services/billing/doubleBilling";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../../services/billing/apple/config";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -82,6 +84,7 @@ type CheckoutStackServerApp = StackServerApp<true>;
 // URL otherwise — so the client just navigates to it either way.
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const response = await resolveCheckout(request);
+  response.headers.delete(TEAM_APP_STORE_WARNING_HEADER);
   const location = response.headers.get("location");
   const isRefusal = !location && response.status >= 400;
   if (request.nextUrl.searchParams.get("format") !== "json") {
@@ -219,7 +222,10 @@ async function nativeTeamCheckout(
     return NextResponse.json({ url: portal.url, plan: "team", teamId, flow: "portal" });
   }
   if (url.searchParams.has("billing")) return nativeCheckoutError("billing_unavailable");
-  return NextResponse.json({ url: destination, plan: "team", teamId, flow: "checkout" });
+  const warning = response.headers.get(TEAM_APP_STORE_WARNING_HEADER)
+    ? { warning: "app_store_subscription_active", warningAction: APPLE_MANAGE_SUBSCRIPTIONS_URL }
+    : {};
+  return NextResponse.json({ url: destination, plan: "team", teamId, flow: "checkout", ...warning });
 }
 
 async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
@@ -344,6 +350,19 @@ async function stripePersonalCheckout(
     const stackUserId = checkoutPrincipalId(user.id, "user");
     captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
+    // An App Store subscriber changes plans in the App Store; a Stripe
+    // subscription on top would bill them twice for one entitlement. That
+    // includes an App Store subscription that grants nothing right now but
+    // can still charge (billing retry past grace, auto-renew on): if Apple
+    // recovers it, both would bill. Checked before the portal route too: the
+    // portal would let a lapsed (unpaid, cancelling) Stripe subscription be
+    // paid or renewed next to the App Store one. A failed read throws: fail
+    // closed.
+    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id);
+    if (appStoreSubscription) {
+      captureCheckoutDecision(user.id, plan, appStoreSubscription.planId, "app_store_managed", attribution, interval);
+      return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+    }
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
     // Keep stale Upgrade links from opening a second subscription. Any
     // currently active row (even behind a newer canceled one) means the portal
@@ -355,8 +374,7 @@ async function stripePersonalCheckout(
       return existingSubscriptionRedirect(request, user.id, plan, interval, stripeBillingStatus, attribution);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
-    // An App Store subscriber changes plans in the App Store; a Stripe
-    // subscription on top would bill them twice for one entitlement.
+    // A granting Sandbox plan (an allowlisted tester) is App Store managed too.
     if (status.billingSource === "apple") {
       captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
@@ -465,6 +483,13 @@ function existingSubscriptionRedirect(
   return NextResponse.redirect(portalURL);
 }
 
+/** Shown on the Team payment page to a buyer whose personal plan is billed by the App Store. */
+const TEAM_APP_STORE_WARNING =
+  "You also pay for a personal cmux plan through the App Store. A Team plan does not cancel it. " +
+  "To stop paying for both, cancel it in your App Store subscriptions.";
+/** Internal: tells the native POST to add its warning; never leaves the server. */
+const TEAM_APP_STORE_WARNING_HEADER = "x-cmux-checkout-warning";
+
 type TeamCheckoutTarget = {
   /** Explicit team from `?teamId=` or the POST body; null keeps legacy resolution. */
   readonly teamId: string | null;
@@ -525,6 +550,18 @@ async function stripeTeamCheckout(
       ...checkoutAttributionMetadata(attribution),
     };
 
+    // A Team plan is billed to the team and is a different product, so a
+    // personal App Store plan does not block it. The buyer still sees, on the
+    // payment page, that the Team plan does not end the App Store one.
+    // A failed read only drops the warning; it must not block an allowed purchase.
+    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id).catch((error: unknown) => {
+      captureBillingError(error, { route: "/api/billing/checkout", plan: "team", operation: "app_store_warning" });
+      return null;
+    });
+    if (appStoreSubscription) {
+      captureCheckoutDecision(user.id, "team", appStoreSubscription.planId, "app_store_warning", attribution, interval);
+    }
+
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const session = await stripe().checkout.sessions.create({
@@ -543,6 +580,7 @@ async function stripeTeamCheckout(
       client_reference_id: resolvedTeamId,
       metadata,
       subscription_data: { metadata },
+      ...(appStoreSubscription ? { custom_text: { submit: { message: TEAM_APP_STORE_WARNING } } } : {}),
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
@@ -561,7 +599,9 @@ async function stripeTeamCheckout(
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
       ...checkoutLivemode(session),
     }));
-    return NextResponse.redirect(session.url);
+    const redirect = NextResponse.redirect(session.url);
+    if (appStoreSubscription) redirect.headers.set(TEAM_APP_STORE_WARNING_HEADER, "app_store_subscription_active");
+    return redirect;
   } catch (error) {
     captureBillingError(error, {
       route: "/api/billing/checkout",
@@ -597,7 +637,7 @@ function captureCheckoutDecision(
   userId: string,
   plan: string,
   currentPlan: string | null,
-  decision: "switch_plan" | "manage_billing" | "already_active" | "app_store_managed",
+  decision: "switch_plan" | "manage_billing" | "already_active" | "app_store_managed" | "app_store_warning",
   attribution: CheckoutAttribution,
   interval: BillingInterval = "month",
 ): void {

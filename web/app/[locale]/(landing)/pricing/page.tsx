@@ -29,6 +29,7 @@ import {
   type PersonalBillingSource,
 } from "../../../../services/billing/pro";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../../services/billing/apple/config";
+import { hasAppStoreSubscriptionThatMayBill } from "../../../../services/billing/doubleBilling";
 import {
   buildAlternates,
   openGraphDefaults,
@@ -221,7 +222,7 @@ function PricingContent({
   // An App Store subscriber never gets Stripe checkout for a personal plan:
   // every personal action becomes "Manage in the App Store", plus Stripe's
   // "Manage billing" while a Stripe subscription still bills them.
-  const appStoreAction = snapshot.billingSource === "apple"
+  const appStoreAction = snapshot.billingSource === "apple" || snapshot.appStoreSubscription
     ? (size?: "compact") => (
         <div className="space-y-2">
           <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL} size={size}>
@@ -658,6 +659,8 @@ type PlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** An App Store subscription that can still charge, even if it grants nothing now; checkout refuses it. */
+  appStoreSubscription?: boolean;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
   /** The Stripe subscription has a failed payment to fix before a switch. */
@@ -709,6 +712,7 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
+    appStoreSubscription: user.isAnonymous ? false : await hasAppStoreSubscriptionThatMayBill(user.id),
     cancelScheduled: status.cancelScheduled ?? false,
     paymentPastDue: status.paymentPastDue ?? false,
   };

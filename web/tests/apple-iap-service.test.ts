@@ -32,6 +32,7 @@ let applyFailures: number;
 let serverApi: AppleServerApi | null;
 let token: string;
 let tokenB: string;
+let doubleBillingChecks: string[];
 
 function deps(): AppleIapDependencies {
   return {
@@ -47,6 +48,9 @@ function deps(): AppleIapDependencies {
     },
     captureEvent: async (input) => {
       events.push(input);
+    },
+    guardDoubleBilling: async (userId) => {
+      doubleBillingChecks.push(userId);
     },
     now: () => NOW,
   };
@@ -134,6 +138,7 @@ beforeEach(async () => {
   events = [];
   applyFailures = 0;
   serverApi = null;
+  doubleBillingChecks = [];
   token = await store.accountTokenForUser("user-a");
   tokenB = await store.accountTokenForUser("user-b");
 });
@@ -211,6 +216,37 @@ describe("client transactions", () => {
     serverApi = { subscriptionStatus: async () => { throw new Error("503"); } };
     const result = await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
     expect(result.status).toBe("active");
+  });
+});
+
+describe("double billing check", () => {
+  test("an app-posted purchase checks its owner for a Stripe subscription after the plan is applied", async () => {
+    await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
+    expect(applied).toEqual(["user-a"]);
+    expect(doubleBillingChecks).toEqual(["user-a"]);
+  });
+
+  test("a notification that records a purchase checks its owner", async () => {
+    await subscribe();
+    expect(doubleBillingChecks).toEqual(["user-a"]);
+  });
+
+  test("a transferred subscription checks its new owner", async () => {
+    await subscribe();
+    doubleBillingChecks = [];
+    await recordClientAppleTransaction({
+      userId: "user-b",
+      signedTransactionInfo: signer.sign(transaction({ appAccountToken: tokenB, purchaseDate: NOW.getTime(), signedDate: NOW.getTime() })),
+    }, deps());
+    expect(doubleBillingChecks).toEqual(["user-b"]);
+  });
+
+  test("skipped notifications run no check", async () => {
+    await receiveAppleNotification(signer.sign({
+      notificationType: "TEST", notificationUUID: "00000000-0000-4000-8000-0000000000aa", version: "2.0",
+      signedDate: NOW.getTime(), data: { bundleId: BUNDLE, environment: "Production", appAppleId: 6783338052 },
+    }), deps());
+    expect(doubleBillingChecks).toEqual([]);
   });
 });
 

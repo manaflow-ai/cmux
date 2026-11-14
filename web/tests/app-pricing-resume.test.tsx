@@ -41,3 +41,34 @@ describe("app pricing for a subscriber who cancelled", () => {
     expect(html).toContain("Manage billing");
   });
 });
+
+describe("app pricing for an App Store subscription that can still charge", () => {
+  test("offers Manage in the App Store instead of Stripe checkout", () => {
+    const html = render({
+      authenticated: true,
+      developmentPro: false,
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
+      billingSource: "none",
+      appStoreSubscription: true,
+      email: "buyer@example.com",
+    });
+    expect(html).toContain("https://apps.apple.com/account/subscriptions");
+    expect(html).not.toContain("/api/billing/checkout");
+  });
+
+  test("a free account without one still gets checkout", () => {
+    const html = render({
+      authenticated: true,
+      developmentPro: false,
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
+      billingSource: "none",
+      email: "buyer@example.com",
+    });
+    expect(html).not.toContain("https://apps.apple.com/account/subscriptions");
+    expect(html).toContain("/api/billing/checkout");
+  });
+});
