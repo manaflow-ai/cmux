@@ -9,6 +9,7 @@
 
 use super::{ConnAuth, Hub, Origin, serve_connection_from};
 use crate::rpc::{Message, RpcError};
+use acpmux_core::conn::{HubSource, RouteSource, Source};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -46,6 +47,7 @@ pub(super) async fn serve_stream(
     v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
     let daemon_id = hub.run_id();
+    let v1 = hub.clone();
     let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
@@ -81,9 +83,12 @@ pub(super) async fn serve_stream(
         && let Ok(Some(upgrade)) = reader.await
         && let Ok(Some(wr)) = writer.await
     {
-        let _ = upgrade.serve(wr, &v2, daemon_id).await;
+        let _ = upgrade.serve(wr, &v1, &v2, daemon_id).await;
     }
 }
+
+/// Each upgraded connection's number, as chat actors tell its subscriptions apart.
+static NEXT_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 struct Upgrade<R> {
     reader: tokio::io::Chain<std::io::Cursor<Vec<u8>>, R>,
@@ -95,6 +100,7 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
     async fn serve<W: AsyncWrite + Unpin>(
         self,
         mut writer: W,
+        v1: &Arc<Hub>,
         v2: &acpmux_core::life::V2,
         daemon_id: String,
     ) -> Result<(), acpmux_core::conn::ConnError> {
@@ -107,7 +113,20 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
             }),
         );
         writer.write_all(reply.to_line().as_bytes()).await?;
-        let source = Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
+        let list: Arc<dyn Source> = Arc::new(HubSource::new(v2.hub()));
+        // `chat:<id>` goes to that chat's actor when the connection was granted `chat` and the
+        // daemon keeps books; else only `list` is served, and a chat's `sub` is refused.
+        let source: Arc<dyn Source> = match (v2.registry(), v1.book_tee()) {
+            (Some(registry), Some(tee)) if self.surfaces.iter().any(|s| s == "chat") => {
+                Arc::new(RouteSource::new(
+                    list,
+                    registry.clone(),
+                    tee.resolve(v1),
+                    NEXT_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                ))
+            }
+            _ => list,
+        };
         acpmux_core::conn::run(
             self.reader,
             writer,
