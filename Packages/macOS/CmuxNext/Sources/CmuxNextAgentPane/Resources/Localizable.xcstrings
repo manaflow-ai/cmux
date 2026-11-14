@@ -34769,14 +34769,17 @@
         "ja": {
           "stringUnit": { "state": "translated", "value": "ブランチをプッシュできませんでした。チャットを再接続して、もう一度お試しください。" }
         },
+        "km": {
+          "stringUnit": { "state": "needs_review", "value": "មិនអាច push សាខាបានទេ។ ភ្ជាប់ការជជែកឡើងវិញ ហើយព្យាយាមម្ដងទៀត។" }
+        },
         "ko": {
           "stringUnit": { "state": "translated", "value": "브랜치를 푸시할 수 없습니다. 채팅을 다시 연결한 후 다시 시도하세요." }
         },
+        "nb": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; koble til chatten på nytt og prøv igjen." }
+        },
         "nl": {
           "stringUnit": { "state": "translated", "value": "De branch kon niet worden gepusht; verbind de chat opnieuw en probeer het nogmaals." }
-        },
-        "no": {
-          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; koble til chatten på nytt og prøv igjen." }
         },
         "pl": {
           "stringUnit": { "state": "translated", "value": "Nie można wypchnąć gałęzi; połącz ponownie czat i spróbuj jeszcze raz." }

@@ -392,6 +392,20 @@ class Lint:
                 if isinstance(value, str) and bad.search(value):
                     self.add("copy.placeholder", "2.1", "blocker", f"user-facing string looks unfinished: {value[:80]!r}", f"{self.rel(loc)} [{key}]")
 
+        # 2.1 (completeness): a raw Swift error dump in user-facing text ("LinkError(code: ...)",
+        # "The operation couldn't be completed. (... error 1.)"). Display sites use
+        # UserFacingError.message(_:); logs and telemetry keep the raw error.
+        raw_error = re.compile(r"\?\?\s*String\(describing:\s*error\)")
+        log_line = re.compile(r"\blog\.|Log\.|Logger\(|privacy:|telemetry|detail:")
+        for path, text in texts.items():
+            for lineno, line in enumerate(text.splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith("//") or not raw_error.search(line) or log_line.search(line):
+                    continue
+                self.add("ux.raw-error", "2.1", "warning",
+                         "an error shown as String(describing:) reads as a Swift dump; use UserFacingError.message(_:)",
+                         f"{self.rel(path)}:{lineno}")
+
         # URLs the app opens.
         url_literal = re.compile(r"\"(https://[^\"\\\s]+)\"")
         for path, text in texts.items():

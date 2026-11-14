@@ -6,6 +6,8 @@
 //! says if this process keeps the process ids of its ended children.
 
 pub mod codex_config_lock;
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+mod cut_name_child;
 pub mod ended_children;
 pub mod file_birth;
 #[cfg(unix)]
@@ -23,5 +25,7 @@ pub mod unix_process_scope;
 mod windows_processes;
 pub mod write_budget;
 
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use cut_name_child::CutNameChild;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use read_wait::{ReadWait, read_timeout_or_ended};

@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll` and
@@ -40,6 +42,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
+    /// The document projection overrides from `sidebar.sections` and
+    /// `sidebar.workspaces`. The document remains the persistence owner;
+    /// these values only choose what the native view projects.
+    public var projection = SidebarProjectionCustomization.defaults
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
     /// Share of the sidebar height the band above the list takes before it
