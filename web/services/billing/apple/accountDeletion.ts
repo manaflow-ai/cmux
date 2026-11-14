@@ -85,9 +85,10 @@ type AccountDeletionTransaction = Pick<ReturnType<typeof cloudDb>, "delete" | "u
  *   maps to no one and a purchase or notification carrying it is unlinked.
  * - `apple_subscriptions`: deleted. A notification for a subscription with
  *   no row and no token owner is closed as `skipped: unlinked_account`, and
- *   the lapse sweep never re-derives a plan for a deleted account. A new
- *   purchase by another cmux account carries that account's token and
- *   creates a fresh row for it.
+ *   the lapse sweep never re-derives a plan for a deleted account. Later
+ *   renewals are not recorded. After the subscription lapses (or on an
+ *   in-group upgrade), a purchase by another cmux account carries that
+ *   account's token and creates a fresh row for it.
  * - `apple_transactions`: kept as the revenue ledger, with `user_id` set to
  *   the deleted-account placeholder. `apple_notifications` has no user
  *   column and stays as received.

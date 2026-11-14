@@ -27,8 +27,9 @@ export function AccountActions() {
   const locale = useLocale();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runSignOut, signOutState] = useAsyncAction(t("signOutError"));
-  // Read when the dialog opens. A failed read never blocks deletion: the
-  // dialog then shows no App Store warning, as for a web subscriber.
+  // Read when the dialog opens (a reopen refetches; confirm waits for the
+  // fresh answer). A failed read never blocks deletion: the dialog then
+  // shows no App Store warning, as for a web subscriber.
   const deletionCheck = useQuery({ ...settingsAccountDeletionQuery, enabled: confirmingDelete, retry: false });
 
   // The same sign-out as the dashboard account menu.
@@ -65,7 +66,7 @@ export function AccountActions() {
             acknowledgement={t("deleteAcknowledge")}
             confirmLabel={t("deleteConfirm")}
             errorMessage={t("deleteError")}
-            confirmDisabled={deletionCheck.isPending}
+            confirmDisabled={deletionCheck.isFetching}
             onConfirm={async () => {
               await user.delete();
               clearCoderouterOrganizationScope();

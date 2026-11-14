@@ -2558,8 +2558,10 @@ describe("account deletion route", () => {
     // granting a plan to the deleted account.
     const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);
     expect(conditionColumnNames(tokenDelete?.condition)).toEqual(["user_id"]);
+    expect(conditionParamValues(tokenDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
     const subscriptionDelete = deletedWhere.find((entry) => entry.table === appleSubscriptions);
     expect(conditionColumnNames(subscriptionDelete?.condition)).toEqual(["user_id"]);
+    expect(conditionParamValues(subscriptionDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
     // The revenue ledger stays, attributed to the deleted-account placeholder.
     expect(deletedTables).not.toContain(appleTransactions);
     // The cmux-row cleanup runs again after the Stack delete; both passes
@@ -3055,6 +3057,22 @@ function stripUpdatedAt(values: unknown): Record<string, unknown> {
   const copy = { ...(values as Record<string, unknown>) };
   delete copy.updatedAt;
   return copy;
+}
+
+/** The bound values of a Drizzle condition (its `Param` chunks), in order. */
+function conditionParamValues(condition: unknown): unknown[] {
+  const values: unknown[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (value.constructor?.name === "Param") {
+      values.push((value as { readonly value: unknown }).value);
+      return;
+    }
+    const chunks = (value as { readonly queryChunks?: readonly unknown[] }).queryChunks;
+    if (Array.isArray(chunks)) for (const chunk of chunks) visit(chunk);
+  };
+  visit(condition);
+  return values;
 }
 
 function conditionColumnNames(condition: unknown): string[] {

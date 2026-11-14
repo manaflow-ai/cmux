@@ -110,6 +110,40 @@ describe("account deletion with an App Store subscription", () => {
     });
   });
 
+  dbTest("deletion leaves other accounts' tokens, subscriptions and ledger rows alone", async () => {
+    await subscribe();
+    const otherToken = await store.accountTokenForUser("other-user");
+    await store.writeSubscriptionState(
+      state(otherToken, { originalTransactionId: "otx-other", lastTransactionId: "tx-other" }),
+      { tokenOwner: "other-user" },
+    );
+    await store.recordTransaction({
+      transactionId: "tx-other",
+      originalTransactionId: "otx-other",
+      userId: "other-user",
+      productId: "com.cmux.app.pro.monthly",
+      planId: "pro",
+      environment: "Production",
+      type: "PURCHASE",
+      purchaseDate: new Date(NOW - DAY),
+      expiresAt: new Date(NOW + 29 * DAY),
+      priceMilliunits: 74990,
+      currency: "USD",
+      storefront: "USA",
+      offerType: null,
+      revokedAt: null,
+      payload: {},
+    });
+
+    await cloudDb().transaction((tx) => detachAppleBillingForAccountDeletion(tx, USER));
+
+    expect(await store.userIdForAccountToken(otherToken)).toBe("other-user");
+    expect(await store.subscription("otx-other")).toMatchObject({ userId: "other-user", status: "active" });
+    const otherLedger = await sql!`select user_id from apple_transactions where transaction_id = 'tx-other'`;
+    expect(otherLedger.map((row) => row.user_id)).toEqual(["other-user"]);
+    expect(await accountDeletionCheckForUser("other-user")).toMatchObject({ appStoreSubscriptionRenews: true });
+  });
+
   dbTest("deletion unlinks the subscription, keeps the ledger, and a later renewal is skipped", async () => {
     const token = await subscribe();
 
