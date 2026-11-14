@@ -6,13 +6,14 @@
 //! before `lines_written_before_read` and the keys after it. Each reply writes its own envelope,
 //! its own `id` and its own line count around these runs. So the readers of one build serialize
 //! its tree one time, and each reply has the bytes that the command path writes for its
-//! `Response` (tests/list_workspaces_shared_text.rs). Each connection then still projects its own
-//! reply for the capabilities it declared (`MessageWriter::send_tree_reply`).
+//! `Response` (tests/list_workspaces_shared_text.rs). The text is the tree as its connection reads
+//! the tab kinds: that projection is made on the tree before the text is written
+//! (tree_reply_flight.rs), so the readers of one build share one text for each projection.
 //!
 //! Lifetime: the flight keeps the text only while a reader of its build waits for it
 //! (tree_reply_flight.rs), and each reader drops its reference when its reply is written, so the
-//! text is freed when the last reader of that build ends. There is one text for each build,
-//! whatever the number of readers.
+//! text is freed when the last reader of that build ends. There is one text for each projection
+//! of a build, whatever the number of readers.
 
 use super::render_service::json_error_to_io;
 use serde_json::Value;
@@ -107,6 +108,10 @@ impl TreeText {
 
 /// A `list-workspaces` reply's data: its build's shared tree text, and the lines its connection
 /// had written when it was read (`cmd_workspaces::list_workspaces`).
+///
+/// `text` is the tree as the connection read the tab kinds when the tree was read
+/// (`TabProjection`), so the reply is not parsed to change them. A capability that the connection
+/// declares between that read and the send is in force from its next reply.
 pub(crate) struct TreeReply {
     pub(crate) text: Arc<TreeText>,
     pub(crate) lines_written_before_read: Option<u64>,

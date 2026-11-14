@@ -143,6 +143,75 @@ fn the_readers_of_one_build_share_one_serialization_of_its_tree() {
     mux.shutdown();
 }
 
+/// Readers of one build that read the tab kinds in two ways: each gets the bytes that the command
+/// path writes for its connection, and the build is written one time for each of the two ways.
+#[test]
+fn the_readers_of_one_build_share_one_text_for_each_tab_projection() {
+    let mux = tricky_session();
+    let render = Arc::new(RenderService::new());
+    let all = [
+        CONVERSATION_TABS_CAPABILITY,
+        AGENT_SESSION_TABS_CAPABILITY,
+        PAGE_TABS_CAPABILITY,
+        CLOSED_CONVERSATION_TABS_CAPABILITY,
+    ];
+    let declared: [&[&str]; 4] = [&[], &all, &[], &all];
+    let connections: Vec<Connection> =
+        declared.iter().map(|capabilities| Connection::open(&mux, &render, capabilities)).collect();
+
+    let (started, running) = sync_channel(1);
+    let (release, gate) = sync_channel::<()>(1);
+    let holder = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.tree_reply_flight
+                .read(move || {
+                    started.send(()).unwrap();
+                    gate.recv_timeout(Duration::from_secs(10)).unwrap();
+                    Ok(Value::Null)
+                })
+                .unwrap()
+        })
+    };
+    running.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let before = render.control_serializations.load(Ordering::SeqCst);
+    let readers = connections
+        .into_iter()
+        .enumerate()
+        .map(|(index, connection)| {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                connection.ask(&mux, json!({"id": index, "cmd": "list-workspaces"}))
+            })
+        })
+        .collect::<Vec<_>>();
+    wait_until("every reader waits for the next build", || {
+        mux.tree_reply_flight.waiting_readers() == declared.len()
+    });
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    let replies = readers.into_iter().map(|reader| reader.join().unwrap()).collect::<Vec<_>>();
+    let serializations = render.control_serializations.load(Ordering::SeqCst) - before;
+    assert_eq!(
+        serializations, 2,
+        "4 readers of one build with 2 tab projections made {serializations} texts of its tree"
+    );
+
+    for (index, (reply, capabilities)) in replies.iter().zip(declared).enumerate() {
+        // A connection with the same history, so the same lines written before its read.
+        let reference = Connection::open(&mux, &render, capabilities);
+        let expected = value_path_reply(&mux, &reference, Some(json!(index)));
+        assert_eq!(reply, &expected, "capabilities {capabilities:?}");
+        assert_eq!(
+            reply.contains("\"kind\":\"conversation\""),
+            !capabilities.is_empty(),
+            "capabilities {capabilities:?}"
+        );
+    }
+    mux.shutdown();
+}
+
 /// The reply the command path makes of `list-workspaces`: the tree value in a `Response`,
 /// serialized by the connection's writer.
 fn value_path_reply(mux: &Arc<Mux>, connection: &Connection, id: Option<Value>) -> String {

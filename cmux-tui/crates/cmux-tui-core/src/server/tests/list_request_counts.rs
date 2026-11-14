@@ -454,3 +454,35 @@ fn a_git_head_refresh_sends_tab_changed_only_for_a_branch_that_changed() {
     assert_eq!(reply.matches("\"git_branch\":\"main\"").count(), 1, "{}", start_of(&reply));
     session.end();
 }
+
+/// A v2 reply was made from its text: the message was written, parsed, changed and written a
+/// second time (`send_control`). It is now changed as a value and written one time
+/// (`send_control_value`). Each connection gets the same bytes from the two.
+#[test]
+fn a_v2_reply_has_the_bytes_of_the_reply_made_from_its_text() {
+    let session = Session::of("list-counts-equal-reply", 6);
+    session.add_conversation_tab();
+    let mux = &session.mux;
+    let render = Arc::new(RenderService::new());
+    let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
+    // The message with each tab kind as it is: the reply of a connection with each capability.
+    let message: Value = serde_json::from_str(&app.snapshot(mux)).unwrap();
+
+    let declared: [&[&str]; 4] =
+        [&[], &TAB_CAPABILITIES[..1], &TAB_CAPABILITIES[..3], &TAB_CAPABILITIES];
+    let mut lines = Vec::new();
+    for capabilities in declared {
+        let connection = Connection::open(mux, &render, capabilities);
+        connection.writer.send_control(&message).unwrap();
+        let from_text = connection.reply();
+        connection.writer.send_control_value(message.clone()).unwrap();
+        let from_value = connection.reply();
+        assert_eq!(from_value, from_text, "capabilities {capabilities:?}");
+        lines.push(from_value);
+    }
+    assert_ne!(
+        lines[0], lines[3],
+        "a connection without the capabilities reads the conversation tab as another kind"
+    );
+    session.end();
+}

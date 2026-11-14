@@ -492,6 +492,52 @@ impl NegotiatedTabs {
     }
 }
 
+/// What one connection reads of the tab kinds: the capabilities it had negotiated at one moment.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabProjection {
+    downgrade: Option<ConversationTabDowngrade>,
+    closed: bool,
+}
+
+impl TabProjection {
+    /// The projection of a connection that negotiated each tab capability.
+    #[cfg(test)]
+    pub(crate) fn canonical() -> Self {
+        Self { downgrade: None, closed: true }
+    }
+
+    /// Whether this is the projection of a connection that negotiated each tab capability: it
+    /// changes nothing.
+    pub(crate) fn is_canonical(self) -> bool {
+        self.downgrade.is_none() && self.closed
+    }
+
+    /// Rewrites `value`, a whole control message, as this connection reads it. Returns whether
+    /// anything changed.
+    pub(crate) fn project(self, value: &mut Value) -> bool {
+        let mut changed = false;
+        if let Some(downgrade) = self.downgrade
+            && conversation_tabs_present()
+        {
+            changed |= downgrade_conversation_tabs(value, downgrade);
+        }
+        if !self.closed {
+            changed |= downgrade_closed_tabs(value);
+        }
+        changed
+    }
+
+    /// [`Self::project`] of the raw reply `{"data": data, ..}`, for a caller that holds only its
+    /// `data`: the reply's other fields (`id`, `ok`) are not tab values. `data` goes into that
+    /// envelope and comes back, so the rewrite is the one of the whole message, with no copy.
+    pub(crate) fn project_data(self, data: &mut Value) -> bool {
+        let mut reply = json!({ "data": data.take() });
+        let changed = self.project(&mut reply);
+        *data = reply.get_mut("data").map(Value::take).unwrap_or_default();
+        changed
+    }
+}
+
 /// The conversation tab capabilities a client may declare.
 pub(super) fn negotiable(capability: &str) -> bool {
     capability == CONVERSATION_TABS_CAPABILITY
@@ -529,9 +575,7 @@ impl MessageWriter {
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        if self.conversation_tabs.downgrade().is_none()
-            && self.conversation_tabs.closed.load(Ordering::Acquire)
-        {
+        if self.tab_projection().is_canonical() {
             return Ok(text);
         }
         if !text.contains("\"conversation") {
@@ -558,16 +602,15 @@ impl MessageWriter {
     }
 
     fn project_tab_kinds(&self, value: &mut Value) -> bool {
-        let mut changed = false;
-        if let Some(downgrade) = self.conversation_tabs.downgrade()
-            && conversation_tabs_present()
-        {
-            changed |= downgrade_conversation_tabs(value, downgrade);
+        self.tab_projection().project(value)
+    }
+
+    /// What this connection reads of the tab kinds now.
+    pub(super) fn tab_projection(&self) -> TabProjection {
+        TabProjection {
+            downgrade: self.conversation_tabs.downgrade(),
+            closed: self.conversation_tabs.closed.load(Ordering::Acquire),
         }
-        if !self.conversation_tabs.closed.load(Ordering::Acquire) {
-            changed |= downgrade_closed_tabs(value);
-        }
-        changed
     }
 }
 

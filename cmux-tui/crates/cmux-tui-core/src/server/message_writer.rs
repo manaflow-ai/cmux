@@ -364,7 +364,19 @@ impl MessageWriter {
         value: &T,
         deadline: Option<Instant>,
     ) -> std::io::Result<()> {
-        self.send_rendered_control(deadline, |render| render.serialize_control(value))
+        self.send_rendered_control(deadline, false, |render| render.serialize_control(value))
+    }
+
+    /// [`Self::send_control`] of a message that this call owns (a v2 response). A connection
+    /// that did not negotiate each tab capability gets its projection on the value, before the
+    /// message's one text. The text path (`project_conversation_tabs`) parses the whole message
+    /// and writes it a second time, which for a `session.snapshot` is the whole session.
+    pub(super) fn send_control_value(&self, mut value: Value) -> std::io::Result<()> {
+        let projection = self.tab_projection();
+        if !projection.is_canonical() {
+            projection.project(&mut value);
+        }
+        self.send_rendered_control(None, true, |render| render.serialize_control(&value))
     }
 
     /// A `list-workspaces` reply written from its build's shared tree text:
@@ -375,7 +387,12 @@ impl MessageWriter {
         tree: &TreeReply,
         id: Option<&Value>,
     ) -> std::io::Result<()> {
-        self.send_rendered_control(None, |render| {
+        // The tree's text has this connection's tab projection (`TreeReply`). An `id` that is
+        // an array or an object is the one part of the reply that the tree's text does not
+        // hold and that the projection reads: such a reply takes the text path, which changes
+        // nothing more in a tree that is projected.
+        let tabs_projected = !id.is_some_and(|id| id.is_array() || id.is_object());
+        self.send_rendered_control(None, tabs_projected, |render| {
             render.write_control(tree.text.reply_bytes(), |out| {
                 tree.text.write_reply(out, id, tree.lines_written_before_read)
             })
@@ -383,16 +400,20 @@ impl MessageWriter {
     }
 
     /// Sends the control message that `render` makes, as [`Self::send_control`] does.
+    /// `tabs_projected`: the message already is what this connection reads of the tab kinds, so
+    /// its text is not parsed for them.
     fn send_rendered_control(
         &self,
         deadline: Option<Instant>,
+        tabs_projected: bool,
         render: impl FnOnce(&RenderService) -> std::io::Result<Arc<BudgetedText>>,
     ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = render(&self.render_service).and_then(|text| {
-            let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
+            let text = if tabs_projected { text } else { self.project_conversation_tabs(text)? };
+            let text = self.project_api_revision(text)?;
             let text = self.mark_reply(text);
             match deadline {
                 Some(deadline) => self.sink.send_control_backpressured(text, deadline),

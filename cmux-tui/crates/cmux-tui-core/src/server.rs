@@ -3108,14 +3108,19 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
 }
 
-/// [`list_workspaces_reply`] as the tree's text, which the concurrent
-/// readers of its build share (tree_reply_text.rs).
+/// [`list_workspaces_reply`] as the tree's text under `projection`, which
+/// the concurrent readers of its build that have that projection share
+/// (tree_reply_text.rs).
 fn list_workspaces_reply_text(
     mux: &Mux,
     render: &RenderService,
+    projection: conversation_tabs_wire::TabProjection,
 ) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
-    mux.tree_reply_flight
-        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
+    mux.tree_reply_flight.read_text(
+        || list_workspaces_tree(mux),
+        projection,
+        |tree| render.serialize_tree(tree),
+    )
 }
 
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
