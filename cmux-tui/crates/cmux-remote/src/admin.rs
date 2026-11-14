@@ -21,7 +21,7 @@ use tokio::sync::{Semaphore, oneshot, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
-use crate::identity::{EnrollmentRelayAccess, IdentityError};
+use crate::identity::{BoundDevice, EnrollmentRelayAccess, IdentityError};
 use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
@@ -94,6 +94,14 @@ pub enum AdminRequest {
         route_hints: Vec<String>,
         #[serde(default)]
         relay_access: Vec<EnrollmentRelayAccess>,
+        /// Bind the invitation to this device public key (as `cmux remote
+        /// device-key` prints it): only that key can claim it, and it enrolls
+        /// with no approval step. Absent from older admin clients.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_public_key: Option<String>,
+        /// The bound device's name in the device list; only with a key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_name: Option<String>,
     },
     Pending,
     Approve {
@@ -736,15 +744,38 @@ async fn dispatch(
             connected_clients: daemon.connections().await.len(),
         })
         .map_err(IdentityError::Json),
-        AdminRequest::CreateInvitation { ttl_seconds, route_hints, relay_access } => auth
-            .create_invitation_with_relay_access(
-                Duration::from_secs(ttl_seconds),
-                if route_hints.is_empty() { default_route_hints.to_vec() } else { route_hints },
-                relay_access,
-            )
-            .await
-            .and_then(|invitation| invitation.to_uri())
-            .map(|uri| serde_json::json!({ "uri": uri })),
+        AdminRequest::CreateInvitation {
+            ttl_seconds,
+            route_hints,
+            relay_access,
+            device_public_key,
+            device_name,
+        } => {
+            let bound_device = match (device_public_key, device_name) {
+                (Some(key), name) => BoundDevice::parse(&key, name).map(Some),
+                (None, Some(_)) => Err(IdentityError::Invalid(
+                    "a device name needs the device public key it names".into(),
+                )),
+                (None, None) => Ok(None),
+            };
+            match bound_device {
+                Ok(bound_device) => auth
+                    .create_invitation_for_device(
+                        Duration::from_secs(ttl_seconds),
+                        if route_hints.is_empty() {
+                            default_route_hints.to_vec()
+                        } else {
+                            route_hints
+                        },
+                        relay_access,
+                        bound_device,
+                    )
+                    .await
+                    .and_then(|invitation| invitation.to_uri())
+                    .map(|uri| serde_json::json!({ "uri": uri })),
+                Err(error) => Err(error),
+            }
+        }
         AdminRequest::Pending => {
             serde_json::to_value(auth.pending_enrollments().await).map_err(IdentityError::Json)
         }
@@ -937,12 +968,71 @@ mod tests {
                 ttl_seconds: 60,
                 route_hints: vec![],
                 relay_access: vec![],
+                device_public_key: None,
+                device_name: None,
             },
         )
         .await
         .unwrap();
         assert!(invitation.ok);
         assert!(invitation.result.unwrap()["uri"].as_str().unwrap().starts_with("cmux://enroll/"));
+        server.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn an_older_admin_client_create_request_has_no_device_binding() {
+        let request: AdminRequest =
+            serde_json::from_str(r#"{"method":"create-invitation","ttl_seconds":60}"#).unwrap();
+        assert!(matches!(
+            request,
+            AdminRequest::CreateInvitation { device_public_key: None, device_name: None, .. }
+        ));
+        let unbound = AdminRequest::CreateInvitation {
+            ttl_seconds: 60,
+            route_hints: vec![],
+            relay_access: vec![],
+            device_public_key: None,
+            device_name: None,
+        };
+        let encoded = serde_json::to_value(&unbound).unwrap();
+        assert!(encoded.get("device_public_key").is_none(), "{encoded}");
+    }
+
+    #[tokio::test]
+    async fn owner_can_create_an_invitation_bound_to_one_device() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "test", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server =
+            serve_admin(daemon, &socket, vec!["ws://127.0.0.1:1/v1/link".into()]).await.unwrap();
+        let device = crate::crypto::StaticIdentity::generate().unwrap();
+        let device_key = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            device.public_key(),
+        );
+        let create = |device_public_key: Option<String>, device_name: Option<String>| {
+            AdminRequest::CreateInvitation {
+                ttl_seconds: 60,
+                route_hints: vec![],
+                relay_access: vec![],
+                device_public_key,
+                device_name,
+            }
+        };
+
+        let bound =
+            call_admin(&socket, &create(Some(device_key), Some("agent-vm".into()))).await.unwrap();
+        assert!(bound.ok, "{:?}", bound.error);
+        let uri = bound.result.unwrap()["uri"].as_str().unwrap().to_owned();
+        assert!(!crate::identity::EnrollmentInvitation::from_uri(&uri).unwrap().approval_required);
+
+        let unnamed_key =
+            call_admin(&socket, &create(None, Some("agent-vm".into()))).await.unwrap();
+        assert!(!unnamed_key.ok);
+        let bad_key = call_admin(&socket, &create(Some("short".into()), None)).await.unwrap();
+        assert!(!bad_key.ok);
         server.shutdown().await.unwrap();
     }
 

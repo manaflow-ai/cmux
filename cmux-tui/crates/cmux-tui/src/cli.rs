@@ -267,6 +267,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-sidecar",
     "remote-stop",
     "remote-update-need",
+    "remote-device-key",
     "install-self",
     "wg",
 ];
@@ -286,6 +287,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
         "update-need" => Some("remote-update-need"),
+        "device-key" => Some("remote-device-key"),
         _ => None,
     }
 }
