@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import resource
 import subprocess
 import sys
 import tempfile
@@ -64,9 +65,19 @@ class Window(unittest.TestCase):
 
     def test_a_hidden_page_ends_the_run(self):
         self.assertEqual(cells.require_visible({"focus": False, "visibility": "visible"})["focus"], False)
-        for facts in ({"hidden": True}, {"visibility": "hidden"}, {"view_hidden": True}, {"error": "no live page cmux.diff"}):
+        for facts in ({"hidden": True}, {"visibility": "hidden"}, {"view_hidden": True}, {"error": "no live page cmux.diff"},
+                      {"visibility": None, "page_error": "no answer"}):
             with self.assertRaises(SystemExit):
                 cells.require_visible(facts)
+
+    def test_a_page_that_cannot_say_ends_the_run_when_its_window_is_not_shown(self):
+        shown = {"visibility": None, "view_hidden": False, "window_occluded": False, "in_window": True, "window_visible": True}
+        self.assertIs(cells.require_visible(shown), shown)
+        for key, value in (("window_occluded", True), ("in_window", False), ("window_visible", False)):
+            with self.assertRaises(SystemExit):
+                cells.require_visible({**shown, key: value})
+        # A page that says it is visible is believed: its own answer is the one that its timer uses.
+        self.assertEqual(cells.require_visible({"visibility": "visible", "window_occluded": True})["visibility"], "visible")
 
 
 class ChildTime(unittest.TestCase):
@@ -75,14 +86,22 @@ class ChildTime(unittest.TestCase):
         # Words 12 and 13, in mach ticks of 125/3 ns.
         self.assertEqual(cells.child_cpu_ns(words, 125, 3), (112 + 113) * 125 // 3)
 
-    def test_the_check_sees_a_real_child(self):
-        def children_ns(_pid):
-            times = os.times()
-            return int((times.children_user + times.children_system) * 1e9)
+    @staticmethod
+    def children_ns(_pid=None):
+        used = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return int((used.ru_utime + used.ru_stime) * 1e9)
 
-        seen = cells.child_time_check(children_ns, burn_s=0.2)
+    def test_the_check_sees_a_real_child(self):
+        seen = cells.child_time_check(self.children_ns, burn_s=0.2)
         self.assertTrue(seen["ok"], seen)
         self.assertGreaterEqual(seen["seen_ms"], 160)
+        self.assertAlmostEqual(seen["seen_ms"], seen["times_ms"], delta=0.2)
+
+    def test_the_check_says_when_the_read_has_a_part_of_the_child_time_only(self):
+        # A read of one wrong word: it sees a child, but not the time that the system gives for it.
+        seen = cells.child_time_check(lambda _pid: self.children_ns() // 2, burn_s=0.2)
+        self.assertFalse(seen["ok"], seen)
+        self.assertGreater(seen["seen_ms"], 0)
 
     def test_the_check_says_when_the_read_sees_no_child(self):
         self.assertFalse(cells.child_time_check(lambda _pid: 7, burn_s=0.05)["ok"])
@@ -152,6 +171,13 @@ class Page(unittest.TestCase):
         self.assertEqual(app.calls[2][2]["op"], "cmux.diff.git.fingerprint")
         self.assertIn("fingerprint", opened["read"])
 
+    def test_open_goes_on_to_the_first_file_when_the_action_answers_at_its_limit(self):
+        late = {"error": "action.run timed out", "code": "timeout", "state": "in_progress"}
+        opened = cells.open_tab(FakeApp(action=late), "/tmp/repository")
+        self.assertIn("fingerprint", opened["read"])
+        with self.assertRaises(SystemExit):
+            cells.open_tab(FakeApp(action=late, matched=False), "/tmp/repository")
+
     def test_open_ends_the_run_when_the_tab_the_first_file_or_the_read_fails(self):
         for app in (FakeApp(action={"error": "The picker opens only when focus is requested."}), FakeApp(matched=False),
                     FakeApp(fingerprint=False)):
@@ -182,10 +208,10 @@ class Summary(unittest.TestCase):
         program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
 
         def run(app, daemon, children, focus):
-            return {"samples": [
+            return {"child_time_check": {"ok": True, "seen_ms": 312.5}, "samples": [
                 {"label": "idle-launch", "kinds": {}},
                 {"label": "idle-2", "measure_s": 60 if focus else 300,
-                 "diff_tab": {"page": {"focus": focus}, "reads_expected": 15 if focus else 10},
+                 "diff_tab": {"page": {"focus": focus}, "page_after": {"focus": focus}, "reads_expected": 15 if focus else 10},
                  "kinds": {"app": {"cpu_pct": app, "wakeups_per_s": 3.0},
                            "tui-daemon": {"cpu_pct": daemon, "wakeups_per_s": 1.0, "child_cpu_pct": children}}}]}
 
@@ -200,12 +226,56 @@ class Summary(unittest.TestCase):
                                  check=True, capture_output=True, text=True).stdout
             summary = json.load(open(os.path.join(scratch, "summary.json")))
         lines = out.splitlines()
-        self.assertIn("IDLE-AB window base 1 cell 1:large:rest measure_s 60 focus True reads_expected 15 scroll_events None", lines)
+        self.assertIn("IDLE-AB window base 1 cell 1:large:rest measure_s 60 focus True focus_after True "
+                      "reads_expected 15 scroll_events None scroll_errors None", lines)
+        self.assertIn("IDLE-AB child_time_check head 1 cell 1:none:rest ok True seen_ms 312.5", lines)
+        self.assertEqual([line for line in lines if line.startswith("IDLE-AB fault")], [])
         self.assertIn("IDLE-AB cpu cell 1:large:rest kind children:tui-daemon base 4.0 [4.0-4.0] n 1 head 0.25 [0.25-0.25] n 1 delta -3.75", lines)
         self.assertIn("IDLE-AB cpu cell 1:large:rest kind total base 7.0 [7.0-7.0] n 1 head 1.75 [1.75-1.75] n 1 delta -5.25", lines)
         self.assertIn("IDLE-AB cpu cell 1:none:rest kind total base 0.6 [0.6-0.6] n 1 head 0.6 [0.6-0.6] n 1 delta 0.0", lines)
         self.assertIn("IDLE-AB median cell 1:large:rest kind app base 3.0 [3.0-3.0] n 1 head 3.0 [3.0-3.0] n 1 delta 0.0", lines)
         self.assertEqual({row["cell"] for row in summary}, {"1:large:rest", "1:none:rest"})
+
+    def test_a_cell_that_is_not_to_be_read_is_a_fault_and_the_exit_is_1(self):
+        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
+        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+
+        def run(focus, after=None, check=True, scroll=None):
+            tab = {"page": {"focus": focus}, "page_after": {"focus": focus if after is None else after}, "reads_expected": 15}
+            if scroll is not None:
+                tab["scroll"] = scroll
+            return {"child_time_check": {"ok": check, "seen_ms": 300.0}, "samples": [
+                {"label": "idle-2", "measure_s": 60, "diff_tab": tab,
+                 "kinds": {"app": {"cpu_pct": 1.0, "wakeups_per_s": 3.0}}}]}
+
+        sent = {"events": 290, "errors": 0, "rate_per_s": 5}
+        with tempfile.TemporaryDirectory() as scratch:
+            runs = os.path.join(scratch, "runs")
+            os.makedirs(runs)
+            for name, data in (
+                    # cell 1: one arm with the focus and one without it.
+                    ("base-1-cell1", run(True)), ("head-1-cell1", run(False)),
+                    # cell 2: the page lost the focus in the window of one run.
+                    ("base-1-cell2", run(True)), ("head-1-cell2", run(True, after=False)),
+                    # cell 3: the check of the child time read failed in one run.
+                    ("base-1-cell3", run(True, check=False)), ("head-1-cell3", run(True)),
+                    # cell 4: a scroll cell with too few events, and one with an event that failed.
+                    ("base-1-cell4", run(True, scroll={**sent, "events": 100})), ("head-1-cell4", run(True, scroll={**sent, "errors": 2})),
+                    # cell 5: a scroll cell with its events and no error.
+                    ("base-1-cell5", run(True, scroll=sent)), ("head-1-cell5", run(True, scroll=sent))):
+                with open(os.path.join(runs, name + ".json"), "w") as handle:
+                    json.dump(data, handle)
+            names = "1:small:rest,1:large:rest,4:large:rest,1:small:scroll,1:large:scroll"
+            done = subprocess.run([sys.executable, "-I", "-c", program, runs, "1", names], capture_output=True, text=True)
+            self.assertTrue(os.path.exists(os.path.join(scratch, "summary.json")))
+        self.assertEqual(done.returncode, 1, done.stderr)
+        faults = [line for line in done.stdout.splitlines() if line.startswith("IDLE-AB fault")]
+        self.assertEqual(sorted({line.split()[3] for line in faults}),
+                         ["1:large:rest", "1:small:rest", "1:small:scroll", "4:large:rest"])
+        self.assertEqual(len(faults), 6, faults)
+        self.assertIn("IDLE-AB child_time_check base 1 cell 4:large:rest ok False seen_ms 300.0", done.stdout.splitlines())
+        self.assertIn("IDLE-AB window head 1 cell 1:small:scroll measure_s 60 focus True focus_after True "
+                      "reads_expected 15 scroll_events 290 scroll_errors 2", done.stdout.splitlines())
 
     def test_without_cells_the_lines_are_the_ones_of_before(self):
         script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()

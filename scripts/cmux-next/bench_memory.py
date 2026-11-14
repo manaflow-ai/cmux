@@ -45,7 +45,9 @@ visible, each 4 s with the focus and each 30 s without it, so the window is --me
 the page says that it has the focus and --diff-unfocused-measure seconds when it does not.
 --diff-scroll sends the page wheel events for the whole window. --child-time adds `child_cpu_pct`
 to each process and kind: the CPU time of the children that ended in the window (the daemon's git
-runs), which no live process's own time has. One count per run, like --purge-hidden.
+runs), which no live process's own time has. It is the whole CPU of each such child, also its part
+from before the window. The run first proves the read with a child of its own (`child_time_check`
+in the report); when that fails, no `child_cpu_pct` is written. One count per run, like --purge-hidden.
 
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
@@ -1130,8 +1132,8 @@ def main():
                         help="--diff-tab: the window when the diff page does not say that it has the focus "
                              "(its timer is then 30 s, not 4 s)")
     parser.add_argument("--child-time", action="store_true",
-                        help="with --measure: child_cpu_pct, the CPU of each process's children that ended "
-                             "in the window (the daemon's git runs)")
+                        help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
+                             "in the window (the daemon's git runs); none when the run's own check of the read fails")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1144,12 +1146,24 @@ def main():
         parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
     if args.diff_scroll and not args.diff_tab:
         parser.error("--diff-scroll needs --diff-tab")
+    if args.diff_tab and args.socket:
+        # An attached app would keep the tab open on a repository that this run removes.
+        parser.error("--diff-tab needs an app that this run launches (no --socket)")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
     bundle = os.path.realpath(args.app)
+    # Before the launch: this part needs no app, and an error here leaves none behind.
+    cells = _diff_tab_cells() if args.diff_tab or args.child_time else None
+    child_ns = child_check = None
+    if args.child_time:
+        # Proven on this Mac first, with a child of this script. A read that does not agree gives no
+        # child_cpu_pct: the report says so, and a number that is not proven is not written.
+        child_check = cells.child_time_check()
+        print(f"== child time check: {json.dumps(child_check)}", flush=True)
+        child_ns = cells.read_child_ns if child_check.get("ok") else None
     launched = scratch = None
     if args.socket:
         if not args.app_pid:
@@ -1168,14 +1182,8 @@ def main():
               "webkit_attributed": _responsible is not None}
     opened = []
     diff_scratch = None
-
-    cells = _diff_tab_cells() if args.diff_tab or args.child_time else None
-    child_ns = None
-    if args.child_time:
-        # Proven on this Mac first, with a child of this script: a read that sees no child says so in the report.
-        report["child_time_check"] = cells.child_time_check()
-        print(f"== child time check: {json.dumps(report['child_time_check'])}", flush=True)
-        child_ns = cells.read_child_ns
+    if child_check is not None:
+        report["child_time_check"] = child_check
 
     def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
@@ -1193,9 +1201,11 @@ def main():
         attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
-        result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
-        if scroller:
-            diff_tab["scroll"] = scroller.stop()
+        try:
+            result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
+        finally:
+            if scroller:
+                diff_tab["scroll"] = scroller.stop()
         if diff_tab is not None:
             # After the window, so the read costs it nothing: the page is still the visible one.
             diff_tab["page_after"] = cells.page_facts(app)

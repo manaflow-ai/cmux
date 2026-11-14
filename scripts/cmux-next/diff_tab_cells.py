@@ -18,7 +18,8 @@ freshness.ts). This module gives an idle window that work, in a way that is the 
   child_cpu_ns     the CPU time of a process's ended children (`ri_child_user_time` and
                    `ri_child_system_time` of `proc_pid_rusage`): the daemon runs git as children
                    that start and end inside the window, so the daemon's own time does not have them
-  child_time_check proves that last read on this Mac with a child of this script
+  child_time_check proves that last read on this Mac with a child of this script: the read agrees
+                   with the child time that `getrusage` gives for the same child
 
 The module does not count the page's reads. `page_facts` says how many the timer makes in the window
 (`reads_expected`), and `open_tab` proves one read through the page's own router before the window.
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 import subprocess
 import sys
 import threading
@@ -68,7 +70,9 @@ def make_repository(root: str, size: str) -> dict:
     spec = SIZES[size]
     files, changed, lines = spec["files"], spec["changed"], spec["lines"]
     step = files // changed
-    env = {**os.environ, **_GIT_ENV}
+    # No GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE of the caller: git writes only below `root`.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(_GIT_ENV)
 
     def git(*args):
         subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, env=env)
@@ -93,8 +97,7 @@ def make_repository(root: str, size: str) -> dict:
             with open(path_of(index), "w") as handle:
                 handle.writelines(_line(index, line, line % 2 == 0) for line in range(lines * 2))
     if spec["untracked_bytes"]:
-        row = "an untracked line of the measurement, 64 bytes with its end \n"
-        row = row.ljust(63)[:63] + "\n"
+        row = "an untracked line of the measurement, 64 bytes with its end".ljust(63) + "\n"
         with open(os.path.join(root, "untracked.txt"), "w") as handle:
             handle.writelines(row for _ in range(spec["untracked_bytes"] // len(row)))
     return {"size": size, "root": root, "files": files, "changed_files": changed,
@@ -140,18 +143,28 @@ def read_child_ns(pid: int) -> int | None:
     return child_cpu_ns(words, numer, denom)
 
 
+def _own_children_ms() -> float:
+    used = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return (used.ru_utime + used.ru_stime) * 1000
+
+
 def child_time_check(read_child_ns=read_child_ns, burn_s: float = 0.3) -> dict:
-    """Runs one child of this script that uses the CPU for `burn_s` seconds and reads this script's
-    own child time before and after (`read_child_ns(pid)`): `ok` when the read saw that child."""
-    before = read_child_ns(os.getpid())
-    code = f"import time\nend = time.process_time() + {burn_s}\nwhile time.process_time() < end:\n    pass\n"
+    """Runs one child of this script that uses the CPU for `burn_s` seconds, in its own code and in
+    the kernel (`os.stat` calls), and reads this script's own child time before and after with
+    `read_child_ns(pid)` and with `getrusage(RUSAGE_CHILDREN)`. `ok` when the read saw that child
+    and agrees with `getrusage`: a wrong word for the user time or for the system time does not agree."""
+    before, times_before = read_child_ns(os.getpid()), _own_children_ms()
+    code = (f"import os, time\nend = time.process_time() + {burn_s}\n"
+            "while time.process_time() < end:\n    os.stat('.')\n")
     subprocess.run([sys.executable, "-I", "-c", code], check=False, timeout=60)
-    after = read_child_ns(os.getpid())
+    after, times_after = read_child_ns(os.getpid()), _own_children_ms()
     if before is None or after is None:
         return {"ok": False, "error": "no rusage of this script"}
-    seen_ms = round((after - before) / 1e6, 1)
-    # The child also starts an interpreter: at least the burn, and not more than some seconds.
-    return {"ok": burn_s * 1000 * 0.8 <= seen_ms <= burn_s * 1000 + 5000, "burn_ms": burn_s * 1000, "seen_ms": seen_ms}
+    seen_ms, times_ms = round((after - before) / 1e6, 1), round(times_after - times_before, 1)
+    # The child also starts an interpreter: at least the burn. The 2 reads are of the same child.
+    agrees = abs(seen_ms - times_ms) <= max(20.0, 0.1 * times_ms)
+    return {"ok": times_ms >= burn_s * 1000 * 0.8 and agrees, "burn_ms": burn_s * 1000, "seen_ms": seen_ms,
+            "times_ms": times_ms}
 
 
 def chromium_page(pages) -> dict | None:
@@ -208,9 +221,15 @@ def page_facts(app) -> dict:
 
 
 def require_visible(facts: dict) -> dict:
-    """`facts`, or the end of the run (SystemExit) for a diff page that is hidden or was not found:
-    such a page asks nothing, and a window with no read proves nothing."""
-    if facts.get("error") or facts.get("hidden") is True or facts.get("visibility") == "hidden" or facts.get("view_hidden") is True:
+    """`facts`, or the end of the run (SystemExit) for a diff page that is hidden, was not found, or
+    did not answer: such a page asks nothing, and a window with no read proves nothing. A page that
+    cannot say if it is visible (no script call into it) ends the run when its window is not shown."""
+    hidden = (facts.get("error") or facts.get("page_error") or facts.get("hidden") is True
+              or facts.get("visibility") == "hidden" or facts.get("view_hidden") is True)
+    if facts.get("visibility") is None:
+        hidden = (hidden or facts.get("window_occluded") is True or facts.get("in_window") is False
+                  or facts.get("window_visible") is False)
+    if hidden:
         raise SystemExit(f"diff-tab: the diff page is not visible before the window: {json.dumps(facts)[:400]}")
     return facts
 
@@ -220,7 +239,10 @@ def open_tab(app, folder: str, scope: str = "uncommitted") -> dict:
     fingerprint read answered. Ends the run (SystemExit) when one of these did not occur: a window
     that follows would measure no diff tab."""
     opened = app.action("openDiffViewer", focus=True, path=folder)
-    if opened.get("error") or opened.get("code"):
+    # The action answers at its own limit while the open goes on (state "in_progress"): the wait
+    # for the first file below is then the proof.
+    late = "in_progress" in json.dumps(opened) or "timeout" in str(opened.get("code") or opened.get("error") or "")
+    if (opened.get("error") or opened.get("code")) and not late:
         raise SystemExit(f"diff-tab: openDiffViewer: {opened.get('message') or opened.get('error')}")
     # `wait` answers at its timeout too (90 s at most): the large repository draws 200 files.
     waited = app.call("debug.page", {"page": PAGE, "action": "wait", "selector": ".file-header", "timeout_ms": 90000},
@@ -239,8 +261,10 @@ def open_tab(app, folder: str, scope: str = "uncommitted") -> dict:
 
 class Scroller:
     """Wheel events on the diff page from `start` to `stop`: `rate` each second at the middle of
-    the page, down for 20 events and then up for 20, so the page never rests at an end. A Chromium
-    page only (DevTools `Input.dispatchMouseEvent`); `start` ends the run for another page."""
+    the page, down for 20 events and then up for 20 (a diff shorter than that rests at an end for
+    some of them; the 2 arms get the same events). A Chromium page only (DevTools
+    `Input.dispatchMouseEvent`); `start` ends the run for another page. It does not read where the
+    page is: `stop` gives the events that were sent and the ones that failed."""
 
     def __init__(self, app, facts: dict, rate: float = 5, delta: int = 240):
         self.app, self.facts, self.rate, self.delta = app, facts, rate, delta

@@ -15,14 +15,19 @@
 #   trace=S             seconds of System Trace per attributed process after each window: each thread's
 #                       wakeups per second with its name (bench_memory.py --attribute-trace); 0 for none
 #   kinds=K,K           the process kinds to attribute (default app,cef-gpu)
-#   cells=C,C           in the place of chats=: each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
+#   cells=C,C           in the place of chats= (the two together are refused): each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
 #                       round. CHATS agent chats at rest (1 or more); REPOSITORY small or large is a visible
 #                       diff tab on a repository of that size with uncommitted changes (bench_memory.py
 #                       --diff-tab, diff_tab_cells.py), none is no diff tab; MOTION rest, or scroll (wheel
 #                       events on the diff page for the whole window). Each cell also reads the CPU of the
-#                       children that ended in the window (--child-time: the daemon's git runs).
+#                       children that ended in the window (--child-time: the daemon's git runs; the whole
+#                       CPU of each such child, also its part from before the window). A none cell is a
+#                       control of the same chats with no diff tab and no repository of the tool: it
+#                       differs from a diff cell by the tab, its repository and the page's reads.
 #   unfocused=S         cells=: the window of a diff tab whose page does not say that it has the focus
 #                       (default 300; its timer is then 30 s, not 4 s). measure=S is its window with the focus.
+#                       With cells=, measure= is a multiple of 4 and unfocused= a multiple of 30 (the page's
+#                       2 timers), so each window holds a whole count of reads.
 # The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
@@ -32,24 +37,33 @@
 #   IDLE-AB median chats <N> kind <K> base <med> [<min>-<max>] head <med> [<min>-<max>] delta <d>
 #   IDLE-AB thread chats <N> kind <K> name '<thread>' base <med> head <med> delta <d>   (wakeups/s by thread)
 # With cells= the word `chats <N>` of these lines is `cell <C>`, and it also prints:
-#   IDLE-AB window <arm> <round> cell <C> measure_s <s> focus <true|false|None> reads_expected <n> scroll_events <e>
+#   IDLE-AB window <arm> <round> cell <C> measure_s <s> focus <True|False|None> focus_after <True|False|None>
+#       reads_expected <n> scroll_events <e> scroll_errors <e>
+#   IDLE-AB child_time_check <arm> <round> cell <C> ok <True|False> seen_ms <ms>
 #   IDLE-AB cpu cell <C> kind <K> base <med> [<min>-<max>] n <n> head <med> [<min>-<max>] n <n> delta <d>
 #       (CPU % of the kind's processes; the kind `children:<K>` is the CPU % of that kind's children that
 #       ended in the window; the kind `total` is the sum of each kind and of each kind's children)
-# The first part is the unit test of the diff tab cells and of the summary below
-# (scripts/cmux-next/tests/test_diff_tab_cells.py, at this script's commit): a red ends the step before an arm is built.
-# The verdict: exit 0 every run passed, 1 a run failed, 3 an arm could not be built, 4 the unit test is red.
+#   IDLE-AB fault cell <C> <what>     a cell whose medians are not to be read; the verdict is then exit 1:
+#       the run's own check of the child time read failed (no children CPU is written then); the page's
+#       focus was not the same in each run of the cell, before and after the window (one median would
+#       mix the 4 s and the 30 s timer); a scroll cell sent less than half of its wheel events, or one
+#       failed. The tool does not read where the page is: sent events are not proof of a moved page.
+# With cells= the first part is the unit test of the diff tab cells and of the summary below
+# (scripts/cmux-next/tests/test_diff_tab_cells.py, at this script's commit): a red ends the step before an arm
+# is built. A run with no cells= does not run it and is as before.
+# The verdict: exit 0 every run passed, 1 a run failed or a cell has a fault, 3 an arm could not be built,
+# 4 the unit test is red.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
-base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300
+base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
     head=*) head="${arg#head=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
-    chats=*) chats="${arg#chats=}" ;;
+    chats=*) chats="${arg#chats=}"; chats_given=true ;;
     measure=*) measure="${arg#measure=}" ;;
     trace=*) trace="${arg#trace=}" ;;
     kinds=*) kinds="${arg#kinds=}" ;;
@@ -64,11 +78,16 @@ done
 cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
 [[ -z "$cells" || "$cells" =~ ^$cell_form(,$cell_form)*$ ]] || { echo "cells= must be CHATS:none:rest or CHATS:small|large:rest|scroll, joined by commas" >&2; exit 2; }
 [[ "$unfocused" =~ ^[0-9]+$ ]] || { echo "bad unfocused=" >&2; exit 2; }
-if ! python3 -I scripts/cmux-next/tests/test_diff_tab_cells.py; then
-  echo "perf-idle-ab: the unit test of the tool is red: no arm is built" >&2
-  exit 4
+if [ -n "$cells" ]; then
+  $chats_given && { echo "cells= is in the place of chats=: give one of the two" >&2; exit 2; }
+  (( measure >= 4 && measure % 4 == 0 && unfocused >= 30 && unfocused % 30 == 0 )) || {
+    echo "with cells=, measure= must be a multiple of 4 and unfocused= a multiple of 30" >&2; exit 2; }
+  if ! python3 -I scripts/cmux-next/tests/test_diff_tab_cells.py; then
+    echo "perf-idle-ab: the unit test of the tool is red: no arm is built" >&2
+    exit 4
+  fi
+  echo "IDLE-AB unit test passed"
 fi
-echo "IDLE-AB unit test passed"
 disk() { echo "IDLE-AB disk $1 $(df -h "$here" | tail -n 1)"; }
 disk start
 out="$here/.build/perf-idle-ab"
@@ -219,12 +238,21 @@ values = collections.defaultdict(lambda: collections.defaultdict(list))
 threads = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
 seen = collections.defaultdict(lambda: collections.defaultdict(int))
 summary = []
+# With cells=: focus[cell] = each (before, after) of its runs; faults = the cells whose medians are not to be read.
+focus = collections.defaultdict(set)
+faults = []
 for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
     arm, i, mode = os.path.basename(path)[:-5].split("-")
     try:
         data = json.load(open(path))
     except (OSError, ValueError):
         continue
+    if mode.startswith("cell"):
+        cell = cells[int(mode[4:]) - 1]
+        check = data.get("child_time_check") or {}
+        print(f"IDLE-AB child_time_check {arm} {i} cell {cell} ok {check.get('ok')} seen_ms {check.get('seen_ms')}")
+        if check.get("ok") is not True:
+            faults.append((cell, f"{arm} {i}: the check of the child time read failed, no children CPU"))
     for s in data.get("samples", []):
         if not s["label"].startswith("idle-") or s["label"] == "idle-launch":
             continue
@@ -233,8 +261,18 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
         if mode.startswith("cell"):
             chats = cells[int(mode[4:]) - 1]
             tab = s.get("diff_tab") or {}
-            print(f"IDLE-AB window {arm} {i} cell {chats} measure_s {s.get('measure_s')} focus {(tab.get('page') or {}).get('focus')} "
-                  f"reads_expected {tab.get('reads_expected')} scroll_events {(tab.get('scroll') or {}).get('events')}")
+            scroll = tab.get("scroll") or {}
+            before, after = (tab.get("page") or {}).get("focus"), (tab.get("page_after") or {}).get("focus")
+            print(f"IDLE-AB window {arm} {i} cell {chats} measure_s {s.get('measure_s')} focus {before} focus_after {after} "
+                  f"reads_expected {tab.get('reads_expected')} scroll_events {scroll.get('events')} scroll_errors {scroll.get('errors')}")
+            focus[chats].add((before, after))
+            if before != after:
+                faults.append((chats, f"{arm} {i}: the focus of the page changed in the window ({before} to {after})"))
+            if chats.endswith(":scroll"):
+                wanted = (scroll.get("rate_per_s") or 0) * (s.get("measure_s") or 0) / 2
+                if not scroll or scroll.get("errors") or not scroll.get("events") or scroll["events"] < wanted:
+                    faults.append((chats, f"{arm} {i}: scroll events {scroll.get('events')} errors {scroll.get('errors')}, "
+                                          f"at least {int(wanted)} and no error expected"))
             total = 0.0
             for kind, e in s["kinds"].items():
                 for name, key in ((kind, "cpu_pct"), (f"children:{kind}", "child_cpu_pct")):
@@ -260,8 +298,8 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
             seen[(chats, kind)][arm] += 1
             for name, w in per.items():
                 threads[(chats, kind)][arm][name].append(w)
-def stat(xs):
-    return (round(statistics.median(xs), 2), round(min(xs), 2), round(max(xs), 2)) if xs else (None, None, None)
+def stat(xs, digits=2):
+    return (round(statistics.median(xs), digits), round(min(xs), digits), round(max(xs), digits)) if xs else (None, None, None)
 for (chats, kind) in sorted(values):
     b, h = stat(values[(chats, kind)]["base"]), stat(values[(chats, kind)]["head"])
     delta = round(h[0] - b[0], 2) if None not in (b[0], h[0]) else None
@@ -279,11 +317,18 @@ for (chats, kind) in sorted(threads):
     for delta, name, b, h in rows[:15]:
         print(f"IDLE-AB thread {word} {chats} kind {kind} name {name!r} base {b} head {h} delta {delta}")
 for (cell, kind) in sorted(cpu):
-    b, h = stat(cpu[(cell, kind)]["base"]), stat(cpu[(cell, kind)]["head"])
+    # 3 digits: a children CPU of some hundredths of a percent is the thing that a cell measures.
+    b, h = stat(cpu[(cell, kind)]["base"], 3), stat(cpu[(cell, kind)]["head"], 3)
     delta = round(h[0] - b[0], 3) if None not in (b[0], h[0]) else None
     print(f"IDLE-AB cpu cell {cell} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(cpu[(cell, kind)]['base'])} "
           f"head {h[0]} [{h[1]}-{h[2]}] n {len(cpu[(cell, kind)]['head'])} delta {delta}")
 json.dump(summary, open(os.path.join(os.path.dirname(runs), "summary.json"), "w"), indent=1)
+for cell in sorted(focus):
+    if len(focus[cell]) > 1:
+        faults.append((cell, f"the focus of the page was not the same in each run: {sorted(focus[cell], key=str)}"))
+for cell, what in faults:
+    print(f"IDLE-AB fault cell {cell} {what}")
+sys.exit(1 if faults else 0)
 PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
 # Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
