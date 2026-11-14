@@ -69,12 +69,12 @@ pub(super) fn tool_matches(pattern: &str, name: &str) -> bool {
         return rest.is_empty();
     };
     for part in middle {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
+        match rest.split_once(*part) {
+            Some((_, after)) => rest = after,
             None => return false,
         }
     }
-    rest.len() >= last.len() && rest.ends_with(last)
+    rest.ends_with(last)
 }
 
 /// How specific a pattern is: its literal characters. A pattern of only `*` scores 0 and never
@@ -88,11 +88,12 @@ fn cut(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
     }
-    let mut end = max;
-    while !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
+    // 0 is always a boundary, so a boundary is found; `get` cannot miss on one.
+    (0..=max)
+        .rev()
+        .find(|&end| s.is_char_boundary(end))
+        .and_then(|end| s.get(..end))
+        .unwrap_or_default()
 }
 
 impl Supervisor {
@@ -136,8 +137,10 @@ impl Supervisor {
                     "title": entry.get("title").map_or_else(|| app.clone(), text),
                     "context": Value::Object(context),
                 });
-                if let Some(symbol) = entry.get("symbol").and_then(Value::as_str) {
-                    widget["symbol"] = json!(symbol);
+                if let (Some(symbol), Some(fields)) =
+                    (entry.get("symbol").and_then(Value::as_str), widget.as_object_mut())
+                {
+                    fields.insert("symbol".into(), json!(symbol));
                 }
                 widget
             })
