@@ -121,6 +121,70 @@ pub(super) fn terminal_host_record_liveness(
         .unwrap_or(TerminalHostLiveness::Indeterminate)
 }
 
+/// The process of a record's host for a seat: `host` only when the answer
+/// for the record is that the host lives. An answer that the daemon could
+/// not read is not that answer.
+#[cfg(any(unix, windows))]
+fn host_that_lives(
+    liveness: TerminalHostLiveness,
+    host: Option<crate::diagnostics::KeptHost>,
+) -> Option<crate::diagnostics::KeptHost> {
+    host.filter(|_| liveness == TerminalHostLiveness::Live)
+}
+
+#[cfg(all(test, any(unix, windows)))]
+mod kept_host_tests;
+
+#[cfg(any(unix, windows))]
+impl Mux {
+    /// [`terminal_host_record_liveness`] for a start's adoption pass and,
+    /// for a host that lives, the host's seat among the session's terminals
+    /// (`diagnostics/terminal_seats.rs`, `KeptHost`). The adoption owns the
+    /// seat to its end, so a process of the terminal is the terminal's while
+    /// the adoption runs. An adoption that gives the terminal the seat of
+    /// its session ends this seat after that; each other end of an adoption
+    /// (and an adoption that starts no thread) leaves the terminal with no
+    /// seat.
+    ///
+    /// The host's process is read before the answer and seated only when the
+    /// answer is that the host lives ([`host_that_lives`]). No seat: an
+    /// answer that is not that one, or a start that is not read or is not
+    /// before this daemon's. `terminal`: the terminal's public id, when the
+    /// pass has it.
+    pub(super) fn kept_host(
+        &self,
+        record_path: &Path,
+        record: &crate::terminal_host_runtime::TerminalHostRecord,
+        terminal: Option<&TerminalPublicId>,
+    ) -> (TerminalHostLiveness, crate::diagnostics::KeptHostSeat) {
+        let host = crate::diagnostics::KeptHost::read(record.host_pid);
+        let liveness = terminal_host_record_liveness(record_path, record);
+        let host = host_that_lives(liveness, host);
+        if host.is_none() {
+            return (liveness, crate::diagnostics::KeptHostSeat::default());
+        }
+        let terminal = terminal.cloned().or_else(|| {
+            let read = {
+                let registry =
+                    self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+                registry.terminal_resource_id(&record.terminal_id)
+            };
+            // A terminal whose public id is not read has no seat: say why.
+            read.unwrap_or_else(|error| {
+                eprintln!(
+                    "cmux-tui: terminal {} has no seat before its adoption: {error:#}",
+                    record.terminal_id
+                );
+                None
+            })
+        });
+        let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+        let seating =
+            crate::diagnostics::HostSeating::of(self.connection_stats().clone(), terminal);
+        (liveness, seating.seat_kept(host))
+    }
+}
+
 /// Ask a host to terminate first; if its admin socket is unavailable, remove
 /// discovery artifacts only when the process-start nonce positively proves
 /// this exact incarnation is dead. `false` means the live/ambiguous record is
