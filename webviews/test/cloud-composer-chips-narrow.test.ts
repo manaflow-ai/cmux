@@ -123,7 +123,12 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
         error: report?.error,
       };
     });
-    console.log(`cloud-composer-chips ${variant} @${width}: ${JSON.stringify(strip)}`);
+    console.log(`ccc ${variant} @${width}: viewport ${strip.viewport} strip ${strip.strip} play ${strip.play}`);
+    for (const part of strip.chain.split(" < ")) console.log(`ccc chain ${variant} @${width}: ${part}`);
+    for (const chip of strip.chips)
+      console.log(
+        `ccc chip ${variant} @${width}: ${chip.kind} w=${Math.round(chip.width)} label=${chip.labelShown} cut=${chip.cut}`,
+      );
     return { page, strip };
   };
 
