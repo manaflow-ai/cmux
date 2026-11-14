@@ -1395,7 +1395,7 @@ fn a_frame_that_fails_to_build_drops_its_subscriber() {
     offer_live(&mut state, br#"{"op":"text","seq":1,"rowId":1,"text":"x"}"#, seq);
     let left: Vec<&str> = state.subs.list.iter().map(|sub| sub.sid.as_str()).collect();
     assert_eq!(left, ["before", "after"]);
-    assert_eq!(*sink.dropped.lock().unwrap(), [huge.clone()]);
+    assert_eq!(*sink.dropped.lock().unwrap(), std::slice::from_ref(&huge));
     let offers = sink.offers.lock().unwrap().clone();
     let took = |sid: &str| (sid.to_owned(), FrameKind::Delta);
     assert_eq!(offers, [took("before"), took("after")]);
@@ -1484,9 +1484,13 @@ fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_next_sub_replaces_the
             })
             .await;
         assert_eq!(dropped.as_deref(), Some("s"));
+        // The actor takes its mailbox again; the `sub` waits until there is room for it.
         hold.store(false, Ordering::Release);
+        while handle.queued() > 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
         client.sub("s", json!({})).await;
-        client.ready_window("s").await;
+        client.window("s").await;
         chat.append(&turn(2, "once-a"));
         chat.append(&turn(3, "once-b"));
         // Every delta on `s` until the last turn's reply: none twice, as a second entry for the
