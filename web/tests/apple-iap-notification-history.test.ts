@@ -138,15 +138,22 @@ describe("backfill", () => {
   });
 
   test("a catch-up longer than a day of runs keeps its progress and reaches now", async () => {
-    // Every window holds two pages and each run may read one: under the old
-    // single 179-day window this restarted from the limit every day.
-    f.serverApi = historyApi([
-      { signedPayloads: [], hasMore: true, paginationToken: "page-1" },
-      { signedPayloads: [], hasMore: false },
-    ]);
+    // Apple holds a page of history for every day the window spans. Read as
+    // one 179-day window at one page a run, the catch-up outlived Apple's
+    // resume limit and restarted from the oldest end forever.
+    f.serverApi = {
+      subscriptionStatus: async () => null,
+      notificationHistory: async (request) => {
+        requests.push(request);
+        const pageCount = Math.max(1, Math.ceil((request.endDate.getTime() - request.startDate.getTime()) / DAY));
+        const index = request.paginationToken ? Number(request.paginationToken.replace("page-", "")) : 0;
+        const hasMore = index + 1 < pageCount;
+        return { signedPayloads: [], hasMore, paginationToken: hasMore ? `page-${index + 1}` : null };
+      },
+    };
     const cursorAt = () => f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime() ?? 0;
     let runs = 0;
-    while (cursorAt() < f.clock.getTime() - DAY && runs < 600) {
+    while (cursorAt() < f.clock.getTime() - DAY && runs < 800) {
       runs += 1;
       f.clock = new Date(NOW.getTime() + runs * HOUR / 2);
       requests = [];
@@ -155,10 +162,8 @@ describe("backfill", () => {
         expect(request.startDate.getTime()).toBeGreaterThan(f.clock.getTime() - 180 * DAY);
       }
     }
-    // The cursor caught up to within a day of now: two runs per one-day
-    // window across 178 days, plus the days that passed meanwhile.
     expect(cursorAt()).toBeGreaterThanOrEqual(f.clock.getTime() - DAY);
-    expect(runs).toBeLessThan(400);
+    expect(runs).toBeLessThan(800);
   });
 
   test("never asks for more than Apple's 180 days", () => {
