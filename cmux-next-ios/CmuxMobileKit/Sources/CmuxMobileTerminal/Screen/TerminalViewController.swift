@@ -358,6 +358,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        hiddenFeed?.cancel()
         followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
     }
@@ -691,6 +692,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.revealCursorForInput()
         }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
+        surface.onShownChange = { [weak self] shown in self?.pageShownChanged(shown) }
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
@@ -1159,6 +1161,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
     private let rowShift = RowShiftBox()
+    /// What the output pump did: display frames it ran on, pump calls and
+    /// batches handed to Ghostty. For tests and benches.
+    private(set) var outputCounts = TerminalOutputPumpCounts()
+    /// Session bytes queued and not yet handed to Ghostty.
+    var outputPendingBytes: Int { output.pendingBytes }
+    /// How often a page nobody can see hands its queued output to Ghostty.
+    static let hiddenFeedInterval: TimeInterval = 1
 
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
@@ -1242,7 +1251,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
+    /// A page nobody can see feeds on `hiddenFeedInterval` instead (`feedsHidden`).
     private func scheduleOutput() {
+        if feedsHidden { return armHiddenFeed() }
         if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
         } else {
@@ -1251,6 +1262,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
+            self?.outputCounts.frameTicks += 1
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
@@ -1285,12 +1297,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
     }
 
-    private func pumpOutput() {
-        guard pacer.canFeed(at: CACurrentMediaTime()) else {
+    /// Hands Ghostty the next batch. `catchUp` (a hidden page's turn, or the
+    /// page shown again) takes up to `hiddenFeedBudget` bytes in one batch,
+    /// with no wait for a display frame or a burst's end: nothing is drawn
+    /// until the page is seen, and once it is, what it shows is current.
+    private func pumpOutput(catchUp: Bool = false) {
+        outputCounts.pumps += 1
+        if !catchUp, !pacer.canFeed(at: CACurrentMediaTime()) {
             armBurstWake()
             return
         }
-        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
+        let budget = catchUp
+            ? Self.hiddenFeedBudget
+            : TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)
+        while !feedInFlight, let step = output.next(budget: budget) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
@@ -1305,6 +1325,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
+                outputCounts.batches += 1
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
@@ -1339,6 +1360,84 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func stopOutputLink() {
         outputLink?.invalidate()
         outputLink = nil
+    }
+
+    // MARK: Output of a page nobody can see
+
+    /// The page cannot be seen (out of its window: a warm tab behind
+    /// another; or the app in the background): its output reaches Ghostty
+    /// with no display link, in one batch per `hiddenFeedInterval` (Chrome's
+    /// background-tab timer throttling: work nobody can see runs at most once
+    /// a second). The mirror stays exact (every byte is parsed, in order, and
+    /// backpressure still pauses the Mac), and shown again the page catches up
+    /// at once (`pageShownChanged`). A reset's replay is fed as when shown:
+    /// the replay gate's deadline counts from the reset.
+    private var feedsHidden: Bool {
+        surface.surface != nil && !surface.isShown && !replayGate.isReplaying
+    }
+    /// The hidden page's next turn; nil when none is due (one at a time,
+    /// armed only while output waits).
+    private var hiddenFeed: DispatchWorkItem?
+    /// The most a hidden page hands Ghostty in one batch. A backlog of a
+    /// full batch or more (a flood) goes on as soon as Ghostty parsed the
+    /// last one, so the queue drains and backpressure lifts; Ghostty holds
+    /// its terminal lock for a batch, so it stays short enough for the page
+    /// shown in the middle of one.
+    static let hiddenFeedBudget = 1 << 20
+
+    /// Output waits on a hidden page: its next turn comes at most
+    /// `hiddenFeedInterval` from now. Stops the display link and a burst
+    /// wake; arms nothing when the queue is empty or a batch is in flight
+    /// (the batch's end looks again, `continueAfterBatch`).
+    private func armHiddenFeed() {
+        stopOutputLink()
+        burstWake?.cancel()
+        burstWake = nil
+        guard hiddenFeed == nil, !output.isEmpty, !feedInFlight else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hiddenFeed = nil
+                self.pumpOutput(catchUp: true)
+            }
+        }
+        hiddenFeed = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hiddenFeedInterval, execute: item)
+    }
+
+    /// A batch was parsed: on a hidden page, a full batch's backlog goes on
+    /// now and a smaller rest waits for the next turn; on a shown one, the
+    /// display link goes on while output waits.
+    private func continueAfterBatch() {
+        if feedsHidden {
+            if output.pendingBytes >= Self.hiddenFeedBudget {
+                pumpOutput(catchUp: true)
+            } else {
+                armHiddenFeed()
+            }
+        } else if output.isEmpty {
+            stopOutputLink()
+        } else if outputLink == nil {
+            // Shown while a hidden batch was in flight: the rest goes per frame.
+            scheduleOutput()
+        }
+    }
+
+    /// The surface's page came into view or left it (`TerminalSurfaceView.onShownChange`).
+    private func pageShownChanged(_ shown: Bool) {
+        guard shown else {
+            // Hidden: the display link stops and output waits for the hidden turn.
+            if feedsHidden { armHiddenFeed() }
+            return
+        }
+        hiddenFeed?.cancel()
+        hiddenFeed = nil
+        guard !output.isEmpty || feedInFlight else { return }
+        // Shown: what waited goes to Ghostty now, before the first frame,
+        // and the rest (a flood's backlog) per display frame after it.
+        pacer.newFrame()
+        if !feedInFlight { pumpOutput(catchUp: true) }
+        scheduleOutput()
     }
 
     /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
@@ -1540,7 +1639,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
         updateDocument()
-        if output.isEmpty { stopOutputLink() }
+        continueAfterBatch()
     }
 
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
@@ -1679,9 +1778,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The app left (false) or is coming back to (true) the foreground.
     ///
-    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". The
-    /// background releases the phone's size at once, so the Mac's grid grows;
-    /// the mirror follows it, and coming back would show the Mac's wide grid
+    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". A
+    /// background longer than the 45 s grace releases the phone's size, so the
+    /// Mac's grid grows; the mirror follows it, and coming back would show the Mac's wide grid
     /// until the reclaim's resize reset the mirror at the phone's size. The page as it was when
     /// the app left (the phone's own grid) now stays up until that reset's
     /// replay is drawn: one steady frame at phone width.
@@ -3204,6 +3303,16 @@ final class RowShiftBox: @unchecked Sendable {
     func filter(_ data: Data, offset: Int, remoteRows: Int) -> Data {
         shift.filter(data, offset: offset, remoteRows: remoteRows)
     }
+}
+
+/// The output pump's work since the screen was made (`outputCounts`).
+struct TerminalOutputPumpCounts: Equatable {
+    /// Display frames the output link ran on.
+    var frameTicks = 0
+    /// Calls into the pump (frames, burst wakes, arrivals).
+    var pumps = 0
+    /// Batches handed to Ghostty.
+    var batches = 0
 }
 
 /// A display link target that does not retain the controller. Once its

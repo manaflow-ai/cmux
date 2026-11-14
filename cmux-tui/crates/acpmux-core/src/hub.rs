@@ -247,6 +247,14 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
+    #[cfg(test)]
+    pub(crate) fn replay_snapshot_probe(&self) -> Option<std::sync::Weak<dyn Send + Sync>> {
+        self.replay_snapshot.as_ref().map(|snapshot| {
+            let snapshot: Arc<dyn Send + Sync> = snapshot.clone();
+            Arc::downgrade(&snapshot)
+        })
+    }
+
     pub(crate) fn clear_replay_snapshot(&mut self) {
         self.replay_snapshot = None;
     }
