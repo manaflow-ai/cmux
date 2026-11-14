@@ -250,3 +250,4 @@ mod tests {
     }
 }
 // lto-measure: A timed rebuild (comment only)
+// lto-measure: B timed rebuild (comment only)
