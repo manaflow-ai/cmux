@@ -87,7 +87,7 @@ pub(crate) struct GitHead {
 /// filesystem work of a tree snapshot and the staleness of a branch switch
 /// made without changing directory.
 const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
+pub(super) const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -445,22 +445,9 @@ impl Mux {
         if !refresh {
             return None;
         }
+        // A branch switched with no directory change has no event (tree_revision.rs).
         let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        // A cleared cache forgets what it read, so it can no longer tell a
-        // change: count the clear itself.
-        let cleared = cache.len() >= GIT_HEAD_CACHE_LIMIT;
-        if cleared {
-            cache.clear();
-        }
-        let previous = cache.insert(cwd.to_string(), (now, head.clone()));
-        drop(cache);
-        // A branch switched with no directory change has no event: the tree
-        // revision counts it here, when a refresh reads it.
-        if cleared || previous.is_some_and(|(_, previous)| previous != head) {
-            self.tree_revision.bump();
-        }
-        head
+        self.tree_revision.store_git_head(&self.git_heads, cwd, now, head)
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
