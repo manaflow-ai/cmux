@@ -1,0 +1,10 @@
+{"step":"upgrade"}
+{"call":"subscribe_mirror","request":{"held":[],"sub":{"rows":"v1","sid":"sidebar","stream":"list","view":"live"},"whole":false}}
+{"call":"want","request":{"keys":[{"chatId":"closed-00000","lastActivity":1791540000000,"origin":"local"},{"chatId":"closed-00001","lastActivity":1791540000001,"origin":"local"},{"chatId":"closed-00002","lastActivity":1791540000002,"origin":"local"},{"chatId":"closed-00003","lastActivity":1791540000003,"origin":"local"},{"chatId":"closed-00004","lastActivity":1791540000004,"origin":"local"},{"chatId":"closed-00005","lastActivity":1791540000005,"origin":"local"},{"chatId":"closed-00006","lastActivity":1791540000006,"origin":"local"},{"chatId":"closed-00007","lastActivity":1791540000007,"origin":"local"}],"sid":"sidebar"}}
+{"call":"connected"}
+{"feed":[0,90]}
+{"change":{"bytes":[],"kind":"fallback"}}
+{"send":"eyJpZCI6MSwianNvbnJwYyI6IjIuMCIsIm1ldGhvZCI6Il9hY3BtdXgvdjIiLCJwYXJhbXMiOnsicHJvdG9jb2wiOjIsInN1cmZhY2VzIjpbImxpc3QiXX19Cg=="}
+{"v1":{"reply":[90,5225],"request":{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"clientCapabilities":{},"clientInfo":{"name":"cmux-next-turn-states","version":"1"},"protocolVersion":1}}}}
+{"v1":{"reply":[5225,55759],"request":{"id":2,"jsonrpc":"2.0","method":"_acpmux/watch","params":{"enabled":true}}}}
+{"v1":{"reply":[55759,106252],"request":{"id":3,"jsonrpc":"2.0","method":"_acpmux/sessions","params":{"usage":true}}}}
