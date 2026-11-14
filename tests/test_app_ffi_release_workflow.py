@@ -413,6 +413,11 @@ if Path(sys.argv[0]).name == "git":
             same = state.get("same_inputs")
             sys.exit(0 if same is True or (isinstance(same, list) and (shas in same or shas[::-1] in same)) else 1)
         sys.exit(1)
+    if args[0] == "show" and "--format=%ct" in args:
+        # `git show -s --format=%ct SHA`: the release commit's time, when the test gives its age; else unknown.
+        if state.get("pin_age_min") is None: sys.exit(128)
+        import time
+        print(int(time.time()) - 60 * state["pin_age_min"]); sys.exit(0)
     if args[0] == "show":
         # `git show REV:PATH`: the files of the re-pin branch's head (the test's pr_files), nothing else.
         rev, _, file = args[-1].partition(":")
@@ -546,7 +551,7 @@ class RePinPublication(unittest.TestCase):
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
                   check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
-                  jobs_read="ok", base_result="newer", base_enabled="true"):
+                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -595,6 +600,7 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
+                "pin_age_min": pin_age_min,
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -1023,6 +1029,19 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotIn("closes", state)
                 self.assertEqual(state["published"], [])
+
+    def test_a_release_older_than_the_hold_bound_is_pinned_at_once(self):
+        # 2026-11-14 (hq#10943): ead26e75 published 148 min after its commit and held for a newer queued run, so the
+        # base stayed red. A release whose commit is already older than the bound pins now; a young one still holds.
+        newer = "7" * 40
+        for age, holds in ((90, False), (10, True)):
+            with self.subTest(age=age):
+                result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                               ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=age)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
+                if not holds:
+                    self.assertIn("no newer run holds its re-pin", result.stderr)
 
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
