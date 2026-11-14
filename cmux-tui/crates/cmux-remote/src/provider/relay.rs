@@ -61,13 +61,19 @@ const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 /// parks on the relay until the daemon restarts (65 s in one measured cold
 /// start). Past this, the open fails as a retryable transport error.
 pub(crate) const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
 /// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
 /// 30 s for the Cloud agent's answer and then exits with its own error code;
 /// this leaves it 5 s more to start and exit, so a slow answer that still
 /// comes is used, not killed at 10 s and asked for again.
 pub const DAEMON_TICKET_COMMAND_TIMEOUT: Duration = Duration::from_secs(35);
+/// A client's relay ticket command's timeout ([`RelayCredentialSource::command`]).
+/// It was 10 s, a fixed ceiling on the command: one that asks a service for
+/// its ticket, as a daemon's does, answers slower on a busy machine, and one
+/// killed at 10 s is asked again from scratch, so a slow answer never came.
+/// The same bound as a daemon's: a slow answer is used, a hung command still
+/// ends.
+const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = DAEMON_TICKET_COMMAND_TIMEOUT;
 /// How much of a failed credential command's stderr its error keeps: the
 /// last bytes, where the reason usually is.
 const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
@@ -644,7 +650,8 @@ impl TransportProvider for RelayProvider {
         let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
-        let control = connect_provider_control(&endpoint, &self.credentials, &self.tls).await?;
+        let (control, opened_with) =
+            connect_provider_control(&endpoint, &self.credentials, &self.tls).await?;
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -657,7 +664,7 @@ impl TransportProvider for RelayProvider {
             credentials: self.credentials.clone(),
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
-            control: Mutex::new(Some(control)),
+            control: Mutex::new(Some((control, Some(opened_with)))),
             closed: AtomicBool::new(false),
         }))
     }
@@ -676,7 +683,9 @@ struct RelayLinkGroup {
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
-    control: Mutex<Option<RelaySocket>>,
+    /// The shared control socket, with the ticket it was opened with until
+    /// its first Connect uses it.
+    control: Mutex<Option<(RelaySocket, Option<RelayCredential>)>>,
     closed: AtomicBool,
 }
 
@@ -1152,16 +1161,24 @@ impl LinkGroup for RelayLinkGroup {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ProviderError::Transport("relay connection group is closed".into()));
             }
-            let mut control = match stored_control.take() {
-                Some(control) => control,
+            // A fresh control socket's Connect carries the ticket its upgrade
+            // was opened with: the relay bounds the wait for a socket's first
+            // control message (cmux-relay's handshake timeout, 10 s), and a
+            // second fetch there ran a slow credential command against it.
+            let (mut control, opened_with) = match stored_control.take() {
+                Some(stored) => stored,
                 None => {
-                    connect_provider_control(&self.endpoint, &self.credentials, &self.tls).await?
+                    let (control, credential) =
+                        connect_provider_control(&self.endpoint, &self.credentials, &self.tls)
+                            .await?;
+                    (control, Some(credential))
                 }
             };
             match request_allocation(
                 &mut control,
                 &self.config,
                 &self.credentials,
+                opened_with,
                 allocation_wait(wait_until, self.config.control_timeout),
                 &lane,
                 request.generation,
@@ -1169,11 +1186,11 @@ impl LinkGroup for RelayLinkGroup {
             .await
             {
                 Ok(allocation) => {
-                    *stored_control = Some(control);
+                    *stored_control = Some((control, None));
                     allocation
                 }
                 Err(AllocationError::Terminal(error)) => {
-                    *stored_control = Some(control);
+                    *stored_control = Some((control, None));
                     return Err(error);
                 }
                 Err(
@@ -1186,7 +1203,7 @@ impl LinkGroup for RelayLinkGroup {
                             "relay connection group is closed".into(),
                         ));
                     }
-                    let mut replacement =
+                    let (mut replacement, opened_with) =
                         connect_provider_control(&self.endpoint, &self.credentials, &self.tls)
                             .await
                             .map_err(|error| relay_reconnect_error(&control_error, error))?;
@@ -1194,6 +1211,7 @@ impl LinkGroup for RelayLinkGroup {
                         &mut replacement,
                         &self.config,
                         &self.credentials,
+                        Some(opened_with),
                         allocation_wait(wait_until, self.config.control_timeout),
                         &lane,
                         request.generation,
@@ -1201,11 +1219,11 @@ impl LinkGroup for RelayLinkGroup {
                     .await
                     {
                         Ok(allocation) => {
-                            *stored_control = Some(replacement);
+                            *stored_control = Some((replacement, None));
                             allocation
                         }
                         Err(AllocationError::Terminal(error)) => {
-                            *stored_control = Some(replacement);
+                            *stored_control = Some((replacement, None));
                             return Err(error);
                         }
                         Err(error) => return Err(error.into_provider_error()),
@@ -1231,7 +1249,7 @@ impl LinkGroup for RelayLinkGroup {
 
     async fn close(&self) -> Result<(), ProviderError> {
         if !self.closed.swap(true, Ordering::AcqRel)
-            && let Some(mut control) = self.control.lock().await.take()
+            && let Some((mut control, _)) = self.control.lock().await.take()
         {
             control
                 .close(None)
@@ -1265,15 +1283,21 @@ fn allocation_wait(deadline: Option<Instant>, control_timeout: Duration) -> Dura
     }
 }
 
+/// One lane's allocation on `socket`, with `opened_with` (the ticket a fresh
+/// socket was opened with) or else a ticket fetched now.
 async fn request_allocation(
     socket: &mut RelaySocket,
     config: &RelayClientConfig,
     credentials: &RelayCredentialSource,
+    opened_with: Option<RelayCredential>,
     wait: Duration,
     lane: &LaneToken,
     generation: u64,
 ) -> Result<(CircuitId, String), AllocationError> {
-    let credential = credentials.fetch().await.map_err(AllocationError::Authentication)?;
+    let credential = match opened_with {
+        Some(credential) => credential,
+        None => credentials.fetch().await.map_err(AllocationError::Authentication)?,
+    };
     send_control(
         socket,
         &RelayControl::Connect {
@@ -2008,11 +2032,13 @@ async fn authenticate_daemon_control(
     }
 }
 
+/// A client's control socket and the ticket it was opened with, fetched
+/// before the socket opens so the first control message can follow at once.
 async fn connect_provider_control(
     endpoint: &Url,
     credentials: &RelayCredentialSource,
     tls: &RelayTls,
-) -> Result<RelaySocket, ProviderError> {
+) -> Result<(RelaySocket, RelayCredential), ProviderError> {
     let mut retried_authentication = false;
     loop {
         let credential = credentials.fetch().await?;
@@ -2024,7 +2050,7 @@ async fn connect_provider_control(
         )
         .await
         {
-            Ok(socket) => return Ok(socket),
+            Ok(socket) => return Ok((socket, credential)),
             Err(RelaySocketConnectError::Authentication) if !retried_authentication => {
                 retried_authentication = true;
             }
