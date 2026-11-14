@@ -91,7 +91,7 @@ function TransientMaterialGallery({ look, scheme }: Props) {
                   ? "var(--ds-glass-chip-blur)"
                   : "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
                 "--glass-backdrop": before
-                  ? "var(--ds-glass-popover-blur)"
+                  ? "var(--ds-glass-chip-blur)"
                   : "blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
                 "--glass-tint": "var(--tooltip-tint)",
               } as CSSProperties
