@@ -222,24 +222,3 @@ async fn a_web_switch_by_family_name_is_judged_by_the_profile_it_resolves_to() {
     assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
-
-/// TEMPORARY probe (not for merge): what acpmux answers the Cloud mobile carrier's prompt
-/// (`via: cloud-mobile`, over the local socket) to a Claude chat the same socket started.
-#[tokio::test]
-async fn zz_probe_a_cloud_mobile_prompt_to_a_claude_chat_started_over_the_local_socket() {
-    let d = dir("zzprobe");
-    let hub = hub(&d);
-    let mut local = Client::new(&hub, Origin::Local);
-    for harness in ["fakeclaude", "fclaude"] {
-        let s = local.new_session(&d, harness).await;
-        let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
-        eprintln!("zz-probe {harness} set_mode: {r}");
-        let modes = local.call("_acpmux/web_modes", json!({"sessionId": s})).await;
-        eprintln!("zz-probe {harness} web_modes: {}", modes["result"]["session"]);
-        let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}],
-            "_meta": {"acpmux": {"promptId": "phone-1", "via": "cloud-mobile"}}});
-        let r = local.call("session/prompt", p).await;
-        eprintln!("zz-probe {harness} prompt: {r}");
-    }
-    panic!("zz-probe: read the lines above");
-}
