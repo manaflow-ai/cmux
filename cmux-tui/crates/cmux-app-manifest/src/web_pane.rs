@@ -130,12 +130,12 @@ fn web_root(m: &Value) -> Result<String, String> {
 fn entry_in_root(root: &str, web: &str) -> Result<String, String> {
     let segments = relative_segments(web)?;
     let root_segments: Vec<&str> = root.split('/').collect();
-    let inside = segments.len() > root_segments.len()
-        && segments.iter().zip(&root_segments).all(|(a, b)| a == b);
+    let rest = segments.get(root_segments.len()..).unwrap_or_default();
+    let inside = !rest.is_empty() && segments.iter().zip(&root_segments).all(|(a, b)| a == b);
     if !inside {
         return Err(format!("{web} is not inside runtime.web.root ({root}/)"));
     }
-    Ok(segments[root_segments.len()..].join("/"))
+    Ok(rest.join("/"))
 }
 
 /// The segments of a relative path, refusing an absolute path, a `..`
