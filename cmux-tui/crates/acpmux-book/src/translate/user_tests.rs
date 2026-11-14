@@ -558,9 +558,9 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     }
     run(&mut state, &lines);
     // The cards at theirs, after every other line (decisions 253, 254).
-    super::cards_tests::run(&mut state, &super::cards_tests::full_card_lines(1_000_000));
+    cards_tests::run(&mut state, &cards_tests::full_card_lines(1_000_000));
     assert!(!state.cards.is_empty());
-    assert!(state.card_bytes() <= super::cards::MAX_CARD_BYTES, "{}", state.card_bytes());
+    assert!(state.card_bytes() <= cards::MAX_CARD_BYTES, "{}", state.card_bytes());
     assert_eq!(state.line_failures(), (0, 0), "every line at its caps is read");
     assert!(state.continued.is_some(), "the held notice");
     assert!(state.claimable.is_some(), "the row a claim may patch");

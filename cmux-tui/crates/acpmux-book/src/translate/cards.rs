@@ -133,13 +133,9 @@ pub(super) struct Card {
     listed: Vec<Listed>,
 }
 impl Card {
-    /// The bytes the card holds in the segment, counted the way bincode lays it out, rounded up.
+    /// The bytes the card holds in the segment, as the checkpoint encodes it: O(card).
     fn bytes(&self) -> usize {
-        let facts = match &self.facts {
-            Facts::Memory { facts, .. } => facts.len().saturating_mul(8).saturating_add(16),
-            _ => 40,
-        };
-        self.listed.len().saturating_mul(32).saturating_add(facts).saturating_add(64)
+        super::checkpoint::encoded_len(self)
     }
 }
 

@@ -370,6 +370,8 @@ fn past_its_cap_the_oldest_card_of_a_kind_leaves_and_every_card_fits_the_budget(
     assert_eq!(notices(&ops), ["\"agent_pair_resumed\""]);
     // Every kind at its caps, each pair at its list: within the budget, and the checkpoint takes it.
     let mut state = full_cards();
+    // 4 pairs, 16 memory offers, 16 presets, 8 coaches, 8 offer groups, 4 builds: none pushed out.
+    assert_eq!(state.cards.len(), 56);
     assert!(state.card_bytes() <= cards::MAX_CARD_BYTES, "{}", state.card_bytes());
     let saved = state.checkpoint().unwrap();
     assert_eq!(saved.restore().unwrap().cards, state.cards);
