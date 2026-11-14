@@ -463,3 +463,19 @@ fn a_keyframe_burst_alone_is_not_overuse() {
     cc.on_feedback(&arrivals, 0.0, now + 20_000);
     assert_ne!(cc.usage(), Usage::Overuse);
 }
+
+#[test]
+fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    cc.on_sent(0, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(1, 100_000);
+    cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 145_000 }], 0.0, 170_000);
+    assert_eq!(cc.usage(), Usage::Overuse);
+    let reduced = cc.target_bps();
+    assert!(reduced < CcConfig::default().start_bps, "new delay evidence still reduces bitrate");
+    for now in [180_000, 200_000, 250_000] {
+        cc.on_feedback(&[], 0.0, now);
+        assert_eq!(cc.target_bps(), reduced, "an ACK or NACK alone is not more congestion");
+    }
+}

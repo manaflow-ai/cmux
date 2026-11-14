@@ -215,6 +215,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),

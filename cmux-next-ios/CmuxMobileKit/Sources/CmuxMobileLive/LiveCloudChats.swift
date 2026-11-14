@@ -185,6 +185,7 @@ public final class CloudChatRelay {
             status: session.summaryStatus, macID: macID
         )
         let store = AgentChatStore(source: hub.source(sessionID: sessionID, summary: summary))
+        store.boundsMemoryOffScreen()
         stores[sessionID] = store
         return store
     }

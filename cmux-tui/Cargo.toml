@@ -17,8 +17,10 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
+    "crates/acpmux-list-types",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
@@ -101,6 +103,7 @@ members = [
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
@@ -141,6 +144,7 @@ default-members = [
     "crates/acpmux",
     "crates/acpmux-core",
     "crates/acpmux-client",
+    "crates/acpmux-list-types",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -210,6 +214,7 @@ default-members = [
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
@@ -315,6 +320,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
@@ -507,6 +513,7 @@ lto = "fat"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
+opt-level = "z"
 codegen-units = 1
 
 [profile.release.package.cmux-tui-core]

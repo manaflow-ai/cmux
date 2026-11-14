@@ -1,6 +1,7 @@
 import CmuxConnectivityTelemetry
 import class CmuxMobileModel.ConnectTimeline
 import enum CmuxMobileModel.DeveloperOptions
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -38,8 +39,9 @@ public final class LinkController {
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored private var probeTask: Task<Void, Never>?
-    /// Foreground silence is detected within 5 s: 2.5 s until a probe,
-    /// 2 s for any inbound frame, and 0.5 s grace for the FFI boundary.
+    /// Foreground silence is detected within 5 s: 2.5 s of quiet until a
+    /// probe, 2 s for any inbound frame, and 0.5 s grace for the FFI
+    /// boundary. A link that received a frame within the beat is not probed.
     nonisolated static let heartbeat: Duration = .milliseconds(2500)
     nonisolated static let probeTimeout: Duration = .seconds(2)
     nonisolated static let backgroundHeartbeat: Duration = .seconds(15)
@@ -378,9 +380,21 @@ public final class LinkController {
         let clock = clock
         let interval = machine.isBackgrounded ? Self.backgroundHeartbeat : Self.heartbeat
         heartbeatTask = Task { [weak self] in
+            var wait = interval
             while !Task.isCancelled {
-                do { try await clock.sleep(for: interval) } catch { return }
+                do { try await clock.sleep(for: wait) } catch { return }
                 guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
+                // A frame from the Mac within the beat proves the link alive as
+                // a pong would: probe only a link quiet for a whole beat, and
+                // look again one beat after its last frame. Silence is then
+                // probed as soon as it lasts a beat, so the 5 s bound holds
+                // from the last frame, while a busy link (a streaming turn,
+                // terminal output) sends no probes at all.
+                if let quiet = self.link?.receivedAgo, quiet < interval {
+                    wait = interval - quiet
+                    continue
+                }
+                wait = interval
                 self.run(.probe(generation: generation))
             }
         }
@@ -429,20 +443,11 @@ public final class LinkController {
     }
 
     /// A short, display-safe reason for a dial or link error.
+    /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.
     nonisolated static func reason(_ error: any Error) -> String {
-        if let error = error as? LinkError {
-            switch error.code {
-            case "timeout": return "the Mac didn't answer in time"
-            case "not_admitted": return "the Mac refused this phone"
-            case "offline": return "the Mac is offline"
-            case LinkError.unauthorized: return "the cmux service refused the request"
-            default:
-                let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
-                return message.isEmpty ? error.code : String(message.prefix(80))
-            }
-        }
+        if let error = error as? LinkError { return error.displayReason }
         if error is LiveAPI.Failure { return "the cmux service refused the request" }
-        return String(error.localizedDescription.prefix(80))
+        return String(UserFacingError.message(error, fallback: "the connection to the Mac failed").prefix(80))
     }
 }
 
