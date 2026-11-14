@@ -27,11 +27,13 @@ spec.loader.exec_module(yielder)
 JOBS = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
 OURS, NEWER = 4355570555101, 4355728911801
 NEXT, TIP = "8" * 40, "9" * 40
+BUILT = "7" * 40  # the commit the feed's item for OURS names (cmux:sourceCommit)
 
 
-def feed(build: int) -> str:
+def feed(build: int, commit: str = "") -> str:
+    source = f'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">{commit}</cmux:sourceCommit>' if commit else ""
     return ('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>'
-            f'<title>t</title><sparkle:version>{build}</sparkle:version></item>'
+            f'<title>t</title><sparkle:version>{build}</sparkle:version>{source}</item>'
             '<item><sparkle:version>1</sparkle:version></item></channel></rss>')
 
 
@@ -46,6 +48,16 @@ class Verdict(unittest.TestCase):
     def test_a_tip_past_nightly_next_keeps_the_signer_for_its_build(self):
         """04:31Z: feat-cmux-next had 86dc299b past nightly-next's bbf3c08c; its build took cmux15 at 04:43."""
         self.assertEqual(yielder.verdict(OURS, OURS, NEXT, TIP), "wait")
+
+    def test_the_feed_s_newest_item_names_its_commit(self):
+        self.assertEqual(yielder.newest_item(feed(OURS, BUILT)), (OURS, BUILT))
+        self.assertEqual(yielder.newest_item(feed(OURS)), (OURS, ""))
+
+    def test_a_promoted_build_still_on_its_way_to_the_signer_keeps_it(self):
+        """04:34:04Z: 86dc299b's promotion moved nightly-next to the tip; its nightly-next-one asked for the signer
+        at 04:36:52. nightly-next is no longer the commit the feed serves, so a build of it is in flight."""
+        self.assertEqual(yielder.verdict(OURS, OURS, TIP, TIP, live_commit=BUILT), "wait")
+        self.assertEqual(yielder.verdict(OURS, OURS, BUILT, BUILT, live_commit=BUILT), "quiet")
 
     def test_nightly_next_at_the_tip_is_quiet(self):
         self.assertEqual(yielder.verdict(OURS, OURS, TIP, TIP), "quiet")
@@ -78,6 +90,11 @@ class Main(unittest.TestCase):
         answer, waited = self.run_main([feed(OURS), feed(OURS), feed(NEWER)], [NEXT, TIP, NEXT, TIP, TIP, TIP])
         self.assertEqual(answer, "skip=true")
         self.assertEqual(waited, dt.timedelta(seconds=60))
+
+    def test_it_waits_out_a_promoted_build_and_skips_once_it_publishes(self):
+        answer, waited = self.run_main([feed(OURS, BUILT)] * 8 + [feed(NEWER, TIP)], [TIP] * 40)
+        self.assertEqual(answer, "skip=true")
+        self.assertEqual(waited, dt.timedelta(minutes=4))
 
     def test_a_quiet_loop_signs_after_two_minutes(self):
         answer, waited = self.run_main([feed(OURS)] * 10, [TIP] * 20)
