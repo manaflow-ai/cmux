@@ -74,6 +74,18 @@ extension LiveWorkspaceFixture {
         }
         return try body()
     }
+
+    /// Async counterpart for tests that need to keep the registration alive while
+    /// a workspace-bound task makes progress.
+    static func withAppRegistration<T>(of manager: TabManager, _ body: () async throws -> T) async rethrows -> T {
+        guard let app = AppDelegate.shared else { return try await body() }
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
+        return try await body()
+    }
 }
 
 extension SurfaceCatalog {
