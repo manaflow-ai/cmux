@@ -93,7 +93,7 @@ public final class DaemonHealthSink: Sendable {
 }
 
 /// One ensure's progress for app health: its first progress write is the start (``DaemonHealthSink/Signal/started``),
-/// then each write is ``DaemonHealthSink/Signal/restoring``.
+/// then each write is ``DaemonHealthSink/Signal/restoring``. ``end(_:)`` sends the ensure's outcome.
 final class EnsureProgressNote: Sendable {
     private let sink: DaemonHealthSink
     private let started = Mutex(false)
@@ -107,5 +107,11 @@ final class EnsureProgressNote: Sendable {
         }
         if first { sink.note(.started) }
         sink.note(.restoring)
+    }
+
+    /// The ensure ended: `outcome` is ``DaemonHealthSink/Signal/ready(pid:)``, ``DaemonHealthSink/Signal/exited``,
+    /// or nil for a refused replace (which stopped nothing).
+    func end(_ outcome: DaemonHealthSink.Signal?) {
+        if let outcome { sink.note(outcome) }
     }
 }
