@@ -9,7 +9,7 @@ pub struct AuthDatabase {
     grant_verifier: std::sync::OnceLock<Arc<dyn crate::grant::GrantVerifier>>,
     /// Grant-admitted Noise keys, so a resume needs no grant.
     admitted_grants: crate::grant::AdmittedGrants,
-    state: Arc<Mutex<AuthState>>,
+    pub(super) state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
     revocation_tx: watch::Sender<u64>,
@@ -876,12 +876,12 @@ impl ServerAuthenticator for AuthDatabase {
     }
 }
 
-struct AuthState {
+pub(super) struct AuthState {
     revision: u64,
     revocation_generation: u64,
     closing: bool,
     devices: HashMap<String, DeviceRecord>,
-    invitations: HashMap<String, InvitationRecord>,
+    pub(super) invitations: HashMap<String, InvitationRecord>,
     pending: HashMap<String, PendingDecision>,
     recorded_connection_attempts: HashMap<(String, ConnectionAttemptId), u64>,
     recorded_connection_attempt_order: VecDeque<(String, ConnectionAttemptId)>,
