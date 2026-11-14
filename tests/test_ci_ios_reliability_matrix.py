@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -109,9 +111,57 @@ class MatrixReportTest(unittest.TestCase):
         ids = [c["id"] for c in cells]
         self.assertEqual(len(ids), len(set(ids)), "cell ids are unique")
         for c in cells:
-            self.assertIn(c["suite"], {"rust", "ios", "cloud"}, c["id"])
+            self.assertIn(c["suite"], {"rust", "ios", "ios-ui", "cloud"}, c["id"])
             for key in ("axis", "case", "test", "asserts", "gate"):
                 self.assertIn(key, c, c["id"])
+
+    def test_the_catalog_has_the_device_and_growth_axes(self) -> None:
+        cells = json.loads(matrix.CELLS.read_text())["cells"]
+        device = {c["case"].split(" ")[0].rstrip(",") for c in cells if c["axis"] == "device"}
+        self.assertTrue({"iphone", "ipad", "foldable-folded", "foldable-unfolded", "fold-mid-session",
+                         "dynamic-type-ax5", "dark", "rotation", "low-memory"} <= device, device)
+        growth = {c["test"] for c in cells if c["axis"] == "growth"}
+        self.assertEqual(len(growth), 6, growth)
+        for c in cells:
+            if c["suite"] == "ios-ui":
+                self.assertFalse(c["gate"], f"{c['id']}: GitHub CI runs no app UI tests")
+            if c["axis"] in {"device", "growth"} and not c["gate"]:
+                self.assertTrue(c.get("reason"), f"{c['id']} does not gate and says no reason")
+
+    def test_the_report_prints_each_axis_and_why_a_cell_does_not_gate(self) -> None:
+        cells = CELLS + [
+            {**cell("fold", "ios", "cellDeviceFoldMidSession", True), "axis": "device"},
+            {**cell("rotate-app", "ios-ui", "testRotationKeepsTheOpenWorkspace", False), "axis": "device",
+             "reason": "XCUITest of the app"},
+            {**cell("deltas", "ios", "cellGrowthReceive1000Deltas", True), "axis": "growth"},
+        ]
+        log = IOS_LOG + (
+            "✔ Test cellDeviceFoldMidSession() passed after 1.2 seconds.\n"
+            "✔ Test cellGrowthReceive1000Deltas() passed after 9.0 seconds.\n"
+            'MATRIX {"cell":"deltas","variant":"n10-vs-n200","mem_b_per_op":12,"disk_b_per_op":0}\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cells.json").write_text(json.dumps({"cells": cells}))
+            (root / "ios.log").write_text(log)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = matrix.main(["--cells", str(root / "cells.json"), "--ios", str(root / "ios.log")])
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("- device: 2 cells (1 gating): not run 1, pass 1", text)
+        self.assertIn("- growth: 1 cells (1 gating): pass 1", text)
+        self.assertIn("- `rotate-app`: XCUITest of the app", text)
+        self.assertIn("mem_b_per_op=12", text)
+
+    def test_ui_test_results_are_read_from_xctest_lines(self) -> None:
+        log = (
+            "Test Case '-[CmuxMobileAppUITests.DeviceAxesUITests testDarkAppearance]' passed (3.1 seconds).\n"
+            "Test Case '-[CmuxMobileAppUITests.DeviceAxesUITests testRotationKeepsTheOpenWorkspace]' failed (9.0 seconds).\n"
+        )
+        results = matrix.parse_swift(log)
+        self.assertEqual(results["testDarkAppearance"], "pass")
+        self.assertEqual(results["testRotationKeepsTheOpenWorkspace"], "fail")
 
 
 if __name__ == "__main__":
