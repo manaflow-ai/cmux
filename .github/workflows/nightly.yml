@@ -6663,7 +6663,9 @@ jobs:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.published-build.outputs.variants) }}
-    timeout-minutes: 60
+    timeout-minutes: 80
+    outputs:
+      skip: ${{ steps.deltas-yield.outputs.skip }}
     env:
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.published-build.outputs.daemon_build }}
@@ -6740,6 +6742,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
           overwrite: true
+      # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py.
+      - name: Yield the signer Mac to the nightly-next build loop
+        id: deltas-yield
+        if: needs.published-build.outputs.track == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 42
+        run: python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py --repo "$GITHUB_REPOSITORY" --build "$NIGHTLY_BUILD" --feed "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml"
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
@@ -6748,7 +6757,7 @@ jobs:
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     needs: [published-build, build-nightly-deltas, pick-nightly-sign-runner]
-    if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.run_tail == 'true'
+    if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.run_tail == 'true' && needs.build-nightly-deltas.outputs.skip != 'true'
     permissions:
       contents: read
       actions: read
@@ -6907,7 +6916,7 @@ jobs:
   republish-nightly-deltas:
     # Why: docs/ci/nightly-workflow-notes.md#note-5
     needs: [published-build, generate-nightly-deltas, pick-nightly-sign-runner]
-    if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.run_tail == 'true'
+    if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.run_tail == 'true' && needs.generate-nightly-deltas.result != 'skipped'
     # Optional, as generate-nightly-deltas: the full DMG is already on the feed, so a missing or failed delta
     # never fails the run.
     continue-on-error: true

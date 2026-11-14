@@ -30,6 +30,16 @@
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change
+#             profile record a CPU stack-sampling profile (Instruments' Time
+#               Profiler, `xctrace record --all-processes` on the UI tests'
+#               iPhone, so it covers every launch the tests make) for the UI
+#               test run; needs ui=. The artifact gets ui-profile.trace.zip
+#               (open it in Instruments; dropped above 2 GiB), the exported
+#               time-profile table (ui-time-profile.xml.gz) and
+#               ui-profile-summary.md/.json (scripts/ci/ios_sim_time_profile.py):
+#               per process, CPU and main-thread ms, and the symbols with the
+#               most main-thread time, self and total. Profiled runs are slower;
+#               do not read timings from them next to unprofiled ones.
 #           The artifact keeps each run's log, its console output (a test's
 #           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
@@ -141,6 +151,7 @@ kit_only=()
 kit_env=()
 ui_suites=()
 ui_video=0
+ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -160,9 +171,13 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
       video) ui_video=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
+      profile) ui_profile=1 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
+  if [[ $ui_profile -eq 1 && ${#ui_suites[@]} -eq 0 ]]; then
+    echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
+  fi
 fi
 run_kit=1
 
@@ -298,6 +313,9 @@ perf_udid=""
 cleanup() {
   local result=$?
   # The test iPhones in the default device set, when a step is cut short.
+  # A cancelled UI test profile: stop xctrace before its simulator goes.
+  if [[ -n "${profile_waiter:-}" ]]; then kill "$profile_waiter" 2>/dev/null || true; fi
+  if [[ -n "${profiler:-}" ]]; then stop_profiler "$profiler"; fi
   local d
   for d in "${test_udid:-}" "${ui_udid:-}" "${perf_udid:-}"; do
     [[ -n "$d" ]] || continue
@@ -646,6 +664,116 @@ for root in json.load(sys.stdin).get("testNodes", []):
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
+# --- UI test profile (test ui=... profile) ----------------------------------
+# ui_profile_start: Time Profiler on the UI tests' iPhone, every process on it,
+# so the app is covered across each launch the tests make. xctrace posts a
+# Darwin notification once it records (--notify-tracing-started); the wait
+# ends on it, on xctrace exiting, or after 120 s (xctrace still running then
+# counts as started: a missed notice must not throw away a recording). When
+# recording on the simulator device fails to start, it records every process
+# on the host instead (a simulator app is a host process) and SUMMARY.md says
+# which.
+profiler="" profile_waiter="" profile_trace="" profile_target=""
+
+# stop_profiler: SIGINT makes xctrace save the trace. Saving a long recording
+# takes a while, so it gets 10 minutes before TERM, then KILL; a step is never
+# held by a stuck xctrace, also not in cleanup.
+stop_profiler() {
+  local pid=$1 i
+  kill -INT "$pid" 2>/dev/null || return 0
+  for ((i = 0; i < 600; i++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "cmux-next-ios-sim.sh: xctrace did not save within 600 s of SIGINT; stopping it" >&2
+    kill -TERM "$pid" 2>/dev/null || true
+    for ((i = 0; i < 30; i++)); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
+ui_profile_start() {
+  profile_trace="$work/ui-profile.trace"
+  rm -rf "$profile_trace"
+  local target notice i noticed
+  for target in device host; do
+    notice="dev.cmux.ci.ios-sim.profile.$$.$target"
+    notifyutil -1 "$notice" >/dev/null 2>&1 &
+    profile_waiter=$!
+    local where=(--device "$ui_udid")
+    [[ $target == device ]] || where=()
+    xcrun xctrace record --template 'Time Profiler' ${where[@]+"${where[@]}"} --all-processes --no-prompt \
+      --notify-tracing-started "$notice" --output "$profile_trace" >"$work/ui-profile-$target.log" 2>&1 &
+    profiler=$!
+    # A bounded wait on xctrace's own started signal (or its exit).
+    for ((i = 0; i < 120; i++)); do
+      kill -0 "$profile_waiter" 2>/dev/null || break
+      kill -0 "$profiler" 2>/dev/null || break
+      sleep 1
+    done
+    noticed=1
+    if kill -0 "$profile_waiter" 2>/dev/null; then
+      kill "$profile_waiter" 2>/dev/null || true
+      noticed=0
+    fi
+    # notifyutil exits 0 on the notice; anything else (it failed to start) is no notice.
+    wait "$profile_waiter" 2>/dev/null || noticed=0
+    profile_waiter=""
+    if kill -0 "$profiler" 2>/dev/null; then
+      profile_target=$target
+      [[ $noticed -eq 1 ]] || note "- UI test profile: xctrace sent no started notice in 120 s; kept recording"
+      return 0
+    fi
+    stop_profiler "$profiler"
+    profiler=""
+    rm -rf "$profile_trace"
+    tail -5 "$work/ui-profile-$target.log" >&2 || true
+  done
+  note "- UI test profile: ERROR, xctrace did not start on the simulator or the host (ui-profile-*.log)"
+  cp "$work"/ui-profile-*.log "$out/" 2>/dev/null || true
+}
+
+# ui_profile_finish: stop the recording (SIGINT saves the trace), export the
+# time-profile table and summarize it into the artifact.
+ui_profile_finish() {
+  [[ -n "$profiler" ]] || return 0
+  stop_profiler "$profiler"
+  profiler=""
+  cp "$work/ui-profile-$profile_target.log" "$out/ui-profile.log" 2>/dev/null || true
+  if [[ ! -d "$profile_trace" ]]; then
+    note "- UI test profile: ERROR, xctrace saved no trace (ui-profile.log)"
+    return 0
+  fi
+  local table="$work/ui-time-profile.xml" bytes
+  xcrun xctrace export --input "$profile_trace" --toc --output "$out/ui-profile-toc.xml" >/dev/null 2>&1 || true
+  if xcrun xctrace export --input "$profile_trace" \
+      --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$table" >/dev/null 2>&1 &&
+    python3 -I scripts/ci/ios_sim_time_profile.py "$table" \
+      --markdown "$out/ui-profile-summary.md" --json "$out/ui-profile-summary.json" > "$work/ui-profile-brief.txt"; then
+    gzip -c "$table" > "$out/ui-time-profile.xml.gz" || true
+    note "- UI test profile (Time Profiler, all processes on the $profile_target): ui-profile-summary.md"
+    # The processes with the most main-thread time, one line each.
+    while IFS= read -r line; do note "  - $line"; done < "$work/ui-profile-brief.txt"
+  else
+    note "- UI test profile: ERROR, no time-profile table exported or summarized (ui-profile-toc.xml)"
+  fi
+  rm -f "$table"
+  ditto -c -k --keepParent "$profile_trace" "$out/ui-profile.trace.zip" || true
+  bytes=$(wc -c < "$out/ui-profile.trace.zip" 2>/dev/null || echo 0)
+  if (( bytes > 2147483648 )); then
+    rm -f "$out/ui-profile.trace.zip"
+    note "- UI test profile: the zipped trace was $((bytes >> 20)) MiB, over 2 GiB; dropped (the summary and table stay)"
+  elif (( bytes > 0 )); then
+    note "- UI test profile trace: ui-profile.trace.zip ($((bytes >> 20)) MiB)"
+  fi
+  rm -rf "$profile_trace"
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ ${#ui_suites[@]} -gt 0 ]]; then
   t0=$SECONDS
@@ -653,10 +781,15 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
-  if [[ $ui_video -eq 1 ]]; then
+  if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
     xcrun simctl boot "$ui_udid"
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+  fi
+  if [[ $ui_profile -eq 1 ]]; then
+    ui_profile_start
+  fi
+  if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
   fi
@@ -671,6 +804,9 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     kill -INT "$recorder" 2>/dev/null
     wait "$recorder"
     note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+  fi
+  if [[ $ui_profile -eq 1 ]]; then
+    ui_profile_finish
   fi
   set -e
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
