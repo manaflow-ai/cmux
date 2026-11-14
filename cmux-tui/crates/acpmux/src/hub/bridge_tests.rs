@@ -915,6 +915,14 @@ async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queu
     assert_eq!(users.len(), 1, "shown once");
     assert_eq!(users[0].msg["promptId"], "p-term");
 
+    // A paired device never sends into the terminal: its agent asks for permission there, outside
+    // the remote floor, whatever mode the chat had.
+    let web = PromptOptions { control: crate::hub::Control::Web, ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "from a phone"})];
+    let refused = hub.prompt_with(&session, blocks, "test", false, web).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "remote.terminal_session", "{refused:?}");
+    assert_eq!(added.lock().unwrap().len(), 1, "nothing from the phone reached the terminal");
+
     // A later process under the terminal's pid is not it: the binding's start time says so.
     {
         let mut meta = session.meta.lock().unwrap();

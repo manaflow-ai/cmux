@@ -323,6 +323,12 @@ impl Hub {
         // A chat handed to a cmux terminal (`release_to_watch.rs`) goes into that terminal's
         // harness, bound by its process: the daemon's own record, never a tag.
         let terminal = watching.terminal.clone();
+        // The terminal's harness asks its permissions in that terminal, under the person's own
+        // settings there, not through acpmux: the remote floor (the asking-mode table, D13) cannot
+        // hold, so a paired device (Web control) never sends into it. The Mac and the terminal do.
+        if terminal.is_some() && opts.control == crate::hub::Control::Web {
+            return Some(Err(terminal_remote_refused(&family)));
+        }
         // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
         // chat stays read-only, whatever runs its conversation.
         if terminal.is_none() && session.meta().tags.get("bridge").is_none_or(|t| t.value != family)
@@ -549,6 +555,15 @@ fn not_running(name: &str) -> RpcError {
         ),
     )
     .with_data(json!({"reason": "bridge.not_running", "retryable": true}))
+}
+
+/// A paired device's prompt to a chat a cmux terminal drives (`remote.terminal_session`).
+fn terminal_remote_refused(family: &str) -> RpcError {
+    RpcError::new(
+        -32000,
+        "This chat's agent runs in a terminal on the Mac and asks for permission there: send from the Mac, or type it in that terminal.",
+    )
+    .with_data(json!({"reason": "remote.terminal_session", "harness": family}))
 }
 
 /// A chat's terminal runs its harness, which takes no message from acpmux now (`why`): the
