@@ -1011,7 +1011,7 @@ impl Hub {
                 Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
-        let window = crate::wire::Window {
+        let window = Window {
             sid: sub.sid.clone(),
             cursor: index.seq(),
             rows: page.rows.iter().map(|row| PeerRow(row.as_ref())).collect::<Vec<_>>(),

@@ -1,9 +1,10 @@
 use super::*;
 use crate::wire::{
     Anchor, AnchorSide, FolderPageResult, FolderPosition, FolderWindow, ListFilter, ListView, Page,
-    PageKey, PageSide,
+    PageKey, PageSide, Position,
 };
-use acpmux_book::index::folders::{FolderKey, FolderOp};
+use acpmux_book::index::FolderKey;
+use acpmux_book::index::folders::FolderOp;
 
 fn row(id: &str, folder: &str, at: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -18,7 +19,7 @@ fn sub() -> Sub {
 }
 fn page(key: FolderPosition) -> Page {
     let mut request = Page::new("folders", "list", PageSide::After, 0);
-    request.after = Some(crate::wire::Position::Folder(key));
+    request.after = Some(Position::Folder(key));
     request.view = Some(ListView::Folders);
     request
 }
