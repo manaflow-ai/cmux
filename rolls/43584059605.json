@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43584059605",
+  "recorded_at": "2026-11-14T10:18:27Z",
+  "reason": "cmux-tui f404b9892cac changes the image's cmux-tui (pinned 55c59f579ef0)",
+  "dry_run": false,
+  "cmux_tui": "f404b9892cacd4a5fc9f4fa250501952c529c42b",
+  "fixes": [
+    {
+      "sha": "f404b9892cacd4a5fc9f4fa250501952c529c42b",
+      "mergedAt": "2026-11-14T01:51:03-08:00",
+      "subject": "v2 gates: repair red 05b compaction and 05c replay append (#42878)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T10:18:27Z",
+    "snapshot_id": "sh-94ce570cc5e24081a68099bbca30eac9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43584059605): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "49a514b7b4a494531ef865d046ea51835cc2ad41",
+    "image": "cloud-native-auto-f404b989-43584059605-1",
+    "revision": "ci-43584059605-1",
+    "at": "2026-11-14T10:18:27Z"
+  },
+  "rolled_back": false
+}
