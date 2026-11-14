@@ -27,7 +27,9 @@ on:
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Resources/theme-files/*.json"
       - "docs/remote-agents-and-cloud.md"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
