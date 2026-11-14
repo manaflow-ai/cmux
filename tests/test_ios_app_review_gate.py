@@ -663,13 +663,13 @@ STUB_CLAUDE = """#!/usr/bin/env python3
 import os, re, sys
 prompt = sys.argv[sys.argv.index("-p") + 1]
 mode = os.environ.get("STUB_CLAUDE", "verdict")
-if mode in ("verdict", "no-screens"):
+if mode in ("verdict", "no-screens", "verdict-then-crash"):
     path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
     open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
-if mode == "verdict":
+if mode in ("verdict", "verdict-then-crash"):
     open("step-01-launch.png", "wb").write(b"png")
 print('{"result": "done"}')
-sys.exit(1 if mode == "crash" else 0)
+sys.exit(1 if mode in ("crash", "verdict-then-crash") else 0)
 """
 
 
@@ -749,6 +749,17 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual([(f["rule"], f["severity"], f["guideline"]) for f in findings],
                          [("agent.reviewer", "warning", "4.0")])
 
+    def test_a_verdict_written_before_the_agent_stopped_still_counts(self) -> None:
+        # Out of turns after writing its findings: the verdict stands, with
+        # a warning that the walk may be partial (#43045 review).
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("verdict-then-crash")
+        self.assertEqual(code, 0)
+        self.assertEqual([f["severity"] for f in findings], ["warning", "warning"])
+        self.assertIn("may be incomplete", findings[1]["message"])
+
     def report(self, *extra: str) -> tuple[int, str]:
         out = self.root / "report.md"
         out.unlink(missing_ok=True)
@@ -801,6 +812,11 @@ class AgentReviewerPassTests(unittest.TestCase):
         step = workflow.split("      - name: Agent reviewer pass\n", 1)[1].split("      - name: Upload results\n", 1)[0]
         self.assertNotIn("continue-on-error", step)
         self.assertIn("agent-skipped.json", step)
+        # Only a fork pull request (no secrets) skips; a missing token
+        # anywhere else is red (#43045 review).
+        self.assertIn("FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && "
+                      "github.event.pull_request.head.repo.full_name != github.repository }}", step)
+        self.assertIn('if [ "$FORK_PULL_REQUEST" = true ]; then', step)
         self.assertIn("cmux-next-ios/scripts/app_review_pick_step.sh", workflow)
         report = workflow.split("\n  report:\n", 1)[1]
         self.assertIn("--expect-agent", report)
