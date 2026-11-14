@@ -814,10 +814,15 @@ async fn v1_replies_and_pushes_on_a_link_are_byte_equal_with_peers_on_and_off() 
             assert!(!is_frame_line(&line));
             lines.push(line);
         }
-        // Each hub draws its own list epoch: the one byte run two hubs never share.
+        // Each hub draws its own list epoch and stamps the clock (a session receipt's
+        // generation, in ms): the byte runs two hubs never share. Everything else must match.
         let first: Value = serde_json::from_str(&lines[0]).unwrap();
         let epoch = first["result"]["listEpoch"].as_str().expect("the watch names its epoch");
-        lines.iter().map(|line| line.replace(epoch, "EPOCH")).collect::<Vec<_>>()
+        let clock = regex::Regex::new(r"\b1\d{12}\b").unwrap();
+        lines
+            .iter()
+            .map(|line| clock.replace_all(&line.replace(epoch, "EPOCH"), "MS").into_owned())
+            .collect::<Vec<_>>()
     }
     let off = recorded(false).await;
     let on = recorded(true).await;
