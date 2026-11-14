@@ -90,6 +90,14 @@ fn over_limit_measure_is_red() {
 }
 
 #[test]
+fn a_run_that_leaves_a_measured_row_out_is_refused() {
+    let file = measure_file("v2.pr01.append_time", 10.0, 11.0);
+    let error = home::report(&[file.path().to_path_buf()]).unwrap_err();
+    assert!(error.contains("did not report a measure"));
+    assert!(home::report(&[]).is_err());
+}
+
+#[test]
 fn missing_measured_row_is_refused() {
     let error = home::validate_measure_files(&[], &["v2.pr01.append_time"]).unwrap_err();
     assert!(error.contains("was not reported"));
