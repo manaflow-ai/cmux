@@ -1,0 +1,31 @@
+{
+  "tasks": "4c2b884dffcc7d42f4d41a02ef65b9672d7cff796e10caaf5fc1d512979dd092",
+  "arms": "a687c8ac5a0d6af25268da0a538e44ee00b1ff0fe3374ca5a32d992082d39279",
+  "prompt": "935b37f210afeb5f9828f43df798d23fb46a83dbb17b6b84eec4fe48b8e0517c",
+  "agent": "codex",
+  "model": "gpt-6.1-sol",
+  "trials": 3,
+  "max_turns_cap": null,
+  "digest": "480a21cdac3a6a77c35c24b515732d7e8d27b14dff1fc43e4c5033cde00b162e",
+  "primary_metric": "success rate, cmux-cu minus cua-driver-0.38.0, Newcombe 95% CI",
+  "hypothesis": "bg-fix helper: fewer false DONEs than the rewrite helper",
+  "task_ids": [
+    "background-person-typing",
+    "calculator-product",
+    "covered-window",
+    "denied-fixture-settings",
+    "denied-os-appearance",
+    "form-checkbox",
+    "form-counter-exact",
+    "form-name-save",
+    "form-read-code",
+    "form-scroll-select",
+    "form-slider",
+    "text-editor-append",
+    "two-windows-target",
+    "web-order-form"
+  ],
+  "arms_list": [
+    "cmux-cu"
+  ]
+}

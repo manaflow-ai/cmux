@@ -1,0 +1,32 @@
+{
+  "tasks": "4c2b884dffcc7d42f4d41a02ef65b9672d7cff796e10caaf5fc1d512979dd092",
+  "arms": "3e63c421ffec291dca33cf94b0b67bb76fb53c6b6bea47f83206132982c67da8",
+  "prompt": "935b37f210afeb5f9828f43df798d23fb46a83dbb17b6b84eec4fe48b8e0517c",
+  "agent": "codex",
+  "model": "gpt-6.1-sol",
+  "trials": 3,
+  "max_turns_cap": null,
+  "digest": "e0fc7ac787f90ca1643372f752bb3aa1f96b960ee8a519be74fbbf19cd98961d",
+  "primary_metric": "success rate, cmux-cu minus cua-driver-0.38.0, Newcombe 95% CI",
+  "hypothesis": "Agent final claims (DONE/FAILED/REFUSED) match the checks; cmux-cu has fewer false DONEs on the native fixture than on Tk",
+  "task_ids": [
+    "background-person-typing",
+    "calculator-product",
+    "covered-window",
+    "denied-fixture-settings",
+    "denied-os-appearance",
+    "form-checkbox",
+    "form-counter-exact",
+    "form-name-save",
+    "form-read-code",
+    "form-scroll-select",
+    "form-slider",
+    "text-editor-append",
+    "two-windows-target",
+    "web-order-form"
+  ],
+  "arms_list": [
+    "cmux-cu",
+    "cua-driver-0.38.0"
+  ]
+}

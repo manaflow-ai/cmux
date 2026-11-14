@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>CUEV Page</title>
 <style>body{font:16px -apple-system;margin:20px} #fixed{position:fixed;top:0;right:0;background:#ffd;padding:4px} .row{height:40px;border-bottom:1px solid #ddd}</style></head>
 <body>
-<div id="fixed">scroll=<span id="sy">0</span> keys=<span id="keys">none</span> clicks=<span id="clicks">0</span> slider=<span id="sv">10</span> w=<span id="iw"></span></div>
+<div id="fixed">scroll=<span id="sy">0</span> keys=<span id="keys">none</span> clicks=<span id="clicks">0</span> slider=<span id="sv">10</span> w=<span id="iw"></span> sel=<span id="sel">0</span></div>
 <h1>CUEV Page</h1>
 <label>Name <input id="name" aria-label="Name" value=""></label>
 <button id="go" onclick="document.getElementById('clicks').textContent=++window.n">Press Me</button>
@@ -13,5 +13,6 @@ window.n=0;
 for(let i=1;i<=120;i++){const d=document.createElement('div');d.className='row';d.textContent='Row '+i;document.getElementById('rows').appendChild(d);}
 addEventListener('scroll',()=>{document.getElementById('sy').textContent=Math.round(scrollY)});
 addEventListener('keydown',e=>{const m=[e.metaKey&&'meta',e.ctrlKey&&'ctrl',e.altKey&&'alt',e.shiftKey&&'shift'].filter(Boolean);document.getElementById('keys').textContent=m.concat([e.key]).join('+')},true);
+document.addEventListener('selectionchange',()=>{document.getElementById('sel').textContent=String(document.getSelection()).length});
 const iw=()=>document.getElementById('iw').textContent=innerWidth; addEventListener('resize',iw); iw();
 </script></body></html>

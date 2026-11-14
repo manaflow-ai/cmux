@@ -1,3 +1,4 @@
 out/
 .cache/
 __pycache__/
+fixtures/macos/build/

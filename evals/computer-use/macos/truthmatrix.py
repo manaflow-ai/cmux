@@ -821,8 +821,10 @@ def safari_cells():
         Cell("type_text", lambda a, w, c: a.type_text(w, c["tag"], web(a, w, "textfield", "Name")), jname("tag", False),
              read=page, done=lambda s, c: c["tag"] in str(s.get("name") or "")),
         Cell("press_key_chord_cmd_a", lambda a, w, c: (a.screenshot(w), a.press_key(w, "cmd+a"))[1],
-             lambda b, a, c: tri(a["keys"] == "meta+a", a["keys"] != b["keys"], detail=f"page saw keydown {a['keys']!r}"),
-             read=page, done=lambda s, c: s["keys"] == "meta+a"),
+             # the effect of cmd+a is the selection (Select All); the keydown is how the page saw it, if it did
+             lambda b, a, c: tri(int(a.get("sel") or 0) > 1000 or a["keys"] == "meta+a", a != b,
+                                 detail=f"page keydown {a['keys']!r}, selection {b.get('sel')} -> {a.get('sel')} chars"),
+             read=page, done=lambda s, c: int(s.get("sel") or 0) > 1000 or s["keys"] == "meta+a"),
         Cell("scroll", scroll, lambda b, a, c: tri(int(a["scroll"] or 0) > int(b["scroll"] or 0), a["scroll"] != b["scroll"],
                                                    detail=f"scrollY {b['scroll']} -> {a['scroll']}"), read=page,
              done=lambda s, c: int(s["scroll"] or 0) > int(c["before"]["scroll"] or 0)),
@@ -908,7 +910,8 @@ def finder_cells():
              lambda b, a, c: tri(a[0] == 1 and bool(a[1]) and str(a[1][0]).startswith("file-2"), a != b,
                                  detail=f"type-select {a[0]} {str(a[1])[:60]}"), read=sel, done=lambda s, c: s[0] == 1),
         Cell("scroll", lambda a, w, c: a.scroll(w, *bm.center(fnode(a, w, "file-03.txt")), dy=10),
-             lambda b, a, c: tri(any(isinstance(x, (int, float)) and x > 0 for x in a), a != b, detail=f"scroll bars {b} -> {a}"),
+             lambda b, a, c: tri(any(isinstance(x, (int, float)) and isinstance(y, (int, float)) and x > y for x, y in zip(a, b)),
+                                 a != b, detail=f"scroll bars {b} -> {a}"),
              read=bars),
         Cell("drag_file_to_folder", lambda a, w, c: a.drag(w, *bm.center(fnode(a, w, "file-07.txt")), *bm.center(fnode(a, w, "dest"))),
              lambda b, a, c: tri(a, False, detail=f"file-07 moved into dest: {a}"), read=moved, post=mv_back, done=lambda s, c: s),
@@ -960,8 +963,9 @@ def notes_cells():
         Cell("set_value", lambda a, w, c: a.set_value(w, ta(a, w), c["val"]),
              lambda b, a, c: tri(str(a or "").strip() == c["val"], a != b, detail=f"body {str(a)[:50]!r}"), read=body,
              done=lambda s, c: str(s or "").strip() == c["val"]),
-        Cell("click_px", lambda a, w, c: a.click_px(w, *bm.center(ta(a, w))),
-             lambda b, a, c: tri(a and not b, a != b, detail=f"body focused {b} -> {a}"), read=focused, done=lambda s, c: s),
+        Cell("click_px_new_note", lambda a, w, c: a.click_px(w, *bm.center((a.screenshot(w), find(a.tree(w), roles=["button"],
+             pred=lambda n: "new note" in json.dumps(n).lower()))[1])), jn, read=count,
+             done=lambda s, c: (s[0] or 0) > (c["before"][0] or 0)),
     ]
 
 

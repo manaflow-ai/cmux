@@ -711,7 +711,7 @@ def page_status(pid):
     texts = [str(n.get("value") or "") for n in nodes if n.get("role") == "AXStaticText" and n.get("_win") == "CUEV Page"]
     blob = " ".join(texts)
     out = {}
-    for k in ("scroll", "keys", "clicks", "slider", "w"):
+    for k in ("scroll", "keys", "clicks", "slider", "w", "sel"):
         m = re.search(rf"\b{k}=\s*(\S+)", blob)
         out[k] = m.group(1) if m else None
     field = ax_find(nodes, "AXTextField", win="CUEV Page", pred=lambda n: n.get("title") == "Name" or n.get("desc") == "Name")
