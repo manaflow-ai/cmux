@@ -262,7 +262,18 @@ impl Log {
         if visible {
             Ok(Some((true, None)))
         } else {
-            let jump = if up { fold.last.checked_add(1) } else { fold.group.checked_sub(1) };
+            let jump = if up {
+                ranges
+                    .iter()
+                    .find_map(|(first, _)| (*first > row_id).then_some(*first))
+                    .or_else(|| fold.last.checked_add(1))
+            } else {
+                ranges
+                    .iter()
+                    .rev()
+                    .find_map(|(_, last)| (*last < row_id).then_some(*last))
+                    .or_else(|| fold.group.checked_sub(1))
+            };
             Ok(Some((false, jump)))
         }
     }
