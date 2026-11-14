@@ -42317,6 +42317,268 @@
         }
       }
     },
+    "settings.sidebar.workspaceListApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace List Extension"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة قائمة مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proširenje liste radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udvidelse til arbejdsområdeliste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erweiterung für die Arbeitsbereichsliste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensión de la lista de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension de la liste des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estensione dell'elenco degli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースリストの拡張機能"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីបន្ថែមបញ្ជីកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 목록 확장 프로그램"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utvidelse for arbeidsområdeliste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozszerzenie listy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensão da lista de espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расширение списка рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนขยายรายการพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma Alanı Listesi Uzantısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розширення списку робочих просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiện ích mở rộng danh sách không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区列表扩展"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區列表擴充功能"
+          }
+        }
+      }
+    },
+    "settings.sidebar.workspaceListApp.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف إضافة مثبتة ترسم قائمة مساحات العمل كاملة (cmux.sidebar/1)، مثل local/workspace-list. إذا تُرك فارغًا تُعرض القائمة المدمجة، وتظهر أيضًا أثناء تحميل الإضافة أو فشلها أو إزالتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID instaliranog proširenja koje crta cijelu listu radnih prostora (cmux.sidebar/1), npr. local/workspace-list. Prazno prikazuje ugrađenu listu, koja se prikazuje i dok se proširenje učitava, ne uspije ili je uklonjeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Id'et på en installeret udvidelse, der tegner hele arbejdsområdelisten (cmux.sidebar/1), f.eks. local/workspace-list. Tomt viser den indbyggede liste, som også vises, mens udvidelsen indlæses, fejler eller fjernes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ID einer installierten Erweiterung, die die ganze Arbeitsbereichsliste zeichnet (cmux.sidebar/1), etwa local/workspace-list. Leer zeigt die eingebaute Liste, die auch erscheint, während die Erweiterung lädt, fehlschlägt oder entfernt ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El id de una extensión instalada que dibuja toda la lista de espacios de trabajo (cmux.sidebar/1), como local/workspace-list. Vacío muestra la lista integrada, que también aparece mientras la extensión carga, falla o se elimina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'identifiant d'une extension installée qui dessine toute la liste des espaces de travail (cmux.sidebar/1), par exemple local/workspace-list. Vide affiche la liste intégrée, qui s'affiche aussi pendant que l'extension se charge, échoue ou est supprimée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'id di un'estensione installata che disegna l'intero elenco degli spazi di lavoro (cmux.sidebar/1), ad esempio local/workspace-list. Vuoto mostra l'elenco integrato, che appare anche mentre l'estensione si carica, non riesce o viene rimossa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースリスト全体を描画するインストール済み拡張機能の ID（cmux.sidebar/1）。例: local/workspace-list。空の場合は組み込みのリストを表示します。拡張機能の読み込み中、失敗時、削除後も組み込みのリストが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លេខសម្គាល់នៃកម្មវិធីបន្ថែមដែលបានដំឡើង ដែលគូរបញ្ជីកន្លែងធ្វើការទាំងមូល (cmux.sidebar/1) ដូចជា local/workspace-list។ ទទេ បង្ហាញបញ្ជីដែលភ្ជាប់មកជាមួយ ដែលក៏បង្ហាញផងដែរ ពេលកម្មវិធីបន្ថែមកំពុងផ្ទុក បរាជ័យ ឬត្រូវបានដកចេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 목록 전체를 그리는 설치된 확장 프로그램의 ID(cmux.sidebar/1)입니다. 예: local/workspace-list. 비워 두면 기본 목록을 표시하며, 확장 프로그램을 불러오는 중이거나 실패했거나 제거된 경우에도 기본 목록이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID-en til en installert utvidelse som tegner hele arbeidsområdelisten (cmux.sidebar/1), for eksempel local/workspace-list. Tom viser den innebygde listen, som også vises mens utvidelsen lastes, feiler eller er fjernet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identyfikator zainstalowanego rozszerzenia, które rysuje całą listę obszarów roboczych (cmux.sidebar/1), np. local/workspace-list. Puste pokazuje wbudowaną listę, która jest też widoczna, gdy rozszerzenie się wczytuje, zawodzi lub zostało usunięte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O id de uma extensão instalada que desenha toda a lista de espaços de trabalho (cmux.sidebar/1), como local/workspace-list. Vazio mostra a lista integrada, que também aparece enquanto a extensão carrega, falha ou é removida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Идентификатор установленного расширения, которое рисует весь список рабочих пространств (cmux.sidebar/1), например local/workspace-list. Пустое значение показывает встроенный список; он же виден, пока расширение загружается, даёт сбой или удалено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รหัสของส่วนขยายที่ติดตั้งแล้วซึ่งวาดรายการพื้นที่ทำงานทั้งหมด (cmux.sidebar/1) เช่น local/workspace-list ถ้าว่างจะแสดงรายการในตัว ซึ่งจะแสดงด้วยขณะที่ส่วนขยายกำลังโหลด ล้มเหลว หรือถูกนำออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm çalışma alanı listesini çizen yüklü bir uzantının kimliği (cmux.sidebar/1), örneğin local/workspace-list. Boş bırakılırsa yerleşik liste gösterilir; uzantı yüklenirken, başarısız olduğunda veya kaldırıldığında da yerleşik liste görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ідентифікатор встановленого розширення, яке малює весь список робочих просторів (cmux.sidebar/1), наприклад local/workspace-list. Порожнє значення показує вбудований список; він також видимий, поки розширення завантажується, дає збій або видалене."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã của một tiện ích mở rộng đã cài đặt vẽ toàn bộ danh sách không gian làm việc (cmux.sidebar/1), ví dụ local/workspace-list. Để trống sẽ hiển thị danh sách có sẵn, danh sách này cũng hiện ra khi tiện ích đang tải, gặp lỗi hoặc bị gỡ bỏ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绘制整个工作区列表的已安装扩展的 ID（cmux.sidebar/1），例如 local/workspace-list。留空则显示内置列表；扩展加载中、失败或被移除时也会显示内置列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繪製整個工作區列表的已安裝擴充功能 ID（cmux.sidebar/1），例如 local/workspace-list。留空則顯示內建列表；擴充功能載入中、失敗或被移除時也會顯示內建列表。"
+          }
+        }
+      }
+    },
     "settings.sidebar.sessionTree": {
       "extractionState": "manual",
       "localizations": {
