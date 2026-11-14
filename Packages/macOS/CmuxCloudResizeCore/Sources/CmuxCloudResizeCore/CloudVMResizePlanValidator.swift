@@ -82,6 +82,9 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Creates a stateless resize evaluator.
     public init() {}
 
+    /// Largest machine the provider can run (the top of the image ladder).
+    static let providerMaxMemoryMb = 64 * 1_024
+
     /// Decodes server plan limits, applying conservative fallbacks for older
     /// control-plane responses that omit explicit resize ceilings.
     ///
@@ -114,10 +117,17 @@ public struct CloudVMResizePlanValidator: Sendable {
             // preflight sizes the server will reject for that account.
             productMemoryCeiling = 8 * 1_024
         }
-        let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
-            ?? maxMemoryFromLadder
-            ?? productMemoryCeiling
-        let maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
+        // An explicit `maxMemoryMb` is the server's resize ceiling for this
+        // caller: it already includes a team's custom deal (an enterprise
+        // override can raise a Team machine to 24 GiB or more) and the
+        // server enforces it again on resize. Honor it up to the provider
+        // maximum. The product tier caps only the inferred fallbacks.
+        let maxMemoryMb: Int
+        if let advertised = positiveLimit(rawLimits["maxMemoryMb"]) {
+            maxMemoryMb = min(advertised, Self.providerMaxMemoryMb)
+        } else {
+            maxMemoryMb = min(maxMemoryFromLadder ?? productMemoryCeiling, productMemoryCeiling)
+        }
         let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
         let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
