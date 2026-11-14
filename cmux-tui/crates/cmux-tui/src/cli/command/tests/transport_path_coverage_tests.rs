@@ -336,6 +336,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // A page's palette ranks its rows with it; the
                         // CLI has no palette.
                         | "palette.rank"
+                        // The App Store chat list (extensibility-DESIGN.md step 3):
+                        // `cmux chat list` is the Chief's verb, so the CLI reaches
+                        // these through `cmux raw operation chat.list` for now.
+                        | "chat.list"
+                        | "chat.mark_read"
+                        | "chat.pin"
                         // `cmux theme import/export/from-image` convert in
                         // process with the same crate (cmux-theme-tokens);
                         // the ops are for pages and extensions.

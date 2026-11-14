@@ -87,6 +87,7 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `terminal.changed` | `terminal:read` | a terminal starts, ends or changes its title or folder |
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
+| `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
 
 ## The Rust API
 

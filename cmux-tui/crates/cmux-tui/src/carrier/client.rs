@@ -599,7 +599,8 @@ impl RouteAttempt<'_> {
             marks.mux_open = Some(Instant::now());
             marks.carrier = Some(dialer.name());
         });
-        self.current.set(dialer.name());
+        // Unless the session already moved off this route while the mux stream opened: a reconnect set its own.
+        carrier_routes.first_route(dialer.name());
         // On the relay with an ssh route behind it: authorize the carrier
         // key once now, so a failover inside its lifetime skips the ask.
         if !dialer.is_ssh()

@@ -150,7 +150,9 @@ struct ChiefCloudHTTP: Sendable {
             throw ChiefCloudError.refused(status: reply.status, code: code, message: error["message"] as? String ?? code)
         }
         guard (200..<300).contains(reply.status), let object else {
-            throw ChiefCloudError.refused(status: reply.status, code: "http_\(reply.status)", message: "HTTP \(reply.status)")
+            // The status stays in `status` and the code (`description`, for logs), never the person's text.
+            throw ChiefCloudError.refused(status: reply.status, code: "http_\(reply.status)",
+                                          message: "The Cloud service isn't available right now. Try again in a moment.")
         }
         if object["ok"] as? Bool == false {
             throw ChiefCloudError.refused(status: reply.status, code: "refused", message: "the service refused the request")

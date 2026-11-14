@@ -1315,6 +1315,32 @@ fn turn_start_after_a_result_is_not_compared_with_the_old_turn() {
 }
 
 #[test]
+fn in_turn_ends_with_the_turn_and_a_restore_agrees() {
+    let mut s = State::default();
+    assert!(!s.in_turn());
+    let lines: Vec<_> = SEED.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+        // The seed's last line is its turn's result.
+        assert_eq!(s.in_turn(), index + 1 < lines.len(), "line {index}");
+        let restored = State::restore(&s.checkpoint().unwrap()).unwrap();
+        assert_eq!(restored.in_turn(), s.in_turn(), "line {index}");
+    }
+    // A background tool's late update keeps the ended turn's id and starts no turn.
+    let late = update(
+        10,
+        r#"{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"}"#,
+    );
+    t(&mut s, Harness::V1, late.as_bytes()).unwrap();
+    assert!(!s.in_turn());
+    // A turn the daemon starts with no prompt is a turn until its result.
+    t(&mut s, Harness::V1, mux(11, "turn_started", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(s.in_turn());
+    t(&mut s, Harness::V1, mux(12, "turn_result", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(!s.in_turn());
+}
+
+#[test]
 fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
     let mut state = State::default();
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"boundary"}"#).as_bytes())
