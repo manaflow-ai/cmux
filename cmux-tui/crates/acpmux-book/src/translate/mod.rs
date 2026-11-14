@@ -13,15 +13,19 @@ mod kinds;
 mod kinds_tests;
 #[cfg(test)]
 mod tests;
+mod user;
+#[cfg(test)]
+mod user_tests;
 mod v1;
 
 use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 8 writes the turn-end notice with its result's fields in every book (decision 231);
-/// an older book rebuilds from raw.
-pub const VERSION: u32 = 8;
+/// Version 9 writes what a user row says of its prompt and its sender, the ask rows and their
+/// decisions, and a turn end a prompt sent now went on under (decisions 231, 235, 236); an older
+/// book rebuilds from raw.
+pub const VERSION: u32 = 9;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
@@ -69,6 +73,8 @@ pub enum BodyField {
     Source,
     Images,
     Title,
+    InlineParts,
+    Pasted,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodySource {
@@ -181,6 +187,18 @@ impl OwnedRow {
         value.len() > cap
     }
 }
+/// Whether a user row may carry a `sentFrom`: a typed prompt, or another agent's message.
+fn takes_claim(row: &OwnedRow) -> bool {
+    row.fields.get("incoming").is_none_or(|incoming| incoming.starts_with("{\"kind\":\"message\""))
+}
+/// The bytes a row's fields hold.
+fn fields_bytes(row: &OwnedRow) -> usize {
+    row.fields.iter().map(|(k, v)| k.len().saturating_add(v.len())).fold(0, usize::saturating_add)
+}
+/// A string as a compact JSON value.
+fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
+}
 /// At most `cap` bytes of `value`, cut on a character.
 fn cut(value: &str, cap: usize) -> &str {
     let mut end = value.len().min(cap);
@@ -212,7 +230,32 @@ struct PromptEvent<'a> {
     notice: bool,
     body: Option<&'a serde_json::value::RawValue>,
     images: Option<&'a serde_json::value::RawValue>,
+    /// Who sent it and how (`user::sender`).
+    sender: user::Sender,
+    inline_parts: Option<&'a serde_json::value::RawValue>,
+    pasted: Option<&'a serde_json::value::RawValue>,
+    /// Its record's line, which a later patch reads its bodies from again.
+    place: u64,
+    span: u64,
 }
+/// A settled user row a `sender_claim` may still name: the hub writes the claim once the prompt is
+/// accepted, which for a prompt that starts at once is after its `user_message`. A patch replaces
+/// the row's whole body, so the patch reads its bodies from the record's line again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Claimable {
+    prompt: u64,
+    row: OwnedRow,
+    place: u64,
+    span: u64,
+    bodies: Vec<u8>,
+}
+/// The most claims held for prompts not yet echoed (a queued prompt's claim comes when it is kept).
+const MAX_HELD_CLAIMS: usize = 16;
+/// The most bytes of fields the waiting steers hold; past it the oldest settles, as past 32 rows.
+const MAX_HELD_STEER_BYTES: usize = 12 * 1024;
+/// A body field a claim's patch reads again, by its index in the record's line.
+const CLAIM_BODIES: [BodyField; 4] =
+    [BodyField::Content, BodyField::Images, BodyField::InlineParts, BodyField::Pasted];
 /// The key a waiting prompt's id is kept by in the queue.
 pub fn prompt_hash(key: &str) -> u64 {
     key.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
@@ -260,6 +303,30 @@ pub struct State {
     /// Kinds in none of the tables (`kinds.rs`), by name: 32 names, then `other`.
     #[serde(skip)]
     unknown_kinds: BTreeMap<String, u64>,
+    #[serde(skip)]
+    unknown_records: u64,
+    /// A prompt sent now into the running turn (`queue_order` with `next`), before any Stop: the
+    /// turn's end goes on under it (decision 236).
+    interrupting: Option<u64>,
+    /// The turn end that went on under a prompt sent now, until that prompt runs or never will.
+    continued: Option<Continued>,
+    /// A Stop the hub took for the running turn (`stopping`): its end is the Stop's.
+    stopping: bool,
+    /// Sender claims of prompts not echoed yet, by prompt hash, oldest first.
+    claims: Vec<(u64, String)>,
+    /// The newest settled user row, which its claim may still patch.
+    claimable: Option<Claimable>,
+    /// Claims that named no prompt this book holds or will hold (a steer settled before it).
+    #[serde(skip)]
+    unplaced_claims: u64,
+}
+/// A turn-end notice that says `continued`, held whole: a patch replaces a settled row's body, so
+/// taking the mark back sends the notice again without it. Its fields are capped (the error at
+/// 4 KB), and one is held at a time.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Continued {
+    prompt: u64,
+    notice: OwnedRow,
 }
 /// A turn's token split, as the view's `TurnTokenSplit` names it. `context` and `calls` are
 /// absent when zero.
@@ -383,6 +450,8 @@ pub struct Counters {
     pub cut_fields: u64,
     pub line_errors: u64,
     pub queue_overflowed: u64,
+    /// Sender claims no user row took (`sender_claim` after its steer settled, or past 16 held).
+    pub unplaced_claims: u64,
 }
 impl State {
     /// Whether raw is currently inside a turn, independent of its open body rows.
@@ -394,6 +463,7 @@ impl State {
     pub fn counters(&self) -> Counters {
         Counters {
             unknown_kinds: self.unknown_kinds.clone(),
+            unplaced_claims: self.unplaced_claims,
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
@@ -586,11 +656,22 @@ impl State {
         }
     }
     fn group(&mut self, out: &mut input::Output<'_>) -> Result<u64, Error> {
+        self.group_with(Vec::new(), out)
+    }
+    /// The open group row, opened with `fields` when there is none.
+    fn group_with(
+        &mut self,
+        fields: Vec<(&'static str, String)>,
+        out: &mut input::Output<'_>,
+    ) -> Result<u64, Error> {
         if let Some(row) = &self.group {
             return Ok(row.id);
         }
         let mut row = self.row(RowKind::Group, out)?;
         row.fields.insert("calls".into(), "0".into());
+        for (key, value) in fields {
+            row.fields.insert(key.into(), value);
+        }
         let id = row.id;
         out.row(&row);
         self.group = Some(row);
@@ -653,6 +734,8 @@ impl State {
             self.dropped_fold_steers.saturating_add(self.fold.dropped_steers);
         self.fold = fold::Fold::default();
         self.turn_key.clear();
+        // A turn that ended with no notice (cut off, or no end at all) leaves no tokens to the next.
+        self.claude = ClaudeTurn::default();
         // Background tools may complete after this turn. Preserve their original IDs.
     }
     /// A kind in none of the tables: counted by name, never dropped silently (`kinds.rs`).
@@ -670,6 +753,15 @@ impl State {
         };
         let n = self.unknown_kinds.entry(key.to_owned()).or_insert(0);
         *n = n.saturating_add(1);
+        self.unknown_records = self.unknown_records.saturating_add(1);
+    }
+    /// The records whose kind is on no table, all kinds together: zero over every known log.
+    pub fn unknown_records(&self) -> u64 {
+        self.unknown_records
+    }
+    /// The two counts a line that did not translate raises, read without the rest of `counters`.
+    pub fn line_failures(&self) -> (u64, u64) {
+        (self.invalid_records, self.line_errors)
     }
     /// Copy a table line's fields from `msg` into the row's fields, one pass over its keys.
     fn copy(
@@ -731,6 +823,14 @@ impl State {
     /// The turn-end notice settles, the group row takes its status, and the turn finishes.
     fn end_turn(&mut self, mut end: OwnedRow, status: &str, out: &mut input::Output<'_>) {
         end.open = false;
+        // A prompt sent now ended the turn, not a failure: the turn goes on under that prompt.
+        if let Some(prompt) = self.interrupting.take()
+            && status != "failed"
+        {
+            end.fields.insert("continued".into(), "true".into());
+            self.continued = Some(Continued { prompt, notice: end.clone() });
+        }
+        self.stopping = false;
         out.row(&end);
         if !status.is_empty()
             && let Some(group) = &mut self.group
@@ -739,6 +839,36 @@ impl State {
             self.cut_fields = self.cut_fields.saturating_add(1);
         }
         self.finish(out);
+    }
+    /// A prompt sent now into the running turn, which its end goes on under; not after a Stop.
+    fn interrupt(&mut self, prompt: &str) {
+        let hash = prompt_hash(prompt);
+        if self.in_turn() && !self.stopping && self.queued(hash).is_some() {
+            self.interrupting = Some(hash);
+        }
+    }
+    /// A Stop the hub took: the running turn's end is the Stop's.
+    fn stop(&mut self) {
+        self.stopping = self.in_turn();
+    }
+    /// A prompt that left the queue without running (`queue_removed`, `queue_declined`,
+    /// `prompt_refused`; not `dequeued`, which runs it): a turn it ended ends as it did.
+    fn withdrawn(&mut self, prompt: &str, out: &mut input::Output<'_>) {
+        let hash = prompt_hash(prompt);
+        if self.interrupting == Some(hash) {
+            self.interrupting = None;
+        }
+        if self.continued.as_ref().is_some_and(|held| held.prompt == hash) {
+            self.drop_continuation(out);
+        }
+    }
+    /// The held turn end reads as ended again: its notice, sent again without `continued`.
+    fn drop_continuation(&mut self, out: &mut input::Output<'_>) {
+        if let Some(Continued { mut notice, .. }) = self.continued.take() {
+            notice.fields.remove("continued");
+            notice.rev = notice.rev.saturating_add(1);
+            out.emit(Change::Patch(notice));
+        }
     }
     /// One Claude model call's usage. Every line of a call repeats it; a new id is a new call.
     fn claude_call(&mut self, message: &str, call: Tokens) {
@@ -803,6 +933,7 @@ impl State {
     fn settle_prompt(&mut self, hash: u64, hidden: bool, out: &mut input::Output<'_>) {
         if let Some(mut prompt) = self.prompts.remove(&hash) {
             prompt.row.open = false;
+            prompt.row.fields.remove("steerPromptId");
             if hidden || !prompt.has_body {
                 prompt.row.fields.clear();
                 prompt.row.fields.insert("hidden".into(), "true".into());
@@ -878,6 +1009,7 @@ impl State {
                     prompt.row.turn = self.turn;
                 }
                 prompt.read = true;
+                prompt.row.fields.remove("steerPromptId");
                 if prompt.row.field("state", "sent") {
                     self.cut_fields = self.cut_fields.saturating_add(1);
                 }
@@ -924,6 +1056,7 @@ impl State {
                 prompt.row.turn = self.turn;
             }
             prompt.read = true;
+            prompt.row.fields.remove("steerPromptId");
             if !was_read {
                 self.fold.extra(prompt.row.id);
             }
@@ -940,7 +1073,19 @@ impl State {
         Ok(())
     }
     fn prompt(&mut self, event: PromptEvent<'_>, out: &mut input::Output<'_>) -> Result<(), Error> {
-        let PromptEvent { key, prompt_key, steer, notice, body, images } = event;
+        let PromptEvent {
+            key,
+            prompt_key,
+            steer,
+            notice,
+            body,
+            images,
+            sender,
+            inline_parts,
+            pasted,
+            place,
+            span,
+        } = event;
         bounded(key)?;
         bounded(prompt_key)?;
         let hash = prompt_hash(prompt_key);
@@ -956,6 +1101,21 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
+        // A prompt sent now that runs before its turn ended stopped nothing; one a turn's end went
+        // on under continues that turn. Another prompt opening a turn first means it never ran.
+        if !prompt_key.is_empty() && self.interrupting == Some(hash) {
+            self.interrupting = None;
+        }
+        let continues = !prompt_key.is_empty()
+            && self.continued.as_ref().is_some_and(|held| held.prompt == hash);
+        if continues {
+            self.continued = None;
+        } else if !steer {
+            self.drop_continuation(out);
+        }
+        if !steer {
+            self.stopping = false;
+        }
         self.queue_remove(prompt_key, out);
         if steer {
             if !already_read {
@@ -972,6 +1132,25 @@ impl State {
         }
         if notice {
             row.fields.insert("notice".into(), "true".into());
+        }
+        if continues {
+            row.fields.insert("continues".into(), "true".into());
+        }
+        if !prompt_key.is_empty() && row.field("promptId", prompt_key) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        let user::Sender { fields: said, claims, cut, .. } = sender;
+        self.cut_fields = self.cut_fields.saturating_add(cut);
+        for (name, value) in said {
+            row.fields.insert(name.into(), value);
+        }
+        // Where it was sent from, under a prompt or another agent's message (decision 244 c).
+        if claims && let Some(from) = self.take_claim(hash) {
+            row.fields.insert("sentFrom".into(), from);
+        }
+        let waiting = steer && !already_read && !prompt_key.is_empty();
+        if waiting && row.field("steerPromptId", prompt_key) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
         }
         if steer {
             if !already_read {
@@ -995,8 +1174,20 @@ impl State {
         if let Some(images) = images {
             out.body(row.id, BodyField::Images, false, images);
         }
-        if steer && !already_read && !prompt_key.is_empty() {
-            if self.prompts.len() == 32
+        // A prompt's recorded parts and pasted blocks, as lists; the view reads each entry.
+        let inline_parts = inline_parts.filter(|raw| raw.get().starts_with('['));
+        let pasted = pasted.filter(|raw| raw.get().starts_with('['));
+        if let Some(parts) = inline_parts {
+            out.body(row.id, BodyField::InlineParts, false, parts);
+        }
+        if let Some(pasted) = pasted {
+            out.body(row.id, BodyField::Pasted, false, pasted);
+        }
+        if waiting {
+            let bytes = fields_bytes(&row);
+            while !self.prompts.is_empty()
+                && (self.prompts.len() >= 32
+                    || self.held_steer_bytes().saturating_add(bytes) > MAX_HELD_STEER_BYTES)
                 && let Some(old) =
                     self.prompts.iter().min_by_key(|(_, p)| p.row.id).map(|(hash, _)| *hash)
             {
@@ -1010,11 +1201,90 @@ impl State {
             if !prompt_key.is_empty() && body.is_some() {
                 self.settled_prompt(hash);
             }
+            // Its claim may come next; only a row whose every body is this line's can take it.
+            self.claimable = (claims
+                && !prompt_key.is_empty()
+                && body.is_some()
+                && !row.fields.contains_key("sentFrom"))
+            .then(|| Claimable {
+                prompt: hash,
+                bodies: CLAIM_BODIES
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, field)| match field {
+                        BodyField::Content => true,
+                        BodyField::Images => images.is_some(),
+                        BodyField::InlineParts => inline_parts.is_some(),
+                        _ => pasted.is_some(),
+                    })
+                    .filter_map(|(index, _)| u8::try_from(index).ok())
+                    .collect(),
+                row: row.clone(),
+                place,
+                span,
+            });
         }
         if !steer {
-            self.group(out)?;
+            // Decision 235: the turn's group row names its prompt's row, id and first words.
+            let mut opening = vec![("prompt", row.id.to_string())];
+            if !prompt_key.is_empty() {
+                opening.push(("promptId", json_string(prompt_key)));
+            }
+            if let Some(head) = body.and_then(|body| user::head(body, user::HEAD_BYTES))
+                && !head.is_empty()
+            {
+                opening.push(("head", json_string(&head)));
+            }
+            self.group_with(opening, out)?;
         }
         Ok(())
+    }
+    /// The bytes the waiting steers' fields hold.
+    fn held_steer_bytes(&self) -> usize {
+        self.prompts.values().map(|p| fields_bytes(&p.row)).fold(0, usize::saturating_add)
+    }
+    /// A prompt's sender claim, held until its user row came, or else not yet known.
+    fn take_claim(&mut self, prompt: u64) -> Option<String> {
+        let at = self.claims.iter().position(|(hash, _)| *hash == prompt)?;
+        Some(self.claims.remove(at).1)
+    }
+    /// A `sender_claim`: onto the prompt's user row, waiting or just settled (a patch), or held
+    /// for the prompt's echo.
+    fn claim(&mut self, prompt: &str, from: String, out: &mut input::Output<'_>) {
+        let hash = prompt_hash(prompt);
+        if let Some(waiting) = self.prompts.get_mut(&hash) {
+            // A queued prompt not echoed yet is not read yet: its echo takes the claim.
+            if waiting.read || waiting.row.fields.contains_key("steer") {
+                if takes_claim(&waiting.row) {
+                    waiting.row.fields.insert("sentFrom".into(), from);
+                    out.row(&waiting.row);
+                }
+                return;
+            }
+        }
+        if self.claimable.as_ref().is_some_and(|row| row.prompt == hash)
+            && let Some(Claimable { mut row, place, span, bodies, .. }) = self.claimable.take()
+        {
+            row.fields.insert("sentFrom".into(), from);
+            row.rev = row.rev.saturating_add(1);
+            for index in bodies {
+                if let Some(field) = CLAIM_BODIES.get(usize::from(index)) {
+                    out.raw_body(row.id, *field, false, place, span);
+                }
+            }
+            out.emit(Change::Patch(row));
+            return;
+        }
+        if self.settled_prompts.contains(&hash) {
+            self.unplaced_claims = self.unplaced_claims.saturating_add(1);
+            return;
+        }
+        self.claims.retain(|(held, _)| *held != hash);
+        if self.claims.len() >= MAX_HELD_CLAIMS {
+            self.claims.remove(0);
+            self.unplaced_claims = self.unplaced_claims.saturating_add(1);
+        }
+        self.claims.push((hash, from));
     }
     fn text(
         &mut self,
