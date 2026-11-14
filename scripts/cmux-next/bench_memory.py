@@ -87,7 +87,18 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
+try:
+    import chat_renderer_crash  # noqa: E402  (CMUX_BENCH_CHAT_RENDERER_CRASH: the chat renderer crash test)
+except ModuleNotFoundError:
+    # perf-idle-ab.sh copies this file alone and the frame-pacing job's sparse checkout omits the helper:
+    # without it the crash test is off, and asking for it is an error.
+    if os.environ.get("CMUX_BENCH_CHAT_RENDERER_CRASH") == "1":
+        raise
+
+    class chat_renderer_crash:  # noqa: N801
+        @staticmethod
+        def enabled() -> bool:
+            return False
 
 
 
