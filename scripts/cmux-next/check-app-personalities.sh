@@ -2,9 +2,10 @@
 # Fails when the linked cmux app binary carries more than three personality
 # routines in its compact-unwind info: Apple's compact unwind encodes at most
 # three per image, and the link already fails above that ("Too many
-# personality routines for compact unwind to encode"). The app's budget is
-# C++, iroh-ffi and CCmuxAppFFI (2026-10-05 decision: every in-tree Rust C ABI
-# joins cmux-tui/crates/cmux-app-ffi; never another Rust static library).
+# personality routines for compact unwind to encode"). The app links C++ and
+# CCmuxAppFFI (2026-10-05 decision: every in-tree Rust C ABI joins
+# cmux-tui/crates/cmux-app-ffi; never another Rust static library; iroh-ffi,
+# the third, is no longer linked).
 #
 #   scripts/cmux-next/check-app-personalities.sh <path to .app or Mach-O>
 set -euo pipefail
