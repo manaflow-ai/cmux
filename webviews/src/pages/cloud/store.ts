@@ -194,6 +194,13 @@ export class CloudStore {
   private seeded?: { team: string | null; user?: string | null };
   /** The kept list's user, until the account stream's first event is checked against it. */
   private cachedUser?: string | null;
+  /**
+   * The user the kept list belongs to: the kept list's own, then each account event's. Unlike
+   * `lastAccount` it outlives a stop (a reconnect), so a list kept after one still names its user.
+   */
+  private keptUser?: string | null;
+  /** The machines on screen are the owner's answer, not the kept list of the first frame. */
+  private ownerListed = false;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -224,6 +231,7 @@ export class CloudStore {
     if (cached) {
       this.seeded = { team: cached.team, user: cached.user };
       this.cachedUser = cached.user;
+      this.keptUser = cached.user;
       this.state = {
         ...this.state,
         auth: { signedIn: true, team: cached.team },
@@ -286,6 +294,9 @@ export class CloudStore {
       this.started = false;
       const failed = failure(error);
       const connection = connectionFailure(error);
+      // The account could not be read at all: a kept list it never confirmed leaves the screen (a link
+      // that is only down keeps it; the account is read again when the link is back).
+      if (connection === "failed" && this.seeded) this.dropSeeded();
       this.set({ ...failed, loading: false, connection });
       if (connection === "disconnected") this.startLater();
       return;
@@ -835,6 +846,13 @@ export class CloudStore {
           previous ?? (this.cachedUser !== undefined ? { signedIn: true, user: this.cachedUser } : undefined);
         this.cachedUser = undefined;
         const switched = !!before?.signedIn && !!event?.signedIn && (before.user ?? null) !== (event.user ?? null);
+        const user = event?.signedIn ? (event.user ?? null) : undefined;
+        if (user !== this.keptUser) {
+          this.keptUser = user;
+          // The owner's list kept before the stream named its user is kept again with it; a switch
+          // reloads and keeps the new user's list instead.
+          if (!switched && this.ownerListed) this.keepList();
+        }
         void this.accountChanged(switched);
       });
       if (lifetime !== this.lifetime) return unwatch();
@@ -1039,11 +1057,12 @@ export class CloudStore {
 
   /** Keeps the list the owner just gave for the next open's first frame (machineCache.ts). */
   private keepList(): void {
+    this.ownerListed = true;
     const { auth, connection, machines, revision } = this.state;
     if (!this.options.cache || !auth?.signedIn || connection !== "connected") return;
     writeCachedMachines(this.options.cache, {
       team: auth.team ?? null,
-      user: this.lastAccount?.user,
+      user: this.keptUser,
       machines,
       revision,
     });
@@ -1053,6 +1072,7 @@ export class CloudStore {
   private dropSeeded(): void {
     this.seeded = undefined;
     this.cachedUser = undefined;
+    this.keptUser = undefined;
     clearCachedMachines(this.options.cache);
     this.set({ ...signedOutState(), auth: undefined, loading: true });
   }

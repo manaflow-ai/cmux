@@ -8,6 +8,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { LASTING_MS } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
+import { pageError } from "../shared/pageClient";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider, sampleMachines } from "./mockProvider";
@@ -219,5 +220,85 @@ test("a machine event that proves the link is back takes the drop's words with i
   } finally {
     await page.unmount();
     jest.useRealTimers();
+  }
+});
+
+test("the kept list names its user, and another user's list never stays", async () => {
+  // Kept by another user of the same team: the account stream's first event reloads it away.
+  const storage = new MemoryStorage();
+  storage.setItem(
+    KEY,
+    JSON.stringify({
+      team: "team_personal",
+      user: "user_other",
+      machines: [{ ...sampleMachines()[0], id: "vm_theirs", name: "theirs" }],
+      revision: 1,
+    }),
+  );
+  const store = new CloudStore(new MockCloudProvider(), { cache: storage });
+  const page = await render(store);
+  try {
+    await act(settle);
+    await act(settle);
+    expect(page.titles()).not.toContain("theirs");
+    const kept = JSON.parse(storage.getItem(KEY)!) as { user?: string | null; machines: Array<{ id: string }> };
+    expect(kept.user).toBe("user_1");
+    expect(kept.machines.map((machine) => machine.id)).not.toContain("vm_theirs");
+  } finally {
+    await page.unmount();
+  }
+});
+
+/** The account stream answers only when the test lets it: the list is kept before it names its user. */
+class LateAccountProvider extends MockCloudProvider {
+  private release?: () => void;
+  private readonly held = new Promise<void>((resolve) => (this.release = resolve));
+  answer(): void {
+    this.release?.();
+  }
+  override async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+    if (stream === CloudOps.authWatch) await this.held;
+    return super.subscribe<E>(stream, onEvent);
+  }
+}
+
+test("a list kept before the account stream names its user is kept again with it", async () => {
+  const storage = new MemoryStorage();
+  const provider = new LateAccountProvider();
+  const store = new CloudStore(provider, { cache: storage });
+  const page = await render(store);
+  try {
+    await act(settle);
+    expect(storage.getItem(KEY)).not.toBeNull();
+    await act(async () => {
+      provider.answer();
+      await settle();
+    });
+    const kept = JSON.parse(storage.getItem(KEY)!) as { user?: string | null };
+    expect(kept.user).toBe("user_1");
+  } finally {
+    await page.unmount();
+  }
+});
+
+/** The account read fails for good (not the link): nothing confirms the kept list. */
+class RefusedAuthProvider extends MockCloudProvider {
+  override async call<R>(op: string, params: unknown): Promise<R> {
+    if (op === CloudOps.authStatus) throw pageError("cmux.protocol.invalid_result", "Malformed auth reply");
+    return super.call<R>(op, params);
+  }
+}
+
+test("a kept list leaves when the account read fails for good", async () => {
+  const storage = keptList("team_personal", ["kept-one"]);
+  const store = new CloudStore(new RefusedAuthProvider(), { cache: storage });
+  const page = await render(store);
+  try {
+    await act(settle);
+    expect(page.titles()).not.toContain("kept-one");
+    expect(store.getSnapshot().connection).toBe("failed");
+    expect(storage.getItem(KEY)).toBeNull();
+  } finally {
+    await page.unmount();
   }
 });
