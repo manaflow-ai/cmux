@@ -33,7 +33,7 @@ def thin_with_uuid(uuid: bytes, tail: bytes = b"") -> bytes:
     return header + struct.pack("<II", 0x1B, 24) + uuid + tail
 
 
-RUSTC_1_95 = "59807616e1fa2540724bfbac14d7976d7e4a3860"
+RUSTC_1_100 = "0ef1bc386059596dada8fb65b50425aab2ea637a"
 GHOSTTY_REVISION = "b" * 40
 TREE = "Contents/Resources/ghostty-licenses"
 NEXT_TREE = "Contents/Resources/ghostty-next-licenses"
@@ -388,7 +388,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
             (self.app / self.CEF_RESOURCES / name).write_text("CEF\n")
         host = self.app / self.RB_HOST
         host.parent.mkdir(parents=True)
-        host.write_bytes(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        host.write_bytes(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_100}/library/std/src/lib.rs".encode()))
         for index, rel in enumerate(self.RB_HELPERS):
             path = self.app / rel
             path.parent.mkdir(parents=True)
@@ -407,7 +407,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     def test_rb_host_helpers_that_copy_the_host_need_its_rust_notices(self) -> None:
         # The fallback of embed-remote-browser-host.sh: each helper is the host
         # binary, signed under its own identifier (same LC_UUID, other bytes).
-        bundle_map = self.rb_host_app(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        bundle_map = self.rb_host_app(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_100}/library/std/src/lib.rs".encode()))
         self.assertEqual(checker.check(self.app, bundle_map), [])
         notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
         notices.write_text(notices.read_text().replace("<!-- notices-section: rust-cmux-remote-browser-host -->\n", ""))
@@ -424,7 +424,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
             self.assertTrue(error.startswith(f"{rel}: missing notice rust-std"), error)
 
     def test_rb_host_helper_that_is_no_copy_but_links_rust_std_fails(self) -> None:
-        bundle_map = self.rb_host_app(thin_with_uuid(b"S" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        bundle_map = self.rb_host_app(thin_with_uuid(b"S" * 16, f"/rustc/{RUSTC_1_100}/library/std/src/lib.rs".encode()))
         errors = checker.check(self.app, bundle_map)
         self.assertEqual(len(errors), 5, errors)
         for error in errors:
