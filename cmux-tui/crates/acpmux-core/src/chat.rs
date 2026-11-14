@@ -347,7 +347,6 @@ struct ActorState {
     last_checkpoint: Instant,
     settled_since_checkpoint: u32,
     replay_remaining: u64,
-    recovery: Recovery,
 }
 
 fn run_supervised(
@@ -746,13 +745,6 @@ fn open_state_from_log(
         last_checkpoint: Instant::now(),
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
-        recovery: if rebuilt_edition.is_some() {
-            Recovery::Rebuild
-        } else if recovered.checkpoint {
-            Recovery::Clean
-        } else {
-            Recovery::Stopped
-        },
     };
     let stamp_changed = saved_checkpoint.as_ref().is_some_and(|checkpoint| {
         checkpoint.boot_id != actor.config.boot_id

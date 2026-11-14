@@ -913,7 +913,7 @@ impl Log {
             }
             let mut seg = self.checkpoint_mark.seg;
             let mut offset = u64::from(self.checkpoint_mark.off);
-            let mut header_bytes = [0; record::HEADER_LEN];
+            let mut header_bytes = [0; HEADER_LEN];
             while seg <= self.tail.seg {
                 let count = self.read_segment(seg, offset, &mut header_bytes)?;
                 if count == 0 {
