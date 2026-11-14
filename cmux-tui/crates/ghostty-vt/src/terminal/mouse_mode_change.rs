@@ -19,8 +19,8 @@ pub(super) struct MouseModeChangeDetector {
     pub(super) csi_invalid: bool,
     /// The CSI being read names DEC mode 2026, synchronized output.
     pub(super) csi_has_synchronized_output: bool,
-    /// How many sequences that may start a synchronized update (`CSI ? 2026
-    /// h`, or `r` restoring it) the stream has carried. A reader that looks
+    /// How many DECSETs of mode 2026 (`CSI ? 2026 h`, alone or among other
+    /// modes, each one setting it) the stream has carried. A reader that looks
     /// at mode 2026 only between writes compares it to tell a new update
     /// from the one it saw, even when one ended and the next began between
     /// two looks.
@@ -157,7 +157,7 @@ impl MouseModeChangeDetector {
             && self.csi_private
             && self.csi_intermediate.is_none()
             && self.csi_has_synchronized_output
-            && matches!(final_byte, b'h' | b'r')
+            && final_byte == b'h'
         {
             self.synchronized_update_starts = self.synchronized_update_starts.wrapping_add(1);
         }

@@ -33,6 +33,12 @@ struct PaneFrame {
     /// Another count means a new update began since, even when the last
     /// one ended and the next began between two draws.
     starts: u64,
+    /// The hold that runs (or ran out) began because a new update started
+    /// after an expired one, and the pane has not drawn live since. Such a
+    /// hold ends with a live draw before another new update can hold again,
+    /// so a program that starts updates nonstop is drawn at least every
+    /// other hold.
+    restarted: bool,
 }
 
 /// Each drawn terminal's last frame and its synchronized update, if any. One
@@ -59,18 +65,21 @@ impl SynchronizedOutput {
                 None => {
                     pane.since = None;
                     pane.released = false;
+                    pane.restarted = false;
                 }
                 Some(starts) => {
                     // An update that began after the one whose hold ran out
                     // holds again, even when the program ended the old one
-                    // and began this one since the last draw. One that began
-                    // while a hold runs keeps that hold's end, so a program
-                    // always inside an update is still drawn once a hold.
+                    // and began this one since the last draw, unless that
+                    // hold itself was such a restart and has not drawn live
+                    // yet. One that began while a hold runs keeps that
+                    // hold's end.
                     let expired = pane.released
                         || pane.since.is_some_and(|since| since + SYNCHRONIZED_OUTPUT_HOLD <= now);
-                    if expired && pane.starts != starts {
+                    if expired && pane.starts != starts && !pane.restarted {
                         pane.since = None;
                         pane.released = false;
+                        pane.restarted = true;
                     }
                     pane.starts = starts;
                     let since = *pane.since.get_or_insert(now);
@@ -87,8 +96,10 @@ impl SynchronizedOutput {
             since: None,
             released: false,
             starts: update.unwrap_or_default(),
+            restarted: false,
         });
         pane.last = frame.clone();
+        pane.restarted = false;
         Ok(frame)
     }
 

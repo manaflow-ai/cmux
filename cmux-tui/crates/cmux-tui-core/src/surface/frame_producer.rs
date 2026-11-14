@@ -64,6 +64,10 @@ struct Slot {
     /// Another count means a new update began since, even when the last one
     /// ended and the next began between two looks.
     sync_starts: AtomicU64,
+    /// The hold that runs (or ran out) began because a new update started
+    /// after an expired one, and no frame was built since: it ends with a
+    /// frame before another new update can hold again.
+    sync_restarted: AtomicBool,
     surface: Mutex<Weak<Surface>>,
 }
 
@@ -333,11 +337,14 @@ enum Produced {
 /// first sees the mode and ends when the mode is off or after
 /// [`SYNCHRONIZED_OUTPUT_HOLD`]. An update that began after a hold ran out
 /// holds again, even when the program ended the old one and began this one
-/// between two looks; one that began while a hold runs keeps that hold's
-/// end, so a program always inside an update is still shown once a hold.
+/// between two looks, unless that hold was itself such a restart and no
+/// frame was built since; one that began while a hold runs keeps that
+/// hold's end. So a program that starts updates nonstop is shown at least
+/// every other hold.
 fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> {
     let Some(starts) = update else {
         slot.sync_since.store(0, Ordering::Release);
+        slot.sync_restarted.store(false, Ordering::Release);
         return None;
     };
     let seen = slot.sync_starts.swap(starts, Ordering::AcqRel);
@@ -345,6 +352,7 @@ fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> 
     if seen != starts
         && since_nanos != 0
         && epoch() + Duration::from_nanos(since_nanos) + SYNCHRONIZED_OUTPUT_HOLD <= now
+        && !slot.sync_restarted.swap(true, Ordering::AcqRel)
     {
         slot.sync_since.store(0, Ordering::Release);
     }
@@ -356,7 +364,12 @@ fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> 
         nanos => epoch() + Duration::from_nanos(nanos),
     };
     let until = since + SYNCHRONIZED_OUTPUT_HOLD;
-    (now < until).then_some(until)
+    if now < until {
+        return Some(until);
+    }
+    // The hold ran out: this look builds a frame.
+    slot.sync_restarted.store(false, Ordering::Release);
+    None
 }
 
 /// Build one terminal's frame and publish output's scroll position, unless
