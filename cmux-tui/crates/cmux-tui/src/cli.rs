@@ -128,6 +128,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_cleanup;
+#[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
@@ -679,6 +681,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm rm NAME --confirm --wait --with-snapshots`, `vm snapshots [--orphaned]` and
+    // `vm snapshot rm ID --confirm`: cleanup in one command (vm_cleanup.rs).
+    #[cfg(unix)]
+    if let Some(code) = vm_cleanup::run_if_requested(args) {
+        return code;
+    }
     // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
     #[cfg(unix)]
     if let Some(code) = vm_short::run_if_requested(args) {
