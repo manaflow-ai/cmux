@@ -58,7 +58,11 @@ public struct UpdatePopoverView: View {
                 ExtractingView(extracting: extracting)
 
             case .installing(let installing):
-                InstallingView(installing: installing, dismiss: dismiss)
+                if let blockers = installing.relaunchBlockers {
+                    WaitingToRelaunchView(installing: installing, blockers: blockers, dismiss: dismiss)
+                } else {
+                    InstallingView(installing: installing, dismiss: dismiss)
+                }
 
             case .notFound(let notFound):
                 NotFoundView(notFound: notFound, dismiss: dismiss)
@@ -72,7 +76,13 @@ public struct UpdatePopoverView: View {
                 )
             }
         }
-        .frame(width: 300)
+        .frame(width: Self.width(for: model.effectiveState))
+    }
+
+    /// The one width owner for every popover state. A child view that set its own wider frame
+    /// inside a narrower fixed body frame was centered and cut off on both edges.
+    static func width(for state: UpdateState) -> CGFloat {
+        return 300
     }
 }
 
@@ -155,15 +165,13 @@ private struct DetectedBackgroundUpdateView: View {
                     UpdateMetadataView(item: item, labelWidth: labelWidth)
                 }
 
-                HStack(spacing: 8) {
+                UpdatePopoverButtonRow {
                     Button(String(localized: "common.later", defaultValue: "Later")) {
                         dismiss()
                     }
                     .controlSize(.small)
                     .keyboardShortcut(.cancelAction)
-
-                    Spacer()
-
+                } trailing: {
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
                         actions.attemptUpdate()
                         dismiss()
@@ -228,7 +236,7 @@ private struct PermissionRequestView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
+            UpdatePopoverButtonRow {
                 Button(String(localized: "common.notNow", defaultValue: "Not Now")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: false,
@@ -237,9 +245,7 @@ private struct PermissionRequestView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-
-                Spacer()
-
+            } trailing: {
                 Button(String(localized: "common.allow", defaultValue: "Allow")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: true,
@@ -299,7 +305,7 @@ private struct UpdateAvailableView: View {
                     UpdateMetadataView(item: update.appcastItem, labelWidth: labelWidth)
                 }
 
-                HStack(spacing: 8) {
+                UpdatePopoverButtonRow {
                     Button(String(localized: "common.skip", defaultValue: "Skip")) {
                         update.reply(.skip)
                         dismiss()
@@ -312,9 +318,7 @@ private struct UpdateAvailableView: View {
                     }
                     .controlSize(.small)
                     .keyboardShortcut(.cancelAction)
-
-                    Spacer()
-
+                } trailing: {
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
                         // Re-resolve to the latest available version at install time instead of
                         // installing the version captured when this prompt was generated, so a
@@ -410,16 +414,14 @@ private struct InstallingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                Button(String(localized: "common.restartLater", defaultValue: "Restart Later")) {
+            UpdatePopoverButtonRow {
+                Button(String(localized: "common.later", defaultValue: "Later")) {
                     installing.dismiss()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.small)
-
-                Spacer()
-
+            } trailing: {
                 Button(String(localized: "common.restartNow", defaultValue: "Restart Now")) {
                     installing.retryTerminatingApplication()
                     dismiss()
@@ -430,6 +432,125 @@ private struct InstallingView: View {
             }
         }
         .padding(16)
+    }
+}
+
+/// A held update relaunch: one sentence, the agents that are working, and standard buttons.
+/// When an agent is working the default choice is to update once they finish.
+private struct WaitingToRelaunchView: View {
+    let installing: UpdateState.Installing
+    let blockers: UpdateRelaunchBlockers
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "update.readyWaiting", defaultValue: "Update Ready"))
+                    .cmuxFont(size: 13, weight: .semibold)
+
+                Text(UpdateStateModel.relaunchBlockersDescription(blockers, askingUser: installing.updateWhenClear != nil))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !displayAgents.isEmpty || blockers.runningCommandCount > 0 {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(displayAgents) { agent in
+                        WorkRow(
+                            safety: agent.safety,
+                            title: agent.name,
+                            detail: agent.activity,
+                            help: agent.location.isEmpty ? agent.activity : "\(agent.location): \(agent.activity)"
+                        )
+                    }
+                    if blockers.runningCommandCount > 0 {
+                        WorkRow(
+                            safety: .risky,
+                            title: UpdateStateModel.runningCommandsLabel(blockers.runningCommandCount),
+                            detail: nil,
+                            help: nil
+                        )
+                    }
+                }
+                .accessibilityIdentifier("UpdateRelaunchAgentList")
+            }
+
+            UpdatePopoverButtonRow {
+                Button(String(localized: "common.later", defaultValue: "Later")) {
+                    installing.dismiss()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .controlSize(.small)
+            } trailing: {
+                if let updateWhenClear = installing.updateWhenClear {
+                    // No default-action shortcut on Update Now here: it can stop what agents run.
+                    updateNowButton
+                    Button(String(localized: "update.updateWhenFinished", defaultValue: "Update When These Finish")) {
+                        updateWhenClear()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.small)
+                } else if blockers.needsConfirmation {
+                    updateNowButton
+                } else {
+                    updateNowButton
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private var updateNowButton: some View {
+        Button(blockers.needsConfirmation
+            ? String(localized: "update.updateAnyway", defaultValue: "Update Anyway")
+            : String(localized: "update.installNow", defaultValue: "Install Now")) {
+            installing.retryTerminatingApplication()
+            dismiss()
+        }
+        .controlSize(.small)
+    }
+
+    /// Show every agent so each row's safety label has clear meaning. Risky sessions come first.
+    private var displayAgents: [UpdateRelaunchAgent] {
+        blockers.riskyAgents + blockers.careAgents + blockers.agents.filter { $0.safety == .safe }
+    }
+}
+
+/// One thing a relaunch would touch, as plain text: what it is, what it is doing, and whether
+/// it resumes or is cut off.
+private struct WorkRow: View {
+    let safety: UpdateResumeSafety
+    let title: String
+    let detail: String?
+    let help: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail)
+                        .cmuxFont(size: 10)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 4)
+            Text(UpdateStateModel.safetyLabel(safety))
+                .cmuxFont(size: 10, weight: .semibold)
+                .foregroundColor(safety == .risky ? .primary : .secondary)
+                .fixedSize()
+        }
+        .help(help ?? title)
+        .accessibilityElement(children: .combine)
     }
 }
 
