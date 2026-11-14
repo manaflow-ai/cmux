@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43561222296",
+  "recorded_at": "2026-11-14T05:31:06Z",
+  "reason": "cmux-tui 17a55d1a943b changes the image's cmux-tui (pinned fae5e8d13b02)",
+  "dry_run": false,
+  "cmux_tui": "17a55d1a943b7f5c9ebc2c4bd68167e9dd6de63b",
+  "fixes": [
+    {
+      "sha": "17a55d1a943b7f5c9ebc2c4bd68167e9dd6de63b",
+      "mergedAt": "2026-11-13T20:58:42-08:00",
+      "subject": "verify-cmux-tui-hosted: an unreadable run state ends the wait (exit 5), never reads as not-yet (#42854)"
+    },
+    {
+      "sha": "ffdd55770f2fbd1bfc1c486c182e846f1f260964",
+      "mergedAt": "2026-11-13T20:56:21-08:00",
+      "subject": "cmux-tui: a terminal that lived through a daemon restart has its class before its adoption ends (#42782)"
+    },
+    {
+      "sha": "ee69097c2eb70f7db7ffb1943988c545b33c60d8",
+      "mergedAt": "2026-11-13T20:55:20-08:00",
+      "subject": "v2 5g part two: the list tee answers a rebuild (#42834)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:31:06Z",
+    "snapshot_id": "sh-53fceda749c848ceabb5d0682bac5526",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43561222296): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b86332b0e061fcb8a086cec260ac6a49f718ae00",
+    "image": "cloud-native-auto-17a55d1a-43561222296-1",
+    "revision": "ci-43561222296-1",
+    "at": "2026-11-14T05:31:06Z"
+  },
+  "rolled_back": false
+}
