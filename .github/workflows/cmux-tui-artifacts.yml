@@ -3193,8 +3193,28 @@ jobs:
           # one verify-cdn-publication reads.
           find assets/cmux-tui -maxdepth 1 -type f -name 'cmux-tui-*' -printf '%f\n' |
             xargs -P 8 -I{} bash -c 'upload "assets/cmux-tui/$1" "cmux-tui/$GITHUB_SHA/$1" application/octet-stream' _ {}
-          upload assets/cmux-tui/manifest.json "cmux-tui/$GITHUB_SHA/manifest.json" application/json
-          echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json (from tree $KEY)"
+          # The same commit on two branches at once (the app FFI re-pin's
+          # staging ref, then app-ffi-repin) adopts it twice; the manifests
+          # differ only in the run that wrote them. Keep the other run's when it
+          # is the same adoption (adopt_cmux_tui_commit.py same-publication).
+          manifest_key="cmux-tui/$GITHUB_SHA/manifest.json"
+          status=0
+          python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 --file assets/cmux-tui/manifest.json \
+            --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "$manifest_key" --content-type application/json \
+            --cache-control "public, max-age=31536000, immutable" || status=$?
+          if [[ "$status" == 75 ]]; then
+            python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --key "$manifest_key" --download-to "$RUNNER_TEMP/published-manifest.json"
+            if ! python3 scripts/ci/adopt_cmux_tui_commit.py same-publication \
+                assets/cmux-tui/manifest.json "$RUNNER_TEMP/published-manifest.json"; then
+              echo "::error title=immutable-r2-conflict::$manifest_key holds another publication of this commit; repair it deliberately"
+              exit 1
+            fi
+            echo "::notice title=commit already adopted::keeping the same adoption another run published at https://files.cmux.com/$manifest_key"
+          elif [[ "$status" != 0 ]]; then
+            exit "$status"
+          fi
+          echo "Published: https://files.cmux.com/$manifest_key (from tree $KEY)"
 
   # A published tree re-runs every run that deferred to it: each built nothing,
   # and its re-run writes its own commit manifest (adopt-commit-manifest). The

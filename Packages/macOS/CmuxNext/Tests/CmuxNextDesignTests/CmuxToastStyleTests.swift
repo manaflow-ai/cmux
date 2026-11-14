@@ -151,6 +151,20 @@ struct CmuxToastStyleTests {
         #expect(view.iconSymbol == CmuxToastTone.error.symbolName)
     }
 
+    /// The icon draws in its tone's color, not the default label gray (the cmux-lawrence-2 gallery shot of
+    /// 2026-11-14 showed every tone's icon gray: the view never set a tint).
+    @Test(arguments: [CmuxToastTone.neutral, .success, .warning, .error])
+    func theIconTakesItsTonesColor(tone: CmuxToastTone) throws {
+        let window = Self.window()
+        defer { Self.close(window) }
+        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved", tone: tone), reduceTransparency: .alwaysOpaque, style: .iconCard)
+        window.contentView?.addSubview(view)
+        let icon = try #require(view.iconView)
+        let tint = try #require(icon.contentTintColor, "the icon has no tint: it draws the default gray")
+        let expected = icon.performWithTheme { tone.color }
+        #expect(tint.usingColorSpace(.sRGB) == expected.usingColorSpace(.sRGB))
+    }
+
     // MARK: Two actions
 
     /// A prompt's second action runs its own handler and ends the toast; the first runs only its own.
