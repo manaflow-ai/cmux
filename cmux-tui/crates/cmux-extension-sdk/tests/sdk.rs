@@ -129,13 +129,13 @@ fn the_builder_makes_a_chat_widget_cmux_loads() {
             .scope("actions:run", "Open the pull request when you click it.");
     let issues = manifest.validate();
     assert!(is_valid(&issues), "{issues:?}");
-    let json = manifest.to_json();
-    assert_eq!(json["implements"]["cmux.chat.widget/1"]["export"], "renderCard");
+    let built = manifest.to_json();
+    assert_eq!(built["implements"]["cmux.chat.widget/1"]["export"], "renderCard");
     assert_eq!(
-        json["implements"]["cmux.chat.widget/1"]["options"]["tools"],
+        built["implements"]["cmux.chat.widget/1"]["options"]["tools"],
         serde_json::json!(["mcp__github__*pull_request*"])
     );
-    assert_eq!(json["activation"], serde_json::json!(["onInterface:cmux.chat.widget/1"]));
+    assert_eq!(built["activation"], serde_json::json!(["onInterface:cmux.chat.widget/1"]));
 
     let every = Manifest::new("local/greedy", "Greedy", "0.1.0", "d").chat_widget(
         "renderCard",
