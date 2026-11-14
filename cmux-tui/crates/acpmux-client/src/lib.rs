@@ -3265,6 +3265,20 @@ tail"#;
         );
     }
 
+    fn finish_walk_with_rows(client: &mut Client<Value>, rows: Value) {
+        let count = rows.as_array().unwrap().len();
+        let changes = receive_changes(
+            client,
+            FrameKind::Page,
+            serde_json::json!({
+                "sid":"m","rows":rows,"hasBefore":false,"hasAfter":false
+            }),
+        );
+        assert_eq!(changes.len(), count + 1);
+        assert!(changes.iter().take(count).all(|change| matches!(change, Change::Summary { .. })));
+        assert!(matches!(changes.last(), Some(Change::Whole { .. })));
+    }
+
     #[test]
     fn mirror_deleted_parent_is_not_requeued_forever() {
         let mut client = Client::<Value>::connected_v2();
@@ -3298,7 +3312,7 @@ tail"#;
         client.received(&window);
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
         let _ = client.take_send().expect("first walk page");
-        finish_empty_walk(&mut client);
+        finish_walk_with_rows(&mut client, serde_json::json!([parent, child]));
 
         let gone = receive_changes(
             &mut client,
@@ -3358,7 +3372,7 @@ tail"#;
         client.received(&window);
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
         let _ = client.take_send().expect("first walk page");
-        finish_empty_walk(&mut client);
+        finish_walk_with_rows(&mut client, serde_json::json!([child]));
         let parent_read = take_pages(&mut client);
         assert_eq!(parent_read.len(), 1);
         assert_eq!(
@@ -3432,9 +3446,9 @@ tail"#;
             client.received(&window);
             assert!(matches!(client.next_change(), Some(Change::Window(_))));
             let _ = client.take_send().expect("first walk page");
-            finish_empty_walk(&mut client);
+            finish_walk_with_rows(&mut client, serde_json::json!(rows));
 
-            let mut archived = parent.clone();
+            let mut archived = parent;
             archived.archived = true;
             let changes = receive_changes(
                 &mut client,
