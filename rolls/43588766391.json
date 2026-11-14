@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43588766391",
+  "recorded_at": "2026-11-14T11:17:26Z",
+  "reason": "cmux-tui 3e60389e1b0d changes the image's cmux-tui (pinned fc87a8c19f76)",
+  "dry_run": false,
+  "cmux_tui": "3e60389e1b0d53223f9aa3912cb7e037b76ab5bd",
+  "fixes": [
+    {
+      "sha": "3e60389e1b0d53223f9aa3912cb7e037b76ab5bd",
+      "mergedAt": "2026-11-14T02:50:04-08:00",
+      "subject": "Extension SDK: cmux.theme and cmux.integrations type as the runtime gives them (#42985)"
+    },
+    {
+      "sha": "10466571d5ecf0e012b1f78134858da0992e4fae",
+      "mergedAt": "2026-11-14T02:44:24-08:00",
+      "subject": "Signing in enrolls this machine on the hub (#38319)"
+    },
+    {
+      "sha": "3e461a27909c32427fa5fcf7f508bc87d8d3534a",
+      "mergedAt": "2026-11-14T02:43:38-08:00",
+      "subject": "v2 chat book reads (#42923)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T11:17:26Z",
+    "snapshot_id": "sh-a22581ff0d6b48c689c255e049fa8e93",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43588766391): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b1ab2d6024ac91b022c32de7e2d1ede0525c3323",
+    "image": "cloud-native-auto-3e60389e-43588766391-1",
+    "revision": "ci-43588766391-1",
+    "at": "2026-11-14T11:17:26Z"
+  },
+  "rolled_back": false
+}
