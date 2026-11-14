@@ -44,11 +44,14 @@ def _cli(exe, env, args, namespace="agents"):
         raise ProofFailure(f"owner chat CLI failed: {type(error).__name__}") from None
     if result.returncode:
         raise ProofFailure("owner chat CLI refused the local session")
-    for line in reversed(result.stdout.splitlines()):
+    # acpmux emits pretty JSON; the app CLI may also emit a final JSON line.
+    for candidate in [result.stdout, *reversed(result.stdout.splitlines())]:
         try:
-            return json.loads(line)
+            value = json.loads(candidate)
         except ValueError:
             continue
+        if isinstance(value, dict):
+            return value
     raise ProofFailure("owner chat CLI returned no JSON receipt")
 
 

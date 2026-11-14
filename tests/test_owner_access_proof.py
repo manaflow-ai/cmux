@@ -1,5 +1,6 @@
 """The owner proof establishes explicit-off state instead of assuming a default."""
 import sys
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,12 @@ import cmux_next_owner_access_proof as proof
 
 
 class ExplicitOffTests(unittest.TestCase):
+    def test_pretty_cli_receipt_is_read_as_one_object(self):
+        result = subprocess.CompletedProcess([], 0, '{\n  "devices": [\n    {"id": "phone"}\n  ]\n}\n', '')
+        with patch.object(proof.subprocess, "run", return_value=result):
+            self.assertEqual(proof._cli("acpmux", {}, ["ticket", "ls"], namespace="host"),
+                             {"devices": [{"id": "phone"}]})
+
     def test_on_by_default_is_turned_off_and_read_back(self):
         on = {"id": "phone", "role": "phone", "revoked_at": None, "full_access": True}
         off = dict(on, full_access=False)
