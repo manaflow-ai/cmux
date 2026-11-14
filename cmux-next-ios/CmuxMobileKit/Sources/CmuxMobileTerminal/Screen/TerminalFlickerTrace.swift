@@ -80,17 +80,17 @@ final class TerminalFlickerTrace: NSObject {
 
     private let sample: () -> Sample?
     private var link: CADisplayLink?
-    /// The page as Core Animation last committed it: read first thing when
-    /// the main run loop wakes (after-waiting, before any source runs), so
-    /// every change of the previous pass is committed and nothing of this
-    /// pass is. Read on the display link itself, the page's own display
-    /// links (output, present) may have changed it in the same refresh;
-    /// read before waiting (iOS 26 commits after that observer's order),
-    /// changes not yet committed showed (a held still added this pass read
-    /// at its model place, the area relaid under it read as moved), frames
-    /// the 60 fps video never shows.
+    /// The page as Core Animation committed it for the last frame: read in
+    /// UIKit's update right after the transaction commit
+    /// (`UIUpdateActionPhase.afterCATransactionCommit`), so every change made
+    /// for that frame is in the render tree, new layers included. Read on
+    /// the display link or at a run loop observer, it caught changes not yet
+    /// committed (iOS 26 commits inside UIKit's update, not at a run loop
+    /// observer): a held still added that frame read at its model place, the
+    /// area relaid under it read as moved, frames the 60 fps video of the
+    /// same run never shows.
     private var committed: Sample?
-    private var observer: CFRunLoopObserver?
+    private var updateLink: UIUpdateLink?
     private let handle: FileHandle?
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
@@ -143,11 +143,14 @@ final class TerminalFlickerTrace: NSObject {
         let link = CADisplayLink(target: WeakTick(self), selector: #selector(WeakTick.step(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
-        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.afterWaiting.rawValue, true, Int.min) { [weak self] _, _ in
+        let updateLink = UIUpdateLink(view: host)
+        updateLink.addAction(to: .afterCATransactionCommit) { [weak self] _, _ in
+            // main-proof: UIKit runs update link actions on the main thread.
             MainActor.assumeIsolated { self?.committed = self?.sample() }
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-        self.observer = observer
+        updateLink.requiresContinuousUpdates = true
+        updateLink.isEnabled = true
+        self.updateLink = updateLink
     }
 
     isolated deinit {
@@ -158,8 +161,8 @@ final class TerminalFlickerTrace: NSObject {
         busyMeter.stop()
         link?.invalidate()
         link = nil
-        if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
-        observer = nil
+        updateLink?.isEnabled = false
+        updateLink = nil
     }
 
     private func count(_ key: String) { counts[key, default: 0] += 1 }
