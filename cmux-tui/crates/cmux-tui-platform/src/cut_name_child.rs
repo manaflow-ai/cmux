@@ -8,7 +8,11 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use cmux_process::{Child, Command};
+use cmux_process::{Child, Command, Stdio};
+
+/// How many times the start reads the name of the child. The system sets
+/// the name a short time after the start of the child returns.
+const NAME_READS: usize = 1_000;
 
 /// The child. When this value drops, the child ends, is reaped and loses its
 /// folder.
@@ -34,10 +38,7 @@ impl CutNameChild {
         match spawn_in(&dir) {
             Ok(child) => {
                 let started = Self { child, dir };
-                // The name that the system keeps ends in a part of a character.
-                let name =
-                    crate::process_identity::identity(started.id()).map(|process| process.name);
-                if name.is_some_and(|name| name.ends_with(char::REPLACEMENT_CHARACTER)) {
+                if (0..NAME_READS).any(|_| started.name_is_cut()) {
                     Ok(started)
                 } else {
                     Err(io::Error::other("the name of the child was not cut inside a character"))
@@ -48,6 +49,17 @@ impl CutNameChild {
                 Err(error)
             }
         }
+    }
+
+    /// Whether the name that the system keeps for the child ends in a part
+    /// of a character now. When it does not, the thread gives its turn up.
+    fn name_is_cut(&self) -> bool {
+        let name = crate::process_identity::identity(self.id()).map(|process| process.name);
+        let cut = name.is_some_and(|name| name.ends_with(char::REPLACEMENT_CHARACTER));
+        if !cut {
+            std::thread::yield_now();
+        }
+        cut
     }
 
     /// The process id of the child.
@@ -64,12 +76,25 @@ impl CutNameChild {
     pub fn end_unreaped(&mut self) -> io::Result<()> {
         self.child.kill()?;
         let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
-        // SAFETY: waitid writes one siginfo_t for this child, which this
-        // process started and did not reap.
-        let waited = unsafe {
-            libc::waitid(libc::P_PID, self.id(), info.as_mut_ptr(), libc::WEXITED | libc::WNOWAIT)
-        };
-        if waited == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+        loop {
+            // SAFETY: waitid writes one siginfo_t for this child, which this
+            // process started and did not reap.
+            let waited = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    self.id(),
+                    info.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if waited == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
     }
 }
 
@@ -87,5 +112,12 @@ fn spawn_in(dir: &Path) -> io::Result<Child> {
     // 8 characters of 2 bytes: byte 15 is the first half of the last one.
     let program = dir.join("\u{e9}".repeat(8));
     std::os::unix::fs::symlink("/bin/sleep", &program)?;
-    Command::new(&program).arg0("sleep").arg("30").process_group(0).spawn()
+    Command::new(&program)
+        .arg0("sleep")
+        .arg("30")
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
 }
