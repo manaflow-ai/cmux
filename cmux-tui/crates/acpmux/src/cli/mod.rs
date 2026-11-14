@@ -44,6 +44,7 @@ pub mod host_vault;
 pub mod hosts;
 pub mod join_input;
 pub(crate) mod last_reply;
+pub(crate) mod list_read;
 pub mod ledger;
 pub mod ls_table;
 pub(crate) mod machine_consent;
