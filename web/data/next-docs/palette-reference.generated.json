@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1403,
+    "entries": 1406,
     "shortcuts": 191
   },
   "sections": [
@@ -3656,6 +3656,12 @@
           "title": "Stop Sharing This Mac",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "macScreen.stopViewing",
+          "title": "Stop Viewing Shared Screen",
+          "shortcut": null,
+          "command": "cmux tab stop-mac-screen-viewing"
         },
         {
           "id": "tabGroup.color.blue",
@@ -7696,6 +7702,12 @@
           "command": null
         },
         {
+          "id": "debug.densityOverlayPlayground",
+          "title": "Density Overlay Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.density.comfortable",
           "title": "Density: Comfortable",
           "shortcut": null,
@@ -8306,6 +8318,12 @@
           "title": "Thick Pane Borders",
           "shortcut": null,
           "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
+          "id": "debug.toastPlayground",
+          "title": "Toast Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.toastTuning",
