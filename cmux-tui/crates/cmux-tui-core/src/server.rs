@@ -164,6 +164,7 @@ pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 mod line_value;
 pub(crate) mod tree_reply_flight;
+mod tree_reply_nodes;
 pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -3108,53 +3109,17 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
 }
 
-/// [`list_workspaces_reply`] as the tree's text under `projection`, which
-/// the concurrent readers of its build that have that projection share
-/// (tree_reply_text.rs).
-fn list_workspaces_reply_text(
-    mux: &Mux,
-    render: &RenderService,
-    projection: conversation_tabs_wire::TabProjection,
-) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
-    mux.tree_reply_flight.read_text(
-        || list_workspaces_tree(mux),
-        projection,
-        |tree| render.serialize_tree(tree),
-    )
-}
-
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     // One hold of the state lock, for a copy of the state. The nodes of the whole tree are
     // built from the copy with no lock held: a request that needs the state does not wait for
     // the build, which is the long part of this reply in a large session.
     let (state, notifications) = mux.tree_state_and_decorations();
-    let mut workspaces = tree_nodes(&state, &notifications);
+    let mut workspaces = tree_reply_nodes::tree_nodes(&state, &notifications);
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
     workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
-}
-
-/// The nodes of the whole tree (tree_json.rs).
-fn tree_nodes(state: &State, decorations: &TreeDecorations) -> Value {
-    #[cfg(test)]
-    if crate::workspace_registry::registry_connection::current_thread_holds_state() {
-        TREES_BUILT_UNDER_STATE_LOCK.with(|built| built.set(built.get().saturating_add(1)));
-    }
-    workspaces_json(state, decorations)
-}
-
-#[cfg(test)]
-thread_local! {
-    static TREES_BUILT_UNDER_STATE_LOCK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-/// Test seam: the `list-workspaces` trees whose nodes this thread built while it held the mux
-/// state lock.
-#[cfg(test)]
-fn trees_built_under_state_lock_on_this_thread() -> u64 {
-    TREES_BUILT_UNDER_STATE_LOCK.with(std::cell::Cell::get)
 }
 
 /// Remove the socket file (call on clean shutdown).

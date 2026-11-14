@@ -79,3 +79,27 @@ pub(super) fn on_read(directory: &Path) {
         watch = RELEASED.wait_timeout(watch, left).unwrap_or_else(PoisonError::into_inner).0;
     }
 }
+
+/// The seams as a test calls them.
+impl crate::mux::Mux {
+    /// The git HEAD reads that this thread has made.
+    pub(crate) fn git_head_reads_on_this_thread() -> u64 {
+        reads_on_this_thread()
+    }
+
+    /// Counts from zero the git HEAD reads of a directory below `root`, on each thread, and
+    /// holds each of them while `held`.
+    pub(crate) fn watch_git_head_reads_below(root: &Path, held: bool) {
+        watch_reads_below(root, held);
+    }
+
+    /// The git HEAD reads below the watched directory.
+    pub(crate) fn watched_git_head_reads() -> u64 {
+        watched_reads()
+    }
+
+    /// The background refreshes of git HEADs that run now.
+    pub(crate) fn git_head_refreshes_running() -> usize {
+        refreshes_running()
+    }
+}

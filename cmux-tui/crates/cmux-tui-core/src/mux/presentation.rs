@@ -259,31 +259,6 @@ impl Mux {
         }
     }
 
-    /// A copy of the session state with its [`Self::tree_decorations`], for a
-    /// reader that builds the whole tree: one hold of the state lock, for the
-    /// copy. The walks of the decorations read the copy with no lock held, and
-    /// so does the reader's build of the tree, so a request that needs the
-    /// state waits for the copy only. Each durable mutation makes the same
-    /// copy; the routing tables in it are shared, not copied (route_table.rs).
-    #[track_caller]
-    pub(crate) fn tree_state_and_decorations(&self) -> (State, TreeDecorations) {
-        let presentation = self.presentation_snapshot();
-        let state = State::clone(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
-        let notifications = self.surface_notifications_in_state(&state);
-        let directories = self.resolve_tab_directories(surface_directories_in_state(&state), true);
-        let pending_terminals = self.pending_terminals_snapshot();
-        let terminal_ends = self.terminal_ends_snapshot();
-        let decorations = TreeDecorations {
-            notifications,
-            presentation,
-            directories,
-            pending_terminals,
-            terminal_ends,
-            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
-        };
-        (state, decorations)
-    }
-
     /// [`Self::tree_decorations`] holding only what the tab entities of
     /// `surfaces` read: their notification markers and directories, and the
     /// pending state, end and loss cause of the terminals they show. A tab
@@ -461,31 +436,6 @@ impl Mux {
             self.start_git_head_refresh();
         }
         result
-    }
-
-    /// Test seam: the git HEAD reads that this thread has made.
-    #[cfg(test)]
-    pub(crate) fn git_head_reads_on_this_thread() -> u64 {
-        git_head_probe::reads_on_this_thread()
-    }
-
-    /// Test seam: counts from zero the git HEAD reads of a directory below `root`, on each
-    /// thread, and holds each of them while `held`.
-    #[cfg(test)]
-    pub(crate) fn watch_git_head_reads_below(root: &Path, held: bool) {
-        git_head_probe::watch_reads_below(root, held);
-    }
-
-    /// Test seam: the git HEAD reads below the watched directory.
-    #[cfg(test)]
-    pub(crate) fn watched_git_head_reads() -> u64 {
-        git_head_probe::watched_reads()
-    }
-
-    /// Test seam: the background refreshes of git HEADs that run now.
-    #[cfg(test)]
-    pub(crate) fn git_head_refreshes_running() -> usize {
-        git_head_probe::refreshes_running()
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,

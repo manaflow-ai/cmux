@@ -1,9 +1,8 @@
 //! One whole-tree build for concurrent `list-workspaces` reads.
 //!
-//! A `list-workspaces` reply is the whole tree, built under the state lock
-//! (O(workspaces + terminals)). Clients that read it at once took the lock
-//! one after another and built the same tree once each, so each waited for
-//! every build queued before it. Here a read that arrives while a build runs
+//! A `list-workspaces` reply is the whole tree (O(workspaces + terminals)),
+//! built from a copy of the state. Clients that read it at once built the
+//! same tree once each. Here a read that arrives while a build runs
 //! waits for the next build, which starts after it arrived, and every read
 //! waiting then shares that build. Each reply still shows every change
 //! committed before its request arrived (a client that changed the tree and

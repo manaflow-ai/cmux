@@ -15,7 +15,9 @@
 //! text is freed when the last reader of that build ends. There is one text for each projection
 //! of a build, whatever the number of readers.
 
-use super::render_service::json_error_to_io;
+use super::conversation_tabs_wire::TabProjection;
+use super::render_service::{RenderService, json_error_to_io};
+use crate::Mux;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::io::Write;
@@ -115,6 +117,20 @@ impl TreeText {
 pub(crate) struct TreeReply {
     pub(crate) text: Arc<TreeText>,
     pub(crate) lines_written_before_read: Option<u64>,
+}
+
+/// The `list-workspaces` reply as the tree's text under `projection`, which the concurrent
+/// readers of its build that have that projection share.
+pub(super) fn list_workspaces_reply_text(
+    mux: &Mux,
+    render: &RenderService,
+    projection: TabProjection,
+) -> anyhow::Result<Arc<TreeText>> {
+    mux.tree_reply_flight.read_text(
+        || super::list_workspaces_tree(mux),
+        projection,
+        |tree| render.serialize_tree(tree),
+    )
 }
 
 #[cfg(test)]

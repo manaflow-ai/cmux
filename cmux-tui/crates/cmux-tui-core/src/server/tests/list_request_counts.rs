@@ -521,10 +521,10 @@ fn a_list_workspaces_tree_is_built_with_no_state_lock_held() {
     let session = Session::of("list-counts-nodes-lock", 6);
     let mux = &session.mux;
     let locks = crate::mux::state_locks_taken_on_this_thread();
-    let held = trees_built_under_state_lock_on_this_thread();
+    let held = tree_reply_nodes::trees_built_under_state_lock_on_this_thread();
     let tree = list_workspaces_tree(mux).unwrap();
     let locks = crate::mux::state_locks_taken_on_this_thread() - locks;
-    let held = trees_built_under_state_lock_on_this_thread() - held;
+    let held = tree_reply_nodes::trees_built_under_state_lock_on_this_thread() - held;
     assert_eq!(tree["workspaces"].as_array().map(Vec::len), Some(6), "the tree of the session");
     assert_eq!(
         (locks, held),

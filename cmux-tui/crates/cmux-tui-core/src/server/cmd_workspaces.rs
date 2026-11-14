@@ -41,8 +41,11 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    let text =
-        super::list_workspaces_reply_text(mux, &writer.render_service, writer.tab_projection())?;
+    let text = super::tree_reply_text::list_workspaces_reply_text(
+        mux,
+        &writer.render_service,
+        writer.tab_projection(),
+    )?;
     Ok(super::tree_reply_text::TreeReply { text, lines_written_before_read })
 }
 
