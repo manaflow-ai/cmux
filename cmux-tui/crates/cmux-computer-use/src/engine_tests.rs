@@ -263,6 +263,23 @@ fn single_capture_settle_modes_never_claim_no_visible_change() {
     }
 }
 
+/// Review 2 (8): an action that opened a window of the app (a sheet, a
+/// dialog) is not called no_visible_change though the target window's
+/// pixels stayed the same.
+#[test]
+fn a_new_window_of_the_app_is_a_visible_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let mut sheet = d.windows[0].clone();
+    sheet.id = "77".into();
+    sheet.on_screen = true;
+    *d.opens_on_input.lock().unwrap() = Some(sheet);
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
+}
+
 /// The rule claims only what the engine saw: a redraw, or no capture before
 /// the action to compare with, leaves `delivered`.
 #[test]

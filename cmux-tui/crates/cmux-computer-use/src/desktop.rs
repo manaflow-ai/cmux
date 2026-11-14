@@ -349,6 +349,20 @@ pub trait Desktop: Send + Sync {
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.list_windows()?.into_iter().find(|w| w.id == id))
     }
+    /// The ids of the on-screen windows of the app with `pid`, sheets,
+    /// panels and popovers included where the platform lists them (to tell
+    /// whether an action opened one). The default filters
+    /// [`Self::list_windows`].
+    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
+        let mut ids: Vec<String> = self
+            .list_windows()?
+            .into_iter()
+            .filter(|w| w.pid == pid && w.on_screen && !w.minimized)
+            .map(|w| w.id)
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
     /// Whether the app of `window` is the frontmost app (where the person's
     /// keys go). The default looks it up in [`Self::list_apps`].
     fn is_frontmost_app(&self, window: &Window) -> bool {

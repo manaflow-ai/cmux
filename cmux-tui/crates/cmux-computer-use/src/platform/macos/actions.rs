@@ -526,54 +526,37 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
 /// hands the window back when ended. Refused (nothing pressed) when the
 /// item stays disabled: the command does not apply to that window.
 fn enable_menu_item(
+    d: &MacDesktop,
     t: &Target,
     item: &Ax,
     element_id: &str,
-) -> DResult<super::activation::KeyInApp> {
+) -> DResult<super::activation::KeyInApp<'static>> {
     let title = item.string("AXTitle").unwrap_or_default();
-    let key = super::activation::KeyInApp::enter(t.window.id, t.window.pid).ok_or_else(|| {
+    let key = key_in_app(d, t).ok_or_else(|| {
         DesktopError::Unsupported(format!(
             "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
         ))
     })?;
-    if super::activation::wait_until(super::activation::VALIDATE_WAIT, &|| {
-        item.bool("AXEnabled") != Some(false)
-    }) {
+    item.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+    if key.wait_until(super::activation::VALIDATE_WAIT, &|| item.bool("AXEnabled") != Some(false)) {
         return Ok(key);
     }
+    item.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
     Err(DesktopError::Unsupported(format!(
         "menu item {title:?} ({element_id}) stays disabled with window {} as the app's key window: the command does not apply to it now, so nothing was pressed",
         t.window.id
     )))
 }
 
-/// The longest a primed chord's scope waits for the chord's effect.
-const KEY_EFFECT_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
-
-/// What a chord visibly changes in the window: its focused element's value
-/// and selection, and the window's title.
-fn key_effect(d: &MacDesktop, t: &Target) -> (Option<String>, Option<(i64, i64)>, Option<String>) {
-    let focused = d.focused_in(t);
-    let title = d.ax_window(t).ok().and_then(|(_, w)| w.string("AXTitle"));
-    (
-        focused.as_ref().and_then(Ax::value_text),
-        focused.as_ref().and_then(Ax::selected_range),
-        title,
-    )
-}
-
 /// The longest the app gets to take its window as key before the input.
 const KEY_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// `t`'s window as its app's key window (to the app only): entered, then
-/// until the app reports it as its focused window (at most KEY_SETTLE).
-fn key_in_app(d: &MacDesktop, t: &Target) -> Option<super::activation::KeyInApp> {
+/// `t`'s window as its app's key window (to the app only), or `None` unless
+/// the app reports it as its focused window within KEY_SETTLE (then the
+/// scope is handed back at once).
+fn key_in_app(_d: &MacDesktop, t: &Target) -> Option<super::activation::KeyInApp<'static>> {
     let key = super::activation::KeyInApp::enter(t.window.id, t.window.pid)?;
-    super::activation::wait_until(KEY_SETTLE, &|| {
-        d.ax_window(t)
-            .is_ok_and(|(app, win)| app.element("AXFocusedWindow").is_some_and(|f| f.same(&win)))
-    });
-    Some(key)
+    key.wait_until(KEY_SETTLE, &|| focused_on_target(t)).then_some(key)
 }
 
 /// `confirmed` when the row reads back as the only selected one.
@@ -649,7 +632,7 @@ pub(super) fn click(
         && el.bool("AXEnabled") == Some(false)
         && !d.is_persons_app(&t)
     {
-        let key = enable_menu_item(&t, &el, element_id)?;
+        let key = enable_menu_item(d, &t, &el, element_id)?;
         // Validation can change the item (its title, what it leads to):
         // the deny list and the protected apps are checked again.
         d.refuse_denied_item(&el)?;
@@ -680,9 +663,25 @@ pub(super) fn click(
         && let Some(action) =
             press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
     {
+        // In a scope: still live (not stopped, not past its bound, the
+        // person did not switch to the app) and focus still on the target.
+        if let Some(key) = menu_key.as_ref()
+            && let Err(why) = roles::primed_press(key.live(), focused_on_target(&t), false)
+        {
+            return Err(DesktopError::Unsupported(why.into()));
+        }
         let before = el.value_text();
-        el.perform(action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-        let mut out = outcome_after(&route_name(action), before, &el);
+        let mut out = match el.perform(action) {
+            Ok(()) => outcome_after(&route_name(action), before, &el),
+            Err(e) if menu_key.is_none() || roles::press_error_falls_back(e) => {
+                return Err(ax_error(e, &format!("element {element_id}")));
+            }
+            // It may have run (a dialog the item opened holds it).
+            Err(_) => press_outcome(Err(super::sys::AX_CANNOT_COMPLETE), &route_name(action))?,
+        };
+        if menu_key.is_some() {
+            el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+        }
         // A menu bar item's frame while its menu is closed is off screen
         // (Safari's View items report y 900): no cursor there.
         if in_menu_bar {
@@ -692,7 +691,7 @@ pub(super) fn click(
         if let Some(key) = menu_key.take()
             && key.end() == super::activation::Ended::HandBackFailed
         {
-            out.note = super::activation::HAND_BACK_FAILED.into();
+            super::activation::append_note(&mut out.note, super::activation::HAND_BACK_FAILED);
         }
         return Ok(out);
     }
@@ -740,74 +739,6 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     Ok(Some(out))
 }
 
-/// Text for a background document's focused text view, typed as keys with
-/// the window key in its app ([`super::activation`]): an accessibility
-/// insert leaves the document unmodified, so File > Save wrote nothing
-/// (TextEdit, eval: cmd+s after type_text left the file as it was). Typed
-/// keys are an edit, as the person's typing is (autocorrect and text
-/// replacement apply as they would to the person's). `None` when this does
-/// not apply or the scope is not available; then the caller inserts through
-/// accessibility. Confirmed only when the value, re-read once it stopped
-/// changing, holds the text.
-fn type_into_document(
-    d: &MacDesktop,
-    t: &Target,
-    el: &Ax,
-    text: &str,
-) -> DResult<Option<ActionOutcome>> {
-    let has_document = d.ax_window(t).is_ok_and(|(_, w)| w.string("AXDocument").is_some());
-    if !roles::document_keys(
-        &el.string("AXRole").unwrap_or_default(),
-        has_document,
-        el.bool("AXFocused") == Some(true),
-        d.is_persons_app(t),
-        text.contains(['\n', '\r', '\t']),
-    ) {
-        return Ok(None);
-    }
-    let Ok(route @ Route::Pid { .. }) = d.key_route(t, Delivery::Background) else {
-        return Ok(None);
-    };
-    let Some(key) = key_in_app(d, t) else { return Ok(None) };
-    let before = el.value_text().unwrap_or_default();
-    input::type_text(route, text)?;
-    let settled = settle_value(el, &before);
-    let ended = key.end();
-    let after = el.value_text().unwrap_or_default();
-    let mut out = if settled && after != before && after.contains(text) {
-        ActionOutcome::confirmed("pid_keys_document")
-    } else {
-        ActionOutcome::delivered("pid_keys_document")
-    };
-    out.note = "typed as keys so the document counts it as an edit".into();
-    if ended == super::activation::Ended::HandBackFailed {
-        out.note = format!("{}; {}", out.note, super::activation::HAND_BACK_FAILED);
-    }
-    Ok(Some(out))
-}
-
-/// Waits until `el`'s value differs from `before` and then stays the same
-/// for a moment (the app handled the keys), at most a bound. Whether it
-/// changed and settled.
-fn settle_value(el: &Ax, before: &str) -> bool {
-    const STABLE: std::time::Duration = std::time::Duration::from_millis(120);
-    const BOUND: std::time::Duration = std::time::Duration::from_millis(2000);
-    let start = std::time::Instant::now();
-    let mut last = el.value_text().unwrap_or_default();
-    let mut since = std::time::Instant::now();
-    while start.elapsed() < BOUND {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        let now = el.value_text().unwrap_or_default();
-        if now != last {
-            last = now;
-            since = std::time::Instant::now();
-        } else if last != before && since.elapsed() >= STABLE {
-            return true;
-        }
-    }
-    false
-}
-
 pub(super) fn type_text(
     d: &MacDesktop,
     window_id: &str,
@@ -824,10 +755,7 @@ pub(super) fn type_text(
     if let Some(el) = &target {
         if delivery == Delivery::Background
             && !has_keys
-            && let Some(mut out) = match type_into_document(d, &t, el, text)? {
-                Some(out) => Some(out),
-                None => ax_insert(el, text)?,
-            }
+            && let Some(mut out) = ax_insert(el, text)?
         {
             if let Some(frame) = el.frame() {
                 out = out.at(roles::center(&frame));
@@ -943,9 +871,7 @@ pub(super) fn press_keys(
     let route = d.key_route(&t, delivery)?;
     use crate::keys::{Key, Modifier};
     let mut disabled_item: Option<String> = None;
-    // Held until the chord is posted or its item pressed.
-    let mut primed: Option<super::activation::KeyInApp> = None;
-    let mut hand_back_note = false;
+    let mut notes = String::new();
     let menu_chord = combo
         .modifiers
         .iter()
@@ -956,36 +882,37 @@ pub(super) fn press_keys(
         // In the background the walk stops at the first enabled match (it is
         // pressed or refused); a foreground chord may be posted, which needs
         // every match.
-        // A background app has no key window: its menus validate as if
-        // nothing could take a menu command, and posted keys never reach
-        // its menu key equivalents. With the target window made the app's
-        // key window (to the app only), a posted chord is routed as in the
-        // foreground: the window's views first (a web page's key handler),
-        // then the menus, which validate against it. The chord then follows
-        // the foreground rule. Without the private calls the chord keeps the
-        // background rule (press the first enabled match).
-        primed = if delivery == Delivery::Background && !d.is_persons_app(&t) {
-            key_in_app(d, &t)
-        } else {
-            None
-        };
-        // The matches validate a little after priming; until they do, their
-        // titles and what they lead to may be stale. Wait for that (bounded),
-        // then read them again, so the deny list and the protected apps are
-        // checked against what AppKit will run. No match: nothing to wait for.
-        let mut validated = false;
-        if primed.is_some() {
-            let (first, _) = shortcut_matches(d, t.window.pid, combo, false);
-            validated = first.is_empty()
-                || super::activation::wait_until(super::activation::VALIDATE_WAIT, &|| {
+        let background = delivery == Delivery::Background;
+        // A background app has no key window, so its menu items that act on
+        // one validate as disabled, and posted keys never reach its menu key
+        // equivalents. When every match is disabled, the target window is
+        // made the app's key window (to the app only) just until the matches
+        // validate; then the background rule runs on what validated, and the
+        // only thing done in the scope is pressing that item through
+        // accessibility. Nothing is posted into the scope, a Services
+        // shortcut is never primed, and a chord with no match keeps the
+        // background rule.
+        let mut primed: Option<super::activation::KeyInApp<'static>> = None;
+        if background && !d.is_persons_app(&t) {
+            let (first, _) = shortcut_matches(d, t.window.pid, combo, true);
+            let first_matches: Vec<roles::ShortcutMatch> =
+                first.iter().map(|(_, m)| m.clone()).collect();
+            if roles::needs_menu_validation(&first_matches)
+                && !chord_is_service(code, flags)
+                && let Some(key) = key_in_app(d, &t)
+            {
+                for (el, _) in &first {
+                    el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+                }
+                if key.wait_until(super::activation::VALIDATE_WAIT, &|| {
                     first.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
-                });
-            if !validated && let Some(key) = primed.take() {
-                hand_back_note = key.end() == super::activation::Ended::HandBackFailed;
+                }) {
+                    primed = Some(key);
+                } else if key.end() == super::activation::Ended::HandBackFailed {
+                    super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                }
             }
         }
-        let background = delivery == Delivery::Background
-            && roles::chord_background_rule(primed.is_some(), validated);
         let (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
         // The layout and Services are read only when the rule needs them.
@@ -1014,16 +941,26 @@ pub(super) fn press_keys(
         };
         match roles::decide_chord(&facts) {
             roles::ChordAction::PressItem(i) => {
-                items[i]
-                    .0
-                    .perform("AXPress")
-                    .map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
-                let mut out = ActionOutcome::delivered("ax_menu_shortcut");
-                if let Some(key) = primed.take() {
-                    hand_back_note |= key.end() == super::activation::Ended::HandBackFailed;
+                let el = &items[i].0;
+                if let Some(key) = primed.as_ref() {
+                    if let Err(why) =
+                        roles::primed_press(key.live(), focused_on_target(&t), item_is_service(el))
+                    {
+                        return Err(DesktopError::Unsupported(why.into()));
+                    }
+                    el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
                 }
-                if hand_back_note {
-                    out.note = super::activation::HAND_BACK_FAILED.into();
+                let mut out = press_outcome(el.perform("AXPress"), "ax_menu_shortcut")?;
+                if primed.is_some() {
+                    el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+                }
+                if let Some(key) = primed.take()
+                    && key.end() == super::activation::Ended::HandBackFailed
+                {
+                    super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                }
+                if !notes.is_empty() {
+                    super::activation::append_note(&mut out.note, &notes);
                 }
                 return Ok(out);
             }
@@ -1050,6 +987,12 @@ pub(super) fn press_keys(
                 return Err(DesktopError::Unsupported(format!("{why}{item}")));
             }
             roles::ChordAction::Post => {
+                // Never post into a primed app: the scope ends first.
+                if let Some(key) = primed.take()
+                    && key.end() == super::activation::Ended::HandBackFailed
+                {
+                    super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                }
                 if background && roles::needs_menu_validation(&matches) {
                     disabled_item = matches.first().map(|m| m.title.clone());
                 }
@@ -1072,26 +1015,65 @@ pub(super) fn press_keys(
         Route::Hid if denies_any => Route::Pid { pid: t.window.pid, window: t.window.id },
         other => other,
     };
-    let before = primed.as_ref().map(|_| key_effect(d, &t));
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     let mut out = ActionOutcome::delivered(route.name());
-    if let Some(key) = primed.take() {
-        // The app handles the posted chord on its own queue: the scope ends
-        // once its effect shows (the focused element's value or selection,
-        // or the window's title changed), at most KEY_EFFECT_WAIT.
-        let before = before.unwrap_or_default();
-        super::activation::wait_until(KEY_EFFECT_WAIT, &|| key_effect(d, &t) != before);
-        hand_back_note |= key.end() == super::activation::Ended::HandBackFailed;
-    }
-    if hand_back_note {
-        out.note = super::activation::HAND_BACK_FAILED.into();
-    }
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
         );
     }
+    if !notes.is_empty() {
+        super::activation::append_note(&mut out.note, &notes);
+    }
     Ok(out)
+}
+
+/// Whether the chord is a Services shortcut (read from the pasteboard
+/// server's list; unread counts as one): never primed.
+fn chord_is_service(code: u16, flags: u64) -> bool {
+    match workspace::service_shortcuts() {
+        Some(list) => keymap::is_service_shortcut(code, flags, &list),
+        None => true,
+    }
+}
+
+/// Whether `item` sits in the app's Services submenu (its parent menu's
+/// item is titled Services, the name AppKit gives it).
+fn item_is_service(item: &Ax) -> bool {
+    let mut node = item.element("AXParent");
+    for _ in 0..8 {
+        let Some(n) = node else { return false };
+        match n.string("AXRole").as_deref() {
+            Some("AXMenuItem") if n.string("AXTitle").as_deref() == Some("Services") => return true,
+            Some("AXMenuBar") | Some("AXApplication") | None => return false,
+            _ => {}
+        }
+        node = n.element("AXParent");
+    }
+    false
+}
+
+/// Whether the target's app reports the target window as its focused
+/// window (the key-in-app scope landed there), with a short AX timeout.
+fn focused_on_target(t: &Target) -> bool {
+    let Some(app) = Ax::application(t.window.pid) else { return false };
+    app.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+    app.element("AXFocusedWindow").and_then(|w| w.window_id()) == Some(t.window.id)
+}
+
+/// The outcome of an AXPress on a menu item: an error the item did not take
+/// is an error; a timeout or cannot-complete may come back after the item
+/// ran (a dialog or menu it opened), so it is delivered with a note.
+fn press_outcome(res: Result<(), super::sys::AXError>, route: &str) -> DResult<ActionOutcome> {
+    match res {
+        Ok(()) => Ok(ActionOutcome::delivered(route)),
+        Err(e) if roles::press_error_falls_back(e) => Err(ax_error(e, "press the menu item")),
+        Err(_) => {
+            let mut out = ActionOutcome::delivered(route);
+            out.note = "the app did not answer the press in time; it may have run (a dialog or menu it opened would hold it)".into();
+            Ok(out)
+        }
+    }
 }
 
 pub(super) fn scroll(

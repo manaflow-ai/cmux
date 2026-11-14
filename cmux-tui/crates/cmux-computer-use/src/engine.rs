@@ -480,6 +480,11 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
+        // The target app's windows before an observing action: a sheet,
+        // popover or window it opens is an effect a window capture misses.
+        let windows_before = (tools::OBSERVES.contains(&name) && name != "batch")
+            .then(|| args_str(&args, "window_id").and_then(|id| self.app_window_ids(id)))
+            .flatten();
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
@@ -512,7 +517,15 @@ impl Engine {
             && let Some(app) = &app
         {
             let mode = self.settle_mode(&args);
-            self.attach_state(ctx, window_id, app, &mut out, mode, name == "type_text");
+            self.attach_state(
+                ctx,
+                window_id,
+                app,
+                &mut out,
+                mode,
+                name == "type_text",
+                windows_before.as_deref(),
+            );
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -889,6 +902,13 @@ impl Engine {
     ) -> Option<Refusal> {
         policy::is_blocked(config, app)
             .or_else(|| saved.is_never(&app.id).then_some(Refusal::NeverAllowed))
+    }
+
+    /// The on-screen windows of `window_id`'s app, sorted ids (None when the
+    /// window or its app's windows cannot be read).
+    fn app_window_ids(&self, window_id: &str) -> Option<Vec<String>> {
+        let w = self.window(window_id).ok()?;
+        self.desktop.app_window_ids(w.pid).ok()
     }
 
     fn windows(&self) -> Result<Vec<Window>, ToolOutput> {
@@ -1282,7 +1302,7 @@ impl Engine {
         let mut out = ToolOutput::ok(json!({"waited_ms": waited.as_millis() as u64}));
         match target {
             Some((id, app)) => {
-                self.attach_state(ctx, &id, &app, &mut out, SettleMode::Openai, false);
+                self.attach_state(ctx, &id, &app, &mut out, SettleMode::Openai, false, None);
                 Ok((out, Some(app)))
             }
             None => {
@@ -1403,7 +1423,7 @@ impl Engine {
             && args.get("observe").and_then(Value::as_bool) != Some(false)
         {
             let mode = self.settle_mode(args);
-            self.attach_state(ctx, &window_id, app, &mut out, mode, false);
+            self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
         }
         Ok((out, acted_on))
     }
@@ -1433,6 +1453,7 @@ impl Engine {
         out: &mut ToolOutput,
         mode: SettleMode,
         typed: bool,
+        windows_before: Option<&[String]>,
     ) {
         let s = self.settle;
         let start = (self.clock)();
@@ -1488,7 +1509,12 @@ impl Engine {
         // away or after a fixed delay, which proves nothing.
         mark_no_visible_change(
             &mut out.body,
-            mode == SettleMode::Adaptive && captures >= 2 && shot.body["unchanged"] == json!(true),
+            mode == SettleMode::Adaptive
+                && captures >= 2
+                && shot.body["unchanged"] == json!(true)
+                && windows_before.is_some_and(|b| {
+                    self.app_window_ids(window_id).as_deref() == Some(b)
+                }),
             elapsed.as_millis() as u64,
         );
         let mut state = shot.body.clone();

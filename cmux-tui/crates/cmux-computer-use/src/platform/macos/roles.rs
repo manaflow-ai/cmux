@@ -293,28 +293,22 @@ pub fn press_error_falls_back(code: i32) -> bool {
     matches!(code, -25201 | -25205 | -25206)
 }
 
-/// Which rule a background chord follows. With the target window key in its
-/// app and its menus validated, AppKit routes a posted chord as in the
-/// foreground, so the foreground rule applies; otherwise (the scope is off
-/// or the menus did not validate) the background rule: press the first
-/// enabled match, else post with a note. Returns whether the background rule
-/// applies.
-pub fn chord_background_rule(primed: bool, validated: bool) -> bool {
-    !(primed && validated)
-}
-
-/// Whether text for a background document's text view is typed as keys
-/// inside the key-in-app scope instead of inserted through accessibility:
-/// an accessibility insert leaves the document unmodified (Save writes
-/// nothing), typed keys make it an edit, as the person's typing does.
-pub fn document_keys(
-    role: &str,
-    has_document: bool,
-    focused: bool,
-    persons_app: bool,
-    has_newline_or_tab: bool,
-) -> bool {
-    role == "AXTextArea" && has_document && focused && !persons_app && !has_newline_or_tab
+/// Whether an item may be pressed inside a key-in-app scope (pure, for
+/// tests): the scope is still live (not stopped, within its bound, the
+/// person did not switch to the app), the app still reports the target as
+/// its focused window, and the item is not a Services item (a Service runs
+/// in another process against whatever the app hands it).
+pub fn primed_press(live: bool, focus_on_target: bool, item_is_service: bool) -> Result<(), &'static str> {
+    if !live {
+        return Err("the target app came to the front, the call was stopped or the app did not answer in time while its menu item was being made available, so nothing was pressed");
+    }
+    if !focus_on_target {
+        return Err("the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed");
+    }
+    if item_is_service {
+        return Err("the shortcut runs a Services item, which is never run from a background app's menu: nothing was pressed");
+    }
+    Ok(())
 }
 
 /// What a pid-routed mouse event carries to reach its window: the window

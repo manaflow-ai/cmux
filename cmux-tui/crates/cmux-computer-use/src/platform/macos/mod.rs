@@ -480,6 +480,17 @@ impl Desktop for MacDesktop {
 
     /// One window from the window server and its app alone; the full list
     /// asks every app with a window (tens of ms).
+    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
+        // One window server query; every layer (sheets, panels, popovers).
+        let mut ids: Vec<String> = cgwindows::on_screen()
+            .into_iter()
+            .filter(|w| w.pid as u32 == pid && w.frame.width >= 2.0 && w.alpha > 0.0)
+            .map(|w| w.id.to_string())
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         let Ok(number) = id.parse::<u32>() else { return Ok(None) };
         let Some(cg) = cgwindows::by_id(number) else { return Ok(None) };

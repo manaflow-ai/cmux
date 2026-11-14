@@ -50,6 +50,9 @@ pub struct FakeDesktop {
     pub refuse_exclusion: bool,
     pub apps: Vec<App>,
     pub windows: Vec<Window>,
+    /// A window the next input opens (a sheet, a dialog), listed after it.
+    pub opens_on_input: Mutex<Option<Window>>,
+    opened: Mutex<Vec<Window>>,
     pub scale: f64,
     pub events: Mutex<Vec<Event>>,
     /// Bumped to change the pixels the next capture returns.
@@ -142,6 +145,8 @@ impl FakeDesktop {
             window_lists: Mutex::new(0),
             pointer: Mutex::new(None),
             repaint_from: Mutex::new(None),
+            opens_on_input: Mutex::new(None),
+            opened: Mutex::new(Vec::new()),
             focus: Mutex::new(None),
             steal_on_input: Mutex::new(None),
             steal_on_read: Mutex::new(None),
@@ -162,6 +167,11 @@ impl FakeDesktop {
 
     fn push(&self, e: Event) {
         self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(e);
+        if let Some(w) =
+            self.opens_on_input.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
+            self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(w);
+        }
         let steal =
             self.steal_on_input.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(stolen) = steal {
@@ -352,10 +362,24 @@ impl Desktop for FakeDesktop {
     }
     fn list_windows(&self) -> DResult<Vec<Window>> {
         *self.window_lists.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
-        Ok(self.windows.clone())
+        let mut all = self.windows.clone();
+        all.extend(self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone());
+        Ok(all)
     }
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         Ok(self.windows.iter().find(|w| w.id == id).cloned())
+    }
+    fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
+        let opened = self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut ids: Vec<String> = self
+            .windows
+            .iter()
+            .chain(opened.iter())
+            .filter(|w| w.pid == pid && w.on_screen && !w.minimized)
+            .map(|w| w.id.clone())
+            .collect();
+        ids.sort();
+        Ok(ids)
     }
     fn pointer(&self) -> Option<Point> {
         *self.pointer.lock().unwrap_or_else(std::sync::PoisonError::into_inner)

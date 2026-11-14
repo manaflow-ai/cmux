@@ -111,29 +111,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 9: a primed chord follows the foreground rule only once its
-/// menus validated; otherwise (scope off, or still disabled) the background
-/// rule.
-#[test]
-fn the_primed_chord_rule_switch() {
-    assert!(!roles::chord_background_rule(true, true));
-    assert!(roles::chord_background_rule(true, false));
-    assert!(roles::chord_background_rule(false, false));
-    assert!(roles::chord_background_rule(false, true));
-}
 
-/// Review 5 and 9: typed keys for a document only in a focused text area of
-/// a document window, not in the person's app, and not for text with
-/// newlines or tabs (those keep their own route).
-#[test]
-fn document_text_is_typed_as_keys_only_where_it_applies() {
-    assert!(roles::document_keys("AXTextArea", true, true, false, false));
-    assert!(!roles::document_keys("AXTextField", true, true, false, false));
-    assert!(!roles::document_keys("AXTextArea", false, true, false, false));
-    assert!(!roles::document_keys("AXTextArea", true, false, false, false));
-    assert!(!roles::document_keys("AXTextArea", true, true, true, false));
-    assert!(!roles::document_keys("AXTextArea", true, true, false, true));
-}
 
 /// Review 1: the key-in-app scope runs only on a verified macOS major
 /// (26) and never with CMUX_CU_BG_ACTIVATE=0; macOS 27 was not verified.
@@ -147,22 +125,176 @@ fn the_key_in_app_scope_is_gated() {
     assert!(!activation::gate("", None));
 }
 
-/// Review 2 and 8: the person's front app is never entered; a second scope
-/// on one app joins the first; only the last one out hands back, never to an
-/// app that came to the front, and names a window that still exists.
+
+/// Review 2 (B, 3): inside a scope an item is pressed only while the scope
+/// is live and focus is on the target window, and never a Services item.
 #[test]
-fn key_in_app_entry_and_hand_back() {
-    use activation::{Entry, HandBack, entry, hand_back};
-    assert_eq!(entry(0, true), Entry::Refuse);
-    assert_eq!(entry(1, true), Entry::Refuse);
-    assert_eq!(entry(0, false), Entry::Post);
-    assert_eq!(entry(2, false), Entry::Join);
-    assert_eq!(hand_back(1, false, true, 7, None), HandBack::StillOpen);
-    assert_eq!(hand_back(0, true, true, 7, None), HandBack::TargetIsFront);
-    assert_eq!(hand_back(0, false, true, 7, Some(9)), HandBack::Post(7));
-    // The window closed (a primed cmd+w): another window of the app is named.
-    assert_eq!(hand_back(0, false, false, 7, Some(9)), HandBack::Post(9));
-    assert_eq!(hand_back(0, false, false, 7, None), HandBack::NoWindow);
+fn a_primed_press_needs_a_live_scope_on_the_target_and_no_service() {
+    assert_eq!(roles::primed_press(true, true, false), Ok(()));
+    assert!(roles::primed_press(false, true, false).is_err());
+    assert!(roles::primed_press(true, false, false).is_err());
+    assert!(roles::primed_press(true, true, true).unwrap_err().contains("Services"));
+}
+
+/// Review 2 (4): the person's front app is never entered; a scope on the
+/// same window joins; one on another window of the app refuses.
+#[test]
+fn key_in_app_entry_decisions() {
+    use activation::{Entry, entry};
+    assert_eq!(entry(None, 7, true), Entry::Refuse);
+    assert_eq!(entry(Some((7, 1)), 7, true), Entry::Refuse);
+    assert_eq!(entry(None, 7, false), Entry::Post);
+    assert_eq!(entry(Some((7, 2)), 7, false), Entry::Join);
+    assert_eq!(entry(Some((9, 1)), 7, false), Entry::Refuse);
+    assert_eq!(entry(Some((9, 0)), 7, false), Entry::Post);
+}
+
+/// A fake system for the scope's lifecycle.
+#[derive(Default)]
+struct FakeOs {
+    front: std::cell::Cell<Option<i32>>,
+    /// Front pid after this many posts (the person switches mid-scope).
+    front_after_posts: std::cell::Cell<Option<(usize, i32)>>,
+    posts: std::cell::RefCell<Vec<(u8, u32, u8)>>,
+    windows: std::cell::RefCell<Vec<(u32, i32)>>,
+    fail_posts: std::cell::Cell<bool>,
+    epoch: std::cell::Cell<u64>,
+}
+
+impl activation::ScopeOs for FakeOs {
+    fn front_pid(&self) -> Option<i32> {
+        if let Some((n, pid)) = self.front_after_posts.get()
+            && self.posts.borrow().len() >= n
+        {
+            return Some(pid);
+        }
+        self.front.get()
+    }
+    fn psn_of(&self, window: u32) -> Option<activation::Psn> {
+        self.windows.borrow().iter().find(|w| w.0 == window).map(|w| [w.1 as u32, 0])
+    }
+    fn post(&self, _psn: &activation::Psn, r: &[u8; 0xF8]) -> bool {
+        if self.fail_posts.get() {
+            return false;
+        }
+        let w = u32::from_le_bytes([r[0x3C], r[0x3D], r[0x3E], r[0x3F]]);
+        self.posts.borrow_mut().push((r[0x08], w, r[0x8A]));
+        true
+    }
+    fn window_exists(&self, window: u32, pid: i32) -> bool {
+        self.windows.borrow().iter().any(|w| *w == (window, pid))
+    }
+    fn any_window(&self, pid: i32) -> Option<u32> {
+        self.windows.borrow().iter().find(|w| w.1 == pid).map(|w| w.0)
+    }
+    fn stop_epoch(&self) -> u64 {
+        self.epoch.get()
+    }
+}
+
+fn fake(windows: &[(u32, i32)]) -> FakeOs {
+    let os = FakeOs::default();
+    os.front.set(Some(1)); // the person's app
+    *os.windows.borrow_mut() = windows.to_vec();
+    os
+}
+
+const IN: (u8, u8) = (activation::RECORD_FOCUS, activation::FOCUS_IN);
+
+/// Entering posts focus-in and the make-key pair for the window; the end
+/// posts one focus-out for it.
+#[test]
+fn a_scope_enters_and_hands_back_once() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    assert!(key.live());
+    assert_eq!(key.end(), activation::Ended::Fine);
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.len(), 4, "{posts:?}");
+    assert_eq!((posts[0].0, posts[0].2), IN);
+    assert_eq!(posts[3], (activation::RECORD_FOCUS, 10, activation::FOCUS_OUT));
+}
+
+/// Early returns: the person's front app, an unknown window, a failed post
+/// (then what was posted is handed back).
+#[test]
+fn a_scope_refuses_the_front_app_and_unknown_windows() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front.set(Some(5));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(os.posts.borrow().is_empty());
+    os.front.set(Some(1));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 99, 5).is_none());
+    os.fail_posts.set(true);
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    os.fail_posts.set(false);
+    // Nothing left open: a new scope enters.
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_some());
+}
+
+/// Two sessions on one app: the same window joins (no second records, one
+/// hand-back after the last); another window is refused.
+#[test]
+fn a_join_shares_the_window_and_another_window_is_refused() {
+    let os = fake(&[(10, 5), (11, 5)]);
+    let reg = activation::Registry::new();
+    let a = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("first");
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 11, 5).is_none(), "other window");
+    let b = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("join");
+    assert_eq!(os.posts.borrow().len(), 3);
+    drop(a);
+    assert_eq!(os.posts.borrow().len(), 3, "still open: no hand-back");
+    drop(b);
+    assert_eq!(os.posts.borrow().len(), 4);
+}
+
+/// The person switching to the target app mid-entry aborts it, and no
+/// focus-out goes to the app they are now using; a live scope stops being
+/// live when they switch, or on a Stop.
+#[test]
+fn the_person_switching_to_the_target_aborts_the_scope() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.front_after_posts.set(Some((1, 5)));
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    let posts = os.posts.borrow().clone();
+    assert_eq!(posts.len(), 1, "stopped after the first record: {posts:?}");
+    assert!(posts.iter().all(|p| p.2 != activation::FOCUS_OUT));
+    os.front_after_posts.set(None);
+    os.posts.borrow_mut().clear();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.front.set(Some(5));
+    assert!(!key.live());
+    assert!(!key.wait_until(std::time::Duration::from_secs(1), &|| true));
+    assert_eq!(key.end(), activation::Ended::Fine);
+    assert!(os.posts.borrow().iter().all(|p| p.2 != activation::FOCUS_OUT));
+    os.front.set(Some(1));
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.epoch.set(1); // the person pressed Stop
+    assert!(!key.live());
+}
+
+/// The window closed during the scope (a primed File > Close): the hand-back
+/// names another window of the app, from the full list (off screen
+/// included); with none left it reports the failure.
+#[test]
+fn the_hand_back_names_a_window_that_still_exists() {
+    let os = fake(&[(10, 5), (12, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    os.windows.borrow_mut().retain(|w| w.0 != 10);
+    assert_eq!(key.end(), activation::Ended::Fine);
+    assert_eq!(os.posts.borrow().last(), Some(&(activation::RECORD_FOCUS, 12, activation::FOCUS_OUT)));
+    let key = activation::KeyInApp::enter_with(&os, &reg, 12, 5).expect("entered");
+    os.windows.borrow_mut().clear();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    // Notes are appended, never replaced.
+    let mut note = "pressed".to_string();
+    activation::append_note(&mut note, activation::HAND_BACK_FAILED);
+    activation::append_note(&mut note, activation::HAND_BACK_FAILED);
+    assert!(note.starts_with("pressed; ") && note.matches("hand-back").count() == 1);
 }
 
 #[test]
