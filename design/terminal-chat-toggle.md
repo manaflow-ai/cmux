@@ -32,7 +32,7 @@ From the design references repository (private: ids only).
 - A swap is a tab selection. Both views stay parked in the pane (`PaneContentView+Parking`), so nothing reloads or
   resizes and the chat's scroll is kept.
 - Whether a tab is half of a pair is the Rust route's answer (`cmux-window-rules` `tabs::terminal_chat_toggle`)
-  for the facts the action builds (`TerminalChatHandler.Facts`). A refusal (`notAgentTab`, `noSession`,
+  for the facts the action builds (`TerminalChatHandler.facts`). A refusal (`notAgentTab`, `noSession`,
   `unsupportedHarness`) shows no control. Every other answer (to chat, to terminal, resume in a terminal, a
   hand-off in progress, busy) shows it, so the control appears exactly where the key acts.
 - From a chat no terminal runs, the action stops the chat's run, opens the harness's resume command in a new

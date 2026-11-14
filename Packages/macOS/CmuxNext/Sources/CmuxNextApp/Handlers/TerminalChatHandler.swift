@@ -34,7 +34,7 @@ enum TerminalChatHandler {
             throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
         }
         let services = context.services, tabs = services.agentTabs, terminal = tab.kind == .pty
-        let read = Facts(tab, services: services), key = read.key, terminals = read.terminals
+        let read = facts(tab, services: services), key = read.key, terminals = read.terminals
         // The route is Rust's (cmux-window-rules `tabs::terminal_chat_toggle`).
         switch WindowRules().terminalChatToggle(read.facts) {
         case .notAgentTab?, nil: throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
@@ -79,49 +79,37 @@ enum TerminalChatHandler {
         }
     }
 
-    /// Toggle Terminal and Chat's facts about `tab`, which the action and the pane toolbar's toggle
-    /// (``PaneToolbar``) both hand to the Rust route, so the control shows exactly where the key acts.
-    struct Facts {
-        let facts: WindowRules.ToggleFacts
-        /// A chat's adopted session, `harness:agentSessionId`.
-        let key: String?
-        /// The live terminals running a chat's session, best first (as an `agent/` link picks them).
-        let terminals: [String]
-
-        /// `membership`: only what decides whether the route refuses the tab (the tab's kind and its session), for the
-        /// toolbar, which asks for every tab of every pane: the running terminals, the turn and the hand-off only pick
-        /// among the routes that act, and reading them there would observe every machine's agents.
-        init(_ tab: TabModel, services: AppServices, membership: Bool = false) {
-            let tabs = services.agentTabs, terminal = tab.kind == .pty
-            // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted.
-            let adopted = terminal ? nil : tabs.adoption(of: tab.id)
-            key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
-            guard !membership else {
-                terminals = []
-                facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
-                                                agent: terminal ? tab.agent?.agent : adopted?.harness,
-                                                session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
-                return
-            }
-            terminals = adopted.map { adopted in
-                DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
-                                   harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
-            } ?? []
-            let handOff = key.flatMap { tabs.terminalHandOffs[$0] }
-            facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
+    /// Toggle Terminal and Chat's facts about `tab`, which the action and the pane toolbar's toggle (``PaneToolbar``)
+    /// both hand to the Rust route, so the control shows exactly where the key acts; with the chat's adopted session
+    /// (`key`, `harness:agentSessionId`) and the live terminals running it, best first (as an `agent/` link picks them).
+    /// `membership`: only what decides whether the route refuses the tab (the tab's kind and its session), for the
+    /// toolbar, which asks for every tab of every pane: the running terminals, the turn and the hand-off only pick
+    /// among the routes that act, and reading them there would observe every machine's agents.
+    static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
+        -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
+        let tabs = services.agentTabs, terminal = tab.kind == .pty
+        // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted.
+        let adopted = terminal ? nil : tabs.adoption(of: tab.id), key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+        var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
-                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId, running: !terminals.isEmpty,
-                                            busy: tab.agentSession.map(turnOpen) ?? false,
-                                            handOff: handOff, handOffOpen: handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false,
-                                            now: Date().timeIntervalSince1970)
-        }
+                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
+        guard !membership, let adopted else { return (facts, key, []) }
+        let terminals = DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
+                                           harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
+        let handOff = key.flatMap { tabs.terminalHandOffs[$0] }
+        facts.running = !terminals.isEmpty
+        facts.busy = tab.agentSession.map(turnOpen) ?? false
+        facts.handOff = handOff
+        facts.handOffOpen = handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false
+        facts.now = Date().timeIntervalSince1970
+        return (facts, key, terminals)
     }
 
     /// The face of a terminal and chat pair `tab` is, nil when the route refuses it (not a terminal or chat,
     /// no session, a harness acpmux cannot resume): the pane toolbar's toggle shows only on a pair.
     static func face(of tab: TabModel, services: AppServices) -> PaneTerminalChatFace? {
-        let facts = Facts(tab, services: services, membership: true).facts
-        return face(WindowRules().terminalChatToggle(facts), terminal: facts.terminal)
+        let read = facts(tab, services: services, membership: true).facts
+        return face(WindowRules().terminalChatToggle(read), terminal: read.terminal)
     }
 
     /// The face the route's answer `route` shows for a terminal (`terminal`) or a chat: none for a refusal.
