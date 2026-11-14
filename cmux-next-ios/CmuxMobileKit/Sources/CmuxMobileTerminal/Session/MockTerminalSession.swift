@@ -28,6 +28,18 @@ public final class MockTerminalSession: TerminalSession {
     private let roundTrip: Duration
     private var inFlight: [(due: ContinuousClock.Instant, bytes: Data)] = []
     private var delivery: Task<Void, Never>?
+    /// Plays the Mac's side of a resize (`-CmuxMobileTerminalDemoMac`): the
+    /// grid answers a round trip later with the Mac's `resized` (a
+    /// `.hostGrid`), a mirror reset (`ESC c`) and one replay of the whole
+    /// screen, the way `DaemonTerminalSession` delivers it. Nil: the mock
+    /// resizes in place, as a local shell does.
+    private let macResize: Duration?
+    /// The grid the "Mac" answered last (nil before the first resize).
+    private var macGrid: (columns: Int, rows: Int)?
+    /// Everything written on the primary screen, for the Mac's replay.
+    private var transcript: [String] = []
+    private var transcriptBytes = 0
+    private var resizeAnswer: Task<Void, Never>?
 
     private enum Program {
         case shell
@@ -36,11 +48,16 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
-    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
+                macResize: Duration? = nil) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.roundTrip = roundTrip
+        self.macResize = macResize
     }
+
+    public var remoteRows: Int? { macGrid?.rows }
+    public var remoteColumns: Int? { macGrid?.columns }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         self.handler = handler
@@ -81,6 +98,10 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func resize(columns: Int, rows: Int) {
+        if let macResize {
+            answerResize(columns: columns, rows: rows, after: macResize)
+            return
+        }
         guard columns > 0, rows > 0, columns != self.columns || rows != self.rows else { return }
         self.columns = columns
         self.rows = rows
@@ -93,7 +114,38 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
+    /// The Mac's answer to a resize: its grid, a mirror reset and one replay
+    /// (the primary screen's history, then the program's screen at the new
+    /// size), in one turn of the main queue like a `resized` event line.
+    private func answerResize(columns: Int, rows: Int, after delay: Duration) {
+        guard columns > 0, rows > 0 else { return }
+        resizeAnswer?.cancel()
+        let clock = clock
+        resizeAnswer = Task { [weak self] in
+            try? await clock.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            if let grid = self.macGrid, grid.columns == columns, grid.rows == rows { return }
+            self.columns = columns
+            self.rows = rows
+            self.macGrid = (columns, rows)
+            self.handler?(.hostGrid(columns: columns, rows: rows))
+            self.handler?(.output(Data("\u{1B}c".utf8)))
+            var replay = self.transcript.joined()
+            switch self.program {
+            case .shell: break
+            case .htop(let tick):
+                replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + MockHtop.render(columns: columns, rows: rows, tick: tick)
+            case .vim(var vim):
+                replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
+                self.program = .vim(vim)
+            }
+            self.handler?(.output(Data(replay.utf8)))
+        }
+    }
+
     public func stop() {
+        resizeAnswer?.cancel()
+        resizeAnswer = nil
         for task in tasks { task.cancel() }
         tasks.removeAll()
         delivery?.cancel()
@@ -105,13 +157,24 @@ public final class MockTerminalSession: TerminalSession {
     // MARK: Output
 
     private func write(_ text: String) {
+        if macResize != nil, !isAlternateScreen { record(text) }
         handler?(.output(Data(text.utf8)))
+    }
+
+    /// The primary screen's history the Mac would replay (its last 256 KB).
+    private func record(_ text: String) {
+        transcript.append(text)
+        transcriptBytes += text.utf8.count
+        while transcriptBytes > 256 << 10, transcript.count > 1 {
+            transcriptBytes -= transcript.removeFirst().utf8.count
+        }
     }
 
     private func setAlternate(_ on: Bool, program name: String) {
         isAlternateScreen = on
         programName = name
-        write(on ? "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" : "\u{1B}[?1049l")
+        // Not part of the primary screen's history (the Mac's replay).
+        handler?(.output(Data((on ? "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" : "\u{1B}[?1049l").utf8)))
         handler?(.alternateScreen(on))
         handler?(.title(on ? "\(name) — cmux-next" : "zsh — cmux-next"))
     }

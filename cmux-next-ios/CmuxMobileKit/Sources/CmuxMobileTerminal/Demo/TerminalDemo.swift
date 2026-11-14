@@ -14,13 +14,22 @@ public struct TerminalDemoRoot: View {
 
     public init() {
         let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
+    /// (its grid, a mirror reset and a replay, a round trip later:
+    /// `-CmuxMobileTerminalDemoMacMs`, default 60).
+    private static var macResize: Duration? {
+        guard CommandLine.arguments.contains("-CmuxMobileTerminalDemoMac") else { return nil }
+        let ms = UserDefaults.standard.integer(forKey: "CmuxMobileTerminalDemoMacMs")
+        return .milliseconds(ms > 0 ? ms : 60)
+    }
 
     /// `-CmuxMobileTerminalDemoEmbedded`: the workspace tab page (TabsKit chrome
     /// insets, UIKit-presented Files and Links) instead of the standalone screen.
@@ -121,6 +130,7 @@ struct TerminalDemoDriver {
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbshell") { await keyboardOverShell() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -228,6 +238,26 @@ struct TerminalDemoDriver {
         let before = model.ptyResizesSent
         note("tui.rz\(before)")
         // Keyboard down, vim settled: the UI test's first screenshot.
+        await wait(1.6)
+        for round in 0..<5 {
+            note("show\(round)")
+            model.toggleKeyboard()
+            await wait(1.6)
+            note("hide\(round)")
+            model.toggleKeyboard()
+            await wait(1.6)
+        }
+        await wait(0.5)
+        note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `kbshell` (opt-in): the shell's prompt, then the keyboard key pressed
+    /// to show and hide the keyboard five times. A shell never resizes for
+    /// the keyboard (R1-1); `demoNote` ends at `done.rz<before>-<after>`.
+    private func keyboardOverShell() async {
+        await wait(1)
+        let before = model.ptyResizesSent
+        note("shell.rz\(before)")
         await wait(1.6)
         for round in 0..<5 {
             note("show\(round)")

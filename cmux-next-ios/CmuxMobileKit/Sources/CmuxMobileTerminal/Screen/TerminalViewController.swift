@@ -280,6 +280,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private lazy var devProbe: TerminalDevProbe? = TerminalDevProbe.isEnabled
         ? TerminalDevProbe(title: { [weak self] in self?.model.title ?? "" }, text: { [weak self] in self?.surface.screenRows()?.logicalText })
         : nil
+    /// `-CmuxMobileTerminalFlickerTrace` (TerminalKeyboardToggleFlickerUITests).
+    private var flickerTrace: TerminalFlickerTrace?
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -670,7 +672,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        #if DEBUG
+        if TerminalFlickerTrace.isRequested {
+            flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// The page as drawn this frame, for `TerminalFlickerTrace`.
+    private func flickerSample() -> TerminalFlickerTrace.Sample? {
+        guard cell.height > 0 else { return nil }
+        let probe = MobileKeyboardProbe()
+        var sample = TerminalFlickerTrace.Sample(demo: model.demoNote, isTUI: model.isTUI, held: freezeView != nil,
+                                                 stackTop: probe.onScreen(bottomStack, in: view).minY, resizes: model.ptyResizesSent,
+                                                 surfaceSize: surface.bounds.size)
+        if model.isTUI {
+            let rows = appliedHostRows ?? model.session.remoteRows ?? tuiRows
+            sample.gridTop = probe.onScreen(surface, in: view).minY + surface.gridPadding.y
+            sample.gridRows = rows
+            sample.clipTop = probe.onScreen(tuiClip, in: view).minY
+            sample.cellHeight = cell.height
+            sample.noteShown = !hostGridNote.isHidden
+            sample.nonBlankRows = surface.activeAreaText().map { TerminalHeldFrame.nonBlankRows(in: $0, limit: rows) } ?? 0
+        } else {
+            let frame = probe.onScreen(scrollView, in: view)
+            let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
+            sample.contentBottom = frame.minY + scrollView.contentSize.height - bounds.minY
+            sample.legibleBlank = legibleRowsBlank
+        }
+        return sample
+    }
+    #endif
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
