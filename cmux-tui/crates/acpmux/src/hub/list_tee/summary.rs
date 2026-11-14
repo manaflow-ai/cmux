@@ -454,8 +454,8 @@ mod tests {
         assert_eq!(local["stuckError"], "HTTP 503 [redacted]");
         let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
         let peer_extra: Value = serde_json::from_str(peer.extra.get()).unwrap();
-        assert_eq!(peer_extra["stuckSince"], 30);
-        assert!(!peer_extra["stuckError"].as_str().unwrap().contains("ghp_"));
+        assert!(peer_extra.get("stuckSince").is_none());
+        assert!(peer_extra.get("stuckError").is_none());
     }
 
     #[tokio::test]
