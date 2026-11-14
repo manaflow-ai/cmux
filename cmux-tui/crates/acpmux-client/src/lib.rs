@@ -829,10 +829,8 @@ where
             let affected: Vec<_> = mirror
                 .parent_facts
                 .iter()
-                .filter_map(|((row_origin, row_id), facts)| {
-                    (row_origin == &origin && facts.known)
-                        .then(|| (row_origin.clone(), row_id.clone()))
-                })
+                .filter(|((row_origin, _), facts)| row_origin == &origin && facts.known)
+                .map(|((row_origin, row_id), _)| (row_origin.clone(), row_id.clone()))
                 .collect();
             for id in affected {
                 Self::invalidate_parent(mirror, &id);
