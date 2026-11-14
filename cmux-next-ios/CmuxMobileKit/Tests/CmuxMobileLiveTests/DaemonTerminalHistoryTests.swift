@@ -268,7 +268,10 @@ import Testing
 
         // Up from the screen to the window: the newest rows, contiguous again.
         try await ask { session.loadNewerHistory(toTheScreen: true) }
-        try await waitUntil { session.historyWindowRows == nil && session.historyRowsOmitted == 90_000 }
+        // The tail has landed once no rows are skipped (the window step above
+        // also left 90,000 rows above the mirror).
+        try await waitUntil { session.historyRowsSkipped == 0 && session.historyRowsOmitted == 90_000 }
+        #expect(session.historyWindowRows == nil)
         #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.maxTailHistoryRows)
         #expect(attaches(daemon).last?["replay_history_start"] == nil)
         #expect(session.historyRowsSkipped == 0)
