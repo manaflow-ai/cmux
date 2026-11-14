@@ -781,8 +781,8 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// page of older history: read when the frames are drawn, so the render reads no ref itself.
 type RowFrameSources = {
   entering: { readonly current: ReadonlySet<string> };
-  loadFade: { readonly current: LoadFadeWindow | undefined };
-  older: { readonly current: OlderRowFade | undefined };
+  loadFade: LoadFadeWindow;
+  older: OlderRowFade;
 };
 
 /// What `drawRowFrames` draws the mounted rows' frames from: one object a transcript render hands it.
@@ -826,8 +826,8 @@ type RowFramesView = {
 function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
   const { rows, geometry, setSize } = view;
   const entering = view.enters ? sources.entering.current : undefined;
-  const loadFade = view.loadFades ? sources.loadFade.current : undefined;
-  const older = sources.older.current;
+  const loadFade = view.loadFades ? sources.loadFade : undefined;
+  const older = sources.older;
   cache.begin([
     view.frameKey,
     view.registry,
@@ -2584,12 +2584,11 @@ function TranscriptView({
   const rowsChange = useRef<RowsChange | undefined>(undefined);
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
-  const olderRows = useRef<OlderRowFade | undefined>(undefined);
-  olderRows.current ??= new OlderRowFade(() => ref.current);
+  const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
   const [rowFrameCache] = useState(() => new RowFrameCache());
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
-  if (sessionChanged) olderRows.current.clear();
+  if (sessionChanged) olderRows.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   const olderDragPending = useRef(false);
@@ -2606,11 +2605,10 @@ function TranscriptView({
   const roomPaidFrom = useRef<number | undefined>(undefined);
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
-  const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
-  loadFade.current ??= new LoadFadeWindow();
-  if (sessionChanged) loadFade.current.clear();
-  loadFade.current.phase(loading);
-  /// What the row frames read their entrance and fades from (`drawRowFrames`): the refs, read there.
+  const [loadFade] = useState(() => new LoadFadeWindow());
+  if (sessionChanged) loadFade.clear();
+  loadFade.phase(loading);
+  /// What the row frames read their entrance and fades from (`drawRowFrames`): the entering ref is read there.
   const [rowFrameSources] = useState<RowFrameSources>(() => ({
     entering: enteringRows,
     loadFade,
@@ -2664,7 +2662,7 @@ function TranscriptView({
     // gesture, history is part of that motion and must draw settled so its first frame is complete.
     // Only new arrivals need this snapshot; a gesture ending must not reanimate an existing row.
     const readerIsMoving = readerScroll.read();
-    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
+    const loadArrival = loadFade.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
@@ -2681,9 +2679,9 @@ function TranscriptView({
       if (redrawn) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
-        if (olderLate) olderRows.current.add(row.id);
-        else if (loadArrival) loadFade.current.arrive(row.id);
-      } else if (loadArrival) loadFade.current.arrive(row.id);
+        if (olderLate) olderRows.add(row.id);
+        else if (loadArrival) loadFade.arrive(row.id);
+      } else if (loadArrival) loadFade.arrive(row.id);
       // History the chat held before the reader opened it (the read behind the first slice, a
       // reconnect's replay) is not live: it draws in place (Leo, 2026-11-12: "you don't bother
       // trying to replay the animations").
@@ -2720,9 +2718,9 @@ function TranscriptView({
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
-  const onLoadFaded = useCallback((id: string) => loadFade.current?.shown(id), []);
-  const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
-  useEffect(() => () => olderRows.current?.disconnect(), []);
+  const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
+  const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
+  useEffect(() => () => olderRows.disconnect(), [olderRows]);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight, actions, status) => {
       // A flowing drag's rows are at a width they were not placed at: nothing is read until it holds.
