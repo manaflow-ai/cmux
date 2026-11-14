@@ -43,7 +43,8 @@ const PRESET_OUTCOMES: [&str; 2] = ["approved", "declined"];
 /// A listed record's role in its card.
 const BASE: u8 = 0;
 const HELD: u8 = 1;
-const DECISION: u8 = 2;
+/// Past every outcome mark, which an offer's entry holds in the same byte.
+const DECISION: u8 = u8::MAX;
 /// A suggested task's outcome mark: none yet, or 1 + its index in `OUTCOMES`.
 const UNDECIDED: u8 = 0;
 
@@ -498,6 +499,9 @@ fn paused(
         carried = card.listed.iter().filter(|listed| listed.mark == HELD).copied().collect();
         if !carried.is_empty() {
             card.listed.retain(|listed| listed.mark != HELD);
+            if let Facts::AgentPair { held, .. } = &mut card.facts {
+                *held = 0;
+            }
             held = u32::try_from(carried.len()).unwrap_or(u32::MAX);
             state.patch_card(index, true, out);
         } else {

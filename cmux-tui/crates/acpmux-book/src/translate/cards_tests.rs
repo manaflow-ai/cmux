@@ -51,7 +51,7 @@ fn records(ops: &[Op], id: u64) -> Vec<u64> {
             } if *of == id => Some(lines.iter().map(|line| line.place).collect()),
             _ => None,
         })
-        .last()
+        .next_back()
         .unwrap_or_default()
 }
 /// A row's raw fields: body key, line place, `msg` key and cap.
