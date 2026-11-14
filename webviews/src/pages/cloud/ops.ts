@@ -24,6 +24,8 @@ export const CloudOps = {
   authWatch: "cmux.cloud.auth.watch",
   machineList: "cmux.cloud.machine.list",
   machineWatch: "cmux.cloud.machine.watch",
+  /** The team board in one read (`{machines, usage, audit, members, self}`), the board page's snapshot. */
+  machineBoard: "cmux.cloud.machine.board",
   machineCreate: "cmux.cloud.machine.create",
   machineRename: "cmux.cloud.machine.rename",
   machineStart: "cmux.cloud.machine.start",

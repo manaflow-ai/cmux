@@ -84,6 +84,7 @@ export const L = {
   team: "team.label",
   machines: "machines.title",
   create: "machines.create",
+  teamBoard: "machines.teamBoard",
   classic: "machines.classic",
   classicReadOnly: "machines.classicReadOnly",
   migrationTitle: "migration.title",

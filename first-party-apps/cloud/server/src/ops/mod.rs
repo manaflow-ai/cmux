@@ -55,6 +55,9 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.archive_delete", Kind::UserOnly),
     ("cloud.retention.set", Kind::Mutation),
     ("cloud.machine.connect_info", Kind::Read),
+    // The team board (the Cloud page at `#/board`): every machine of the team,
+    // its cost and its last actions in one platform read.
+    ("cloud.machine.board", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
     // A snapshot counts against the plan's saved limit: a money op.
     ("cloud.snapshot.create", Kind::UserOnly),
