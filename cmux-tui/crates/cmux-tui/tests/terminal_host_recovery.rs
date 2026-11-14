@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
@@ -62,6 +61,8 @@ struct RecoveryHarness {
     shell_integration: bool,
     /// Extra daemon options, passed on every start.
     extra_args: Vec<String>,
+    /// Extra daemon environment variables, set on every start.
+    extra_env: Vec<(String, String)>,
 }
 
 impl RecoveryHarness {
@@ -84,6 +85,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             shell_integration: true,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             dir,
         };
         harness.restart();
@@ -190,6 +192,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             shell_integration: true,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             dir,
         }
     }
@@ -211,6 +214,9 @@ impl RecoveryHarness {
             .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (name, value) in &self.extra_env {
+            command.env(name, value);
+        }
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
@@ -379,8 +385,11 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert!(resolved["exit"]["revision"].as_str().is_some());
 }
 
+/// Terminal output never enters the session journal (output_store.rs): the
+/// journal of a short-lived terminal holds its run and its exit, and the
+/// output reader still has every byte it printed.
 #[test]
-fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+fn short_lived_resource_terminal_keeps_its_output_out_of_the_journal() {
     let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
     let marker = format!("fast-journal-marker-{}", std::process::id());
     let created = resource_request(
@@ -456,49 +465,29 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
     assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
 
     let mut run_sequence = None;
-    let mut output_sequence = None;
     let mut exit_sequence = None;
     while exit_sequence.is_none() {
         line.clear();
-        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        reader.read_line(&mut line).expect("journal stream omitted the terminal exit");
         let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
         let record = &envelope["item"];
         let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
         match record["kind"].as_str().unwrap() {
             "workspace.run" => run_sequence = Some(sequence),
-            "terminal.output" => {
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(record["payload"]["data"].as_str().unwrap())
-                    .unwrap();
-                assert!(
-                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
-                    "journal output omitted marker: {:?}",
-                    String::from_utf8_lossy(&bytes)
-                );
-                for (kind, id) in [
-                    ("terminal", terminal),
-                    ("tab", path["tab_id"].as_str().unwrap()),
-                    ("pane", path["pane_id"].as_str().unwrap()),
-                    ("screen", path["screen_id"].as_str().unwrap()),
-                    ("workspace", path["workspace_id"].as_str().unwrap()),
-                ] {
-                    assert!(
-                        record["subjects"].as_array().unwrap().iter().any(|subject| {
-                            subject["kind"].as_str() == Some(kind)
-                                && subject["id"].as_str() == Some(id)
-                        }),
-                        "terminal output omitted {kind}:{id}: {record}"
-                    );
-                }
-                output_sequence = Some(sequence);
-            }
             "terminal.exited" => exit_sequence = Some(sequence),
-            other => panic!("unexpected journal record {other}: {record}"),
+            other => {
+                panic!("the journal holds terminal output or another record {other}: {record}")
+            }
         }
     }
     assert!(
-        run_sequence < output_sequence && output_sequence < exit_sequence,
-        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+        run_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, exit={exit_sequence:?}"
+    );
+    let read = output_read(&harness.socket, "journal-initial-output-read", terminal, None, None);
+    assert!(
+        read["text"].as_str().unwrap().contains(&marker),
+        "the output reader lost the short-lived terminal's output: {read}"
     );
 }
 
@@ -5478,3 +5467,6 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/restart_host_leak.rs"]
 mod restart_host_leak;
+
+#[path = "terminal_host_recovery/output_store.rs"]
+mod output_store;
