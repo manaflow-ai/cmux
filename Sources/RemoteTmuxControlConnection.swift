@@ -86,11 +86,15 @@ final class RemoteTmuxControlConnection {
     /// ``enterReceived`` it survives a respawn, which is what lets a retry tell "the
     /// session I was in went away" from "I never got in at all".
     private(set) var everReachedControlMode = false
+    /// When the current reconnect began, or nil outside one. Set before observers hear of the
+    /// state change, so the Reconnecting indicator counts its delay from the drop itself.
+    var reconnectingSince: ContinuousClock.Instant?
     /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
     /// disconnected UI; `exited` is derived from it.
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
+            reconnectingSince = connectionState == .reconnecting ? .now : nil
             if connectionState != .connected { paneAgentStatuses.removeAll() }
             observers.notifyStateChanged(connectionState)
             switch connectionState {
@@ -202,7 +206,7 @@ final class RemoteTmuxControlConnection {
     private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]
     var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
+    var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
@@ -338,9 +342,9 @@ final class RemoteTmuxControlConnection {
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
-    /// When the current spawn last produced anything on stdout or stderr, or when it was
-    /// started if it has produced nothing. Read by ``attachProgress(now:)``.
-    private var lastTransportOutputAt: ContinuousClock.Instant?
+    /// When the current spawn last produced output or was started. Read by ``attachProgress(now:)``.
+    var lastTransportOutputAt: ContinuousClock.Instant?
+    var transportLiveness = RemoteTmuxTransportLivenessState()
     /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
     /// this process.
     ///
@@ -1139,20 +1143,6 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    /// `root` and its descendants, parents before children, bounded in depth so a pathological
-    /// tree cannot make teardown expensive.
-    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
-        var out: [pid_t] = [root]
-        var frontier = [root]
-        for _ in 0..<4 {
-            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
-            if next.isEmpty { break }
-            out.append(contentsOf: next)
-            frontier = next
-        }
-        return out
-    }
-
     /// Sends `signal` to `pid`, and to its process group when `pid` leads one. A leader's group
     /// holds the processes it started that the walk cannot see (anything spawned between the
     /// listing and the signal).
@@ -1284,10 +1274,10 @@ final class RemoteTmuxControlConnection {
     /// check reads the parser's unterminated tail, and a test that brings its own parser would not
     /// exercise it.
     func ingest(_ data: Data) {
-        lastTransportOutputAt = .now
         for message in parser.feed(data) {
             handle(message)
         }
+        noteTransportStdout()
         // A prompt has no newline, so no line message ever carries it; check the unterminated
         // tail after every chunk while the transport is still talking.
         if connectionState == .connecting || connectionState == .reconnecting {
@@ -1305,10 +1295,10 @@ final class RemoteTmuxControlConnection {
             // The control stream died without `%exit`. After the checks below,
             // `RemoteTmuxStreamEndDisposition.forStreamEnd` decides: reconnect if control mode
             // was reached, otherwise treat it as a transport that failed to start.
-            // A transport that could not start will not start on the next try either, and
-            // retrying hides the reason: end-of-stream no longer implies the session is over, so
-            // without this the mirror waits out the attach timeout with nothing to explain it.
-            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+            // A transport that could not start will not start on the next try either, so a first
+            // attach reports instead of retrying. Once control mode was reached the same argv worked,
+            // and a failure to start says the link is down: that freezes the mirror, never closes it.
+            if !everReachedControlMode, RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
                 record("stream-end-unrecoverable")
                 connectionState = .ended
                 cancelScheduledWork()
@@ -1360,19 +1350,18 @@ final class RemoteTmuxControlConnection {
             // stop or stderr overflow aborting this reconnect attempt).
             guard generation == processGeneration,
                   connectionState == .reconnecting else { return }
-            // Classify into four outcomes, not two. A session/server found gone is a genuine end.
-            // A transport that cannot run at all is equally terminal, and looping on it burns the
-            // backoff forever while hiding the reason. A host asking for interactive authentication
-            // is NOT transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so no
-            // number of retries can satisfy a password / MFA / FIDO touch — retrying forever leaves
-            // the mirror frozen with nothing on screen to explain why. Everything else (unreachable,
-            // refused) stays transient and keeps retrying.
+            // Four outcomes. A session/server found gone is a genuine end. A transport that cannot run
+            // ends only a connection that never got in; one that has been in control mode keeps
+            // retrying, frozen, because the same argv worked before. A host asking for interactive
+            // authentication is parked for a login, since `BatchMode=yes` retries can never satisfy
+            // it. Everything else (unreachable, refused) is transient and keeps retrying.
             let disposition = RemoteTmuxReconnectDisposition.classify(
                 stderr: stderrBuffer,
                 preControlOutput: preControlOutputBuffer,
                 decoding: decoding
             )
-            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
+            let transportFailed = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
+            let unrecoverable = transportFailed && !everReachedControlMode
             teardownProcessHandles()
             if disposition == .sessionGone || unrecoverable {
                 if unrecoverable { record("reconnect-unrecoverable") }
@@ -1384,6 +1373,7 @@ final class RemoteTmuxControlConnection {
             } else if disposition == .authRequired {
                 parkForInteractiveAuth(reason: "reconnect")
             } else {
+                if transportFailed { record("reconnect-unrecoverable-kept-frozen") }
                 scheduleReconnectAttempt()
             }
         }

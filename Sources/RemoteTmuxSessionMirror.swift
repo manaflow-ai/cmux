@@ -23,13 +23,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Updates the tracked session name after a `rename-session`.
     func setSessionName(_ name: String) { sessionName = name }
 
-    /// Sizing introspection for every mirrored window (see
-    /// ``RemoteTmuxWindowMirror/sizingSnapshot()``), ordered by window id.
-    func sizingSnapshots() -> [RemoteTmuxWindowMirror.SizingSnapshot] {
-        windowMirrorByWindowId.keys.sorted()
-            .compactMap { windowMirrorByWindowId[$0]?.sizingSnapshot() }
-    }
-
     /// Every mirrored tmux pane paired with the cmux surface rendering it,
     /// ordered by window then pane. Every window owns a mirror from its initial
     /// one-pane layout, so every pane has one stable mirror-owned surface.
@@ -159,6 +152,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private let agentStatusProjector = RemoteTmuxAgentStatusProjector()
+    let reconnectingIndicator = RemoteTmuxReconnectingIndicator()
     private var pendingExplicitFocusWindowId: Int?
     private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
@@ -247,6 +241,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             },
             onConnectionStateChanged: { [weak self] state in
                 self?.paneInputForwarder?.setConnectionActive(state == .connected)
+                self?.reconnectingIndicator.connectionStateChanged(
+                    state, reconnectingSince: self?.connection.reconnectingSince, workspace: self?.workspace)
                 // Drop any mid-`ESC k` title-filter state when the stream isn't live:
                 // a reconnect's `reseedAfterReconnect` re-emits clear/capture bytes,
                 // and a filter stuck mid-title from before the drop would swallow them.
@@ -273,6 +269,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
         ))
+        // A new observer gets no replay of the state, and the source may already be reconnecting.
+        reconnectingIndicator.connectionStateChanged(
+            connection.connectionState, reconnectingSince: connection.reconnectingSince, workspace: workspace)
         rebuild()
     }
 
@@ -326,6 +325,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
         clearAgentStatus()
+        reconnectingIndicator.clear(workspace: workspace)
         clearPendingPaneSeedDeliveries()
         if let observerToken {
             connection.removeObserver(observerToken)

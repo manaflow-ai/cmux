@@ -82,6 +82,8 @@ ALLOW=(
   "Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
   "Sources/RemoteTmuxControlConnection.swift:terminateProcessTree:try? await Task.sleep(nanoseconds: 2_000_000_000)"
   "SIGKILL escalation after SIGTERM. The edge would be 'the process handled the signal', and a process that IGNORES SIGTERM emits nothing at all — the absence of an exit is only observable by giving it a moment and looking again."
+  "Sources/RemoteTmuxControlConnection+TransportLiveness.swift:armTransportLivenessWatch:try await ContinuousClock().sleep(until: wake)"
+  "Liveness deadline for a connected transport that has gone quiet. A remote that has stopped answering while its local process stays alive emits nothing, no bytes and no exit, so its silence is only observable by looking again at a deadline. Stdout pushes the deadline later without re-arming anything."
   "Sources/RemoteTmuxViewConnection.swift:wait:private var timer: DispatchSourceTimer?"
   "The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
 )
