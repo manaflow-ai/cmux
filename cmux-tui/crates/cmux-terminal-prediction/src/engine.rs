@@ -15,6 +15,17 @@
 //! typed ahead of the prompt gets at most one echo before the prompt turns echo
 //! off, and a masked prompt's `*` never counts.
 //!
+//! One thing re-arms a run without echoes: the prompt. When a run arms, the
+//! text the row held before its echoes is a prompt the remote's line editor
+//! echoes after, and the engine remembers it. When the remote answers the
+//! newest key sent (Return, Ctrl-C) and leaves the cursor row reading exactly
+//! like a remembered prompt, with nothing typed since, the shell is back at
+//! its line editor with every earlier key answered, so the run arms at once
+//! and the first key of the next command draws with the press instead of a
+//! round trip and two echoes later. A password prompt, a full-screen program,
+//! a row the engine cannot read (a cursor move, a tab) or a key typed before
+//! the answer arrived never matches, and keeps the two-echo rule.
+//!
 //! A line editor that moves back over text it echoed and prints the same text
 //! again (zsh after the first key, zsh-syntax-highlighting recolouring a word)
 //! is rewriting, not mispredicting: the engine remembers what it saw echoed on
@@ -41,6 +52,7 @@
 use crate::config::PredictionConfiguration;
 use crate::glyph::{PredictedGlyph, Standing};
 use crate::input::InputKind;
+use crate::row::RowText;
 use crate::scanner::{OutputSignal, TerminalOutputScanner};
 use std::time::Duration;
 
@@ -188,6 +200,8 @@ impl Entry {
 }
 
 const MAXIMUM_LINE_MEMORY: usize = 512;
+/// Prompts remembered at most, oldest dropped first.
+const MAXIMUM_KNOWN_PROMPTS: usize = 8;
 
 #[derive(Clone, Debug)]
 pub struct TerminalPredictionEngine {
@@ -241,6 +255,17 @@ pub struct TerminalPredictionEngine {
     /// and cancel it (Backspace, then the same character again), so that
     /// nothing comes back for either.
     cancellable_key_at: Option<Duration>,
+    /// What the cursor row holds left of the cursor, from plain output.
+    row: RowText,
+    /// Rows the remote's line editor was seen echoing after (the text before
+    /// the echoes when a run armed), newest last: the shell's prompts.
+    known_prompts: Vec<Vec<u8>>,
+    /// Whether this run's prompt was learned or matched already.
+    has_prompt_for_run: bool,
+    /// Whether the newest key sent had an effect the engine does not model
+    /// (Return, Ctrl-C, Backspace over echoed text), with nothing typed after
+    /// it: the remote's next prompt answers every key sent.
+    newest_key_is_unmodelled: bool,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -275,6 +300,10 @@ impl TerminalPredictionEngine {
             untracked_bytes: Vec::new(),
             opaque_echo_until: None,
             cancellable_key_at: None,
+            row: RowText::new(),
+            known_prompts: Vec::new(),
+            has_prompt_for_run: false,
+            newest_key_is_unmodelled: false,
         }
     }
 
@@ -428,6 +457,10 @@ impl TerminalPredictionEngine {
             return false;
         }
         let expired = self.expire(now);
+        // A key typed behind a barrier is answered after the barrier's own
+        // answer, so a prompt in that answer does not answer it.
+        self.newest_key_is_unmodelled =
+            !self.has_barrier() && byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
         // Behind a barrier the remote's state is unknown, so nothing typed now
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
@@ -504,6 +537,7 @@ impl TerminalPredictionEngine {
         }
         let expired = self.expire(now);
         if self.has_barrier() {
+            self.newest_key_is_unmodelled = false;
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
             return expired;
@@ -518,6 +552,7 @@ impl TerminalPredictionEngine {
             .find(|entry| entry.is_glyph() && !entry.is_retracted)
             .filter(|entry| room && entry.is_drawn());
         let Some(newest) = newest else {
+            self.newest_key_is_unmodelled = true;
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
@@ -529,6 +564,7 @@ impl TerminalPredictionEngine {
         // A glyph whose echo arrived but is still held for its frame is
         // retracted the same way: until the erase, its cell is blank.
         newest.is_retracted = true;
+        self.newest_key_is_unmodelled = false;
         newest.confirmed_at = None;
         self.entries.push(Entry::new(
             Keystroke::Erase(EraseProgress::AwaitingMoveLeft),
@@ -546,6 +582,7 @@ impl TerminalPredictionEngine {
             return false;
         }
         let expired = self.expire(now);
+        self.newest_key_is_unmodelled = !self.has_barrier();
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
@@ -608,6 +645,9 @@ impl TerminalPredictionEngine {
         if self.blank_count() < blanks_before && self.layout_held_since.is_none() {
             self.layout_held_since = Some(now);
         }
+        self.row.observe(bytes);
+        self.learn_prompt();
+        self.arm_at_known_prompt();
         changed || (moved_cursor && self.any_on_screen())
     }
 
@@ -626,6 +666,7 @@ impl TerminalPredictionEngine {
         // The terminal kept its pen through a resize, and a replaced screen
         // may still conceal: concealment lasts until output ends it.
         self.scanner = self.scanner.restarted();
+        self.row.forget();
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -640,6 +681,8 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        // A new width can rewrap the row.
+        self.row.forget();
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -1017,8 +1060,56 @@ impl TerminalPredictionEngine {
     /// Output nobody predicted: whatever the row holds now is unknown.
     fn end_run(&mut self) {
         self.echo_streak = 0;
+        self.has_prompt_for_run = false;
         self.line.clear();
         self.rewound.clear();
+    }
+
+    /// A run armed by its echoes: the row before them is a prompt the remote's
+    /// line editor echoes after. Read once the chunk that armed it is in, so
+    /// the row holds the echoes too.
+    fn learn_prompt(&mut self) {
+        if self.has_prompt_for_run || !self.is_echo_run_active() || !self.rewound.is_empty() {
+            return;
+        }
+        let Some(row) = self.row.text() else { return };
+        let Some(prompt) = row.strip_suffix(self.line.as_slice()) else { return };
+        if self.line.is_empty() || !prompt.iter().any(|&byte| byte != b' ') {
+            return;
+        }
+        self.has_prompt_for_run = true;
+        if self.known_prompts.iter().any(|known| known.as_slice() == prompt) {
+            return;
+        }
+        if self.known_prompts.len() >= MAXIMUM_KNOWN_PROMPTS {
+            self.known_prompts.remove(0);
+        }
+        self.known_prompts.push(prompt.to_vec());
+    }
+
+    /// The remote answered the newest key sent with a row that reads exactly
+    /// like a known prompt: its line editor waits there, every earlier key's
+    /// output has arrived, so the run arms and nothing that follows is an
+    /// older key's echo.
+    fn arm_at_known_prompt(&mut self) {
+        if self.is_echo_run_active()
+            || !self.newest_key_is_unmodelled
+            || !self.entries.is_empty()
+            || !self.rewound.is_empty()
+            || self.is_alternate_screen
+        {
+            return;
+        }
+        let Some(row) = self.row.text() else { return };
+        if !self.known_prompts.iter().any(|known| known.as_slice() == row) {
+            return;
+        }
+        self.echo_streak = 2;
+        self.has_prompt_for_run = true;
+        self.line.clear();
+        self.close_untracked_window();
+        self.cancellable_key_at = None;
+        self.newest_untracked_keystroke = None;
     }
 
     fn remember(&mut self, byte: u8) {
