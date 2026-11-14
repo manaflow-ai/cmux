@@ -861,12 +861,17 @@ fn only_lists(fake: &Fake) -> bool {
 #[test]
 fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
-    let mut fake =
-        Fake::new(vec![ok(unloaded.clone()), ok(unloaded.clone()), signed_in(), started()]);
+    let mut fake = Fake::new(vec![
+        ok(unloaded.clone()),
+        ok(unloaded.clone()),
+        signed_in(),
+        started(),
+        exec_out("@@cwd\n"),
+    ]);
     let outcome = run(&mut fake, &request(&[]));
-    assert!(!matches!(outcome, Outcome::Failed { .. }), "{outcome:?}: {:?}", fake.ran);
+    assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}: {:?}", fake.ran);
     let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
-    assert_eq!(verbs, ["list-machines", "list-machines", "list-machines", "start-session"]);
+    assert_eq!(verbs[..4], ["list-machines", "list-machines", "list-machines", "start-session"]);
     assert_eq!(fake.paused, LIST_LOAD_PAUSE * 2);
 
     // Never loaded: refused once the wait is over, and it never waits much past it.
