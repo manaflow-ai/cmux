@@ -1,4 +1,4 @@
-/* IMPORT COOKIES CARD (CookieImportCard.tsx). A toast: the toast surface's glass (--surface-toast-*,
+/* IMPORT COOKIES CARD (CookieImportCard.tsx). A toast: the shared transient surface's glass,
    the toasts' veil, radius and shadow; toasts.css), one row on the design scale (pages/shared/
    desktop.css): a 20 icon, the one line in the body step, then the answers. In the app the native
    card draws the glass under the page; the gallery draws its own. */
@@ -6,7 +6,7 @@
   --ci-icon: var(--ds-icon-20, 20px);
   --ci-ink: var(--cmux-text, var(--ds-color-fg));
   --ci-ink-2: var(--cmux-text-secondary, var(--ds-color-muted));
-  --glass-tint: var(--surface-toast-veil);
+  --glass-tint: var(--transient-surface-veil);
   --glass-elevation: var(--elevation-2);
   box-sizing: border-box;
   display: flex;
@@ -17,7 +17,7 @@
   width: 100%;
   min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--surface-toast-radius);
+  border-radius: var(--transient-surface-radius);
   color: var(--ci-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);

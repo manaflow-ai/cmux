@@ -37,7 +37,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 40
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:
@@ -119,14 +119,25 @@ jobs:
         timeout-minutes: 30
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      - name: Write the v2 god-small input
+      - name: Run v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: 20
         working-directory: cmux-tui
         run: |
+          set -o pipefail
+          ../scripts/cmux-next/run-v2-gates.sh
+
+      - name: Write the v2 god-small input
+        id: v2-home
+        if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: cmux-tui
+        run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/quality"
-          # A later v2 PR adds its gate run here; it writes one JSONL line to V2_GATE_OUT.
+          # The gate runner above appends one JSONL line per marked row.
           cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$RUNNER_TEMP/quality/v2-god-small.json"
 
       # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
@@ -221,3 +232,22 @@ jobs:
         with:
           path: ${{ runner.temp }}/quality-report-marker
           key: ${{ steps.day.outputs.key }}
+
+      - name: Fail when a marked v2 gate has no measure
+        if: steps.done.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/quality/v2-god-small.json"
+          test -s "$report" || { echo "v2 gate home did not write $report" >&2; exit 1; }
+          python3 -I - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              rows = json.load(stream)["rows"]
+          failed = [row for row in rows if row.get("status") == "failed"]
+          if failed:
+              for row in failed:
+                  print(f"v2 gate failed: {row['name']}: {row.get('reason', 'unknown reason')}", file=sys.stderr)
+              raise SystemExit(1)
+          PY

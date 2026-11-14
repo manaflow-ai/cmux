@@ -516,13 +516,16 @@ impl Driver {
                     // (WireGuard roaming); this is also how the answering side
                     // learns its peer in the first place. A cookie reply (the
                     // rate limiter's answer) proves only the public key.
-                    if classify(packet) != DatagramClass::WireGuardCookieReply {
+                    // Nor does it begin a session: the handshake it
+                    // answers is unchecked, so it leaves the watchdog armed.
+                    let cookie = classify(packet) == DatagramClass::WireGuardCookieReply;
+                    if !cookie {
                         self.underlay.authenticated(origin);
                         self.schedule.on_activity(Instant::now());
                     }
                     self.underlay.send(packet);
                     // An answered handshake message begins a new session.
-                    if handshake && !input.is_empty() {
+                    if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
                     }
                     input = &[];
