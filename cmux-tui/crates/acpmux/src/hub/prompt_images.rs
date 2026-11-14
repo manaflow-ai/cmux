@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -134,6 +134,12 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
+    // Its pixel size, so every view reserves the image's own box before it reads the bytes
+    // (`image_size.rs`).
+    if let Some((width, height)) = super::image_size::pixel_size(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
+    }
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
     }
