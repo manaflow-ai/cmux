@@ -93,6 +93,15 @@ import sys
 import threading
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HARD_LIMIT_S = 600
 DEFAULT_MAX_S = 240
@@ -618,10 +627,10 @@ def cmd_start(args) -> int:
         except (ProcessLookupError, PermissionError):
             pass
         return fail("the supervisor was not ready in 20 s; stopped")
-    sys.stderr.write(json.dumps({k: state[k] for k in (
+    safe_print(json.dumps({k: state[k] for k in (
         "pid", "owner", "watch_pid", "shape", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos",
-        "nice", "sched_pri", "load1_start", "started_utc") if k in state}) + "\n")
-    print(sup.pid)
+        "nice", "sched_pri", "load1_start", "started_utc") if k in state}), file=sys.stderr)
+    safe_print(sup.pid)
     return 0
 
 
@@ -653,7 +662,7 @@ def cmd_stop(args) -> int:
     final = read_state(args.pid) or state
     final["left_after_stop"] = len([p for p in final.get("workers", []) + [args.pid] if alive(p) and is_ours(p, token)])
     final.pop("token", None)
-    print(json.dumps(final))
+    safe_print(json.dumps(final))
     return 0 if final["left_after_stop"] == 0 else 1
 
 
@@ -1040,8 +1049,8 @@ def cmd_selftest(args) -> int:
     finally:
         shutil.rmtree(root, ignore_errors=True)
     ok = all(results)
-    print("SELFTEST %s (%d checks) on %s, %s cores, Python %s" % ("PASS" if ok else "FAIL", len(results),
-          os.uname().nodename, os.cpu_count(), sys.version.split()[0]))
+    safe_print("SELFTEST %s (%d checks) on %s, %s cores, Python %s" % ("PASS" if ok else "FAIL", len(results),
+               os.uname().nodename, os.cpu_count(), sys.version.split()[0]))
     return 0 if ok else 1
 
 

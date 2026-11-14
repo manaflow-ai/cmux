@@ -179,6 +179,10 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
 # warm-source table, whose entries describe a source in prose (#28568), and the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
 # moves a stuck job (#40880).
+# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
+# that names a helper only in a comment does not run it (a Cargo.toml's note on
+# the release strip routed that strip script to every lane, #42338).
+_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
 _NON_RUNNING_FILES = frozenset({
     ".gitattributes",
     ".github/single-host-fallbacks.json",
@@ -807,6 +811,13 @@ def ci_helper_areas(
                     if referrer.endswith(".py") else None
                 )
                 if named is False or (named is None and not _names(text, token)):
+                    continue
+            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(text, token):
                     continue
             if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
                 # An action runs in whatever job uses it; its directory is

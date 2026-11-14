@@ -52,10 +52,13 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let row = rowHeight ?? tokens.toolbarButtonSize
         let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? row
         // A built-in density's text fits the bar's line (Ultra-compact's 20 pt row draws 11 pt text,
-        // whole points). A custom density's `fontSize` and Interface Size are the user's: the bar
-        // grows for them instead (`minimumBarHeight`).
-        var levelFont = tokens.textSize(compact: TypeScale.Base.field, comfortable: TypeScale.Base.title)
-        if tokens.fontSize == nil {
+        // whole points), its own `fontSize` too, so the bar stays the tab's height (Lawrence 2026-11-11:
+        // "omnibar height should be same as tabbar tab height"). A custom density's `fontSize` and
+        // Interface Size are the user's: the bar grows for them instead (`minimumBarHeight`).
+        // The URL text is the density's body text: 14 pt at Default and Comfortable, Helium's and Chrome's address
+        // bar (Lawrence 2026-11-13: their font sizes; Lucas 2026-11-13: the ChatGPT app's 14 pt body).
+        var levelFont = tokens.bodySize
+        if tokens.fontSize == nil || tokens.isBuiltIn {
             levelFont = min(levelFont, max(CGFloat(Self.fontSizeRange.lowerBound), ((requested - Self.textClearance) / 1.25).rounded(.down)))
         }
         let densityFont = levelFont * textScale

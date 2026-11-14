@@ -8,6 +8,7 @@ use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
 use super::conversation_tabs_wire;
+use super::tree_reply_text::TreeReply;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -24,6 +25,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
+
+pub(super) mod long_connection;
 
 #[derive(Clone)]
 pub(super) struct OutboundStream {
@@ -136,6 +139,9 @@ pub(super) struct MessageWriter {
     /// What the daemon knows about the client at the other end, for the request counters
     /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
     pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
+    /// The connection's way out of the terminals' short lane when it starts a stream, a wait or
+    /// a follow (server/message_writer/long_connection.rs).
+    pub(super) long: Arc<long_connection::LongGate>,
 }
 
 impl MessageWriter {
@@ -159,10 +165,15 @@ impl MessageWriter {
             api_revision: Arc::default(),
             input_lane: Arc::default(),
             kind: Arc::default(),
+            long: Arc::default(),
         }
     }
 
+    /// A stream outlives its request, so a terminal's connection becomes a long one first
+    /// (server/message_writer/long_connection.rs). At the bound of the long connections no stream starts: the
+    /// error holds a `LongConnectionsFull`.
     pub(super) fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        self.long.hold().map_err(std::io::Error::other)?;
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
@@ -353,10 +364,34 @@ impl MessageWriter {
         value: &T,
         deadline: Option<Instant>,
     ) -> std::io::Result<()> {
+        self.send_rendered_control(deadline, |render| render.serialize_control(value))
+    }
+
+    /// A `list-workspaces` reply written from its build's shared tree text:
+    /// the bytes [`Self::send_control`] sends of its `Response`, through the
+    /// same projections for this connection's capabilities.
+    pub(super) fn send_tree_reply(
+        &self,
+        tree: &TreeReply,
+        id: Option<&Value>,
+    ) -> std::io::Result<()> {
+        self.send_rendered_control(None, |render| {
+            render.write_control(tree.text.reply_bytes(), |out| {
+                tree.text.write_reply(out, id, tree.lines_written_before_read)
+            })
+        })
+    }
+
+    /// Sends the control message that `render` makes, as [`Self::send_control`] does.
+    fn send_rendered_control(
+        &self,
+        deadline: Option<Instant>,
+        render: impl FnOnce(&RenderService) -> std::io::Result<Arc<BudgetedText>>,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.render_service.serialize_control(value).and_then(|text| {
+        let result = render(&self.render_service).and_then(|text| {
             let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
             let text = self.mark_reply(text);
             match deadline {

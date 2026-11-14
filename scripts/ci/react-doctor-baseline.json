@@ -84,7 +84,6 @@
    "tools/generate-managed-iroh-relay-catalog.ts::eslint/complexity": 1
   },
   "webviews": {
-   "bench/extension-parity/main.tsx::react-hooks-js/globals": 1,
    "bench/permission-card-estimates.ts::react-doctor/rules-of-hooks": 1,
    "src/App.tsx::react-doctor/no-ref-current-in-render": 1,
    "src/App.tsx::react-hooks-js/preserve-manual-memoization": 10,
@@ -171,7 +170,6 @@
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-doctor/effect-needs-cleanup": 3,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-doctor/no-ref-current-in-render": 57,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/immutability": 28,
-   "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/preserve-manual-memoization": 1,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/purity": 7,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/refs": 227,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/todo": 13,
@@ -333,7 +331,7 @@
    "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-doctor/no-ref-current-in-render": 12,
    "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-hooks-js/immutability": 10,
    "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-hooks-js/preserve-manual-memoization": 5,
-   "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-hooks-js/refs": 29,
+   "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-hooks-js/refs": 28,
    "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-hooks-js/todo": 2,
    "src/agent-session/acpmux/newtab/StyleSwitch.tsx::react-hooks-js/todo": 1,
    "src/agent-session/acpmux/newtab/allChatsListModel.ts::react-doctor/no-impure-state-updater": 1,

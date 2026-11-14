@@ -8,7 +8,7 @@ use super::full_access_bound::FullAccessEnd;
 use super::full_access_bound::OffLatch;
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
-use crate::agent::Attached;
+use crate::agent::{Attached, HostKind, LateHostKind};
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
 use cmux_json::JsonSet as _;
@@ -160,6 +160,68 @@ impl Hub {
         Some(HostRecords { live, unreadable })
     }
 
+    /// Reach `child`, this session's hosted agent, again over a new link when its link was lost
+    /// while its host lives (another owner took the host over, or the socket broke): at the reader's
+    /// notice (`Inbound::LinkBroken`) and when an answer was written to it (`respond_answer`), so
+    /// its open requests get their real answers (`ChildAgent::start_reader` keeps them for this).
+    /// Not under the spawn lock: a start holds that lock while it waits on one of those requests
+    /// (its `initialize`), which only this reattach answers. Two at once make one link
+    /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
+    /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
+    /// waits for it), whose link broke because an entry could not be logged (the next request
+    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
+    pub(super) async fn reach_lost_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> bool {
+        // A reader that stopped on a socket that still looks open (an acknowledgement failed) is
+        // a lost link too: nothing reads its entries.
+        if child.is_alive().await && !child.is_stopped() {
+            return true;
+        }
+        let Some(record) = child.host_record() else { return false };
+        // Ended or replaced on purpose (`ChildAgent::kill`, `terminate`, a failover): never woken.
+        if child.has_exited()
+            || child.is_broken()
+            || child.is_retired()
+            || child.ended_on_purpose()
+            || self.shutting_down()
+            || self.full_access_managed_off()
+        {
+            return false;
+        }
+        let still_asked =
+            session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+        if !still_asked {
+            return false;
+        }
+        let dead = agent_host::wait_dead_async(
+            agent_host::hosts_dir(),
+            record.session_id.clone(),
+            record.start_nonce.clone(),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        if dead || child.has_exited() {
+            return false;
+        }
+        let off = self.off_latch();
+        match child.reattach_if_lost().await {
+            Ok(true) => {
+                self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
+                self.judged_after_reattach(session, child, &off).await.is_some()
+                    && child.is_alive().await
+            }
+            Ok(false) => child.is_alive().await,
+            Err(e) => {
+                tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
+                false
+            }
+        }
+    }
+
     /// Adopt this session's running host again (its link was lost, or a
     /// first adoption failed). Returns the adopted child.
     pub(super) async fn readopt(
@@ -235,18 +297,52 @@ impl Hub {
     /// Ctrl-B of a chat whose agent runs in a host this daemon adopted or reached again
     /// (`processes.rs`): what the host runs, whatever the config says now. A host that does not
     /// answer goes by `kind`, its profile's; with no profile the chat keeps what it had.
+    ///
+    /// A host that answers after the budget (its answer sits behind the replay the inbound loop
+    /// drains, slow on a loaded Mac) decides it when the answer comes: until then the profile
+    /// does. Before, the late answer was dropped and a Claude Code chat whose profile no longer
+    /// says Claude Code hid Ctrl-B until its next prompt.
     pub(super) async fn note_host_kind(
-        &self,
-        session: &Session,
-        child: &ChildAgent,
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
         kind: Option<crate::config::HarnessKind>,
     ) {
-        let moves = match (child.runs_claude().await, kind) {
-            (Some(claude), _) => claude,
-            (None, Some(kind)) => super::processes::backgrounds_work(kind),
-            (None, None) => return,
+        let moves = match child.host_kind().await {
+            HostKind::Known(claude) => claude,
+            HostKind::Late(late) => {
+                self.learn_host_kind_late(session, child, late);
+                match kind {
+                    Some(kind) => super::processes::backgrounds_work(kind),
+                    None => return,
+                }
+            }
+            HostKind::Unknown => match kind {
+                Some(kind) => super::processes::backgrounds_work(kind),
+                None => return,
+            },
         };
         session.backgrounds_work.store(moves, Ordering::SeqCst);
+    }
+
+    /// [`Hub::note_host_kind`] for a host that answered after the budget: the answer, when it
+    /// comes, decides Ctrl-B while `child` is still the session's agent. Weak handles: a host
+    /// that never answers keeps neither alive, and its link's end drops the wait.
+    fn learn_host_kind_late(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        late: LateHostKind,
+    ) {
+        let (session, child) = (Arc::downgrade(session), Arc::downgrade(child));
+        self.scope.spawn_named("host-kind-late", async move {
+            let Some(claude) = late.answer().await else { return };
+            let Some(session) = session.upgrade() else { return };
+            let current = session.child.lock().await.clone();
+            if current.is_some_and(|c| std::ptr::eq(Arc::as_ptr(&c), child.as_ptr())) {
+                session.backgrounds_work.store(claude, Ordering::SeqCst);
+            }
+        });
     }
 
     /// A reattached `child` under MDM's off (#23322, review 63): what its host kept while the link

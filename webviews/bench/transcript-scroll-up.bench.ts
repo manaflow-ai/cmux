@@ -24,7 +24,8 @@
 // p95 frame under 16.7 ms, thumb size change under 5 %, thumb never moving down). Run it yourself, never as a CI
 // gate (`cmux-ci test -- 'cd webviews && bun bench/transcript-scroll-up.bench.ts'`).
 /// <reference types="bun" />
-import { chromium, webkit, type Browser, type BrowserType } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, BrowserType } from "playwright";
 import { godLog } from "./godFixture";
 import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import { traceUpwardAnchors } from "../test/support/upwardAnchorTrace";

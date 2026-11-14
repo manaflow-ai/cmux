@@ -19,6 +19,16 @@ import subprocess
 import tempfile
 import threading
 import time
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 class Conn:
@@ -116,7 +126,7 @@ def main():
         time.sleep(0.2)
         c = Conn(sock)
         ident = c.call("identify")
-        print(f"DRAG-DAEMON version={ident.get('version')} protocol={ident.get('protocol')}")
+        safe_print(f"DRAG-DAEMON version={ident.get('version')} protocol={ident.get('protocol')}")
         panes, _ = layout(c)
         if not panes:
             c.call("new-workspace", name="drag")
@@ -126,7 +136,7 @@ def main():
         try:
             c.call("new-pane-right", pane=panes[-1])
         except RuntimeError as error:
-            print(f"DRAG-DAEMON new-pane-right failed: {error}")
+            safe_print(f"DRAG-DAEMON new-pane-right failed: {error}")
         panes, splits = layout(c)
         threading.Thread(target=drain, args=(sock, stop), daemon=True).start()
         time.sleep(0.3)
@@ -144,12 +154,12 @@ def main():
                 except RuntimeError as error:
                     errors += 1
                     if errors == 1:
-                        print(f"DRAG-DAEMON {name} error: {error}")
+                        safe_print(f"DRAG-DAEMON {name} error: {error}")
                 times.append(time.perf_counter() - t0)
             total = time.perf_counter() - start
             ms = lambda v: f"{v * 1000:.3f}"
-            print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
-                  f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
+            safe_print(f"DRAG-DAEMON cmd={name} n={len(times)} rtt_p50_ms={ms(pct(times, 0.5))} rtt_p95_ms={ms(pct(times, 0.95))}"
+                       f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
     finally:
         stop.set()
         # The daemon's group, whatever the daemon's state: a child can outlive it (cmux#41767 review F1).
