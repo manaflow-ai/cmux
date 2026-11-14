@@ -160,7 +160,9 @@ fn own_tree_tests_leave_no_folder_when_they_end() {
     drop(scratch);
 
     assert!(!folder.exists(), "the folder {} stays", folder.display());
-    // The count is read and the test home is looked at in one lock, as the guard does.
+    // The count is read and the test home is looked at in one lock, as the guard does. With
+    // one process for each test this proves the removal. With the tests of one process on
+    // threads, other tests can have folders, and then this proves the rule only.
     let live = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
     assert_eq!(test_home().exists(), *live > 0, "the test home is there only while a folder is");
 }
@@ -258,8 +260,8 @@ fn own_tree_open_refuses_a_git_file_that_names_the_git_folder_in_another_work_tr
     assert_eq!(top_folder(&other), other, "the other work tree still opens");
 }
 
-/// The open reads the name of the git folder only. It does not know if a work tree is around
-/// a git folder with the name `.git`, so the problem text says the name and no more.
+/// The open reads the name of the git folder only. It does not look at the folder around a
+/// git folder with the name `.git`, so the problem text says the name and no more.
 #[test]
 fn own_tree_open_says_no_more_than_the_name_of_a_git_folder_apart_with_the_name_dot_git() {
     let scratch = Scratch::new("file-name");

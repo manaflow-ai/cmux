@@ -238,6 +238,27 @@ fn entries(folder: &Path) -> BTreeMap<PathBuf, (String, Vec<u8>)> {
     found
 }
 
+/// Each folder with the name `name` in `folder` or below it. The daemon can change a file of
+/// its state folder during the search, so an entry that is not read is not a folder.
+fn folders_with_the_name(folder: &Path, name: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut left = vec![folder.to_path_buf()];
+    while let Some(path) = left.pop() {
+        let Ok(children) = std::fs::read_dir(&path) else { continue };
+        for child in children.filter_map(Result::ok).map(|child| child.path()) {
+            if child.is_symlink() || !child.is_dir() {
+                continue;
+            }
+            if child.file_name().is_some_and(|its_name| its_name == name) {
+                found.push(child);
+            } else {
+                left.push(child);
+            }
+        }
+    }
+    found
+}
+
 #[test]
 fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_changes_no_file() {
     let top = scratch("writes");
@@ -285,19 +306,32 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
     let of_git: BTreeSet<&str> = all.filter(|operation| operation.starts_with("git.")).collect();
     assert_eq!(sent, of_git, "the test sends each git operation of the catalog");
 
+    // Each layout is refused for its own cause.
+    let layouts = [
+        ("outside", &outside, "is not in the work tree that git gives"),
+        ("named", &named, "do not name each other"),
+    ];
     let before = entries(&trees);
-    for (layout, folder) in [("outside", &outside), ("named", &named)] {
+    for (layout, folder, cause) in layouts {
         for (operation, params) in &operations {
             let reply = client.reply(operation, folder, params.clone());
 
             let problem = problem_of_git_failed(&reply);
             assert!(problem.starts_with(REFUSED), "{operation} of `{layout}`: {reply}");
+            assert!(problem.contains(cause), "{operation} of `{layout}`: {reply}");
             let after = entries(&trees);
             let changed: Vec<&PathBuf> =
                 after.keys().filter(|path| before.get(*path) != after.get(*path)).collect();
             assert!(changed.is_empty(), "{operation} of `{layout}` changed {changed:?}");
             assert_eq!(before.len(), after.len(), "{operation} of `{layout}` removed an entry");
         }
+    }
+    // A checkpoint operation makes the folders of the daemon's checkpoint store, in the state
+    // folder, before the open. The store gets no file for a folder that is refused.
+    for store in folders_with_the_name(&top.join("state"), "git-checkpoints") {
+        let mut kept = entries(&store);
+        kept.retain(|_, (state, _)| !state.starts_with("folder"));
+        assert!(kept.is_empty(), "the checkpoint store has {:?}", kept.keys());
     }
 }
 

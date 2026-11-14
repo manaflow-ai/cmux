@@ -149,8 +149,8 @@ pub(crate) fn check(
             )));
         }
         Names::Not => String::new(),
-        // The open reads the name of the git folder only: it does not know if a work
-        // tree is around it.
+        // The open reads the name of the git folder only. It does not look at the
+        // folder around it.
         Names::InAnotherWorkTree => {
             format!(
                 ": the `.git` file names a git folder whose own name is `.git`, the name of \
