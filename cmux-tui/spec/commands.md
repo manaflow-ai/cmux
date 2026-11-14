@@ -9097,6 +9097,24 @@ when its reader scrolls up to them. `resized` replays and attaches without
 the field are unchanged; a client must not send the field to a server that
 does not advertise the capability.
 
+Servers advertising `attach-output-coalesce-v1` coalesce the `output` events
+of a `mode:"bytes"` PTY attach that gets the replay stream (no snapshot) when
+the connection declared the same capability in `set-client-info` before
+attaching. Such an attach gets at most one `output` event per interval, as a
+browser coalesces a page's work to one frame per display refresh:
+`output_coalesce_ms` (uint32, 1 to 1000; default one 60 Hz frame, 16.667 ms;
+0 turns coalescing off for this attach). The bytes that arrive within one
+interval of the last event go out as one event at the interval's end,
+concatenated in order. The first bytes after an idle interval go out at once
+(a keypress echo is not delayed). An event never holds more than about 1 MiB:
+past that the held bytes go out at once. Any other attach event (`resized`,
+`colors-changed`, an `output` with `colors`, `detached`) first sends the held
+bytes, so stream order is unchanged. A viewer that cannot read that fast
+backs up the connection and gets `overflow` and reattaches, as without the
+capability. A connection that did not declare the capability gets one
+`output` per PTY read, as before, and the field changes nothing for it;
+render mode and snapshot attaches ignore the field.
+
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
 Params:
@@ -9112,6 +9130,7 @@ Params:
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
+| `output_coalesce_ms` | `uint32` | default null (16.667 ms when coalescing) | `attach-output-coalesce-v1` declared in `set-client-info`; 0 to 1000, 0 is off; bytes mode without `snapshot`; ignored without the capability |
 
 Result:
 
@@ -9127,6 +9146,7 @@ Errors:
 | `browser attach requires client capability browser-pointer-frame-guard-v1; ...` | The client did not advertise guarded pointer support |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
+| `invalid: output_coalesce_ms <n> is over 1000` | A connection with `attach-output-coalesce-v1` asked for a longer interval |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |

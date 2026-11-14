@@ -300,11 +300,13 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
@@ -2454,6 +2456,12 @@ enum Command {
         /// the whole history.
         #[serde(default)]
         replay_history_rows: Option<u32>,
+        /// Bytes mode: `output` events at most once per this many ms
+        /// (`attach-output-coalesce-v1`, declared in `set-client-info`);
+        /// omitted, one display frame; 0, one event per read. Ignored for a
+        /// connection that did not declare the capability.
+        #[serde(default)]
+        output_coalesce_ms: Option<u32>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
