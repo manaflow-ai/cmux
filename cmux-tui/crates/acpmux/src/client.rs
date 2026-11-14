@@ -23,6 +23,9 @@ pub struct Client {
     /// not inherit the app's environment, so this is how `--group` finds the
     /// matching app CLI from a plain shell.
     daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
+    /// The socket this client connected to: a list caller opens its v2 list on it
+    /// (`cli/list_read.rs`).
+    socket: std::path::PathBuf,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -112,6 +115,7 @@ impl Client {
             daemon_build: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
+            socket: path.to_path_buf(),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -208,6 +212,11 @@ impl Client {
     /// The CLI path reported by the daemon's app launcher, if any.
     pub fn daemon_cli_path(&self) -> Option<std::path::PathBuf> {
         self.daemon_cli_path.lock_or_recover().clone()
+    }
+
+    /// The socket this client connected to.
+    pub fn socket(&self) -> &Path {
+        &self.socket
     }
 
     /// Whether the daemon listed `feature` or stable capability at initialize.

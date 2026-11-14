@@ -13,7 +13,7 @@ session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 113 | Reads state and forbids an idempotency key |
+| `read` | 114 | Reads state and forbids an idempotency key |
 | `mutation` | 237 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
@@ -40,7 +40,7 @@ correlation, and idempotency metadata.
 | `credential` | 3 | `credential.mint`, `credential.rotate`, `credential.verify` |
 | `diff` | 4 | `diff.comments.delete`, `diff.comments.list`, `diff.comments.save`, `diff.comments.send` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
-| `git` | 17 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.push`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
+| `git` | 18 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.fingerprint`, `git.push`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
 | `keybinding` | 4 | `keybindings.get`, `keybindings.remove`, `keybindings.reset`, `keybindings.set` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
