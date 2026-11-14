@@ -5,7 +5,7 @@
 // composer as a drop's files, so a chat on this Mac links each where it is and its chip says which
 // app it came from (`external`, attachmentSources.ts). `chat.composer.get` reads the composer back
 // through `composerReadback`.
-import type { ComposerAttachment } from "../attachments";
+import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -53,8 +53,8 @@ export function takeExternalInto(
   });
 }
 
-/// What `chat.composer.get` answers of the composer: its text and each chip's name, type, size and
-/// the name of the app it came from (empty when none).
+/// What `chat.composer.get` answers of the composer: its typed text (without the places of chips
+/// set in it) and each chip's name, type, size and the name of the app it came from (empty when none).
 export type ComposerReadback = {
   text: string;
   attachments: { name: string; mimeType: string; bytes: number; source: string }[];
@@ -65,7 +65,7 @@ export function composerReadback(draft: {
   attachments: readonly ComposerAttachment[];
 }): ComposerReadback {
   return {
-    text: draft.text,
+    text: withoutInlineTokens(draft.text),
     attachments: draft.attachments.map((chip) => ({
       name: chip.name,
       mimeType: chip.mimeType,

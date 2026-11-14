@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ComposerAttachment } from "../attachments";
+import { inlineToken, type ComposerAttachment } from "../attachments";
 import { composerReadback, externalFiles, takeExternalFiles, takeExternalInto } from "./externalAttach";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -47,7 +47,13 @@ test("the readback is the contract chat.composer.get answers", () => {
     size: 1234,
     ...(source ? { source: { name: source, bundleId: "com.apple.screenshot.launcher" } } : {}),
   });
-  expect(composerReadback({ text: "look", attachments: [chip("a.png", "Screenshot"), chip("b.png")] })).toEqual({
+  // A chip set in the text leaves no mark in the readback's text.
+  expect(
+    composerReadback({
+      text: `${inlineToken("a.png")}look`,
+      attachments: [chip("a.png", "Screenshot"), chip("b.png")],
+    }),
+  ).toEqual({
     text: "look",
     attachments: [
       { name: "a.png", mimeType: "image/png", bytes: 1234, source: "Screenshot" },
