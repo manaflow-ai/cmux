@@ -27,7 +27,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     /// The token store's names (Rust's `StorageNames`).
-    public struct StorageNames: Sendable, Equatable, Decodable {
+    public struct StorageNames: Sendable, Equatable, Codable {
         /// The Stack token Keychain service.
         public var keychainService: String
         /// The file-fallback token store's folder under the home folder.
@@ -44,7 +44,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     /// A store an earlier version of this build used (Rust's `LegacyStore`).
-    public struct LegacyStore: Sendable, Equatable, Decodable {
+    public struct LegacyStore: Sendable, Equatable, Codable {
         public var keychainService: String
         public var credentialsSubpath: [String]
     }

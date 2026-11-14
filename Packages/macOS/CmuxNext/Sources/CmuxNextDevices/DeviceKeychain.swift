@@ -46,14 +46,31 @@ public struct DeviceKeychain: Sendable {
 
     /// Every account under this service (empty when none or unreadable).
     public func accounts() -> [String] {
+        (try? accountsThrowing()) ?? []
+    }
+
+    /// Every account under this service, preserving Security errors for
+    /// capture cleanup. A failed enumeration must never look like empty.
+    public func accountsThrowing() throws -> [String] {
         var query = query("")
         query.removeValue(forKey: kSecAttrAccount as String)
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var out: CFTypeRef?
-        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &out) }) == errSecSuccess,
-              let items = out as? [[String: Any]] else { return [] }
-        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess, let items = out as? [[String: Any]] else {
+            throw DeviceIdentity.Failure.keychain(status)
+        }
+        var accounts: [String] = []
+        accounts.reserveCapacity(items.count)
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String else {
+                throw DeviceIdentity.Failure.keychain(errSecDecode)
+            }
+            accounts.append(account)
+        }
+        return accounts
     }
 
     public func delete(_ account: String) throws {

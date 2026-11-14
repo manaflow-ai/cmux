@@ -91,9 +91,10 @@ public final class CmuxRemoteService {
     }
 
     /// One host request over the daemon (status, refresh, request, restart, screen.*).
-    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:])) async throws -> CmuxNextDaemon.JSONValue {
+    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:]),
+                     timeout: Duration = .seconds(25)) async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
-        return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: .seconds(25))
+        return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: timeout)
     }
 
     public func status() async throws -> CmuxNextDaemon.JSONValue {
