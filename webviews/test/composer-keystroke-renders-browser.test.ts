@@ -51,7 +51,7 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
   });
 
   test("a key in a long chat draws neither the transcript, a row nor the model picker", async () => {
-    const port = statics!.port;
+    const port = statics!.port!;
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });

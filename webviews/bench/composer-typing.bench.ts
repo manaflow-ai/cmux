@@ -216,7 +216,8 @@ try {
     });
   }
   console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
-  for (const row of table) console.log(`${row.rows} rows: ${row.busiest}; native posts ${row.nativePosts}`);
+  for (const row of table)
+    console.log(`${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`);
   console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
 } finally {
   for (const release of releases.reverse()) await release();
