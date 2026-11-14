@@ -11,6 +11,10 @@ const DEFAULT_BIND: &str = "127.0.0.1:8787";
 const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
+const DEFAULT_DRAIN_TIMEOUT_SECONDS: u64 = 300;
+// Keep the drain window bounded so an orchestrator can give the process a
+// slightly longer stop deadline and still preserve the configured behavior.
+const MAXIMUM_DRAIN_TIMEOUT_SECONDS: u64 = 300;
 const DEFAULT_HANDSHAKE_TIMEOUT_SECONDS: u64 = 10;
 const DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS: u64 = 120;
 const DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS: u64 = 5;
@@ -32,13 +36,21 @@ const DEFAULT_MAX_ACTIVE_CIRCUITS_PER_SLOT: usize = 256;
 const DEFAULT_MAX_ALLOCATIONS_PER_SECOND_PER_SLOT: usize = 64;
 const DEFAULT_TICKET_TTL_SECONDS: u64 = RelayTicketClaims::MAX_LIFETIME_SECONDS;
 const DEFAULT_TICKET_ISSUER: &str = "cmux-relay";
+const DEFAULT_SHARD: &str = "default";
+const MAX_SHARD_BYTES: usize = 128;
 
 #[derive(Clone)]
 pub struct RelayConfig {
     pub bind: SocketAddr,
+    /// Stable control-plane shard name. A shard must route both sides of a
+    /// circuit to the same in-memory relay process.
+    pub shard: String,
     pub lease_duration: Duration,
     pub join_timeout: Duration,
     pub idle_timeout: Duration,
+    /// Maximum time a draining process waits for established sockets to close.
+    /// Clients reconnect and resume after this safety bound expires.
+    pub drain_timeout: Duration,
     pub handshake_timeout: Duration,
     pub control_idle_timeout: Duration,
     pub http_header_timeout: Duration,
@@ -66,9 +78,11 @@ impl Default for RelayConfig {
     fn default() -> Self {
         Self {
             bind: DEFAULT_BIND.parse().expect("default relay bind address is valid"),
+            shard: DEFAULT_SHARD.into(),
             lease_duration: Duration::from_secs(DEFAULT_LEASE_SECONDS),
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
+            drain_timeout: Duration::from_secs(DEFAULT_DRAIN_TIMEOUT_SECONDS),
             handshake_timeout: Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECONDS),
             control_idle_timeout: Duration::from_secs(DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS),
             http_header_timeout: Duration::from_secs(DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS),
@@ -108,6 +122,9 @@ impl RelayConfig {
         if let Some(value) = lookup("CMUX_RELAY_BIND") {
             self.bind = parse_value("CMUX_RELAY_BIND", &value)?;
         }
+        if let Some(value) = lookup("CMUX_RELAY_SHARD") {
+            self.shard = value;
+        }
         if let Some(value) = lookup("CMUX_RELAY_LEASE_SECONDS") {
             self.lease_duration = parse_duration("CMUX_RELAY_LEASE_SECONDS", &value)?;
         }
@@ -116,6 +133,9 @@ impl RelayConfig {
         }
         if let Some(value) = lookup("CMUX_RELAY_IDLE_TIMEOUT_SECONDS") {
             self.idle_timeout = parse_duration("CMUX_RELAY_IDLE_TIMEOUT_SECONDS", &value)?;
+        }
+        if let Some(value) = lookup("CMUX_RELAY_DRAIN_TIMEOUT_SECONDS") {
+            self.drain_timeout = parse_duration("CMUX_RELAY_DRAIN_TIMEOUT_SECONDS", &value)?;
         }
         if let Some(value) = lookup("CMUX_RELAY_HANDSHAKE_TIMEOUT_SECONDS") {
             self.handshake_timeout =
@@ -195,6 +215,7 @@ impl RelayConfig {
         if self.lease_duration.is_zero()
             || self.join_timeout.is_zero()
             || self.idle_timeout.is_zero()
+            || self.drain_timeout.is_zero()
             || self.handshake_timeout.is_zero()
             || self.control_idle_timeout.is_zero()
             || self.http_header_timeout.is_zero()
@@ -206,6 +227,11 @@ impl RelayConfig {
         if self.join_ticket_ttl.as_secs() > MAXIMUM_JOIN_TICKET_TTL_SECONDS {
             return Err(ConfigError::new(format!(
                 "relay join ticket TTL cannot exceed {MAXIMUM_JOIN_TICKET_TTL_SECONDS} seconds"
+            )));
+        }
+        if self.drain_timeout > Duration::from_secs(MAXIMUM_DRAIN_TIMEOUT_SECONDS) {
+            return Err(ConfigError::new(format!(
+                "relay drain timeout cannot exceed {MAXIMUM_DRAIN_TIMEOUT_SECONDS} seconds"
             )));
         }
         if self.join_timeout > self.join_ticket_ttl {
@@ -257,6 +283,17 @@ impl RelayConfig {
             return Err(ConfigError::new(
                 "CMUX_RELAY_ISSUER must contain 1 to 256 bytes without newline",
             ));
+        }
+        if self.shard.is_empty()
+            || self.shard.len() > MAX_SHARD_BYTES
+            || !self
+                .shard
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        {
+            return Err(ConfigError::new(format!(
+                "CMUX_RELAY_SHARD must contain 1 to {MAX_SHARD_BYTES} ASCII letters, digits, '.', '_' or '-'",
+            )));
         }
         if !self.bind.ip().is_loopback() && self.ticket_secret.is_none() && !self.allow_open {
             return Err(ConfigError::new(
@@ -325,6 +362,9 @@ impl RelayCommand {
                 "-V" | "--version" => return Ok(Self::Version),
                 "--allow-open" => config.allow_open = true,
                 "--bind" => config.bind = parse_next("--bind", &mut args)?,
+                "--shard" => {
+                    config.shard = parse_next_string("--shard", &mut args)?;
+                }
                 "--lease-seconds" => {
                     config.lease_duration =
                         Duration::from_secs(parse_next("--lease-seconds", &mut args)?);
@@ -336,6 +376,10 @@ impl RelayCommand {
                 "--idle-timeout-seconds" => {
                     config.idle_timeout =
                         Duration::from_secs(parse_next("--idle-timeout-seconds", &mut args)?);
+                }
+                "--drain-timeout-seconds" => {
+                    config.drain_timeout =
+                        Duration::from_secs(parse_next("--drain-timeout-seconds", &mut args)?);
                 }
                 "--handshake-timeout-seconds" => {
                     config.handshake_timeout =
@@ -497,9 +541,11 @@ impl RelayCommand {
          Global options: -h, --help, -V, --version.\n\n\
          Serve options:\n\
            --bind ADDR                       Bind address (CMUX_RELAY_BIND)\n\
+           --shard NAME                      Stable relay shard (CMUX_RELAY_SHARD)\n\
            --lease-seconds N                 Daemon control lease\n\
            --join-timeout-seconds N          Pending circuit timeout\n\
            --idle-timeout-seconds N          Paired circuit idle timeout\n\
+           --drain-timeout-seconds N         Graceful shutdown drain bound\n\
            --handshake-timeout-seconds N     First control message timeout\n\
            --control-idle-timeout-seconds N  Authenticated control socket idle timeout\n\
            --http-header-timeout-seconds N   Complete HTTP header deadline\n\
@@ -522,7 +568,7 @@ impl RelayCommand {
            --allow-open                      Permit an unauthenticated non-loopback relay\n\n\
          Ticket options: --lane TOKEN, --generation N, --ttl-seconds N (maximum 300).\n\
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
-         Endpoints: /healthz, /v1/relay, and /ws\n"
+         Endpoints: /healthz, /readyz, /v1/relay, and /ws\n"
     }
 }
 
@@ -619,6 +665,8 @@ mod tests {
                 "2048",
                 "--http-header-timeout-seconds",
                 "7",
+                "--drain-timeout-seconds",
+                "13",
                 "--max-control-sockets-per-slot",
                 "9",
                 "--max-allocations-per-second-per-slot",
@@ -634,6 +682,7 @@ mod tests {
         assert_eq!(config.max_frame_bytes, 1024);
         assert_eq!(config.max_queue_bytes, 2048);
         assert_eq!(config.http_header_timeout, Duration::from_secs(7));
+        assert_eq!(config.drain_timeout, Duration::from_secs(13));
         assert_eq!(config.max_control_sockets_per_slot, 9);
         assert_eq!(config.max_allocations_per_second_per_slot, 11);
     }
@@ -644,6 +693,24 @@ mod tests {
             RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
         let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
         assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
+    }
+
+    #[test]
+    fn shard_name_is_required_to_be_safe_for_routing_metadata() {
+        let invalid = RelayConfig { shard: "west/us".into(), ..RelayConfig::default() };
+        let error = invalid.validate().unwrap_err();
+        assert!(error.to_string().contains("CMUX_RELAY_SHARD"));
+
+        let valid = RelayConfig { shard: "westus2-a".into(), ..RelayConfig::default() };
+        valid.validate().unwrap();
+    }
+
+    #[test]
+    fn drain_timeout_has_a_finite_operational_bound() {
+        let invalid =
+            RelayConfig { drain_timeout: Duration::from_secs(u64::MAX), ..RelayConfig::default() };
+        let error = invalid.validate().unwrap_err();
+        assert!(error.to_string().contains("drain timeout"));
     }
 
     #[test]
