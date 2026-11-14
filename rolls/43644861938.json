@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43644861938",
+  "recorded_at": "2026-11-14T22:05:43Z",
+  "reason": "cmux-tui 02fd7936e57e changes the image's cmux-tui (pinned 6d932fb873b8)",
+  "dry_run": false,
+  "cmux_tui": "02fd7936e57eab2a67071ec6408e83fb66945cb2",
+  "fixes": [
+    {
+      "sha": "02fd7936e57eab2a67071ec6408e83fb66945cb2",
+      "mergedAt": "2026-11-14T13:29:04-08:00",
+      "subject": "CMUX-572: require sustained delay before screen-share bitrate cuts (#43095)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T22:05:43Z",
+    "snapshot_id": "sh-938154dcf32c4033beaa97a140f9898e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43644861938): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b829b7fb69024b5fbcc6d4fab96b51fff4005474",
+    "image": "cloud-native-auto-02fd7936-43644861938-1",
+    "revision": "ci-43644861938-1",
+    "at": "2026-11-14T22:05:43Z"
+  },
+  "rolled_back": false
+}
