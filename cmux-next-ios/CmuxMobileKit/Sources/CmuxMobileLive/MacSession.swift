@@ -77,6 +77,8 @@ final class MacSession {
     var closeSerial = 0
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false
+    /// When the current link came up (a Cloud carrier that drops soon after is a quick drop).
+    var linkUpAt: ContinuousClock.Instant?
     /// The Mac's host predates the `version` service (link protocol 1).
     var outdated = false
 

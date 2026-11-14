@@ -44,9 +44,24 @@ extension LiveCoordinator {
     /// began) limits that to the holds placed before the read; nil lifts every hold.
     public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil) {
         let machines = machines.filter(\.isCloud)
+        var liftedStale: [String] = []
         if fromRead {
             let stamp = readStamp ?? Int.max
-            cloudDropHolds = cloudDropHolds.filter { $0.value > stamp }
+            let now = cloudNow()
+            // A quick-drop wait still running keeps its hold through the read.
+            cloudDropHolds = cloudDropHolds.filter { $0.value > stamp || (cloudHoldNotBefore[$0.key].map { $0 > now } ?? false) }
+            cloudHoldNotBefore = cloudHoldNotBefore.filter { cloudDropHolds[$0.key] != nil }
+            liftedStale = cloudStaleHolds.filter { $0.value <= stamp }.map(\.key)
+            cloudStaleHolds = cloudStaleHolds.filter { $0.value > stamp }
+        }
+        defer {
+            // A stale-held machine that was targeted meanwhile skipped its dial (and waits in
+            // `connecting`): the read says it may dial, so it dials now.
+            for id in liftedStale {
+                guard let session = sessions[id], session.link.target != nil, !session.link.phase.isConnected,
+                      !cloudDialHeld(id) else { continue }
+                session.link.send(.macSignaled)
+            }
         }
         let before = Set(listedCloudMachines.map(\.id))
         listedCloudMachines = machines
@@ -144,11 +159,15 @@ extension LiveCoordinator {
     /// again meanwhile (`touch`, Retry, Connect: `cancelPendingClose`) stays up, and its terminals
     /// claim their sizes again.
     func closeLink(_ session: MacSession) {
+        // The phone closes it (once per close, not per apply while it releases): the machine may
+        // idle-pause unseen, so a new dial waits for a list read begun after now.
         guard session.isCloud, session.link.phase.isConnected, session.link.target != nil else {
+            if session.isCloud, session.link.target != nil { holdCloudListStale([session.macID]) }
             session.pendingClose = nil
             return session.link.send(.target(nil))
         }
         guard session.pendingClose == nil else { return }
+        holdCloudListStale([session.macID])
         session.closeSerial &+= 1
         let token = session.closeSerial
         session.pendingClose = token
@@ -250,6 +269,10 @@ extension CloudRefusal {
     func lifted(by machine: MacDevice, now: ContinuousClock.Instant) -> Bool {
         switch code {
         case "cloud.machine.paused", "cloud.machine.not_found": machine.cloud?.status != .running
+        // A daemon that failed the handshake or the carrier: a machine that stopped and ran again
+        // (started, rebuilt) may have a new daemon, so its status moving lifts it.
+        case "carrier.handshake", "carrier.failed":
+            machine.cloud?.status != listed?.cloud?.status
         case CloudCarrierDialer.noDaemonKey:
             machine.cloud?.status != listed?.cloud?.status || machine.isOnline != listed?.isOnline
                 || now - at >= Self.noDaemonKeyHold

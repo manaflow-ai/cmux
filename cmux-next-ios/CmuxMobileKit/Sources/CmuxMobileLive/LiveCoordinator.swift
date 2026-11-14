@@ -114,6 +114,47 @@ public final class LiveCoordinator {
         cloudDropHolds[machineID] = cloudHoldSerial
     }
 
+    /// Cloud machines whose list may be stale for a new dial: the app was away, or the phone closed
+    /// their link itself. A live link stays; no new dial until a list read begun after now, so a
+    /// machine that idle-paused meanwhile (its old row still says running) is not started by the
+    /// carrier ask. Lifted like ``cloudDropHolds``.
+    @ObservationIgnored var cloudStaleHolds: [String: Int] = [:]
+
+    func holdCloudListStale(_ machineIDs: some Sequence<String>) {
+        cloudHoldSerial &+= 1
+        for id in machineIDs { cloudStaleHolds[id] = cloudHoldSerial }
+    }
+
+    /// Any Cloud machine waits for a list read to be dialed.
+    var cloudHoldsWaiting: Bool { !cloudDropHolds.isEmpty || !cloudStaleHolds.isEmpty }
+
+    /// Whether a Cloud machine may not be dialed now (held for a read, or refused until Retry).
+    func cloudDialHeld(_ machineID: String) -> Bool {
+        cloudDropHolds[machineID] != nil || cloudStaleHolds[machineID] != nil || cloudRefusals[machineID] != nil
+    }
+
+    /// Carriers in a row that dropped within ``cloudQuickDropWindow`` of coming up, by machine: a
+    /// daemon that ends every session at once is dialed again only after a growing wait.
+    @ObservationIgnored var cloudQuickDrops: [String: Int] = [:]
+    /// A drop hold that no read lifts before this time (the quick-drop wait).
+    @ObservationIgnored var cloudHoldNotBefore: [String: ContinuousClock.Instant] = [:]
+    /// The time (tests set it).
+    @ObservationIgnored var cloudNow: () -> ContinuousClock.Instant = { .now }
+    static let cloudQuickDropWindow: Duration = .seconds(30)
+
+    /// The wait after `drops` quick drops in a row: none for the first (a blip), then growing to
+    /// two minutes.
+    static func cloudQuickDropWait(_ drops: Int) -> Duration {
+        let seconds = [0, 0, 5, 15, 30, 60, 120]
+        return .seconds(seconds[min(max(drops, 0), seconds.count - 1)])
+    }
+
+    /// A quick-drop wait is still running for some held machine.
+    var cloudHoldWaitsOnTime: Bool {
+        let now = cloudNow()
+        return cloudHoldNotBefore.values.contains { $0 > now }
+    }
+
     /// Where the holds stand when a list read begins (pass it back with that read's answer).
     public var cloudReadStamp: Int { cloudHoldSerial }
     /// The Cloud machine the person opened last: linked first within the Cloud cap.
@@ -386,7 +427,7 @@ public final class LiveCoordinator {
             if store.isOffline { store.isOffline = false }
             // A Cloud machine held after its carrier dropped (the outage dropped it) waits for a list
             // read: the network is back, so read now rather than at the next poll.
-            if !cloudDropHolds.isEmpty { onCloudHoldsWaiting?(true) }
+            if cloudHoldsWaiting { onCloudHoldsWaiting?(true) }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
@@ -1052,6 +1093,9 @@ public final class LiveCoordinator {
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        // Away, a Cloud machine may idle-pause under its last list: back, none is dialed anew
+        // before a list read begun after now (a live link stays and is probed).
+        holdCloudListStale(listedCloudMachines.map(\.id))
         for session in sessions.values { session.link.send(.background) }
     }
 

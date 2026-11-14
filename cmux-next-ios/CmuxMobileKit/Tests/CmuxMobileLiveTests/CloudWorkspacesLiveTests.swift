@@ -520,6 +520,41 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(cloud.dials(vm) == 2)
     }
 
+    /// Review round 15: a daemon that ends every session right after it connects was dialed again
+    /// at each drop's read, every second or two, for ever. Quick drops in a row wait longer each
+    /// time (none after the first, 5 s after the second, growing to two minutes).
+    @Test func carriersThatDropRightAfterConnectingWaitLongerEachTime() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        var now = ContinuousClock.now
+        live.cloudNow = { now }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+
+        // The first quick drop: the next read dials again.
+        cloud.lastCarrier(vm)?.drop()
+        await settle { live.cloudDropHolds[vm] != nil }
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live }
+
+        // The second: a read within its wait keeps it held.
+        cloud.lastCarrier(vm)?.drop()
+        await settle { live.cloudDropHolds[vm] != nil }
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await drain()
+        #expect(cloud.dials(vm) == 2, "a second quick drop was dialed again at once")
+        #expect(LiveCoordinator.cloudQuickDropWait(2) == .seconds(5))
+        // Past the wait, the next read dials it.
+        now += .seconds(6)
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { cloud.dials(vm) == 3 }
+        #expect(cloud.dials(vm) == 3)
+    }
+
     /// Review round 15: a handshake refusal stayed until Retry even after the machine paused and
     /// started again (a rebuilt machine has a new daemon). Its status moving lifts it.
     @Test func aHandshakeRefusalLiftsWhenTheMachineStopsAndRunsAgain() async {

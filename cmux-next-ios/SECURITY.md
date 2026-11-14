@@ -194,9 +194,11 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   no platform ask: a resume uses only the dial's own ticket, and past it the
   session ends instead (any carrier ask starts a machine cmux paused by itself,
   so a resume must not wake one that idle-paused under the session). After a
-  drop or a failed dial, the phone dials again only after a machine read begun
-  since then shows it running, or when the person opens it; its retries never
-  ask the platform on an older list. A return to the foreground probes a live session rather
+  drop, a failed dial, a close the phone made, or the app's return from the
+  background, the phone dials a machine again only after a machine read begun
+  since then shows it running; its retries never ask the platform on an older
+  list. A carrier that keeps dropping right after it connects waits longer each
+  time (up to two minutes), so a failing daemon is not kept awake. A return to the foreground probes a live session rather
   than replacing it, for the same reason.
 - **Which role.** The grant carries the platform's `vmk` claim; the machine's
   session host stamps it on every stream (`carrier-role`) before the phone's

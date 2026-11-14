@@ -28,10 +28,7 @@ extension LiveCoordinator {
         // the drop cannot start a machine that just idle-paused, and a held dial is skipped quietly
         // (not counted as a failed dial).
         // A refused machine never dials again before Retry, even from a retry already scheduled.
-        session.link.dialHeld = { [weak self] macID in
-            guard let self else { return false }
-            return self.cloudDropHolds[macID] != nil || self.cloudRefusals[macID] != nil
-        }
+        session.link.dialHeld = { [weak self] macID in self?.cloudDialHeld(macID) ?? false }
         session.link.endpoint = { [weak self] macID in
             guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
@@ -170,8 +167,20 @@ extension LiveCoordinator {
     func holdCloudRedial(_ session: MacSession, readNow: Bool = true) {
         let macID = session.macID
         guard session.isCloud, session.link.target != nil, sessions[macID] === session else { return }
+        // A carrier that drops soon after it came up, again and again (a daemon that ends every
+        // session), waits longer each time: the read alone would dial it again at once, forever.
+        var wait = Duration.zero
+        if readNow {
+            let now = cloudNow()
+            let quick = session.linkUpAt.map { now - $0 < Self.cloudQuickDropWindow } ?? false
+            let drops = quick ? (cloudQuickDrops[macID] ?? 0) + 1 : 0
+            cloudQuickDrops[macID] = drops
+            wait = Self.cloudQuickDropWait(drops)
+            if wait > .zero { cloudHoldNotBefore[macID] = now + wait } else { cloudHoldNotBefore[macID] = nil }
+        }
+        session.linkUpAt = nil
         holdCloudDial(macID)
-        if readNow { onCloudLinkDropped?(macID) } else { onCloudDialHeld?() }
+        if readNow, wait == .zero { onCloudLinkDropped?(macID) } else { onCloudDialHeld?() }
         Task { @MainActor [weak self, weak session] in
             guard let self, let session, self.sessions[macID] === session else { return }
             // Its link closes now (not only when the team's links are next applied); the read that
@@ -218,6 +227,7 @@ extension LiveCoordinator {
             ChiefComputer.shared.macChanged()
             return
         }
+        session.linkUpAt = cloudNow()
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
             // The dial already opened `auth` and `daemon`: serve now, in this turn.
             ConnectTimeline.shared.mark("link_served")
@@ -706,7 +716,7 @@ extension LiveCoordinator {
         lastShown[macID] = ContinuousClock.now
         if isCloud(macID: macID) { touchedCloud = macID }
         // A held machine opened: read the list now (its hold lifts only on a read).
-        if cloudDropHolds[macID] != nil { onCloudHoldsWaiting?(false) }
+        if cloudDropHolds[macID] != nil || cloudStaleHolds[macID] != nil { onCloudHoldsWaiting?(false) }
         applyLinks()
     }
 

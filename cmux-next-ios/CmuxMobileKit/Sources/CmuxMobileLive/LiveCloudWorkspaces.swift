@@ -77,19 +77,30 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         guard pollTask == nil else { return }
         stopped = false
         let clock = clock
+        pollSerial &+= 1
+        let serial = pollSerial
         pollTask = Task { [weak self] in
             if let firstDelay {
-                self?.sleepingFor = firstDelay
+                self?.notePoll(serial, sleepingFor: firstDelay)
                 do { try await clock.sleep(for: firstDelay) } catch { return }
             }
             while !Task.isCancelled {
-                self?.sleepingFor = nil
+                self?.notePoll(serial, sleepingFor: nil)
                 // Held only for the read: a model nobody keeps ends the loop.
-                guard let interval = await self?.refreshed() else { return }
-                self?.sleepingFor = interval
+                guard let interval = await self?.refreshed(poll: serial) else { return }
+                self?.notePoll(serial, sleepingFor: interval)
                 do { try await clock.sleep(for: interval) } catch { return }
             }
         }
+    }
+
+    /// Numbers each poll loop: a cancelled loop whose read was still out writes nothing of the
+    /// current one's (its sleep, its read in flight).
+    @ObservationIgnored private var pollSerial = 0
+
+    private func notePoll(_ serial: Int, sleepingFor interval: Duration?) {
+        guard serial == pollSerial else { return }
+        sleepingFor = interval
     }
 
     /// How long the poll sleeps before its next read (nil while a read is out).
@@ -136,8 +147,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         start()
     }
 
-    private func refreshed() async -> Duration {
-        await refresh()
+    private func refreshed(poll serial: Int) async -> Duration {
+        await refresh(poll: serial)
         return pollInterval
     }
 
@@ -147,7 +158,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     private var pollInterval: Duration {
         // A held machine (its carrier dropped) is busy too: its hold waits for a good read, so a
         // read that failed (the outage itself) is tried again soon, not a minute later.
-        let held = !(coordinator?.cloudDropHolds.isEmpty ?? true)
+        let held = coordinator?.cloudHoldsWaiting ?? false
         let busy = held || !creations.isEmpty || !starting.isEmpty || model.machines.contains { $0.status.isTransition }
         if busy, busySince == nil { busySince = .now }
         if !busy { busySince = nil }
@@ -175,15 +186,21 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
 
     /// A read is out that began after every hold now placed, so its answer will lift them.
     private var readWillLiftHolds: Bool {
-        guard let stamp = readStampInFlight, let coordinator else { return false }
+        guard let stamp = readStampInFlight, let coordinator, !coordinator.cloudHoldWaitsOnTime else { return false }
         return coordinator.cloudDropHolds.values.allSatisfy { $0 <= stamp }
+            && coordinator.cloudStaleHolds.values.allSatisfy { $0 <= stamp }
     }
 
-    public func refresh() async {
+    public func refresh() async { await refresh(poll: nil) }
+
+    /// `poll`: the poll loop that reads (nil: a read of its own). A cancelled loop's read never
+    /// marks or clears the current loop's read in flight.
+    private func refresh(poll serial: Int?) async {
         // Where the drop holds stand now: this read may lift only the holds placed before it.
         let stamp = coordinator?.cloudReadStamp
-        readStampInFlight = stamp
-        defer { if readStampInFlight == stamp { readStampInFlight = nil } }
+        let isCurrent = { [weak self] in serial.map { $0 == self?.pollSerial } ?? true }
+        if isCurrent() { readStampInFlight = stamp }
+        defer { if isCurrent(), readStampInFlight == stamp { readStampInFlight = nil } }
         // The list only: the plan and snapshots are the Cloud Machines page's, read when it opens.
         let read = await model.loadMachines()
         // Only a read that answered, and was not cancelled, is fresh word on a machine.
