@@ -765,6 +765,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let rows = appliedHostRows ?? model.session.remoteRows ?? tuiRows
             sample.gridTop = probe.onScreen(surface, in: view).minY + surface.gridPadding.y
             sample.gridRows = rows
+            sample.pageRows = tuiRows
             sample.clipTop = probe.onScreen(tuiClip, in: view).minY
             sample.cellHeight = cell.height
             sample.noteShown = !hostGridNote.isHidden

@@ -65,6 +65,8 @@ final class TerminalFlickerTrace: NSObject {
         var heldTop: CGFloat = 0
         var heldBottom: CGFloat = 0
         var heldIsArea = false
+        /// The rows the page asks for now (the grid the Mac redraws to).
+        var pageRows = 0
         // Shell.
         var contentBottom: CGFloat = 0
         var legibleBlank = false
@@ -320,8 +322,11 @@ final class TerminalFlickerTrace: NSObject {
         let topRest = shownTopRest ?? topGap
         shownPinRest = pinRest
         shownTopRest = topRest
-        // The grid's first row under the toolbar (its top above the clip's).
-        if top < now.clipTop - 1 {
+        // The new grid's first row under the toolbar (its top above the
+        // clip's). The old grid riding a rising composer before the Mac's
+        // redraw is the design (R1-1: pinned to the composer until the new
+        // grid's first frame); a grid of the page's own rows is complete.
+        if !now.held, now.gridRows == now.pageRows, top < now.clipTop - 1 {
             count("clipped")
             largestClip = max(largestClip, now.clipTop - top)
             if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:clip%.1f%@", t, now.demo, now.clipTop - top, now.held ? "h" : "")) }
