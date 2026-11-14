@@ -511,10 +511,10 @@ public final class WorkspaceSync {
                     // a revision), so a current tree costs the daemon's ~300-byte `unchanged`
                     // answer instead of the whole tree (1.7 MB at 1,000 workspaces).
                     let held = listsKnown ? await projection.known : nil
-                    let known: [String: Any]? = listsKnown ? held?.params ?? [:] : nil
-                    let reply = try await client.requestOrdered("list-workspaces", params: known.map { ["known": $0] } ?? [:])
+                    let sendsKnown = listsKnown
+                    let reply = try await client.requestOrdered("list-workspaces", params: sendsKnown ? ["known": held?.params ?? [:]] : [:])
                     guard self.client === client, !Task.isCancelled else { return }
-                    if known != nil, Self.isUnchanged(reply.data) {
+                    if sendsKnown, Self.isUnchanged(reply.data) {
                         let next = await projection.rearrange(arrangement)
                         guard self.client === client, !Task.isCancelled else { return }
                         snapshotSequence = coveredThrough
