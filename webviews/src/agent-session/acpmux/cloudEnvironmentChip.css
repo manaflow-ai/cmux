@@ -9,17 +9,30 @@
   min-width: 0;
   flex: 0 0 auto;
   opacity: 1;
+  visibility: visible;
   transition:
     grid-template-columns var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
     margin-inline-start var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
-    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    visibility 0s linear 0s;
 }
 .acpmux-cloud-env-slot > .acpmux-cloud-env { min-width: 0; overflow: hidden; }
+/* Closed (This Mac or a machine picked), it is not drawn at all once its column has shut: hidden,
+   not only clipped to 0 px and clear, so its "Environment: Auto" is never part of the strip's text
+   (innerText, find, a copy of the row) and never stands in a first frame of a local New Tab
+   (test/new-tab-warm-first-frame.test.ts: "atlas This Mac ::"). Visibility turns off after the
+   close and back on at the start of the open, so the transition is unchanged. */
 .acpmux-cloud-env-slot[data-shown="false"] {
   grid-template-columns: 0fr;
   margin-inline-start: calc(-1 * var(--acpmux-location-gap, 4px));
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition:
+    grid-template-columns var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    margin-inline-start var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    visibility 0s linear var(--cmux-motion-standard, 180ms);
 }
 :root[data-cmux-motion="reduced"] .acpmux-cloud-env-slot,
 :root[data-cmux-motion="off"] .acpmux-cloud-env-slot { transition: none; }
