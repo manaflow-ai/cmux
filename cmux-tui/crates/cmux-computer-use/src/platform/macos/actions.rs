@@ -452,6 +452,7 @@ fn click_point(
         return Ok(out);
     }
     let route = d.pointer_route(t, spec.delivery)?;
+    let _key = key_for_pointer(d, t, route);
     input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
@@ -528,6 +529,34 @@ fn enable_menu_item(
         "menu item {title:?} ({element_id}) stays disabled with window {} as the app's key window: the command does not apply to it now, so nothing was pressed",
         t.window.id
     )))
+}
+
+/// How long the app gets to take its window as key before the events.
+const KEY_SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Background mouse buttons reach most views only in their app's key
+/// window: a background app has none, and AppKit answers a press in an
+/// inactive app's window by asking to activate the app and dropping the
+/// press (TextEdit's text view; the focus guard then put the person's app
+/// back, and the caret never moved). The target window is made its app's key
+/// window to that app only ([`super::activation`]) for the gesture. Not for
+/// the person's own app (it is active) or the HID route (raised).
+fn key_for_pointer(
+    d: &MacDesktop,
+    t: &Target,
+    route: Route,
+) -> Option<super::activation::KeyInApp> {
+    if !matches!(route, Route::Pid { .. }) || d.is_persons_app(t) {
+        return None;
+    }
+    key_in_app(t)
+}
+
+/// `t`'s window as its app's key window (to the app only), settled.
+fn key_in_app(t: &Target) -> Option<super::activation::KeyInApp> {
+    let key = super::activation::KeyInApp::enter(t.window.id)?;
+    std::thread::sleep(KEY_SETTLE);
+    Some(key)
 }
 
 /// `confirmed` when the row reads back as the only selected one.
@@ -851,6 +880,8 @@ pub(super) fn press_keys(
     let route = d.key_route(&t, delivery)?;
     use crate::keys::{Key, Modifier};
     let mut disabled_item: Option<String> = None;
+    // Held until the chord is posted or its item pressed.
+    let mut primed: Option<super::activation::KeyInApp> = None;
     let menu_chord = combo
         .modifiers
         .iter()
@@ -861,29 +892,21 @@ pub(super) fn press_keys(
         // In the background the walk stops at the first enabled match (it is
         // pressed or refused); a foreground chord may be posted, which needs
         // every match.
-        let background = delivery == Delivery::Background;
-        let (mut items, mut complete) = shortcut_matches(d, t.window.pid, combo, background);
-        // Every match disabled in a background app: its menus validate as if
-        // it had no key window (it has none). Key events never reach a
-        // background app's menus, so the target window is made the app's key
-        // window (to the app only) and the menus are searched again once an
-        // item validates; the scope lasts until the press below.
-        let _key = if background
-            && roles::needs_menu_validation(
-                &items.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>(),
-            ) {
-            let key = super::activation::KeyInApp::enter(t.window.id);
-            if key.is_some()
-                && super::activation::wait_until(super::activation::VALIDATE_WAIT, &|| {
-                    items.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
-                })
-            {
-                (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
-            }
-            key
+        // A background app has no key window: its menus validate as if
+        // nothing could take a menu command, and posted keys never reach
+        // its menu key equivalents. With the target window made the app's
+        // key window (to the app only), a posted chord is routed as in the
+        // foreground: the window's views first (a web page's key handler),
+        // then the menus, which validate against it. The chord then follows
+        // the foreground rule. Without the private calls the chord keeps the
+        // background rule (press the first enabled match).
+        primed = if delivery == Delivery::Background && !d.is_persons_app(&t) {
+            key_in_app(&t)
         } else {
             None
         };
+        let background = delivery == Delivery::Background && primed.is_none();
+        let (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
         // The layout and Services are read only when the rule needs them.
         let checks = roles::needs_key_checks(&matches, denies_any, background) && complete;
@@ -964,6 +987,7 @@ pub(super) fn press_keys(
     };
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     let mut out = ActionOutcome::delivered(route.name());
+    drop(primed);
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
@@ -1012,6 +1036,7 @@ pub(super) fn drag(
         }
     }
     let route = d.pointer_route(&t, delivery)?;
+    let _key = key_for_pointer(d, &t, route);
     input::drag(route, from, to, button)?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }

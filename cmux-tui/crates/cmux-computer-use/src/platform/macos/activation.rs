@@ -6,6 +6,11 @@
 //! accessibility does nothing. Measured in a macOS 26.6 guest: all four read
 //! `AXEnabled` 0 while their app was behind the person's.
 //!
+//! The same scope carries background input that only a key window takes: a
+//! mouse press in TextEdit's text view (an inactive app's window answers it
+//! by asking to activate and drops it) and a key chord, which AppKit then
+//! routes as in the foreground (the window's views, then the menus).
+//!
 //! The window server tells an app it became active, and which of its windows
 //! is key, with event records it posts to the app's process. Posting the
 //! same records to the target's process only (`SLPSPostEventRecordTo`) makes
@@ -136,8 +141,13 @@ impl KeyInApp {
     }
 }
 
+/// Before the app is told it lost focus: input posted in the scope goes
+/// through another queue and must be handled first.
+const HAND_BACK_AFTER: Duration = Duration::from_millis(60);
+
 impl Drop for KeyInApp {
     fn drop(&mut self) {
+        std::thread::sleep(HAND_BACK_AFTER);
         if let Some(c) = calls() {
             post(c, &self.psn, &record(RECORD_FOCUS, self.window, FOCUS_OUT));
         }
