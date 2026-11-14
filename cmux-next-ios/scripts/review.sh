@@ -156,6 +156,11 @@ fleet_finish_sim() {
   local rc=0
   wait "$SIM_PID" || rc=$?
   SIM_STEP="$(sed -n 's/^cmux-ci: step \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
+  if grep -q "is not the reviewed version" "$STATE/sim-step.err" "$STATE/sim-step.log" 2>/dev/null; then
+    # The fleet runs an allowlisted step script only as it is on feat-cmux-next.
+    REPORT_SIM="BLOCKED: the fleet refused scripts/ci/cmux-next-ios-sim.sh at $SHA: its handoff mode is not on feat-cmux-next yet (the fleet runs only the reviewed script); rerun after it lands: $(retry_command)"
+    return 1
+  fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
     REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log); retry: $(retry_command)"
     return 1

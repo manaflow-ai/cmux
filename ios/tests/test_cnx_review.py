@@ -354,6 +354,18 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertIn(f'cnx-ios-handoff-{TAG}-{SHA[:12]}', args)
         self.assertEqual(args[-2:], ['--target-worker', 'aws-m4pro-3'])
 
+    def test_an_unreviewed_step_script_is_named_as_the_blocker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\necho "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\n'
+                          'echo "cmux-ci: step 0123456789abcdef01234567 failed on m: ci-step refused: scripts/ci/cmux-next-ios-sim.sh '
+                          'at x (blob y) is not the reviewed version on main or feat-cmux-next" >&2\nexit 1\n')
+            ci.chmod(0o755)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(ci)})
+        self.assertIn('SIM=BLOCKED: the fleet refused scripts/ci/cmux-next-ios-sim.sh', r.stdout)
+        self.assertIn('not on feat-cmux-next yet', r.stdout)
+
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
                            (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
