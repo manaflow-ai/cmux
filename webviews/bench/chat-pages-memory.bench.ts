@@ -10,7 +10,9 @@
 //   MB per chat       (renderer MB at N - renderer MB at the first count) / (N - first count): one more chat's cost;
 //   js heap MB        the shared renderer's JS heap after a collection on every page (CDP Runtime.getHeapUsage: one
 //                     isolate serves every page of the renderer, so it is read once);
-//   wakeups/s         the timer, frame and idle callbacks all pages ran over IDLE_MS of nothing (bench/stability.ts).
+//   wakeups/s         the timer, frame and idle callbacks all pages ran over IDLE_MS of nothing (bench/stability.ts);
+//   warm load         from navigation to the newest reply drawn, for every chat after the first: a chat page built
+//                     in the warm shared renderer, as a released hidden chat is when it shows again.
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
@@ -207,6 +209,7 @@ try {
     }
     return sizes;
   };
+  const warmLoads: number[] = [];
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
   let first: { count: number; mb: number } | undefined;
   for (const count of COUNTS) {
@@ -214,10 +217,14 @@ try {
       const index = pages.length;
       const page = await context.newPage();
       await page.goto(urlFor(index));
-      await page.waitForFunction((text) => document.body.textContent?.includes(text), FIRST_TEXT, {
-        timeout: 120_000,
-        polling: 200,
-      });
+      const shown = await page.waitForFunction(
+        (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+        FIRST_TEXT,
+        { timeout: 120_000, polling: "raf" },
+      );
+      // From navigation start to the newest reply drawn (page clock). After the first chat the renderer is warm,
+      // as it is when a released hidden chat is built again (agents.hiddenChats.discard).
+      if (index > 0) warmLoads.push(Number(await shown.jsonValue()));
       pages.push({ page, cdp: await context.newCDPSession(page) });
     }
     // The newest pages' own settling (read-ahead, fonts, the first paints) is not idle.
@@ -266,6 +273,14 @@ try {
     console.log(
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
+  }
+  if (warmLoads.length) {
+    const sorted = [...warmLoads].sort((a, b) => a - b);
+    const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
+    console.log(
+      `chat-pages-memory: a chat built in the warm renderer shows its newest reply in p50 ${at(0.5).toFixed(0)} ms, p95 ${at(0.95).toFixed(0)} ms (n=${sorted.length})`,
+    );
+    perfRow({ name: "chat_pages_memory.warm_load", p50: at(0.5), p95: at(0.95), unit: "ms" });
   }
   await context.close();
 } finally {
