@@ -60,11 +60,13 @@ runner may take one (evidence only, never the verdict).
 
 Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
 arm; report.json's `arm` names the one the report describes), or a plain
-launch that passed all else has a request of the app's plugin that the daemon
-refused as invalid (report.json's `request_log`; no crash). 2: usage.
-3: the smoke could not run (no app, no GUI session, a signing keychain still
-present). A publish gate treats anything but 0 as a failure: a build that was
-never launched is never published.
+launch (no caller hook is set) that passed all else has a request that the
+daemon refused as invalid, of a client that declares the kind `plugin`
+(report.json's `request_log`; no crash). 2: usage. 3: the smoke could not
+run (no app, no GUI session, a signing keychain still present). A caller
+judges by the report too: the nightly's publish gate holds a build only when
+the app ended or its daemon was not connected in both of its attempts, and
+warns for each other exit that is not 0.
 """
 from __future__ import annotations
 

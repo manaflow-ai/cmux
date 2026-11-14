@@ -2083,6 +2083,55 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                 self.assertIn(f"warning: {where}the request log was not judged (OSError)\n", said.getvalue())
                 self.assertIn(f"FAIL: {refused}\n", said.getvalue())
 
+    def test_a_fault_of_each_type_in_the_read_of_a_home_gets_the_same_guard(self):
+        # The guard is for each fault of the read, not for some types of fault: the home is not judged, the
+        # warning says the fault's type, and the refusal of the other home is the verdict.
+        root = self.dir / "root"
+        session = root / "seeded" / "h" / "Library" / "tui" / "s-0123456789abcdef"
+        session.mkdir(parents=True)
+        (session / "slow-requests.jsonl").write_text(START_LINE + "\n" + request_line() + "\n")
+        read = smoke.request_log
+        self.addCleanup(setattr, smoke, "request_log", read)
+
+        class OwnFault(Exception):
+            pass
+
+        args = argparse.Namespace(arms=("empty", "seeded"))
+        for fault in (ValueError, KeyError, MemoryError, ZeroDivisionError, OwnFault):
+            with self.subTest(fault=fault.__name__):
+                def one_fault(home, fault=fault):
+                    if home.parent.name != "seeded":
+                        raise fault("no read of this home")
+                    return read(home)
+
+                smoke.request_log = one_fault
+                said, report = io.StringIO(), {"verdict": "pass"}
+                with contextlib.redirect_stdout(said):
+                    status = smoke.judge_request_log(args, root, report, smoke.PASS)
+                self.assertEqual(status, smoke.FAIL, said.getvalue())
+                self.assertEqual((report["verdict"], report["failures"]), ("fail", [f"seeded home: {REFUSED}"]))
+                self.assertEqual(report["request_log"]["empty"], smoke.NOT_JUDGED)
+                self.assertIn(f"warning: the request log was not judged ({fault.__name__})\n", said.getvalue())
+
+    def test_a_fault_of_the_read_of_both_homes_leaves_the_launchs_verdict_and_says_each_home(self):
+        # No home is judged: the run's status and the report's verdict stay what the launches gave, the report
+        # says `not-judged` for each home, and each home has its own warning line and no other line.
+        def both_fault(home):
+            raise (KeyError if home.parent.name == "seeded" else ValueError)("no read of this home")
+
+        self.addCleanup(setattr, smoke, "request_log", smoke.request_log)
+        smoke.request_log = both_fault
+        said, report = io.StringIO(), {"verdict": "pass"}
+        with contextlib.redirect_stdout(said):
+            status = smoke.judge_request_log(argparse.Namespace(arms=("empty", "seeded")), self.dir / "root",
+                                             report, smoke.PASS)
+        self.assertEqual(status, smoke.PASS, said.getvalue())
+        self.assertEqual(report, {"verdict": "pass", "request_log": {
+            "counted": False, "refused": [], "findings": [],
+            "empty": smoke.NOT_JUDGED, "seeded": smoke.NOT_JUDGED}})
+        self.assertEqual(said.getvalue(), "warning: the request log was not judged (ValueError)\n"
+                                          "warning: seeded home: the request log was not judged (KeyError)\n")
+
     def test_the_logs_of_the_apps_daemon_and_of_the_chiefs_daemon_are_both_read(self):
         # A launch has 2 daemons, each with its own session folder and its own log: the app's is under Library/
         # and the chief's is under .cmux/. A refusal in either log is the same refusal.
