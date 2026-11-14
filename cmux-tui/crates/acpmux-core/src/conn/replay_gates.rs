@@ -164,33 +164,31 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     (replay.0, replay.1)
 }
 
-async fn timed_append(
+fn timed_append(
     mut writer: HubWriter,
     target: u64,
     offset: usize,
-    permit: Arc<AtomicBool>,
-) -> Result<(HubWriter, u128), tokio::task::JoinError> {
-    // Both sides move the writer through the same worker boundary and time
-    // exactly the same construction, append, and permit store.
-    tokio::task::spawn_blocking(move || {
-        let start = Instant::now();
-        permit.store(true, Ordering::Release);
-        writer.apply(summary(format!("append-{offset}"), target + 1, true)).unwrap();
-        (writer, start.elapsed().as_nanos().max(1))
-    })
-    .await
+    permit: &AtomicBool,
+) -> Result<(HubWriter, u128), crate::hub::HubError> {
+    // Both sides append on the test's calling thread, as the original
+    // baseline did. Moving only the replay writer through a blocking worker
+    // measured a different execution path and cache handoff.
+    let start = Instant::now();
+    permit.store(true, Ordering::Release);
+    writer.apply(summary(format!("append-{offset}"), target + 1, true))?;
+    Ok((writer, start.elapsed().as_nanos().max(1)))
 }
 
-async fn append_round() -> Vec<u128> {
+fn append_round() -> Vec<u128> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let target = fill_ring(&hub, &mut writer, true);
-    // Same fan-out and worker handoff as the replay side; no raw copies.
+    // Same fan-out as the replay side; no raw copies.
     let _receiver = hub.subscribe_replay(&Sub::new("replay", "list"), target).unwrap();
     let mut samples = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
-        let permit = Arc::new(AtomicBool::new(false));
+        let permit = AtomicBool::new(false);
         let (next, elapsed) =
-            timed_append(writer, target + offset as u64, offset, permit).await.unwrap();
+            timed_append(writer, target + offset as u64, offset, &permit).unwrap();
         writer = next;
         samples.push(elapsed);
     }
@@ -243,7 +241,7 @@ async fn append_replay_sample(
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let result = timed_append(writer, target, offset, permit.clone()).await;
+    let result = timed_append(writer, target, offset, &permit);
     let copies_during = hub.history_raw_copies();
     permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
@@ -321,7 +319,7 @@ async fn replay_append_gate() {
     let mut during = Vec::with_capacity(ROUNDS);
     let mut copy_counts = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
-        baseline.push(append_round().await);
+        baseline.push(append_round());
         let (samples, copies) = append_replay_round().await;
         during.push(samples);
         copy_counts.push(copies);
