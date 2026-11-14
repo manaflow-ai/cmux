@@ -364,3 +364,191 @@ async fn viewing_a_chat_never_blocks_starting_a_new_one() {
     assert_eq!(summary["watching"], "claude", "the viewed chat goes on viewing: {summary}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A FIFO for the fake agent's `gate:` turn.
+fn gate_fifo() -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("acpmux-release-{}", uuid::Uuid::now_v7()));
+    assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
+    path
+}
+
+/// A Claude Code chat acpmux runs, mid-turn on a `gate:` FIFO, with its transcript in the
+/// test's Claude store as Claude Code keeps it: (hub, chat, its transcript, the gate, the
+/// prompt's pending answer, the gate prompt's text).
+async fn chat_mid_turn() -> (
+    Arc<Hub>,
+    String,
+    std::path::PathBuf,
+    std::path::PathBuf,
+    tokio::task::JoinHandle<Result<Value, String>>,
+    String,
+    std::path::PathBuf,
+) {
+    let (hub, mut c, root) = watch_setup().await;
+    let project = root.join("project");
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": project, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude"}}}),
+        )
+        .await
+        .unwrap();
+    let sid = s["sessionId"].as_str().unwrap().to_owned();
+    let gate = gate_fifo();
+    let text = format!("gate: {}", gate.display());
+    let mut runner = connect(&hub).await;
+    let p = prompt(&sid, &text, None);
+    let turn = tokio::spawn(async move { runner.request(method::SESSION_PROMPT, p).await });
+    // The turn runs: its first piece is shown.
+    for _ in 0..200 {
+        if answers(&hub, &sid).iter().any(|a| a == "before-gate") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(answers(&hub, &sid), ["before-gate"]);
+    let asid = hub.session_summary(&hub.resolve(&sid).unwrap())["agentSessionId"]
+        .as_str()
+        .expect("the chat has its conversation id")
+        .to_owned();
+    // What Claude Code wrote of this conversation so far: already shown in the chat.
+    let file = root.join(format!("claude/projects/-tmp-release/{asid}.jsonl"));
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    append(&file, &[claude_user(&project, &asid, &text)]);
+    (hub, sid, file, gate, turn, text, root)
+}
+
+fn claude_user(project: &std::path::Path, id: &str, text: &str) -> Value {
+    json!({"type": "user", "cwd": project, "sessionId": id, "timestamp": "2026-11-14T09:00:00.000Z", "message": {"role": "user", "content": text}})
+}
+
+fn claude_answer(project: &std::path::Path, id: &str, text: &str) -> Value {
+    json!({"type": "assistant", "cwd": project, "sessionId": id, "timestamp": "2026-11-14T09:00:01.000Z", "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}})
+}
+
+/// Toggle Terminal and Chat mid-turn (Leo, 2026-11-12: two live views of one session, instant
+/// both ways, mid-turn): the release waits for the turn instead of cutting it, a prompt sent
+/// meanwhile is refused (never lost), and then the same chat watches the transcript the
+/// terminal appends to. Every message shows exactly once, in order, in the one chat.
+#[tokio::test]
+async fn a_chat_released_mid_turn_finishes_its_turn_then_follows_the_terminal() {
+    let (hub, sid, file, gate, turn, text, root) = chat_mid_turn().await;
+    let project = root.join("project");
+    let asid = file.file_stem().unwrap().to_string_lossy().into_owned();
+    let mut terminal = connect(&hub).await;
+    let r = json!({"sessionId": sid});
+    let release =
+        tokio::spawn(async move { terminal.request("_acpmux/release_to_watch", r).await });
+    // The turn is not cut: the release waits for it.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!release.is_finished(), "the release must wait for the running turn");
+    assert!(hub.session_summary(&hub.resolve(&sid).unwrap())["watching"].is_null());
+    // A prompt sent from the chat meanwhile is refused, not queued and lost.
+    let mut chat = connect(&hub).await;
+    let refused = chat.request(method::SESSION_PROMPT, prompt(&sid, "meanwhile", None)).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("watch.releasing")), "{refused:?}");
+    // A second terminal does not take it twice.
+    let twice = chat.request("_acpmux/release_to_watch", json!({"sessionId": sid})).await;
+    assert!(twice.as_ref().is_err_and(|e| e.contains("watch.release_pending")), "{twice:?}");
+    // The turn ends on its own, whole.
+    std::fs::write(&gate, "go").unwrap();
+    let answered = turn.await.unwrap().unwrap();
+    assert_eq!(answered["stopReason"], "end_turn", "{answered}");
+    // Claude Code writes the turn's answer as it ends; the release reads past it.
+    append(&file, &[claude_answer(&project, &asid, "before-gate after-gate")]);
+    let released = tokio::time::timeout(Duration::from_secs(10), release)
+        .await
+        .expect("the release answers once the turn ended")
+        .unwrap()
+        .unwrap();
+    assert_eq!(released["session"]["watching"], "claude", "{released}");
+    assert_eq!(released["resume"]["argv"], json!(["claude", "--resume", asid]), "{released}");
+    assert_eq!(released["resume"]["cwd"], json!(project), "{released}");
+    let k = kinds(&hub, &sid);
+    assert!(!k.iter().any(|k| k == "turn_cancelled"), "the turn was not cut: {k:?}");
+    // The terminal runs it now: what it appends shows in the same chat.
+    append(
+        &file,
+        &[
+            claude_user(&project, &asid, "from the terminal"),
+            claude_answer(&project, &asid, "terminal answer"),
+        ],
+    );
+    let shown = until_prompts(&hub, &sid, 2).await;
+    for _ in 0..200 {
+        if answers(&hub, &sid).len() >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(shown, [text.as_str(), "from the terminal"]);
+    assert_eq!(answers(&hub, &sid), ["before-gate", "after-gate", "terminal answer"]);
+    // Nothing more comes later (no second read of the transcript).
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(prompts(&hub, &sid), [text.as_str(), "from the terminal"]);
+    assert_eq!(answers(&hub, &sid).len(), 3);
+    // The chat is a watch now: it takes no prompt; the terminal does.
+    let watched = chat.request(method::SESSION_PROMPT, prompt(&sid, "late", None)).await;
+    assert!(watched.as_ref().is_err_and(|e| e.contains("watch.read_only")), "{watched:?}");
+    let _ = std::fs::remove_file(&gate);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// How long a mid-turn hand-off takes from the turn's end to the chat watching, over 20 runs.
+#[tokio::test]
+async fn a_release_lands_right_after_the_turn_ends() {
+    let mut took = Vec::new();
+    for _ in 0..20 {
+        let (hub, sid, file, gate, turn, _, root) = chat_mid_turn().await;
+        let mut terminal = connect(&hub).await;
+        let r = json!({"sessionId": sid});
+        let release =
+            tokio::spawn(async move { terminal.request("_acpmux/release_to_watch", r).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let ended = std::time::Instant::now();
+        std::fs::write(&gate, "go").unwrap();
+        let released = release.await.unwrap().unwrap();
+        took.push(ended.elapsed());
+        turn.await.unwrap().unwrap();
+        assert_eq!(released["session"]["watching"], "claude");
+        let _ = (std::fs::remove_file(&gate), file);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    took.sort();
+    let (p50, p95) = (took[took.len() / 2], took[took.len() * 95 / 100]);
+    eprintln!(
+        "release_to_watch: turn end -> watching p50 {p50:?} p95 {p95:?} over {} runs",
+        took.len()
+    );
+    assert!(p95 < Duration::from_secs(2), "p95 {p95:?}");
+}
+
+/// An idle chat is handed off at once; a chat whose conversation is in no store yet is refused.
+#[tokio::test]
+async fn an_idle_chat_is_released_at_once() {
+    let (hub, sid, file, gate, turn, _, root) = chat_mid_turn().await;
+    std::fs::write(&gate, "go").unwrap();
+    turn.await.unwrap().unwrap();
+    let mut c = connect(&hub).await;
+    let mut took = Vec::new();
+    let asked = std::time::Instant::now();
+    let released = c.request("_acpmux/release_to_watch", json!({"sessionId": sid})).await.unwrap();
+    took.push(asked.elapsed());
+    assert_eq!(released["session"]["watching"], "claude", "{released}");
+    // Again: already watching, nothing holds it, so the same answer.
+    let again = c.request("_acpmux/release_to_watch", json!({"sessionId": sid})).await.unwrap();
+    assert_eq!(again["resume"], released["resume"]);
+    eprintln!("release_to_watch: idle chat -> watching {:?}", took[0]);
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": root.join("project"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakecodex"}}}),
+        )
+        .await
+        .unwrap();
+    let other = s["sessionId"].as_str().unwrap().to_owned();
+    let refused = c.request("_acpmux/release_to_watch", json!({"sessionId": other})).await;
+    assert!(refused.is_err(), "{refused:?}");
+    let _ = (std::fs::remove_file(&gate), file);
+    let _ = std::fs::remove_dir_all(&root);
+}

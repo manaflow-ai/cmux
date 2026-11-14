@@ -305,6 +305,10 @@ async fn check_inner(
     let web = origin.web_class();
     // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
     // only a local client does that.
+    if web && m == method::MUX_RELEASE_TO_WATCH {
+        return Err(RpcError::new(-32602, "a chat is handed to a terminal only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     if web && m == method::MUX_WATCH_TAKE_OVER {
         return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));

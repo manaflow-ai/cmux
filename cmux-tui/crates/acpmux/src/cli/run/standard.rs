@@ -36,6 +36,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Worktree(..)
             | Command::Group(..)
             | Command::Attach { .. }
+            | Command::ResumeHere { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
     )
@@ -1125,6 +1126,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return plain_attach(client, &id).await;
             }
             crate::tui::run(client, id).await
+        }
+        Command::ResumeHere { session, print } => {
+            crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
