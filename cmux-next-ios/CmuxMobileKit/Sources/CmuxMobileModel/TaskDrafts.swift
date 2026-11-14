@@ -101,16 +101,32 @@ public final class TaskDraftStore {
         if disk == nil { isLoaded = true }
     }
 
-    /// Reads the saved drafts (once; later calls do nothing).
+    /// The index could not be read (not merely absent): nothing is written over it this launch.
+    public private(set) var isReadOnly = false
+
+    /// Reads the saved drafts (once; later calls wait for the first). Writes wait for it too, so a
+    /// save made before the read never replaces the drafts on disk.
     public func load() async {
-        guard !isLoaded, let disk else { return }
-        let read = await disk.readIndex()
-        guard !isLoaded else { return }
-        // A save made before the read finished wins over its older copy on disk.
-        let saved = Set(drafts.map(\.id))
-        drafts = (drafts + read.filter { !saved.contains($0.id) }).sorted { $0.updatedAt > $1.updatedAt }
-        isLoaded = true
+        guard let disk else { return }
+        if let loading { return await loading.value }
+        let task = Task { [weak self] in
+            let read = await disk.readIndex()
+            guard let self else { return }
+            switch read {
+            case .drafts(let found):
+                // A save made before the read finished wins over its older copy on disk.
+                let saved = Set(self.drafts.map(\.id))
+                self.drafts = (self.drafts + found.filter { !saved.contains($0.id) }).sorted { $0.updatedAt > $1.updatedAt }
+            case .unreadable:
+                // Kept as it is (and a copy beside it): this launch's drafts stay in memory only.
+                self.isReadOnly = true
+            }
+            self.isLoaded = true
+        }
+        loading = task
+        await task.value
     }
+    @ObservationIgnored private var loading: Task<Void, Never>?
 
     public func entry(_ id: UUID) -> SavedTaskDraft? { drafts.first { $0.id == id } }
 
@@ -164,19 +180,23 @@ public final class TaskDraftStore {
     /// names. In memory: drops the bytes no draft names.
     private func persist(newImages: [TaskImage]) {
         let kept = Set(drafts.flatMap(\.blobIDs))
-        guard let disk else {
+        guard let disk, !isReadOnly else {
             memoryImages = memoryImages.filter { kept.contains($0.key) }
             return
         }
-        let index = drafts
         let writes = newImages.filter { kept.contains($0.id) }
         // Only the bytes still waiting for their write stay in memory.
         memoryImages = memoryImages.filter { kept.contains($0.key) }
         let previous = writeTail
         writeTail = Task { [weak self] in
             await previous?.value
-            await disk.write(index: index, images: writes, keeping: kept)
-            guard let self else { return }
+            // Never before the first read: the drafts on disk are merged in first.
+            await self?.load()
+            guard let self, !self.isReadOnly else { return }
+            // What memory holds now, the read merged in.
+            let index = self.drafts
+            let keep = Set(index.flatMap(\.blobIDs))
+            await disk.write(index: index, images: writes.filter { keep.contains($0.id) }, keeping: keep)
             for image in writes { self.memoryImages[image.id] = nil }
         }
     }
@@ -198,9 +218,28 @@ actor TaskDraftDisk {
         self.root = root
     }
 
-    func readIndex() -> [SavedTaskDraft] {
-        guard let data = try? Data(contentsOf: index) else { return [] }
-        return (try? JSONDecoder().decode([SavedTaskDraft].self, from: data)) ?? []
+    enum IndexRead {
+        case drafts([SavedTaskDraft])
+        /// The file is there but can't be read (locked, or not an array): left as it is, with a copy.
+        case unreadable
+    }
+
+    /// The saved drafts: none when there is no index yet; each entry decoded on its own, so one
+    /// bad entry costs only itself.
+    func readIndex() -> IndexRead {
+        guard FileManager.default.fileExists(atPath: index.path) else { return .drafts([]) }
+        guard let data = try? Data(contentsOf: index),
+              let entries = try? JSONDecoder().decode([LenientEntry].self, from: data) else {
+            try? FileManager.default.copyItem(at: index, to: root.appendingPathComponent("index.unreadable.json"))
+            return .unreadable
+        }
+        return .drafts(entries.compactMap(\.draft))
+    }
+
+    /// One entry of the index: the draft, or nil when it doesn't decode.
+    struct LenientEntry: Decodable {
+        let draft: SavedTaskDraft?
+        init(from decoder: any Decoder) throws { draft = try? SavedTaskDraft(from: decoder) }
     }
 
     func readImage(_ id: String) -> Data? {
@@ -211,11 +250,14 @@ actor TaskDraftDisk {
     func write(index drafts: [SavedTaskDraft], images new: [TaskImage], keeping kept: Set<String>) {
         let files = FileManager.default
         try? files.createDirectory(at: images, withIntermediateDirectories: true)
-        for image in new where Self.isSafeName(image.id) {
-            try? image.data.write(to: images.appendingPathComponent(image.id), options: [.atomic, .completeFileProtection])
+        // A file already written keeps its bytes (a draft's photos don't change under its id).
+        // Protected until first unlock: a save made as the phone locks still lands.
+        for image in new where Self.isSafeName(image.id) && !files.fileExists(atPath: images.appendingPathComponent(image.id).path) {
+            try? image.data.write(to: images.appendingPathComponent(image.id),
+                                  options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
         if let data = try? JSONEncoder().encode(drafts) {
-            try? data.write(to: index, options: [.atomic, .completeFileProtection])
+            try? data.write(to: index, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
         for name in (try? files.contentsOfDirectory(atPath: images.path)) ?? [] where !kept.contains(name) {
             try? files.removeItem(at: images.appendingPathComponent(name))

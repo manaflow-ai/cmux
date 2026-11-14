@@ -406,22 +406,39 @@ import Testing
 @MainActor @Suite struct TerminalLaunchTests {
     @Test func claudeAndCodexGetTheirCommands() {
         #expect(AgentTask(prompt: "Fix it", model: "sonnet", launch: .terminal, family: "claude").terminalLine()
-            == "claude --model $'sonnet' $'Fix it'\n")
-        #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex").terminalLine() == "codex $'Fix it'\n")
-        #expect(AgentTask(prompt: "Fix it", model: "default", launch: .terminal, family: "claude").terminalLine() == "claude $'Fix it'\n")
+            == "claude --model=$'sonnet' -- $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex").terminalLine() == "codex -- $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", model: "default", launch: .terminal, family: "claude").terminalLine() == "claude -- $'Fix it'\n")
         #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "opencode").terminalLine() == nil)
     }
 
     @Test func thePromptIsOneQuotedWordWhateverItHolds() {
         let line = AgentTask(prompt: "it's `rm -rf ~` $(whoami)\\\nnext\u{1B}[2J\u{7F}line", launch: .terminal, family: "claude").terminalLine()
-        #expect(line == "claude $'it\\'s `rm -rf ~` $(whoami)\\\\\\nnext[2Jline'\n")
+        #expect(line == "claude -- $'it\\'s `rm -rf ~` $(whoami)\\\\\\nnext[2Jline'\n")
         // One line: the only Return is the one that runs it.
         #expect(line?.filter { $0 == "\n" }.count == 1)
     }
 
     @Test func attachedFilesAreNamedAfterThePrompt() {
         let line = AgentTask(prompt: "Match this", launch: .terminal, family: "claude").terminalLine(attachmentPaths: ["/p/a.png"])
-        #expect(line == "claude $'Match this\\n\\nAttached files (read them):\\n/p/a.png'\n")
+        #expect(line == "claude -- $'Match this\\n\\nAttached files (read them):\\n/p/a.png'\n")
+    }
+
+    /// Review 2026-11-14: a prompt or model starting with `-` is never an option; a model with a
+    /// quote stays one word; the joiners Persian and emoji need are kept, the bidi overrides go.
+    @Test func optionsAndScriptsAreSafe() {
+        #expect(AgentTask(prompt: "--help me", model: "-x'y", launch: .terminal, family: "claude").terminalLine()
+            == "claude --model=$'-x\\'y' -- $'--help me'\n")
+        let persian = "می\u{200C}خواهم 👩\u{200D}💻 \u{202E}evil"
+        #expect(AgentTask(prompt: persian, launch: .terminal, family: "codex").terminalLine()
+            == "codex -- $'می\u{200C}خواهم 👩\u{200D}💻 evil'\n")
+    }
+
+    /// Review 2026-11-14: the agent runs only once `cd` to the task's folder worked.
+    @Test func theAgentRunsInTheFolderOrNotAtAll() {
+        let task = AgentTask(prompt: "Go", launch: .terminal, family: "claude")
+        #expect(task.terminalLine(folder: "/Users/me/my repo") == "cd -- $'/Users/me/my repo' && claude -- $'Go'\n")
+        #expect(task.terminalLine(folder: "~/code/a\\b") == "cd -- ~/$'code/a\\\\b' && claude -- $'Go'\n")
     }
 
     @Test func aTerminalTaskOpensATerminalWorkspaceAndTypesItsCommand() async throws {
@@ -434,7 +451,7 @@ import Testing
         #expect(made.first?.tabs.first?.kind == .terminal)
         #expect(made.first?.tabs.first?.title == "Claude Code")
         await creator.settle()
-        #expect(mock.typedLines == ["claude --model $'opus' $'Fix it'\n"])
+        #expect(mock.typedLines == ["claude --model=$'opus' -- $'Fix it'\n"])
         #expect(mock.sentTasks.isEmpty)
     }
 
@@ -472,6 +489,44 @@ import Testing
         let json = #"[{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","updatedAt":0,"prompt":"Old","imageIDs":[],"picks":[],"name":""}]"#
         let drafts = try JSONDecoder().decode([SavedTaskDraft].self, from: Data(json.utf8))
         #expect(drafts.first?.files.isEmpty == true && drafts.first?.launch == .chat)
+    }
+
+    /// Review 2026-11-14: an index that can't be read is never written over (its drafts would
+    /// be lost); one bad entry costs only itself.
+    @Test func anUnreadableIndexIsKeptAndABadEntryCostsOnlyItself() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let index = folder.appendingPathComponent("index.json")
+        try Data("not json".utf8).write(to: index)
+        let broken = TaskDraftStore(directory: folder)
+        await broken.load()
+        #expect(broken.isReadOnly)
+        broken.save(TaskDraft(prompt: "New"))
+        await broken.flush()
+        #expect(try String(contentsOf: index, encoding: .utf8) == "not json")
+
+        let good = #"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","updatedAt":0,"prompt":"Kept","name":""}"#
+        try Data("[\(good),{\"id\":42}]".utf8).write(to: index)
+        let partial = TaskDraftStore(directory: folder)
+        await partial.load()
+        #expect(!partial.isReadOnly && partial.drafts.map(\.prompt) == ["Kept"])
+    }
+
+    /// Review 2026-11-14: a save made before the first read merges with the drafts on disk.
+    @Test func aSaveBeforeTheFirstReadKeepsTheDraftsOnDisk() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = TaskDraftStore(directory: folder)
+        await first.load()
+        first.save(TaskDraft(prompt: "On disk"))
+        await first.flush()
+        let next = TaskDraftStore(directory: folder)
+        next.save(TaskDraft(prompt: "Before the read"))
+        await next.flush()
+        let check = TaskDraftStore(directory: folder)
+        await check.load()
+        #expect(Set(check.drafts.map(\.prompt)) == ["On disk", "Before the read"])
     }
 
     @Test func filesCountAsSomethingToSave() {

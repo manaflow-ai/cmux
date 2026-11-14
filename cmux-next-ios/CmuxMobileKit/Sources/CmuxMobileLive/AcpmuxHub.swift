@@ -38,13 +38,14 @@ public final class AcpmuxHub {
 
     /// Sessions whose first message this phone is sending (New Task), until that send ends
     /// (its turn finished, or it failed). Observed: the chat leaves its starting state with it.
-    private(set) var firstPromptsInFlight: Set<String> = []
+    private(set) var firstPromptsInFlight: [String] = []
     func beginFirstPrompt(_ sessionID: String) {
-        // Bounded: a mark left by a send that succeeded ends only once its chat shows turns.
-        if firstPromptsInFlight.count >= 32, let any = firstPromptsInFlight.first { firstPromptsInFlight.remove(any) }
-        firstPromptsInFlight.insert(sessionID)
+        // Bounded, the oldest going first (a send whose reply never comes).
+        firstPromptsInFlight.removeAll { $0 == sessionID }
+        firstPromptsInFlight.append(sessionID)
+        if firstPromptsInFlight.count > 32 { firstPromptsInFlight.removeFirst(firstPromptsInFlight.count - 32) }
     }
-    func endFirstPrompt(_ sessionID: String) { firstPromptsInFlight.remove(sessionID) }
+    func endFirstPrompt(_ sessionID: String) { firstPromptsInFlight.removeAll { $0 == sessionID } }
 
     /// Notes a session this phone started (`session/new`); the newest 32 are kept.
     func noteStartedHere(_ sessionID: String) {
@@ -784,6 +785,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     ///   a `resource_link` to the uploaded path (the agent reads it there).
     /// A failed upload throws, so nothing is sent without its attachments.
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
+        try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory, macName: summary.macName)
+    }
+
+    /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
+    /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
+    static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
+                             macName: String) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -803,8 +811,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
-            guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
+            guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {

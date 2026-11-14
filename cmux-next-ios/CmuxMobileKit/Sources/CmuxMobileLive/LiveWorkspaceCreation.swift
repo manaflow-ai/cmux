@@ -128,15 +128,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         }
         acpmux.beginFirstPrompt(session)
-        // The chat's own prompt builder: photos inline, files uploaded to the session's folder
-        // and linked (a small text file inline), as the chat's Send does.
-        let source = acpmux.source(sessionID: session, summary: AgentSessionSummary(
-            id: session, name: workspace.title, harness: "", agentName: "", cwd: cwd, workspaceTitle: workspace.title,
-            macName: link.target?.name ?? "the Mac", macID: workspace.macID))
+        // The chat's own prompt builder (photos inline, files uploaded to the session's folder and
+        // linked), with no chat source: the chat's own is made when its page opens.
+        let macName = link.target?.name ?? "the Mac"
         Task {
             let blocks: [JSONValue]
             do {
-                blocks = try await source.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task), hub: acpmux)
+                blocks = try await AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task),
+                                                                    link: acpmux.macLink, cwd: cwd, macName: macName)
             } catch {
                 // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.
                 acpmux.endFirstPrompt(session)
@@ -144,6 +143,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 return
             }
             do {
+                // The reply comes when the agent's turn ends: the chat shows the task long before.
+                defer { acpmux.endFirstPrompt(session) }
                 _ = try await acpmux.request("session/prompt", .object([
                     "sessionId": .string(session), "prompt": .array(blocks),
                     "_meta": .object(["acpmux": .object([
@@ -196,8 +197,23 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
             }
         }
-        guard let line = task.terminalLine(attachmentPaths: paths) else { return }
-        try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+        // One line: `cd` to the folder, then the agent only if that worked (never in another folder).
+        guard let line = task.terminalLine(folder: cwd, attachmentPaths: paths) else { return }
+        do {
+            try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+        } catch let error as DaemonReplyError {
+            // The Mac answered no: nothing was typed. The caller closes the workspace.
+            throw WorkspaceCreationError(error.message)
+        } catch {
+            // The reply was lost: the line may have run. The workspace stays (never a second agent).
+            throw TerminalLaunchUncertain(message: AcpmuxSessionSource.message(error))
+        }
+    }
+
+    /// A terminal launch whose command may have reached the shell (its reply was lost).
+    struct TerminalLaunchUncertain: Error, LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -243,7 +259,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw WorkspaceCreationError("The Mac didn't say which workspace it created")
             }
             var opening = DaemonTree.tabID(surface: surface)
-            if let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
+            if request.task?.launch != .terminal, let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
                 _ = try? await client.request("send", params: ["surface": surface, "text": line])
             }
             if let task = request.task, task.launch == .terminal {
@@ -252,6 +268,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 let cwd = Self.chatFolder(request.directory, known: folders) ?? request.directory ?? "~"
                 do {
                     try await launchInTerminal(task, surface: surface, cwd: cwd, client: client)
+                } catch let uncertain as TerminalLaunchUncertain {
+                    // Maybe running: the workspace stands; the person checks it (no draft comes back).
+                    let tree = try? await sync.listNow()
+                    if let made = tree?.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The task may have started on the Mac: \(uncertain.message). Check its workspaces before starting it again.",
+                                                 isForPerson: true)
                 } catch {
                     // The phone reports this start as failed (its draft comes back): the
                     // workspace goes too, with nothing running in it.

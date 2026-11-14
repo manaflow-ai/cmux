@@ -34,6 +34,8 @@ struct TaskComposerScreen: View {
     /// Why the last picked file wasn't added (too large, unreadable), shown under the strip.
     @State private var fileRefusal: String?
     @State private var loadingPhotos = 0
+    /// Files being read from their pickers (Start waits for them).
+    @State private var loadingFiles = 0
     @State private var showsOptions = false
     @State private var showsDrafts = false
     @State private var confirmsLeave = false
@@ -454,7 +456,7 @@ struct TaskComposerScreen: View {
 
     private var startButton: some View {
         let count = max(1, draft.picks.count)
-        let enabled = blocker == nil && loadingPhotos == 0 && sent == nil
+        let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
         return Button(action: start) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 16, weight: .semibold))
@@ -506,7 +508,7 @@ struct TaskComposerScreen: View {
     }
 
     private func start() {
-        guard blocker == nil, let catalog else { return }
+        guard blocker == nil, sent == nil, loadingPhotos == 0, loadingFiles == 0, let catalog else { return }
         var task = draft
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
             task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
@@ -570,7 +572,10 @@ struct TaskComposerScreen: View {
     private func addFiles(_ urls: [URL]) async {
         fileRefusal = nil
         let room = TaskDraft.fileLimit - draft.files.count
-        for url in urls.prefix(max(0, room)) {
+        let picked = Array(urls.prefix(max(0, room)))
+        loadingFiles += picked.count
+        for url in picked {
+            defer { loadingFiles -= 1 }
             let read = await TaskFileReader.read(url)
             switch read {
             case .success(let file):

@@ -41,26 +41,40 @@ public struct AgentTask: Hashable, Sendable {
         self.family = family
     }
 
-    /// The command a terminal launch types into the new workspace's shell: the agent's CLI with
-    /// its model and the prompt, the uploaded attachments' paths after it. Nil for an agent with
-    /// no known CLI. The prompt is one ANSI-C quoted word (`$'…'`, zsh and bash), so nothing in
-    /// it runs: quotes and backslashes are escaped, line breaks are `\n`, other control
-    /// characters are dropped.
-    public func terminalLine(attachmentPaths: [String] = []) -> String? {
+    /// The command a terminal launch types into the new workspace's shell (zsh or bash, the
+    /// Mac's default shells): `cd` to the folder and, only if that worked, the agent's CLI with its
+    /// model and the prompt, the uploaded attachments' paths after it. Nil for an agent with no
+    /// known CLI. Every value is one ANSI-C quoted word (`$'…'`), so nothing in it runs: quotes and
+    /// backslashes are escaped, line breaks are `\n`, control characters are dropped. Options
+    /// are `--flag=value` and the prompt comes after `--`, so a value starting with `-` is never
+    /// taken for an option.
+    public func terminalLine(folder: String? = nil, attachmentPaths: [String] = []) -> String? {
         var text = prompt
         if !attachmentPaths.isEmpty {
             text += "\n\nAttached files (read them):\n" + attachmentPaths.joined(separator: "\n")
         }
         let quoted = Self.ansiQuoted(text)
         let model = model.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }.map(Self.ansiQuoted)
+        let command: String
         switch family {
-        case "claude": return "claude" + (model.map { " --model \($0)" } ?? "") + " " + quoted + "\n"
-        case "codex": return "codex" + (model.map { " -m \($0)" } ?? "") + " " + quoted + "\n"
+        case "claude": command = "claude" + (model.map { " --model=\($0)" } ?? "") + " -- " + quoted
+        case "codex": command = "codex" + (model.map { " --model=\($0)" } ?? "") + " -- " + quoted
         default: return nil
         }
+        guard let folder else { return command + "\n" }
+        return "cd -- \(Self.folderWord(folder)) && " + command + "\n"
     }
 
-    /// `$'…'` with `\\`, `\'`, `\n` and `\t` escaped and every other control character dropped.
+    /// A folder as one shell word: `~/x` keeps its `~` (expanded by the shell), the rest is quoted.
+    static func folderWord(_ folder: String) -> String {
+        if folder == "~" { return "~" }
+        if folder.hasPrefix("~/") { return "~/" + ansiQuoted(String(folder.dropFirst(2))) }
+        return ansiQuoted(folder)
+    }
+
+    /// `$'…'` with `\\`, `\'`, `\n` and `\t` escaped; control characters (C0, DEL, C1) and the
+    /// bidirectional overrides dropped. Other format characters stay (the joiners Persian,
+    /// Indic scripts and emoji need), as nothing in a quoted word acts on them.
     static func ansiQuoted(_ text: String) -> String {
         var out = "$'"
         for scalar in text.unicodeScalars {
@@ -70,12 +84,15 @@ public struct AgentTask: Hashable, Sendable {
             case "\n": out += "\\n"
             case "\t": out += "\\t"
             default:
-                if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format { continue }
+                if scalar.properties.generalCategory == .control || bidiControls.contains(scalar.value) { continue }
                 out.unicodeScalars.append(scalar)
             }
         }
         return out + "'"
     }
+
+    /// U+202A–202E and U+2066–2069: they reorder what a terminal shows, not what runs.
+    static let bidiControls: Set<UInt32> = [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069]
 }
 
 /// A file attached in New Task (any kind): uploaded to the task's folder on the Mac and named
@@ -370,15 +387,18 @@ extension WorkspaceCreator {
             : "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
         if taskDraft.isEmpty {
             // Only this agent comes back: the task's other agents may have started it already.
+            // Saved at once too: the app may be gone before the composer opens again.
             taskDraft = origin
             restoredTask = task
             refusedTasks[placeholderID] = .composer
             taskRefusal = why
+            saveTaskDraft()
         } else if restoredTask == task, taskDraftMatches(origin) {
             // Another agent of the same task failed too: it joins the draft given back.
             taskDraft.picks += origin.picks.filter { !taskDraft.picks.contains($0) }
             refusedTasks[placeholderID] = .composer
             taskRefusal = why
+            saveTaskDraft()
         } else if let saved = taskDrafts.entry(origin.id), saved.prompt == origin.prompt {
             // Another agent of a task already saved to the drafts list: it joins that draft.
             var merged = origin
