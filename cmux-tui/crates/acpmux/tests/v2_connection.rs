@@ -475,7 +475,7 @@ async fn resume_marks(shape: acpmux::god_fixture::Shape) -> usize {
     let final_seq = writer.apply(summary(0, 2_000_000)).unwrap().seq;
     let mut view = View { cursor, replaying: true, ..View::default() };
     view.apply(&first);
-    let mut saw_end = false;
+    let mut saw_end = first_delta.replay == Some(ReplayMark::End);
     while view.cursor < final_seq || !saw_end {
         let frame = receive(&mut client).await;
         if frame.kind == FrameKind::Delta {
