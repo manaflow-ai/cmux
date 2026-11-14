@@ -1381,7 +1381,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// at once (`pageShownChanged`). A reset's replay is fed as when shown:
     /// the replay gate's deadline counts from the reset.
     private var feedsHidden: Bool {
-        surface.surface != nil && !surface.isShown && !replayGate.isReplaying
+        !TerminalSurfaceView.diag.contains("pace") && surface.surface != nil && !surface.isShown && !replayGate.isReplaying
     }
     /// The hidden page's next turn; nil when none is due (one at a time,
     /// armed only while output waits).

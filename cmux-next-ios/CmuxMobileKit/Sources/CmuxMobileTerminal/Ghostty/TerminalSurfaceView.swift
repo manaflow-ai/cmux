@@ -189,6 +189,8 @@ final class TerminalSurfaceView: UIView {
     /// The surface can be seen: in a window, with the app in the foreground.
     /// Kept before the Ghostty surface exists too.
     private(set) var isShown = false
+    /// DIAGNOSTIC (memory bisect, not for merge): CMUX_MOBILE_DIAG=focus,draw,pace.
+    static let diag = ProcessInfo.processInfo.environment["CMUX_MOBILE_DIAG"] ?? ""
     /// `isShown` changed. The screen paces a hidden page's output by it
     /// (`TerminalViewController.feedsHidden`).
     var onShownChange: ((Bool) -> Void)?
@@ -212,12 +214,17 @@ final class TerminalSurfaceView: UIView {
             onShownChange?(visible)
         }
         guard let surface, visible != drawsFrames else { return }
+        let firstOcclusion = drawsFrames == nil
         drawsFrames = visible
         ghostty_surface_set_occlusion(surface, visible)
-        ghostty_surface_set_focus(surface, visible)
+        if Self.diag.contains("focus") {
+            if firstOcclusion { ghostty_surface_set_focus(surface, true) }
+        } else {
+            ghostty_surface_set_focus(surface, visible)
+        }
         // Seen again: a frame of what was parsed while hidden (no batch asks
         // for one then, `setNeedsTerminalDraw`).
-        if visible { ghostty_surface_refresh(surface) }
+        if visible, !Self.diag.contains("draw") { ghostty_surface_refresh(surface) }
     }
 
     private func observeAppState() {
@@ -595,7 +602,7 @@ final class TerminalSurfaceView: UIView {
     /// Asks the renderer for a frame. None while the surface cannot be seen:
     /// it draws nothing then, and shown again it asks for one (`updateOcclusion`).
     func setNeedsTerminalDraw() {
-        guard let surface, drawsFrames != false else { return }
+        guard let surface, drawsFrames != false || Self.diag.contains("draw") else { return }
         drawRequests += 1
         ghostty_surface_refresh(surface)
     }
