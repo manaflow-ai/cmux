@@ -590,6 +590,68 @@ fn a_known_request_reads_no_git_head_and_sends_each_stale_directory_to_the_refre
     session.end();
 }
 
+/// A request with no `known` comes from a client that holds no tree: a command that prints the
+/// tree one time and asks no second time. Its reply is all that the client gets, so a branch
+/// switched with no event must be in it: the request reads the HEAD of each directory that a tab
+/// shows and whose cached value is older than 2 seconds, on its own thread, before the reply.
+/// A cached directory that no tab shows now is not read.
+#[test]
+fn a_request_with_no_known_tree_reads_each_stale_git_head_in_its_reply() {
+    let session = Session::of("list-counts-no-known-stale", 3);
+    let mux = &session.mux;
+    let (moving, still) =
+        (session.repository("moving", "main"), session.repository("still", "main"));
+    // Terminals 0 and 2 are below `moving`, terminal 1 is below `still`.
+    session.give_directories(&[moving.clone(), still]);
+    let render = Arc::new(RenderService::new());
+    let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
+    let first = app.list(mux);
+    assert_eq!(first.matches("\"git_branch\":\"main\"").count(), 3, "{}", start_of(&first));
+
+    // Terminal 2 moves to another directory of `moving`: the cache keeps the value of the
+    // directory that it left, and no tab shows that directory now.
+    let elsewhere = moving.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let runtime = mux.surface(session.surfaces[2]).unwrap();
+    runtime.commit_published_directory(Some(elsewhere.to_string_lossy().into_owned()));
+
+    // Each form of the request with no `known`: the shared tree text of a local connection, the
+    // reply with `limit`, and the reply value that a remote client gets.
+    let forms: [(&str, &dyn Fn() -> String); 3] = [
+        ("the tree text", &|| app.list(mux)),
+        ("with limit", &|| {
+            app.command(mux, json!({"id": 1, "cmd": "list-workspaces", "limit": 3}))
+        }),
+        ("the reply value", &|| {
+            cmd_workspaces::list_workspaces(mux, app.client, None, None, None).unwrap().to_string()
+        }),
+    ];
+    let mut seen = Vec::new();
+    for (round, (form, request)) in forms.iter().enumerate() {
+        // The branch of `moving` changes with no change of a directory and no event.
+        let branch = format!("next-{round}");
+        set_branch(&moving, &branch);
+        assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+        let before = Mux::git_head_reads_on_this_thread();
+        let reply = request();
+        let reads = Mux::git_head_reads_on_this_thread() - before;
+        let new = reply.matches(&format!("\"git_branch\":\"{branch}\"")).count();
+        let old = reply.matches("\"git_branch\":\"main\"").count();
+        seen.push((*form, new, old, reads));
+    }
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
+    assert_eq!(
+        seen,
+        vec![("the tree text", 2, 1, 3), ("with limit", 2, 1, 3), ("the reply value", 2, 1, 3)],
+        "for each form of a list-workspaces request with no `known`, after a branch switch in \
+         the repository of 2 of the 3 terminals and with each cached value older than 2 seconds: \
+         the tabs of the reply with the new branch, the tabs with the branch that did not \
+         change, and the git HEAD reads on the thread of the request (one for each directory \
+         that a tab shows; the cached directory that no tab shows is not read)"
+    );
+    session.end();
+}
+
 /// A v2 reply was made from its text: the message was written, parsed, changed and written a
 /// second time (`send_control`). It is now changed as a value and written one time
 /// (`send_control_value`). Each connection gets the same bytes from the two.
