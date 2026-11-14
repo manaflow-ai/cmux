@@ -118,6 +118,13 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
 }
 
 extension AgentPaneNewTab {
+    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    public func showingApp(_ app: String?) -> AgentPaneNewTab {
+        var page = self
+        page.app = app
+        return page
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.

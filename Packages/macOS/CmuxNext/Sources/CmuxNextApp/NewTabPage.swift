@@ -256,13 +256,6 @@ extension PaneController {
 
 extension AgentPaneNewTab {
     /// The page with Integrate a harness off when it was dismissed for good.
-    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
-    func showingApp(_ app: String?) -> AgentPaneNewTab {
-        var page = self
-        page.app = app
-        return page
-    }
-
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
