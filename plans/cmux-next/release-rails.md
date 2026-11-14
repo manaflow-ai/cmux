@@ -348,14 +348,13 @@ deploy-staging and on `workflow_dispatch target=promote`:
   candidate, runs `deploy-worker.sh production` with `CMUX_DEPLOY_NO_SECRETS=1
   CMUX_RELEASE_PROMOTE=1` (production keeps its own secrets; CI sends none), then the
   worker-release smoke (a red smoke rolls back).
-- **Journey rollback gate.** `journey-baseline-production` runs the Cloud journey on production
-  right before the promote with the model stub (`JOURNEY_PHASE=baseline`, never a real Claude
-  login: a used-up test-account quota must never roll back a deploy, as the first automatic
-  promote's real-model journey showed on 2026-11-14). `journey-production` runs it again after
-  (`JOURNEY_PHASE=after`); a step green before and red after (exit 3, after the script's own
-  second run) runs **rollback-after-journey**: `prod-promote.ts rollback --execute`, only while
-  production still serves the promoted commit. The real-model journey then runs as proof and
-  never rolls back.
+- **Journey rollback gate** (in `journey-production`, no extra job). After a promote it runs the
+  Cloud journey on production with the model stub, never a real Claude login (a used-up
+  test-account quota must never roll back a deploy, as the 06acc4475450 promote's real-model
+  journey showed on 2026-11-14). A stub journey red after the script's own second run, when the
+  newest hourly stub journey on production before the promote (cloud-journey-prod.yml) was
+  green, rolls back: `prod-promote.ts rollback --execute`, only while production still serves
+  the promoted commit. The real-model journey then runs as proof and never rolls back.
   After a rollback, `gates` holds the rolled-back commit and anything not newer than it; the next
   newer staging-proven commit promotes itself after the 6 h spacing. The Chief off switch still
   holds every automatic promote until an exact-SHA promote.
