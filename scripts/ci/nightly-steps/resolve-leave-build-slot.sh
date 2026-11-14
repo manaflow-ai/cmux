@@ -14,14 +14,14 @@
 # Env: TIP_SHA, REPOSITORY, GH_TOKEN; LOOP_RETRY (nightly_next_loop_retry); SUPERSEDE_SKIP (vars.NIGHTLY_NEXT_SUPERSEDE_SKIP,
 # a push run leaves without waiting only with 1); YIELD_STALE_MINUTES (5), YIELD_MINUTES (6), YIELD_POLL_SECONDS (15).
 set -euo pipefail
-head_of() { gh api "repos/$REPOSITORY/git/ref/heads/$1" --jq .object.sha 2>/dev/null || true; }
+next_head() { gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha 2>/dev/null || true; }
 moved() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != "$TIP_SHA" ]]; }
 leave() {
   echo "superseded=true" >> "$GITHUB_OUTPUT"
   echo "::notice title=Superseded::nightly-next moved from $TIP_SHA to $1; the newer push's run builds it"
   exit 0
 }
-current="$(head_of nightly-next)"
+current="$(next_head)"
 if moved "$current" && [[ -n "${LOOP_RETRY:-}" || "${SUPERSEDE_SKIP:-}" == 1 ]]; then
   leave "$current"
 fi
@@ -33,7 +33,7 @@ elif created="$(gh api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}" --jq
   && (( waited >= ${YIELD_STALE_MINUTES:-5} )); then
   stale="a push run that waited $waited min for the build slot"
 fi
-tip="$(head_of feat-cmux-next)"
+tip="$(gh api "repos/$REPOSITORY/git/ref/heads/feat-cmux-next" --jq .object.sha 2>/dev/null || true)"
 if [[ -z "$stale" || ! "$tip" =~ ^[0-9a-f]{40}$ || "$tip" == "$TIP_SHA" ]]; then
   echo "superseded=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -41,7 +41,7 @@ fi
 echo "$stale, and feat-cmux-next is at $tip: waiting up to ${YIELD_MINUTES:-6} min for the tick to promote the newest buildable commit"
 deadline=$(( $(date -u +%s) + ${YIELD_MINUTES:-6} * 60 ))
 while (( $(date -u +%s) < deadline )); do
-  current="$(head_of nightly-next)"
+  current="$(next_head)"
   moved "$current" && leave "$current"
   sleep "${YIELD_POLL_SECONDS:-15}"
 done

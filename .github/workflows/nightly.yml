@@ -3333,7 +3333,6 @@ jobs:
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
-        timeout-minutes: 9
         env:
           GH_TOKEN: ${{ github.token }}
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
