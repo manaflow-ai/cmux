@@ -79,8 +79,9 @@ export function usePrecomputedFingerprint(): [
 /// so the reader does not look at an old diff after coming back. One return is one `refresh`: the
 /// page was away before it (it lost the focus or was hidden, or the window has no focus yet). When
 /// the session host has the read at a return (it was replaced), that return runs `refresh` one time
-/// and each later return compares again; the timer starts again when the page next loses or gets
-/// the focus. Refresh in the toolbar works as before.
+/// (or, when `canRefresh` is false, the result is true: the shown diff can be an old one) and each
+/// later return compares again; the timer starts again with that load, or when the page next loses
+/// or gets the focus. Refresh in the toolbar works as before.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -131,13 +132,16 @@ export function useDiffFreshness(
         latest.current.onUnavailable?.(undefined);
         if (unsupported.current) {
           // The session host has the read now. The shown diff has no digits of its own, so it is
-          // loaded one time more, and `now` is the baseline of the next checks. No timer starts
-          // here: the next `schedule` (the page loses or gets the focus, or is shown) starts it.
+          // loaded one time more, and `now` is the baseline of the next checks. When a load would
+          // lose a draft, the notice says that the shown diff can be an old one. No timer starts
+          // here: the load's new generation starts it, or the next `schedule` (the page loses or
+          // gets the focus, or is shown).
           unsupported.current = false;
           if (first) consumed.current = precomputedKey;
           first = false;
           baseline.current = now;
           if (latest.current.canRefresh()) latest.current.refresh();
+          else setStale({ generation, read });
           return;
         }
         const reconcile = first ? latest.current.reconcile : undefined;
@@ -154,6 +158,9 @@ export function useDiffFreshness(
       } catch (error) {
         if (!current || !isPageError(error)) return;
         if (error.code === FINGERPRINT_UNSUPPORTED) {
+          // The machine is connected (its session host is only older than the read): a reason
+          // from a time when it was not connected is no longer true.
+          latest.current.onUnavailable?.(undefined);
           // Nothing was sent: stop the timer, and reload when this is a return from time away.
           unsupported.current = true;
           clearInterval(timer);
