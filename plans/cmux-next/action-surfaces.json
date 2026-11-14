@@ -29653,6 +29653,37 @@
       "args" : [
 
       ],
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-board-show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentBoard.show",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Agent Board",
+      "title_key" : "action.agentBoard.show",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "liveInput",
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",
@@ -30341,7 +30372,13 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "`",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "palette.toggleTerminalChat",
       "main_menu" : null,
       "mcp" : "guiOnly",

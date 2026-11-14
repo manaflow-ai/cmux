@@ -89,6 +89,22 @@ import Testing
         #expect(calls == ["4:detach", "4:attach"])
     }
 
+    /// NIGHTLY 23c9f5a, 2026-11-11 01:22:39Z: a display change made AppKit adjust the window to its screen, which
+    /// starts a live resize; the detach it caused hung the main thread 2.3 s in Chromium's display observer. A live
+    /// resize no person drives keeps the page attached, and a drag that follows still detaches.
+    @Test func aLiveResizeNobodyDrivesKeepsThePageAttached() {
+        let hosting = hostedPage()
+        hosting.windowLiveResize(active: true, byPerson: false)
+        #expect(calls.isEmpty, "a display change's frame adjustment detaches nothing")
+        #expect(!hosting.isDetached)
+        hosting.windowLiveResize(active: false)
+        #expect(calls.isEmpty)
+        hosting.resizeMotion(active: true)
+        #expect(calls == ["4:detach"], "the next divider drag detaches as before")
+        hosting.resizeMotion(active: false)
+        #expect(calls == ["4:detach", "4:attach"])
+    }
+
     @Test func belowForkAPI30NothingReachesTheFork() {
         let hosting = hostedPage(fork: CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }))
         hosting.resizeMotion(active: true)

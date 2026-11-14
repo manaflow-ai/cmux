@@ -28,13 +28,16 @@ enum ThemePhone {
 
     /// The appearance of `input` and `tokens` (the app store's), with the tint the windows lay
     /// over a picture. Under Art Color the accent the windows show is sent as the theme's own.
-    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double) -> MobileHostAppearance {
+    /// `terminal`: the Ghostty config's terminal theme lines (``ThemeStore/terminalConfigLines``),
+    /// which the phone's terminals load whatever the chrome shows.
+    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double,
+                           terminal: [String] = []) -> MobileHostAppearance {
         MobileHostAppearance(
             background: hex(input.background), foreground: hex(input.foreground), palette: input.palette.map(hex),
             selectionBackground: input.selectionBackground.map(hex), selectionForeground: input.selectionForeground.map(hex),
             cursor: input.cursor.map(hex), accent: accentFollowsArt ? "art" : input.accent.rawValue,
             accentColor: accentFollowsArt ? hex(tokens.accent) : input.accentColor.map(hex),
-            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint)
+            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint, terminal: terminal)
     }
 
     /// What the app's scope shows now (observed: the store's colors and its picture's revision).
@@ -44,7 +47,8 @@ enum ThemePhone {
         let tokens = store.tokens
         let selection = scope.backdropSelection
         let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        let appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint)
+        let appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
+                                    terminal: store.terminalConfigLines)
         let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
         return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
     }

@@ -111,6 +111,41 @@ public struct LiveAPI: Sendable {
         public var requestID: String? = nil
     }
 
+    /// `POST /v1/diagnostics/connectivity-incidents` (PROTOCOL.md "Connectivity incidents"): one state
+    /// of a major connectivity incident, for the cmux team's Slack. The service checks the account.
+    /// Returns the service's `note` (why it was not posted: `mac_restarted`, `mac_asleep`, …), nil when posted.
+    @discardableResult
+    public func reportConnectivityIncident(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) async throws -> String? {
+        struct Reply: Decodable { var note: String? }
+        let data = try await call("POST", "v1/diagnostics/connectivity-incidents", body: Self.incidentBody(incident, simulations: simulations, app: app))
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.note
+    }
+
+    /// The JSON body of a connectivity incident report.
+    static func incidentBody(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) -> [String: Any] {
+        let iso = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        var body: [String: Any] = [
+            "id": incident.id,
+            "kind": incident.kind.rawValue,
+            "state": incident.state.rawValue,
+            "startedAt": incident.startedAt.formatted(iso),
+            "observedAt": incident.observedAt.formatted(iso),
+            "durationMs": Int((incident.duration * 1000).rounded()),
+            "mac": ["id": incident.macID, "name": incident.macName],
+            "app": ["version": app.version, "build": app.build, "config": app.config, "simulator": app.simulator],
+            "device": ["model": app.model, "os": app.os],
+        ]
+        if let endReason = incident.endReason { body["endReason"] = endReason.rawValue }
+        if let attempts = incident.attempts { body["attempts"] = attempts }
+        if let drops = incident.drops { body["drops"] = drops }
+        if let lastError = incident.lastError, !lastError.isEmpty { body["lastError"] = String(lastError.prefix(300)) }
+        if let transport = incident.transport { body["transport"] = transport.lowercased() }
+        if let reachable = incident.serviceReachable { body["serviceReachable"] = reachable }
+        if let network = incident.network { body["network"] = network }
+        if !simulations.isEmpty { body["simulations"] = simulations }
+        return body
+    }
+
     /// `POST /v1/devices` (upsert).
     public func registerDevice(id: String, kind: String, name: String, teamID: String) async throws {
         let body: [String: Any] = ["deviceId": id, "kind": kind, "name": name, "teamId": teamID]
