@@ -570,11 +570,12 @@ impl Link {
         delay
     }
 
-    /// Down a day or more without a successful handshake: automatic retries are hourly
-    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    /// Down a day or more without a successful handshake, and not trying one now: automatic
+    /// retries are hourly (`parked` on the wire), and a list shows it as gone quiet rather than
+    /// failing. A link whose WebSocket is open is retrying this moment, so it is not parked
+    /// while that handshake runs.
     pub fn parked(&self, now: u64) -> bool {
-        !self.is_ready()
-            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+        !self.open && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
     }
 
     /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
