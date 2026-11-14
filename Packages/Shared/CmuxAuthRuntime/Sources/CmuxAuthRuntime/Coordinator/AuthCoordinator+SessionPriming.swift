@@ -123,25 +123,10 @@ extension AuthCoordinator {
         let storeWriteHighWater = tokenStoreWriteHighWater
 
         let cachedUser = loadCachedUser()
-        // The keychain token store (AfterFirstUnlock protection) becomes
-        // readable exactly once per boot, at the first unlock, and never
-        // regresses while this process lives; an unavailable report can only
-        // under-state readability. Snapshot before token reads so a first
-        // unlock that lands while the token probe is suspended cannot make a
-        // nil locked read look like a definitive empty store.
-        let tokenStorageWasAvailable = await isTokenStorageAvailable()
-        guard generation == sessionGeneration else { return }
-        // accessToken() may refresh over the network; a sign-out can land
-        // while these reads are parked, so bound the probe and re-check the
-        // generation after. A timeout preserves the cached identity instead of
-        // leaving launch behind "Restoring session".
-        let hasStoredTokens: Bool
+        let storedTokens: AuthStoredTokenRead
         do {
-            let client = self.client
-            hasStoredTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                let hasAccessToken = await client.accessToken() != nil
-                let hasRefreshToken = await client.refreshToken() != nil
-                return hasAccessToken || hasRefreshToken
+            storedTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                await self.readTokensForSessionCheck(includeAccessToken: true)
             }
         } catch {
             guard generation == sessionGeneration else { return }
@@ -150,6 +135,7 @@ extension AuthCoordinator {
             return
         }
         guard generation == sessionGeneration else { return }
+        let hasStoredTokens = storedTokens.accessToken != nil || storedTokens.refreshToken != nil
 
         #if DEBUG
         if launch.mockDataEnabled { return }
@@ -181,16 +167,7 @@ extension AuthCoordinator {
         }
         #endif
 
-        if hasStoredTokens {
-            sessionCache.setHasTokens(true)
-            if currentUser == nil, let cachedUser {
-                currentUser = cachedUser
-            }
-            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
-            return
-        }
-
-        if !tokenStorageWasAvailable {
+        if !storedTokens.isAvailable {
             authLog.info("Token storage unavailable during session restore; preserving cached session")
             preserveCachedSessionAfterValidationFailure()
             if retryOnStorageAvailable {
@@ -205,6 +182,15 @@ extension AuthCoordinator {
                     await checkExistingSessionBody(retryOnStorageAvailable: false)
                 }
             }
+            return
+        }
+
+        if hasStoredTokens {
+            sessionCache.setHasTokens(true)
+            if currentUser == nil, let cachedUser {
+                currentUser = cachedUser
+            }
+            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
 
@@ -284,10 +270,15 @@ extension AuthCoordinator {
             authLog.info("Cached session validation returned no current user")
             // Snapshot the dead session's refresh token right before the
             // clear so the clear can be compare-and-clear at the token store.
-            let expectedRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                await client.refreshToken()
+            let storedTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                await self.readTokensForSessionCheck(includeAccessToken: false)
             }
             guard generation == sessionGeneration else { return }
+            guard storedTokens.isAvailable else {
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
+            let expectedRefreshToken = storedTokens.refreshToken
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
@@ -318,11 +309,10 @@ extension AuthCoordinator {
                 preserveCachedSessionAfterValidationFailure()
                 return
             }
-            let survivingRefreshToken: String?
+            let survivingTokens: AuthStoredTokenRead
             do {
-                let client = self.client
-                survivingRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                    await client.refreshToken()
+                survivingTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                    await self.readTokensForSessionCheck(includeAccessToken: false)
                 }
             } catch {
                 authLog.error("Session refresh-token check failed: \(error.localizedDescription, privacy: .private)")
@@ -330,7 +320,17 @@ extension AuthCoordinator {
                 return
             }
             guard generation == sessionGeneration else { return }
-            if survivingRefreshToken == nil {
+            if survivingTokens.refreshToken == nil {
+                // An empty read is only a verdict when the store could answer
+                // it. A Keychain that locked after restore's reads (sleep,
+                // screen lock) returns nil for a token that is still stored;
+                // clearing here would delete it. Keep the cached session and
+                // let the next revalidation decide.
+                if !survivingTokens.isAvailable {
+                    authLog.info("Token storage unavailable while checking the refresh token after a failed validation; preserving cached session")
+                    preserveCachedSessionAfterValidationFailure()
+                    return
+                }
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
@@ -352,7 +352,7 @@ extension AuthCoordinator {
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: survivingRefreshToken
+                    expectedRefreshToken: survivingTokens.refreshToken
                 )
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()

@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -9,20 +10,51 @@ actor LockedStorageAuthClient: AuthClient {
     private var user: CMUXAuthUser?
     private var locked: Bool
     private var lockedTokenReadsRemaining: Int
+    private let locksReadsFrom: Int?
+    private var tokenReadCount = 0
+    private let currentUserError: (any Error)?
     private(set) var clearLocalSessionCallCount = 0
+    private var pauseRefreshReadAfter: Int?
+    private var pausedRefreshRead: CheckedContinuation<Void, Never>?
+    private var refreshReadPaused = false
+    private var refreshReadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var interruptedReads = 0
+
+    func pauseRefreshRead(after count: Int) { pauseRefreshReadAfter = count }
+
+    func waitForPausedRefreshRead() async {
+        if refreshReadPaused { return }
+        await withCheckedContinuation { refreshReadWaiters.append($0) }
+    }
+
+    func resumeRefreshRead() {
+        pausedRefreshRead?.resume()
+        pausedRefreshRead = nil
+    }
+
+    func readStoredTokens() async -> (access: String?, refresh: String?, available: Bool) {
+        let interruptedBefore = interruptedReads
+        let access = await storedAccessToken()
+        let refresh = await refreshToken()
+        return (access, refresh, interruptedBefore == interruptedReads)
+    }
 
     init(
         access: String? = nil,
         refresh: String? = nil,
         user: CMUXAuthUser? = nil,
         locked: Bool,
-        locksFirstReads: Int = 0
+        locksFirstReads: Int = 0,
+        locksReadsFrom: Int? = nil,
+        currentUserError: (any Error)? = nil
     ) {
         self.access = access
         self.refresh = refresh
         self.user = user
         self.locked = locked
         self.lockedTokenReadsRemaining = locksFirstReads
+        self.locksReadsFrom = locksReadsFrom
+        self.currentUserError = currentUserError
     }
 
     func unlock() {
@@ -31,6 +63,10 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     private func tokenReadIsLocked() -> Bool {
+        defer { tokenReadCount += 1 }
+        if let locksReadsFrom, tokenReadCount >= locksReadsFrom {
+            return true
+        }
         if locked {
             return true
         }
@@ -46,7 +82,17 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     func refreshToken() async -> String? {
-        tokenReadIsLocked() ? nil : refresh
+        if let pauseRefreshReadAfter, tokenReadCount >= pauseRefreshReadAfter {
+            self.pauseRefreshReadAfter = nil
+            interruptedReads += 1
+            refreshReadPaused = true
+            let waiters = refreshReadWaiters
+            refreshReadWaiters = []
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { pausedRefreshRead = $0 }
+            return nil
+        }
+        return tokenReadIsLocked() ? nil : refresh
     }
 
     func forceRefreshAccessToken() async -> String? {
@@ -54,7 +100,8 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
-        user
+        if let currentUserError { throw currentUserError }
+        return user
     }
 
     func listTeams() async throws -> [CMUXAuthTeam] {
@@ -107,10 +154,12 @@ actor LockedStorageAuthClient: AuthClient {
 actor TokenStorageAvailabilityProbe {
     private var available: Bool
     private var unavailableReadsRemaining: Int
+    private var scriptedResults: [Bool]
 
-    init(available: Bool, unavailableFirstReads: Int = 0) {
+    init(available: Bool, unavailableFirstReads: Int = 0, scriptedResults: [Bool] = []) {
         self.available = available
         self.unavailableReadsRemaining = unavailableFirstReads
+        self.scriptedResults = scriptedResults
     }
 
     func setAvailable(_ available: Bool) {
@@ -118,6 +167,9 @@ actor TokenStorageAvailabilityProbe {
     }
 
     func isAvailable() -> Bool {
+        if !scriptedResults.isEmpty {
+            return scriptedResults.removeFirst()
+        }
         if unavailableReadsRemaining > 0 {
             unavailableReadsRemaining -= 1
             return false
@@ -131,13 +183,18 @@ actor TokenStorageAvailabilityProbe {
     private func makeCoordinator(
         client: LockedStorageAuthClient,
         cachedUser: CMUXAuthUser,
-        availability: TokenStorageAvailabilityProbe
+        availability: TokenStorageAvailabilityProbe,
+        atomicReads: Bool = false
     ) throws -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
         let userCache = CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user")
         sessionCache.setHasTokens(true)
         try userCache.save(cachedUser)
+        let atomicRead: @Sendable () async -> AuthStoredTokenRead = {
+            let read = await client.readStoredTokens()
+            return AuthStoredTokenRead(accessToken: read.access, refreshToken: read.refresh, isAvailable: read.available)
+        }
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -146,9 +203,33 @@ actor TokenStorageAvailabilityProbe {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            isTokenStorageAvailable: { await availability.isAvailable() }
+            isTokenStorageAvailable: { await availability.isAvailable() },
+            readStoredTokens: atomicReads ? atomicRead : nil
         )
         return (coordinator, store)
+    }
+
+    @Test func concurrentAvailabilityConsumerCannotEraseFailedRefreshRead() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access", refresh: "refresh", locked: false,
+            currentUserError: StackAuthError(code: "USER_NOT_SIGNED_IN", message: "User is not signed in.")
+        )
+        await client.pauseRefreshRead(after: 2)
+        let availability = TokenStorageAvailabilityProbe(available: true)
+        let (coordinator, store) = try makeCoordinator(client: client, cachedUser: cachedUser, availability: availability, atomicReads: true)
+        coordinator.start()
+        await client.waitForPausedRefreshRead()
+        // The unrelated caller consumes the unavailable result, then storage unlocks.
+        await availability.setAvailable(false)
+        _ = try? await coordinator.accessToken()
+        await availability.setAvailable(true)
+        await client.resumeRefreshRead()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.clearLocalSessionCallCount == 0)
     }
 
     @Test func lockedLaunchPreservesCachedSessionAndRevalidatesAfterUnlock() async throws {
@@ -209,6 +290,31 @@ actor TokenStorageAvailabilityProbe {
         #expect(await client.clearLocalSessionCallCount == 0)
     }
 
+    @Test func readBecomingUnavailableAfterSuccessfulProbePreservesCachedSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: nil,
+            locked: false,
+            locksFirstReads: 2
+        )
+        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, false, false])
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: availability
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
+        #expect(await client.clearLocalSessionCallCount == 0)
+    }
+
     @Test func availableEmptyStorageClearsSeededCache() async throws {
         let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
         let client = LockedStorageAuthClient(access: nil, refresh: nil, user: nil, locked: false)
@@ -247,5 +353,38 @@ actor TokenStorageAvailabilityProbe {
         await #expect(throws: AuthError.unauthorized) {
             _ = try await coordinator.accessToken()
         }
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/25628: `/users/me` fails
+    /// transiently and the Keychain locks before validation re-reads the
+    /// refresh token. The empty read is the lock, not a dead session, so the
+    /// stored session must survive.
+    @Test func lockedRefreshReadAfterFailedValidationPreservesStoredSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: nil,
+            locked: false,
+            // Restore's access and refresh reads succeed; validation's
+            // re-read of the refresh token hits the locked Keychain.
+            locksReadsFrom: 2,
+            currentUserError: StackAuthError(code: "USER_NOT_SIGNED_IN", message: "User is not signed in.")
+        )
+        // Before restore, after restore's reads, after validation's re-read.
+        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, true, false])
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: availability
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(await client.clearLocalSessionCallCount == 0)
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
     }
 }

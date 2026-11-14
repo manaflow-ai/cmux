@@ -21,28 +21,43 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         self.file = file
     }
 
+    // The single-token getters go through `readStoredTokens()` so a
+    // temporarily unreadable Keychain never falls through to a stale file
+    // token (the SDK's refresh path reads with these, not readStoredTokens).
     public func getStoredAccessToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredAccessToken() {
-            return value
-        }
-        let fallbackValue = await file.getStoredAccessToken()
-        if keychainWorks, fallbackValue != nil {
-            keychainWorks = false
-            log.log("keychain read missed file fallback token; switching to file fallback for this session")
-        }
-        return fallbackValue
+        await readStoredTokens().accessToken
     }
 
     public func getStoredRefreshToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredRefreshToken() {
-            return value
-        }
-        let fallbackValue = await file.getStoredRefreshToken()
-        if keychainWorks, fallbackValue != nil {
+        await readStoredTokens().refreshToken
+    }
+
+    /// Reads credentials with the availability of the same primary-store read.
+    /// - Returns: The authoritative file snapshot, or the Keychain read and its status.
+    public func readStoredTokens() async -> AuthStoredTokenRead {
+        guard keychainWorks else { return await file.readStoredTokens() }
+        let primary = await keychain.readStoredTokens()
+        guard keychainWorks else { return await file.readStoredTokens() }
+        if primary.accessToken != nil || primary.refreshToken != nil { return primary }
+        // A temporarily unreadable Keychain is not a miss: its empty answer
+        // must not promote a stale file snapshot or switch later writes to
+        // the file for the rest of the process.
+        guard primary.isAvailable else { return primary }
+        let fallback = await file.readStoredTokens()
+        if fallback.accessToken != nil || fallback.refreshToken != nil {
             keychainWorks = false
             log.log("keychain read missed file fallback token; switching to file fallback for this session")
+            return fallback
         }
-        return fallbackValue
+        // An unreadable file may still hold the session the Keychain lacks.
+        return fallback.isAvailable ? primary : fallback
+    }
+
+    /// Reports current storage availability without consuming another read's status.
+    /// - Returns: Whether the authoritative store can currently answer a token probe.
+    public func isTokenStorageAvailable() async -> Bool {
+        guard keychainWorks else { return true }
+        return await keychain.isReadable()
     }
 
     public func setTokens(accessToken: String?, refreshToken: String?) async {
@@ -82,7 +97,11 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         newAccessToken: String?
     ) async {
         if keychainWorks {
-            if await keychain.getStoredRefreshToken() != compareRefreshToken,
+            // Only a definitive Keychain miss hands the session to the file
+            // store; a locked Keychain's empty read is not a miss.
+            let primary = await keychain.readStoredTokens()
+            if primary.isAvailable,
+               primary.refreshToken != compareRefreshToken,
                await file.getStoredRefreshToken() == compareRefreshToken {
                 keychainWorks = false
                 log.log("keychain compare missed file fallback token; switching to file fallback for this session")
