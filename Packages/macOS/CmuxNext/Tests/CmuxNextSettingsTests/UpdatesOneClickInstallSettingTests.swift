@@ -25,4 +25,16 @@ struct UpdatesOneClickInstallSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["updates.oneClickInstall"] == .userOnly)
         #expect(SettingsSchema.agentSettable(row) == false)
     }
+
+    /// `updates.installAutomatically`: off by default (an update installs only on the person's click,
+    /// Leo 2026-11-11: "I'm not saying it just does it, you know, automatically"); the person may turn
+    /// it on. Agents may not.
+    @Test func installingAutomaticallyIsOffByDefaultAndOnlyThePersonsToTurnOn() throws {
+        let root: JSONValue = .object(["updates": .object(["installAutomatically": .bool(true)])])
+        #expect(!Self.parse(nil).updates.installAutomatically)
+        #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).updates.installAutomatically)
+        let row = try #require(SettingsSchema.all.first { $0.path == UpdatesSettings.installAutomaticallyPath }, "Settings has no row")
+        #expect(row.defaultValue == .bool(false))
+        #expect(SettingsSchema.agentRefusedKeys["updates.installAutomatically"] == .userOnly)
+    }
 }

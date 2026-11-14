@@ -1569,6 +1569,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, cmux restarts into updates with no click: the person's call.",
+      "keys": [
+        "updates.installAutomatically"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, What's New offers Install, which restarts cmux into another build: the person's call.",
       "keys": [
         "updates.whatsNewInstall"

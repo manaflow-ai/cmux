@@ -27,6 +27,7 @@ import Testing
 
     @Test func offByDefault() {
         #expect(!UpdatePreferences.defaults.oneClickInstall, "one click restarts cmux by default")
+        #expect(!UpdatePreferences.defaults.installAutomatically, "updates install with no click by default")
     }
 
     /// The footer's Update Available: one click downloads with its progress, then installs and
@@ -49,6 +50,23 @@ import Testing
 
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
         #expect(await eventually { effects.installs == 1 }, "the staged update waited for a second click")
+    }
+
+    /// `updates.installAutomatically` (opt-in, Leo 2026-11-11: "Maybe I can enable it, right?"): found
+    /// updates download by themselves even with `updates.downloadAutomatically` off, so the staged update
+    /// can install with no click. Off (the default), nothing downloads until the click.
+    @Test func installingAutomaticallyAlsoDownloadsByItself() {
+        let (updater, _) = UpdateAsksBeforeInstallTests.make(UpdateAsksBeforeInstallTests.stable)
+        #expect(!updater.downloadsFoundUpdates, "found updates download by themselves with both settings off")
+        updater.preferences = UpdatePreferences(installAutomatically: true)
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.applyDownloadPolicy()
+        #expect(updater.downloadsFoundUpdates, "automatic install is on but found updates wait for a click to download")
+        #expect(!updater.automaticUpdates, "automatic install turned the download setting's checkbox on")
+        updater.preferences = UpdatePreferences(installAutomatically: false)
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
+        updater.applyDownloadPolicy()
+        #expect(!updater.downloadsFoundUpdates, "turning automatic install off kept downloading by itself")
     }
 
     /// Check for Updates, then the found update card's Update: the same one click.

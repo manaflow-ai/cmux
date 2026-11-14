@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 620,
   "sections": [
     {
       "id": "general",
@@ -1518,6 +1518,14 @@
             "max": 600,
             "unit": "seconds"
           }
+        },
+        {
+          "key": "updates.installAutomatically",
+          "title": "Install Updates Automatically",
+          "help": "Off: an update installs only when you click Update. On: cmux downloads and installs updates by itself, at a moment that interrupts nothing, then restarts. Terminals and agents keep running across the restart.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
         },
         {
           "key": "updates.installOnQuit",

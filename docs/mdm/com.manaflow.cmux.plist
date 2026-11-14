@@ -723,6 +723,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Off: an update installs only when you click Update. On: cmux downloads and installs updates by itself, at a moment that interrupts nothing, then restarts. Terminals and agents keep running across the restart.</string>
+			<key>pfm_name</key>
+			<string>updates.installAutomatically</string>
+			<key>pfm_title</key>
+			<string>Install Updates Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.</string>
 			<key>pfm_name</key>
 			<string>updates.whatsNewInstall</string>

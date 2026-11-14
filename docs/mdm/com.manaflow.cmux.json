@@ -5566,6 +5566,12 @@
       "title" : "Quiet Time Before Installing",
       "type" : "number"
     },
+    "updates.installAutomatically" : {
+      "default" : false,
+      "description" : "Off: an update installs only when you click Update. On: cmux downloads and installs updates by itself, at a moment that interrupts nothing, then restarts. Terminals and agents keep running across the restart.",
+      "title" : "Install Updates Automatically",
+      "type" : "boolean"
+    },
     "updates.installOnQuit" : {
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",

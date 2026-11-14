@@ -272,12 +272,20 @@ extension UpdaterService {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
-        downloadSetting = (downloadAutomatically, metered)
+        // `updates.installAutomatically` (opt-in) needs the download, so it downloads too.
+        let installsAutomatically = preferences.installAutomatically
+        downloadSetting = (downloadAutomatically || installsAutomatically, metered)
         settingsApplied = true
         // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
+        // them. The app restarts on the person's click (the Update button, Restart to Update), unless
+        // they opted in to `updates.installAutomatically`: then a staged update installs by itself at a
+        // moment that cuts nothing off (``updaterDefersAutomaticInstall(until:)``). Leo 2026-11-11: "I
+        // want to click the [...] button, just like how [another app] has this [...] button. Maybe I can
+        // enable it, right?"
+        if let controller, controller.installsUpdatesWhenIdle != installsAutomatically {
+            controller.installsUpdatesWhenIdle = installsAutomatically
+            log.append("automatic install \(installsAutomatically ? "on" : "off")")
+        }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()

@@ -75984,6 +75984,268 @@
         }
       }
     },
+    "settings.updates.installAutomatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Updates Automatically"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates automatisch installieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer les mises à jour automatiquement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت التحديثات تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar actualizaciones automáticamente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動安裝更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动安装更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 자동 설치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを自動的にインストール"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski instaliraj ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer opdateringer automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa aggiornamenti automaticamente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើងបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer oppdateringer automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluj aktualizacje automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar atualizações automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устанавливать обновления автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งอัปเดตโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri otomatik yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлювати оновлення автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động cài đặt bản cập nhật"
+          }
+        }
+      }
+    },
+    "settings.updates.installAutomatically.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: an update installs only when you click Update. On: cmux downloads and installs updates by itself, at a moment that interrupts nothing, then restarts. Terminals and agents keep running across the restart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: Ein Update wird nur installiert, wenn du auf „Aktualisieren“ klickst. Ein: cmux lädt Updates selbst herunter und installiert sie in einem Moment, der nichts unterbricht, und startet dann neu. Terminals und Agenten laufen über den Neustart hinweg weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : une mise à jour ne s’installe que lorsque vous cliquez sur Mettre à jour. Activé : cmux télécharge et installe les mises à jour de lui-même, à un moment qui n’interrompt rien, puis redémarre. Les terminaux et les agents continuent de fonctionner pendant le redémarrage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف: لا يُثبَّت التحديث إلا عند النقر على تحديث. تشغيل: يُنزّل cmux التحديثات ويثبّتها بنفسه في لحظة لا تقاطع شيئًا، ثم يعيد التشغيل. تستمر الطرفيات والوكلاء في العمل عبر إعادة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: una actualización solo se instala al hacer clic en Actualizar. Activado: cmux descarga e instala las actualizaciones por sí solo, en un momento que no interrumpe nada, y luego se reinicia. Los terminales y agentes siguen funcionando durante el reinicio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：只有按一下「更新」時才會安裝更新。開啟：cmux 會在不打斷任何操作的時刻自行下載並安裝更新，然後重新啟動。終端機和代理程式在重新啟動期間會持續執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：只有点击“更新”时才会安装更新。打开：cmux 会在不打断任何操作的时刻自行下载并安装更新，然后重新启动。终端和代理在重新启动期间保持运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 업데이트를 클릭할 때만 업데이트가 설치됩니다. 켬: cmux가 아무것도 방해하지 않는 순간에 업데이트를 직접 다운로드하고 설치한 뒤 재시작합니다. 터미널과 에이전트는 재시작 중에도 계속 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: アップデートは「アップデート」をクリックしたときだけインストールされます。オン: cmux が何も中断しないタイミングでアップデートを自動的にダウンロードしてインストールし、再起動します。ターミナルとエージェントは再起動中も動作し続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: ažuriranje se instalira samo kada kliknete Ažuriraj. Uključeno: cmux sam preuzima i instalira ažuriranja u trenutku kada ništa ne prekida, a zatim se ponovo pokreće. Terminali i agenti nastavljaju raditi kroz ponovno pokretanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: en opdatering installeres kun, når du klikker på Opdater. Til: cmux henter og installerer selv opdateringer på et tidspunkt, hvor intet afbrydes, og genstarter derefter. Terminaler og agenter kører videre under genstarten."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: un aggiornamento si installa solo quando fai clic su Aggiorna. Attivato: cmux scarica e installa gli aggiornamenti da solo, in un momento che non interrompe nulla, poi si riavvia. Terminali e agenti continuano a funzionare durante il riavvio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ បច្ចុប្បន្នភាពត្រូវបានដំឡើងតែនៅពេលអ្នកចុច ធ្វើបច្ចុប្បន្នភាព។ បើក៖ cmux ទាញយក និងដំឡើងបច្ចុប្បន្នភាពដោយខ្លួនឯង នៅពេលដែលមិនរំខានអ្វីទាំងអស់ រួចចាប់ផ្ដើមឡើងវិញ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការពេលចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: en oppdatering installeres bare når du klikker på Oppdater. På: cmux laster ned og installerer oppdateringer selv, i et øyeblikk som ikke avbryter noe, og starter deretter på nytt. Terminaler og agenter fortsetter å kjøre gjennom omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: aktualizacja instaluje się tylko po kliknięciu Aktualizuj. Włączone: cmux sam pobiera i instaluje aktualizacje w chwili, która niczego nie przerywa, a potem uruchamia się ponownie. Terminale i agenci działają dalej podczas ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: uma atualização só é instalada quando você clica em Atualizar. Ativado: o cmux baixa e instala as atualizações sozinho, em um momento que não interrompe nada, e depois reinicia. Terminais e agentes continuam em execução durante a reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл.: обновление устанавливается только по нажатию «Обновить». Вкл.: cmux сам загружает и устанавливает обновления в момент, когда ничего не прерывается, а затем перезапускается. Терминалы и агенты продолжают работать во время перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: อัปเดตจะติดตั้งเมื่อคุณคลิก อัปเดต เท่านั้น เปิด: cmux จะดาวน์โหลดและติดตั้งอัปเดตเองในช่วงที่ไม่ขัดจังหวะสิ่งใด แล้วเริ่มใหม่ เทอร์มินัลและเอเจนต์ยังคงทำงานต่อระหว่างการเริ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: güncelleme yalnızca Güncelle'ye tıkladığınızda yüklenir. Açık: cmux güncellemeleri hiçbir şeyi kesmeyen bir anda kendisi indirip yükler, ardından yeniden başlar. Terminaller ve ajanlar yeniden başlatma boyunca çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк.: оновлення встановлюється лише після натискання «Оновити». Увімк.: cmux сам завантажує та встановлює оновлення в момент, коли нічого не переривається, а потім перезапускається. Термінали й агенти продовжують працювати під час перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: bản cập nhật chỉ được cài khi bạn bấm Cập nhật. Bật: cmux tự tải xuống và cài đặt bản cập nhật vào lúc không làm gián đoạn gì, rồi khởi động lại. Terminal và tác nhân vẫn tiếp tục chạy qua lần khởi động lại."
+          }
+        }
+      }
+    },
     "settings.updates.installOnQuit": {
       "extractionState": "manual",
       "localizations": {

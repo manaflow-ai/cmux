@@ -18,6 +18,9 @@ extension UpdatesSettings {
     /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
     public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
     public nonisolated static let oneClickInstallDefault = false
+    /// `updates.installAutomatically`: Opt-in: found updates download and install with no click, at a moment that cuts nothing off (no modal, sheet, open menu or text mid-composition), then cmux restarts; an app in the background reopens behind the app in front. Off by default: an update installs only on the person's click (Leo 2026-11-11: "Like I'm not saying it just does it, you know, automatically, as in I don't have to click a button. I want to click the freaking button... Maybe I can enable it, right?").
+    public nonisolated static let installAutomaticallyPath = ["updates", "installAutomatically"]
+    public nonisolated static let installAutomaticallyDefault = false
     /// `updates.whatsNewInstall`: What's New's Versions list offers Install on each build (Leo 2026-11-05: "Like literally with a click to a past nightly", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.
     public nonisolated static let whatsNewInstallPath = ["updates", "whatsNewInstall"]
     public nonisolated static let whatsNewInstallDefault = false
@@ -123,6 +126,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.oneClickInstallDefault),
                 keywords: ["update", "install", "restart", "relaunch", "one click"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.installAutomaticallyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.installAutomatically", "Install Updates Automatically"),
+                help: SettingsText.keyed("settings.updates.installAutomatically.help", "Off: an update installs only when you click Update. On: cmux downloads and installs updates by itself, at a moment that interrupts nothing, then restarts. Terminals and agents keep running across the restart."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.installAutomaticallyDefault),
+                keywords: ["update", "install", "automatic", "restart", "relaunch"]
             ),
             SettingDescriptor(
                 UpdatesSettings.whatsNewInstallPath,
