@@ -58,6 +58,7 @@ book_gates() {
   run_book pr05f_deep_page
   run_book pr05f_equal_entry
   run_book v2_pr03c_
+  run_book v2_pr03d_
 }
 run_group acpmux-book book_gates
 
