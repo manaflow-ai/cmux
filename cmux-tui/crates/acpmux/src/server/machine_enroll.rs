@@ -117,6 +117,7 @@ async fn reconcile_relay(
             return "running";
         }
         if let Some(old) = slot.take() {
+            // timeout: a relay that will not stop is dropped; the new one starts regardless.
             let _ = tokio::time::timeout(std::time::Duration::from_secs(6), old.stop()).await;
         }
     }
@@ -188,6 +189,7 @@ async fn stop_joined(hub: &Arc<Hub>) {
     hub.config.write().await.mesh_relay = None;
     let relay = hub.mesh_relay.lock().await.take();
     if let Some(relay) = relay {
+        // timeout: a relay that will not stop is dropped; the leave goes on regardless.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
     hub.mesh.clear();
@@ -319,12 +321,14 @@ pub(crate) async fn stop_at_shutdown(hub: &Arc<Hub>) {
     }
     // timeout: an enroll's hub calls are bounded, but shutdown does not wait on them for long.
     let _join = tokio::time::timeout(
+        // timeout: shutdown waits at most this long for an enroll in progress.
         std::time::Duration::from_secs(10),
         Arc::clone(&hub.join_transition).lock_owned(),
     )
     .await;
     let relay = hub.mesh_relay.lock().await.take();
     if let Some(relay) = relay {
+        // timeout: shutdown does not wait on a relay that will not stop.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
 }

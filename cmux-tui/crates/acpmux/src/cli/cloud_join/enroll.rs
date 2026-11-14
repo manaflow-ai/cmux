@@ -344,6 +344,7 @@ pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
             {
                 return lock;
             }
+            // timeout: short-gate: the step between tries at the join lock; LOCK_WAIT bounds the wait.
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     };
@@ -677,6 +678,7 @@ pub(crate) async fn enroll_self(
 }
 
 /// How long a leave waits for the hub's answer to its revoke; past it, the row is recorded stale.
+// timeout: a leave never hangs on the hub; past it the row is recorded stale and revoked later.
 const REVOKE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The hub's answer to this machine revoking itself, waited for at most [`REVOKE_WAIT`].
@@ -1754,6 +1756,7 @@ mod tests {
         let leave = leave_marked(home, Some("box-a"), false, |_| {
             std::future::pending::<leave::HubAnswer>()
         });
+        // timeout: short-gate: a test's bound on a leave that must stop at a revoke that never answers.
         let stop = tokio::time::timeout(std::time::Duration::from_millis(300), leave).await;
         assert!(stop.is_err(), "the leave stops at its revoke");
         assert!(!load_at(home).unwrap().unwrap().revoked);

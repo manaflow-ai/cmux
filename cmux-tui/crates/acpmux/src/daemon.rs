@@ -177,6 +177,10 @@ fn is_test_panic_thread(thread: &str) -> bool {
     }
 }
 
+/// How often a WireGuard transport that holds the key lock asks whether the cmux link now
+/// serves the node key (`Transport::yield_to_link`): a few file reads.
+const LINK_HANDOFF_EVERY: Duration = Duration::from_secs(2);
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 /// The complete handoff budget after the daemon has announced shutdown. Remote links and
@@ -563,6 +567,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Err(e) => {
             // The copied node key could not be replaced: keep this box off WireGuard for this
             // run rather than answer with the original's identity.
+            // Includes a node key recorded as copied (a leave removed the record).
             let copied = crate::cli::cloud_join::copied_from_another_box();
             tracing::warn!(copied, "machine clone check failed: {e:#}");
             copied
@@ -582,6 +587,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     } else {
         None
     };
+    // Started before the cmux link was set up here, the transport holds this machine's key
+    // lock: it hands it to the link once one serves this home's node key (`cmux link ensure`
+    // waits for it, `key_lock.rs`).
+    if let Some(transport) = wireguard.clone() {
+        tokio::spawn(async move {
+            transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
+        });
+    }
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     if let Some(v2) = v2.as_ref() {

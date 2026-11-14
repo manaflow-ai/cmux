@@ -194,6 +194,7 @@ mod tests {
             cloned: false,
             joined_by: None,
             capabilities: None,
+            cloned_on: None,
         };
         let identity = MachineIdentity::from_record(&credential);
         let result = render(State {
