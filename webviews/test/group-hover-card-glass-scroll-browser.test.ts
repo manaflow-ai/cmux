@@ -210,7 +210,7 @@ await requireBrowserLane("group-hover-card-glass-scroll-browser.test.ts", async 
                 second: (() => {
                   const second = popup.querySelectorAll(".cv-group-hover__thread")[1]?.getBoundingClientRect();
                   const card = popup.getBoundingClientRect();
-                  return !!second && second.top >= card.top - 1 && second.top < card.bottom;
+                  return !!second && second.bottom > card.top + 1 && second.top < card.bottom - 1;
                 })(),
               }
             : null;
