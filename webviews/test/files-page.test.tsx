@@ -218,7 +218,9 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   }) as typeof provider.call;
   const settle = (reject: boolean, message = "gone") => {
     const attempt = pending.shift()!;
-    if (reject) attempt.reject(pageError("test.open_failed", message));
+    // The file tree's owner words an open failure for the person (FileTreeStrings), so the
+    // notice shows it and this test can tell which failure landed.
+    if (reject) attempt.reject(pageError("cmux.files.open_failed", message));
     else attempt.resolve();
   };
   const store = new FilesStore(provider);
@@ -275,11 +277,14 @@ test("a path that neither the page nor the host could copy says so", async () =>
   const provider = new MockFilesProvider(structuredClone(sampleTree));
   const baseCall = provider.call.bind(provider);
   const writes: string[] = [];
-  let hostFails = true;
+  let hostFails: "refused" | "broken" | false = "refused";
   provider.call = (async (op: string, params: unknown) => {
     if (op !== CLIPBOARD_WRITE) return baseCall(op, params);
     writes.push((params as { text: string }).text);
-    if (hostFails) throw pageError("test.clipboard_denied", "Clipboard access was denied");
+    // The host's own refusal is a sentence for the person (RefusalStrings.personOnlyFromPage).
+    if (hostFails === "refused")
+      throw pageError("cmux.app.user_only", "Only you can start this, with a click or key in the page.");
+    if (hostFails === "broken") throw pageError("test.clipboard_broken", "NSPasteboard error -25");
     return undefined;
   }) as typeof provider.call;
   const store = new FilesStore(provider, async () => {
@@ -289,10 +294,16 @@ test("a path that neither the page nor the host could copy says so", async () =>
 
   await store.copy("src/main.ts");
   expect(writes).toEqual(["src/main.ts"]);
-  expect(store.getSnapshot().notice).toBe("Clipboard access was denied");
+  expect(store.getSnapshot().notice).toBe("Only you can start this, with a click or key in the page.");
+
+  // Any other failure says so in a plain sentence; its raw text stays out of the page.
+  store.select("src/store.ts");
+  hostFails = "broken";
+  await store.copy("src/store.ts");
+  expect(store.getSnapshot().notice).toBe("Something went wrong. Try again.");
 
   // Another selection clears the notice, and a copy the host takes leaves none.
-  store.select("src/store.ts");
+  store.select("src/main.ts");
   expect(store.getSnapshot().notice).toBeUndefined();
   hostFails = false;
   await store.copy("src/store.ts");

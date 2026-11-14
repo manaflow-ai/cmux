@@ -22,11 +22,26 @@ public final class AgentChatSurface {
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
     var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
@@ -688,7 +703,6 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -705,43 +719,20 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
                 AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
@@ -782,7 +773,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)

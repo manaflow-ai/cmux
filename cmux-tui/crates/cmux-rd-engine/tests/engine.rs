@@ -84,6 +84,23 @@ fn one_frame_in_flight_until_the_viewer_acknowledges() {
 }
 
 #[test]
+fn changing_frames_in_flight_updates_every_live_stream() {
+    let mut e = engine();
+    const POPUP: u16 = 3;
+    let damage = Rect { x: 1, y: 1, width: 10, height: 10 };
+    e.add_stream(POPUP, 200, 100).expect("popup");
+
+    let main = e.start(0).expect("main");
+    send(&mut e, &main, true, 1_000, 0);
+    let popup = e.damage(POPUP, damage, 0).expect("popup");
+    send(&mut e, &popup, true, 1_000, 0);
+
+    e.set_frames_in_flight(2);
+    assert!(e.damage(0, damage, 20_000).is_some(), "main gate updated");
+    assert!(e.damage(POPUP, damage, 20_000).is_some(), "popup gate updated");
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");

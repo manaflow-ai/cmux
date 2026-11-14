@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use crate::source::ReadError;
+
 /// A test as nextest names it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TestId {
@@ -205,8 +207,16 @@ impl FilterParser<'_> {
                     arg = inner;
                 }
                 let value = arg.replace("\\)", ")").replace("\\,", ",");
+                // A regex that does not compile is a configuration error, as nextest says:
+                // read as a filter that matches nothing, it would let the scan come back clean.
                 let regex =
-                    (matcher == Matcher::Regex).then(|| regex::Regex::new(&value).ok()).flatten();
+                    if matcher == Matcher::Regex {
+                        Some(regex::Regex::new(&value).map_err(|e| {
+                            format!("{func}(/{value}/) is no regex in {text:?}: {e}")
+                        })?)
+                    } else {
+                        None
+                    };
                 Ok(Filter::Match { func, matcher, value, regex })
             }
             Tok::Op(op) => Err(format!("unexpected {op:?} in {text:?}")),
@@ -455,32 +465,36 @@ pub struct Layout {
 
 impl Layout {
     /// The package and lib name of the crate whose Cargo.toml is in `dir`, if it has a [package].
-    fn package_in(&mut self, dir: &Path) -> Option<(String, String)> {
+    /// No Cargo.toml there is None; one it cannot read is Err, naming it.
+    fn package_in(&mut self, dir: &Path) -> Result<Option<(String, String)>, ReadError> {
         if let Some(known) = self.crates.get(dir) {
-            return known.clone();
+            return Ok(known.clone());
         }
-        let found = std::fs::read_to_string(dir.join("Cargo.toml"))
-            .ok()
-            .and_then(|text| text.parse::<toml::Table>().ok())
-            .and_then(|data| {
-                let package = data.get("package")?.get("name")?.as_str()?.to_string();
-                let lib = data
-                    .get("lib")
-                    .and_then(|l| l.get("name"))
-                    .and_then(toml::Value::as_str)
-                    .map_or_else(|| package.replace('-', "_"), str::to_string);
-                Some((package, lib))
-            });
+        let manifest = dir.join("Cargo.toml");
+        let text = match std::fs::read_to_string(&manifest) {
+            Ok(text) => Some(text),
+            Err(e) if absent(&e) => None,
+            Err(e) => return Err(ReadError::new(&manifest, e)),
+        };
+        let found = text.and_then(|text| text.parse::<toml::Table>().ok()).and_then(|data| {
+            let package = data.get("package")?.get("name")?.as_str()?.to_string();
+            let lib = data
+                .get("lib")
+                .and_then(|l| l.get("name"))
+                .and_then(toml::Value::as_str)
+                .map_or_else(|| package.replace('-', "_"), str::to_string);
+            Some((package, lib))
+        });
         self.crates.insert(dir.to_path_buf(), found.clone());
-        found
+        Ok(found)
     }
 
     /// How nextest names the tests of `path`, from the nearest Cargo.toml with a [package] at or
-    /// below `checkout`.
-    pub fn file_tests(&mut self, path: &Path, checkout: &Path) -> FileTests {
+    /// below `checkout`. Err names a Cargo.toml on the way it could not read.
+    pub fn file_tests(&mut self, path: &Path, checkout: &Path) -> Result<FileTests, ReadError> {
         let mut crate_dir = None;
         for dir in path.ancestors().skip(1) {
-            if let Some(found) = self.package_in(dir) {
+            if let Some(found) = self.package_in(dir)? {
                 crate_dir = Some((dir.to_path_buf(), found));
                 break;
             }
@@ -489,7 +503,7 @@ impl Layout {
             }
         }
         let Some((root, (package, lib))) = crate_dir else {
-            return FileTests::Loose;
+            return Ok(FileTests::Loose);
         };
         let parts: Vec<String> = path
             .strip_prefix(&root)
@@ -504,7 +518,7 @@ impl Layout {
         };
         let first = parts.first().map(String::as_str);
         if matches!(first, Some("benches" | "examples")) {
-            return FileTests::NotRun;
+            return Ok(FileTests::NotRun);
         }
         let (binary, file_mods, binary_id, kind) = if first == Some("tests")
             && let [_, binary, mods @ ..] = stem.as_slice()
@@ -533,10 +547,11 @@ impl Layout {
             };
             (lib, mods, package.clone(), "lib")
         };
-        FileTests::Crate { file_mods, binary_id, binary, package, kind: kind.to_string() }
+        Ok(FileTests::Crate { file_mods, binary_id, binary, package, kind: kind.to_string() })
     }
 
     /// The nextest profiles of the nearest `.config/nextest.toml` above `path`, up to `checkout`.
+    /// Err names a config it could not stat, read or parse.
     pub fn profiles(
         &mut self,
         path: &Path,
@@ -549,9 +564,14 @@ impl Layout {
                 }
             } else {
                 let cfg = dir.join(".config/nextest.toml");
-                let found = if cfg.is_file() {
+                let is_file = match std::fs::metadata(&cfg) {
+                    Ok(meta) => meta.is_file(),
+                    Err(e) if absent(&e) => false,
+                    Err(e) => return Err(ReadError::new(&cfg, e).to_string()),
+                };
+                let found = if is_file {
                     let text = std::fs::read_to_string(&cfg)
-                        .map_err(|e| format!("{}: {e}", cfg.display()))?;
+                        .map_err(|e| ReadError::new(&cfg, e).to_string())?;
                     Some(Rc::new(
                         Profiles::parse(&text).map_err(|e| format!("{}: {e}", cfg.display()))?,
                     ))
@@ -569,4 +589,10 @@ impl Layout {
         }
         Ok(None)
     }
+}
+
+/// Whether a read failed only because the path is not there (no such file, or a part of it is
+/// a file): a manifest or config that does not exist, not one the scan could not read.
+fn absent(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory)
 }

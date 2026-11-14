@@ -4,8 +4,8 @@ import UIKit
 /// T-SCROLL-12: in a full-screen app (the alternate screen) a vertical drag
 /// scrolls the app, like a Mac trackpad in Ghostty, and the page stays
 /// pinned. The drag and its fling become wheel events on the surface
-/// (`TerminalTUIScroll`, `TerminalTUIMomentum`), which reach the app only as
-/// wheel reports it asked for (`TerminalPanRoute`): never as cursor keys. A tap still focuses the terminal, a long press
+/// (`TerminalTUIScroll`, `TerminalTUIMomentum`); Ghostty turns them into
+/// what the app asked for. A tap still focuses the terminal, a long press
 /// still selects and a selection handle still moves: this pan starts only
 /// on a vertical drag that no selection gesture owns. A new touch stops a
 /// fling, as on a trackpad, and a tap that stops one does nothing else (it
@@ -75,9 +75,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
         case .ended:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
-            // A fling only where the drag reached the app (TerminalPanRoute).
-            if isEnabled(), surface.panRoute == .wheelReports,
-               let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
+            if isEnabled(), let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
             }
         default:
@@ -87,10 +85,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
 
     private func send(_ wheel: TerminalTUIScroll.Wheel?) {
         guard let wheel, let surface, isEnabled() else { return }
-        // Only a wheel the app got makes it scroll (TerminalPanRoute).
-        if surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum) {
-            tapClick.scrolled(at: CACurrentMediaTime())
-        }
+        surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
+        tapClick.scrolled(at: CACurrentMediaTime())
     }
 
     private func startMomentum(_ fling: TerminalTUIMomentum) {

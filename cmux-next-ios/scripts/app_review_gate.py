@@ -74,9 +74,37 @@ IOS_SOURCE_DIRS = (
     "Packages/iOS/CmuxConversation/Sources",
 )
 LOCALIZABLE_GLOB = "cmux-next-ios/CmuxMobileKit/Sources/*/Resources/Localizable.xcstrings"
+# The purpose-string check reads every Swift file the app links, not only the
+# folders above: the kit's local packages (Packages/iOS/*, Packages/Shared/*)
+# and theirs, found from the `.package(path:)` lines of each Package.swift and
+# the `packages:` paths in project.yml. A privacy API that moved into a shared
+# package (the microphone in CmuxChiefVoiceCore, the camera in CmuxScreenKit,
+# dictation in CmuxMobileSupport) is still the app's prompt.
+LINKED_PACKAGE_ROOTS = ("cmux-next-ios/CmuxMobileKit",)
+PACKAGE_PATH_RE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
+PROJECT_PACKAGE_PATH_RE = re.compile(r"^\s{4}path:\s*(\.\./Packages/\S+|CmuxMobileKit)\s*$", re.M)
 # The NEXT app's App Store review package (metadata, screenshots, reviewer
 # notes) and the rejection history live beside the app.
 REVIEW_DIR = "cmux-next-ios/AppStoreReview"
+# Every bundle Apple scans needs a privacy manifest that declares the
+# required-reason APIs linked into it (ITMS-91053 refuses the upload otherwise).
+# The app's manifest covers every source the lint reads; each extension's covers
+# its own folder.
+PRIVACY_MANIFESTS = {
+    "cmux-next-ios/App/PrivacyInfo.xcprivacy": None,
+    "cmux-next-ios/NotificationContent/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationContent",
+    "cmux-next-ios/NotificationService/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationService",
+}
+# https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+REQUIRED_REASON_APIS = {
+    "NSPrivacyAccessedAPICategoryUserDefaults": r"\bUserDefaults\b|@AppStorage\b|NSUserDefaults",
+    "NSPrivacyAccessedAPICategoryFileTimestamp":
+        r"\b(creationDate|modificationDate|contentModificationDate|fileModificationDate)(Key)?\b|\b(f|l)?stat\(|getattrlist",
+    "NSPrivacyAccessedAPICategorySystemBootTime": r"\bsystemUptime\b|mach_absolute_time\(",
+    "NSPrivacyAccessedAPICategoryDiskSpace":
+        r"volume(Available|Total)Capacity|systemFreeSize|systemSize\b|\bstatv?fs\(",
+    "NSPrivacyAccessedAPICategoryActiveKeyboards": r"activeInputModes",
+}
 METADATA_DIR = "cmux-next-ios/AppStoreReview/metadata"
 SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
@@ -136,9 +164,40 @@ class Lint:
 
     # ------------------------------------------------------------------ files
 
-    def swift_files(self) -> Iterable[Path]:
-        for rel in IOS_SOURCE_DIRS:
-            base = self.root / rel
+    def linked_package_dirs(self) -> list[Path]:
+        """Every local Swift package the app links, transitively."""
+        roots = [self.root / rel for rel in LINKED_PACKAGE_ROOTS]
+        project = self.root / PROJECT_YML
+        if project.is_file():
+            for rel in PROJECT_PACKAGE_PATH_RE.findall(project.read_text(errors="ignore")):
+                roots.append((self.root / APP_DIR / rel).resolve())
+        seen: list[Path] = []
+        queue = [r.resolve() for r in roots]
+        while queue:
+            pkg = queue.pop(0)
+            if pkg in seen or not (pkg / "Package.swift").is_file():
+                continue
+            seen.append(pkg)
+            text = (pkg / "Package.swift").read_text(errors="ignore")
+            for rel in PACKAGE_PATH_RE.findall(text):
+                queue.append((pkg / rel).resolve())
+        return seen
+
+    def linked_texts(self) -> dict[Path, str]:
+        """The app's own folders plus every linked package's Sources."""
+        out = dict(self.texts())
+        dirs = [pkg / "Sources" for pkg in self.linked_package_dirs()]
+        for path in self.swift_files(dirs):
+            if path not in out:
+                try:
+                    out[path] = path.read_text(errors="ignore")
+                except OSError:
+                    continue
+        return out
+
+    def swift_files(self, dirs: Iterable[Path] | None = None) -> Iterable[Path]:
+        bases = list(dirs) if dirs is not None else [self.root / rel for rel in IOS_SOURCE_DIRS]
+        for base in bases:
             if not base.is_dir():
                 continue
             for path in base.rglob("*.swift"):
@@ -442,22 +501,29 @@ class Lint:
             "NSContactsUsageDescription": (r"CNContactStore", "contacts"),
             "NSCalendarsUsageDescription": (r"EKEventStore", "calendars"),
             "NSBluetoothAlwaysUsageDescription": (r"CBCentralManager|CBPeripheralManager", "Bluetooth"),
-            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication", "Face ID"),
+            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication|\.biometry(Any|CurrentSet)\b|kSecAccessControlBiometry", "Face ID"),
             "NSUserTrackingUsageDescription": (r"ATTrackingManager", "tracking"),
             "NSLocalNetworkUsageDescription": (r"NWBrowser|NWListener|NetServiceBrowser|_udp|Bonjour", "local network"),
         }
-        joined = "\n".join(self.texts().values())
+        linked = self.linked_texts()
+        joined = "\n".join(linked.values())
         for key, (pattern, label) in usage.items():
             uses = re.search(pattern, joined) is not None
             value = plist.get(key)
             if uses and not value:
                 self.add("privacy.purpose-string", "5.1.1", "blocker",
                          f"the app uses the {label} API but {key} is missing", where)
-            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?) (access|permission)\b.*", value)):
+            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?|wants?) (to )?(access|permission|use)\b.*", value)
+                            or re.fullmatch(r"(?i)\s*(this app|the app|cmux) (uses|accesses|would like)\b.*", value)):
                 self.add("privacy.purpose-string-vague", "5.1.1", "warning",
                          f"{key} is too generic for App Review: {value!r}", where)
-        if "NSLocalNetworkUsageDescription" in plist and not plist.get("NSBonjourServices"):
-            self.add("privacy.bonjour", "5.1.1", "warning", "local network purpose string without NSBonjourServices", where)
+        # NSBonjourServices lists the service types the app browses or
+        # advertises; dialing a LAN address (or a localhost NWListener) needs
+        # only the purpose string, so the key is asked for only when Bonjour is.
+        bonjour = re.search(r"NWBrowser|NetServiceBrowser|NetService\(|NWListener\.Service|\.bonjour(WithTXTRecord)?\(", joined)
+        if bonjour and not plist.get("NSBonjourServices"):
+            self.add("privacy.bonjour", "5.1.1", "blocker",
+                     "the app browses or advertises Bonjour services but NSBonjourServices is missing", where)
         if "ITSAppUsesNonExemptEncryption" not in plist:
             self.add("export.encryption", "2.1", "warning", "ITSAppUsesNonExemptEncryption is not declared", where)
         ats = plist.get("NSAppTransportSecurity") or {}
@@ -465,6 +531,38 @@ class Lint:
             self.add("ats.arbitrary-loads", "2.5.1", "blocker", "NSAllowsArbitraryLoads is true; App Review asks for a justification", where)
         if plist.get("UIRequiredDeviceCapabilities") and "ipad" not in json.dumps(plist).lower():
             pass
+
+    def check_privacy_manifests(self) -> None:
+        """Each bundle's manifest declares every required-reason API its sources use."""
+        self.ran("privacy-manifest")
+        texts = self.texts()
+        for rel, scope in PRIVACY_MANIFESTS.items():
+            path = self.root / rel
+            if not path.is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker", "no privacy manifest for this bundle", rel)
+                continue
+            try:
+                manifest = plistlib.loads(path.read_bytes())
+            except (OSError, plistlib.InvalidFileException) as exc:
+                self.add("privacy.manifest", "5.1.2", "blocker", f"the privacy manifest does not parse: {exc}", rel)
+                continue
+            declared = {entry.get("NSPrivacyAccessedAPIType"): entry.get("NSPrivacyAccessedAPITypeReasons") or []
+                        for entry in manifest.get("NSPrivacyAccessedAPITypes") or []}
+            for category, reasons in declared.items():
+                if not reasons:
+                    self.add("privacy.manifest-reason", "5.1.2", "blocker", f"{category} has no reason code", rel)
+            sources = {p: t for p, t in texts.items() if scope is None or self.rel(p).startswith(scope + "/")}
+            for category, pattern in REQUIRED_REASON_APIS.items():
+                if category in declared:
+                    continue
+                for source, text in sources.items():
+                    match = re.search(pattern, text)
+                    if match:
+                        lineno = text.count("\n", 0, match.start()) + 1
+                        self.add("privacy.required-reason", "5.1.2", "blocker",
+                                 f"{match.group(0)} is a required-reason API ({category}) the manifest does not declare "
+                                 "(ITMS-91053)", f"{self.rel(source)}:{lineno} -> {rel}")
+                        break
 
     def check_entitlements(self, ents: dict, where: str) -> None:
         self.ran("entitlements")
@@ -510,6 +608,9 @@ class Lint:
             self.add("privacy.manifest", "5.1.2", "blocker", "no PrivacyInfo.xcprivacy in the bundle (required-reason APIs)", app.name)
         self.check_entitlements(self.entitlements(app), f"{app.name} (signed entitlements)")
         for appex in sorted((app / "PlugIns").glob("*.appex")) if (app / "PlugIns").is_dir() else []:
+            if not (appex / "PrivacyInfo.xcprivacy").is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker",
+                         "the extension has no PrivacyInfo.xcprivacy (it links required-reason APIs)", appex.name)
             try:
                 ext = plistlib.loads((appex / "Info.plist").read_bytes())
             except (OSError, plistlib.InvalidFileException):
@@ -788,6 +889,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
             lint.check_appstore_config()
         urls += lint.check_sources()
         lint.check_info_plist(lint.project_info(), PROJECT_YML)
+        lint.check_privacy_manifests()
         lint.check_store_rules()
         for rel in APPSTORE_ENTITLEMENTS:
             if args.lane == "appstore" and (root / rel).is_file():

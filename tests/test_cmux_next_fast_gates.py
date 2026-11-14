@@ -939,6 +939,50 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", own).split(),
                          ["pr8.txt"])
 
+    def test_pull_request_a_few_commits_from_its_base_deepens_once_by_the_first_step_without_blobs(self):
+        # 2026-11-13: runs 43473169308 and 43474564309 (heads 9 and 32 commits from their base) spent 87 to 108 s
+        # in one --deepen=200 that brought every blob of 200 commits a side; the gates needed none of them.
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(60):  # history past the first step
+            commit(seed, {"old.txt": f"old {n}\n"}, f"old base {n}")
+        for n in range(40):  # within it: each commit's blob is one a deepen with blobs would bring
+            within = commit(seed, {"old.txt": f"newer {n}\n"}, f"newer base {n}")
+            if n == 20:
+                old_commit, old = within, git(seed, "rev-parse", "HEAD:old.txt")
+        fork = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "-b", "pr10", fork)
+        heads = [commit(seed, {"pr10.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        base = commit(seed, {"tip.txt": "moved\n"}, "the base moves on")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
+            heads[-1])
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{heads[-1]}:refs/pull/10/head", "HEAD:refs/pull/10/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for key in ("uploadpack.allowReachableSHA1InWant", "uploadpack.allowFilter"):  # as GitHub allows
+            git(self.remote, "config", key, "true")
+        work = self.tmp / "work10"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", "refs/pull/10/merge")  # what actions/checkout does
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", heads[-1], "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(re.findall(r"deepened by (\d+)", result.stderr), ["32"])
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), heads)
+        # The commit is here (the base side reaches it); its blob is not, and listing never fetches it.
+        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit, "--", "old.txt").split()
+        self.assertIn(f"?{old}", listed, "the deepen brought a blob no gate read")
+        # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
+        self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
+
     def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
         # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
         # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the

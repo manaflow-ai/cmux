@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 864,
-    "mcp": 780
+    "verbs": 866,
+    "mcp": 782
   },
   "nouns": [
     {
@@ -1588,6 +1588,13 @@
           "id": "cloudSetNetworkAccess",
           "mcp": true,
           "mcpTool": "app_cloud_set_network_access"
+        },
+        {
+          "command": "cmux cloud setup-desktop",
+          "title": "Start Desktop…",
+          "id": "cloudSetupDesktop",
+          "mcp": true,
+          "mcpTool": "app_cloud_setup_desktop"
         },
         {
           "command": "cmux cloud setup-github",
@@ -5037,6 +5044,13 @@
           "id": "tab.stashToRight",
           "mcp": true,
           "mcpTool": "app_tab_stash_to_right"
+        },
+        {
+          "command": "cmux tab stop-mac-screen-viewing",
+          "title": "Stop Viewing Shared Screen",
+          "id": "macScreen.stopViewing",
+          "mcp": true,
+          "mcpTool": "app_tab_stop_mac_screen_viewing"
         },
         {
           "command": "cmux tab toggle-chat-notifications",

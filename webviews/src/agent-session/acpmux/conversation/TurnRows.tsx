@@ -25,38 +25,19 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { RetryTargetContext, TurnActionsContext } from "./turnActions";
+import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import {
-  footerLabel,
-  isEmptyFooter,
-  isStopped,
-  NO_RETRY_TARGET,
-  offersRetry,
-  retryPlacement,
-  workedCallsText,
-  workedLabel,
-  workedMessagesText,
-} from "./turns";
+import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { replyTimeDetail } from "./turnTokensModel";
-import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-} from "./MessageActions";
+import { AlertCircle, ChevronRight, Retry } from "./icons";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -72,7 +53,6 @@ import { CodeRouterAction } from "./CodeRouterOffer";
 import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
-import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { FinishCheck } from "../finish/FinishCheck";
 import { useFinishedTurn } from "../finish/finishMoments";
@@ -87,7 +67,7 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
-    const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+    const key = row.status === "cancelled" || row.status === "interrupted" ? "turn.stopped" : "turn.worked";
     // A line that names its runs' work leaves their count to it.
     const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
@@ -347,20 +327,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 
 /// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
 /// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
-/// aloud, More), then Continue for a stopped last turn, then the answer's exact time, shown on hover.
+/// aloud, More), then the answer's exact time, shown on hover.
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
-/// row. Retry, with its model switch, is the last turn's: after Copy on the chat's last footer, failed
-/// or not, never under the prompt (Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears
-/// on the reply only after a failure. Put it, with the model switch, in the last turn's footer."). A
-/// failed turn's row always shows; so does the footer that ends the chat (#31503), so a finished
-/// reply's Copy and Retry are in sight.
+/// row. Successful replies offer Send prompt again and model choices through More. Failed replies
+/// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
-  const readOnly = useTranscriptReadOnly();
   const {
     fork,
     forkSeq,
@@ -368,6 +343,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     tryAnotherApproach,
     retry,
     retryFailed,
+    canSendPromptAgain,
     retryWith,
     reauthenticate,
     transferCloudCredentials,
@@ -394,13 +370,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
-  const label = footerLabel(t, row);
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail = replyTimeDetail(t, language, [label, forced], row.tokens);
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -408,13 +384,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       {t("turn.stoppedMark")}
     </span>
   );
-  // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
-  // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
-  const resumable = row.resumable === true && resume !== undefined;
-  // One click sends one prompt: the button stays disabled while the send is in flight (its pending
-  // prompt row takes the button away first). A chat without the action (View Only, disconnected)
-  // draws no Continue, so its footer is empty or not as it would be without one.
-  const [resuming, setResuming] = useState(false);
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
@@ -477,7 +446,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           if (retrying) return;
           runRetry(() => retryFailed(row.retryRowId, prompt), row.continuable ? "continue" : "retry");
         }
-      : retry && prompt && row.retryRowId
+      : retry && prompt !== undefined && row.retryRowId
         ? () => {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;
@@ -485,29 +454,15 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
-  // The footer of the person's last prompt, when that turn ended well, sends it again as the
-  // prompt's Retry did, where turns.ts retryPlacement puts the chat's one Retry on this footer.
-  const retryTarget = useContext(RetryTargetContext);
-  const footerTarget = retryTarget
-    ? retryTarget.footerId === row.id
-      ? retryTarget
-      : NO_RETRY_TARGET
-    : offersRetry(row) && !isEmptyFooter(row)
-      ? { promptId: row.retryRowId, footerId: row.id }
-      : NO_RETRY_TARGET;
-  // An attachment-only prompt's `prompt` is empty (turns.ts offersRetry): its attachments go again.
-  const lastRetry =
+  const menuRetry =
+    canSendPromptAgain === true &&
     !failed &&
-    retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
-    retry &&
-    prompt !== undefined &&
-    row.retryRowId
-      ? () => retry(row.retryRowId!, prompt)
-      : undefined;
-  const footerRetry = failedRetry ?? lastRetry;
+    (row.status === undefined || row.status === "completed" || isStopped(row)) &&
+    offersRetry(row) &&
+    !isEmptyFooter(row);
+  const footerRetry = failedRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
-  const retryModels =
-    ((failed && prompt) || lastRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+  const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -519,6 +474,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       if (retrying) return;
       runRetry(recovery.run, recovery.label);
     });
+  const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
+  if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -551,11 +508,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
-            : resumable
-              ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
-                ? "cv-turn-actions cv-turn-actions--empty"
-                : "cv-turn-actions"
+            : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
@@ -595,7 +550,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"
@@ -611,22 +566,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
           </span>
           {stoppedLook === "word" && stoppedWord}
-          {resumable && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-turn-continue"
-              disabled={resuming}
-              onClick={() => {
-                setResuming(true);
-                void resume().finally(() => setResuming(false));
-              }}
-            >
-              {t("turn.continue")}
-              <ArrowRight size={ROW_ICON} aria-hidden="true" />
-            </button>
-          )}
           {stoppedLook === "trailing" && stoppedWord}
-          {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
@@ -796,7 +736,7 @@ function TurnFailure({
   );
   return (
     <div
-      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">

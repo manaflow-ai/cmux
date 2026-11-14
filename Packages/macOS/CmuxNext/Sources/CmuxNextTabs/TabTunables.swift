@@ -80,9 +80,18 @@ public nonisolated enum TabTunables {
     public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab, for its divider. Default: the gap between two tabs plus the line.") {
         2 * Metrics.tabBackgroundInset + 1
     }
-    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
-    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
-    public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x inside the close button.") { Metrics.space4 - Metrics.space1 / 2 }
+    // @intent Lawrence 2026-11-13: "need to match the X icon on helium in terms of hover too (like roundness of it), should
+    // be applied to all densities". Helium's x on its 28 pt tab (2x captures of Helium 0.21.3.1): a 14 pt hover square 6 pt
+    // inside the pill's end, 8 pt of ink; the same shares of the tab at every density (`HeliumTabCloseButtonTests`).
+    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge. Default: Helium's 6 on a 28 pt tab.") {
+        heliumShare(6)
+    }
+    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button (its hover square). Default: Helium's 14 on a 28 pt tab.") {
+        heliumShare(14)
+    }
+    public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x's ink inside the close button. Default: Helium's 8 on a 28 pt tab.") {
+        heliumShare(8)
+    }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
         Metrics.compactTabs ? Metrics.space2 : Metrics.space3
     }
@@ -194,4 +203,7 @@ public nonisolated enum TabTunables {
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
+
+    /// `points` on Helium's 28 pt tab as the same share of this density's tab, in half points.
+    @MainActor static func heliumShare(_ points: CGFloat) -> CGFloat { (Metrics.tabHeight * points / 28 * 2).rounded() / 2 }
 }

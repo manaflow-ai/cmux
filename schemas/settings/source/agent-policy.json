@@ -279,6 +279,8 @@
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.titleAreaTone",
+        "appearance.titleAreaContrast",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -1478,14 +1480,6 @@
       "why": "Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.",
       "keys": [
         "ssh.linkAllowedHosts"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
       ]
     },
     {
