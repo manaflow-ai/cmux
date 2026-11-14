@@ -1030,8 +1030,17 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
                 key = f"{name.group(1)}/{Path(target).name}" if name else Path(target).name
                 written[key] = base64.b64decode(payload).decode("utf-8")
         templates = ROOT / "skills/cmux-customization/templates"
-        expected = {f"{folder.name}/{file}": (folder / file).read_text(encoding="utf-8")
-                    for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
+        # The customization showcase tour copies its templates from the checkout ({repo}) instead;
+        # every template folder belongs to exactly one of the two tours.
+        showcase = json.loads((ROOT / "scripts/cmux-next/media/tours/customization-showcase.json").read_text(encoding="utf-8"))
+        showcase_folders = {match for step in showcase["steps"] for arg in step.get("cmux", [])
+                            for match in re.findall(r"\{repo\}/skills/cmux-customization/templates/([^/]+)/main\.js", arg)}
+        folders = {folder.name for folder in templates.iterdir() if folder.is_dir()}
+        self.assertLessEqual(showcase_folders, folders)
+        typed_folders = {key.split("/", 1)[0] for key in written if "/" in key}
+        self.assertFalse(typed_folders & showcase_folders, "a template belongs to one tour")
+        expected = {f"{name}/{file}": (templates / name / file).read_text(encoding="utf-8")
+                    for name in folders - showcase_folders for file in ("cmux-app.json", "main.js")}
         probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
         expected[probe.name] = probe.read_text(encoding="utf-8")
         self.assertEqual(sorted(written), sorted(expected))
