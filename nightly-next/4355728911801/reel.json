@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4355728911801",
+  "notes": "notes/4355728911801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42817,
+      "title": "port drift ratchet: an export the pinned app library lacks is not drift yet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42780,
+      "title": "cmux-next: remove the iroh phone listener (Phone Access)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42741,
+      "title": "Classic import: the operation catalog carries what the daemon now returns and accepts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42805,
+      "title": "Cloud chaos: complete felt warm-up with text stub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38355,
+      "title": "cmux chat: start a chat on your own joined machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42725,
+      "title": "v2 PR 0b: the gates run nightly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42832,
+      "title": "Agent chat: a long chat left open costs what a short one costs (god-chat replay ratios)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42801,
+      "title": "[next-no-huge-files] acpmux: split peer lifecycle implementation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42840,
+      "title": "fix cloud acpmux worker terminal env parity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42829,
+      "title": "feat(next): add explicit screen device record helper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42825,
+      "title": "fix(tabs): keep new tab glyph weight constant",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42790,
+      "title": "Screen Sharing: expose access mode and full-screen controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42816,
+      "title": "perf cron: Mac parts run on the bench host while a nightly or dev build waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42821,
+      "title": "CMUX-570: compare CLI compiler size modes on the fleet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42822,
+      "title": "CMUX-570: measure CEF in paired installed nightly apps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42732,
+      "title": "acpmux: a paired phone's Full access is on by default",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42795,
+      "title": "bench(transcript-replay): each burst prints the page's size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39120,
+      "title": "link: the cmux link runs this machine's node key, the one WireGuard key on a Mac (one-link slice 4)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
