@@ -297,7 +297,7 @@ class HostTests(unittest.TestCase):
     def capture_result(auth):
         return dict(ok=True, code="ok", verified_absent=True,
                     **(dict(keychain_absent=True, files_absent=True) if auth else
-                       dict(identity_removed=3, relays_removed=0)))
+                       dict(identity_removed=3, relays_removed=0, hub_quiescent=True)))
 
     def test_capture_binds_auth_and_device_to_their_exact_namespaces(self):
         instance = self.make_host()
@@ -350,7 +350,8 @@ class HostTests(unittest.TestCase):
         instance = self.make_host()
         for auth, field, value in ((True, "files_absent", False), (True, "keychain_absent", None),
                                     (True, "verified_absent", None), (False, "identity_removed", True),
-                                    (False, "relays_removed", -1), (False, "verified_absent", False)):
+                                    (False, "relays_removed", -1), (False, "verified_absent", False),
+                                    (False, "hub_quiescent", False), (False, "hub_quiescent", None)):
             with self.subTest(auth=auth, field=field), \
                     patch.object(self.host, "rpc", return_value={**self.capture_result(auth), field: value}):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_cleanup_failed"):
