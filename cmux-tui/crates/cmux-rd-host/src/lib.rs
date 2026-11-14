@@ -51,9 +51,9 @@ mod keymap;
 #[cfg(target_os = "macos")]
 mod mac;
 mod marker;
-mod permissions;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod observe;
+mod permissions;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
