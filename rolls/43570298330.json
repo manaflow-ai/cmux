@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43570298330",
+  "recorded_at": "2026-11-14T07:26:10Z",
+  "reason": "cmux-tui 856d8fbeac90 changes the image's cmux-tui (pinned 3816b4fa56c9)",
+  "dry_run": false,
+  "cmux_tui": "856d8fbeac90e4ee0bf9d15dbe6cb1cd6f1d1fba",
+  "fixes": [
+    {
+      "sha": "856d8fbeac90e4ee0bf9d15dbe6cb1cd6f1d1fba",
+      "mergedAt": "2026-11-13T22:53:24-08:00",
+      "subject": "Cloud start-chat waits for the app's first machine list instead of refusing at once (#42872)"
+    },
+    {
+      "sha": "cfc1e697355a25ce9812b57fd2343b6033840b24",
+      "mergedAt": "2026-11-13T22:53:13-08:00",
+      "subject": "v2 gates 05e: family pages carry child-set handles (#42886)"
+    },
+    {
+      "sha": "d8d77610a3844d8b7923b909fccd11e0453456fc",
+      "mergedAt": "2026-11-13T22:48:45-08:00",
+      "subject": "cloud start-chat: cloud.list_unread names the app's last Cloud error (#42882)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:26:10Z",
+    "snapshot_id": "sh-96403b31b4d2410a914ec683d0ea2dae",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43570298330): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ac6658edce62f8fd31b6c743fa9bee515ea1b928",
+    "image": "cloud-native-auto-856d8fbe-43570298330-1",
+    "revision": "ci-43570298330-1",
+    "at": "2026-11-14T07:26:10Z"
+  },
+  "rolled_back": false
+}
