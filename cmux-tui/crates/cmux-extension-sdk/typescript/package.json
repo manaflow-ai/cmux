@@ -13,7 +13,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" }
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./web": { "types": "./src/web.ts", "default": "./src/web.ts" }
   },
   "files": ["src/", "README.md"],
   "engines": { "cmux": "^2.0" }

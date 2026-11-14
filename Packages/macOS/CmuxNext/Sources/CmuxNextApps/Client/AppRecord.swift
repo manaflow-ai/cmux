@@ -53,6 +53,8 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
     public var commands: [Command]
     /// The app's deployed instance (`instance`), for apps with a manifest `deploy` block.
     public var instance: AppInstance?
+    /// The web panes the daemon lets this client host (`web_pages`, `render: web`).
+    public var webPages: [AppWebPage] = []
 
     /// One palette command of an app: a catalog op of its own family.
     public struct Command: Sendable, Hashable, Identifiable {
@@ -118,6 +120,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         bundleDirectory = json["bundle_dir"]?.stringValue.map { URL(fileURLWithPath: $0, isDirectory: true) }
         revision = json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }
         instance = AppInstance(json: json["instance"])
+        webPages = json["web_pages"]?.arrayValue?.compactMap(AppWebPage.init(json:)) ?? []
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
             return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue)

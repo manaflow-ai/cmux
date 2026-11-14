@@ -12,7 +12,9 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | Gives | places (`section`, `pane`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
-a sidebar section and a pane, built only against this SDK.
+a sidebar section and a pane, built only against this SDK. A pane can also be your own HTML
+page (`render: web`): [`examples/extensions/web-pane`](../../../examples/extensions/web-pane)
+calls cmux through `cmux-extension-sdk/web`, with the same scopes as a script.
 
 ## Make one
 

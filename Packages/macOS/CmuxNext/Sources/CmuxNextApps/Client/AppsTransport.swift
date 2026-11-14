@@ -4,7 +4,9 @@ public import Foundation
 public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case availability(AppsAvailability)
     /// `apps-changed {revision}`: the install mirror moved; list again.
-    case changed(revision: UInt64?)
+    /// `app`: the one app whose files a local reload changed (`transaction: local-reload`): its
+    /// open web panes reload in place.
+    case changed(revision: UInt64?, app: String? = nil)
     /// `apps-scene {mount_id, ops, reset?}`. `reset` (the supervisor
     /// restarted the app host and re-mounted, after a crash or a grant
     /// change) means: drop the mount's tree and apply `ops` to an empty one.
@@ -48,4 +50,15 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+    /// One raw bridge message (`{id, op, params}`) of `app`'s web pane `page` (`apps-page-call`):
+    /// the daemon checks it against the app's grant and answers `{id, ok, value | error}`.
+    func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON
+}
+
+public extension AppsTransport {
+    /// A transport without web panes refuses every page call.
+    func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
+        // The wire command it lacks, not prose: the page shows the code.
+        throw AppsTransportError(code: "operation.unsupported", message: "apps-page-call")
+    }
 }
