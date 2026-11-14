@@ -82,7 +82,16 @@ pub fn next_beat(after: Instant, period: Duration) -> Instant {
 fn next_beat_from(anchor: Instant, after: Instant, period: Duration) -> Instant {
     let period_ns = period.as_nanos().max(1);
     if after < anchor {
-        return anchor;
+        // The grid runs back from the anchor too (an instant taken on another
+        // clock base, such as another test runtime's paused clock).
+        let behind = anchor.duration_since(after).as_nanos();
+        let back =
+            anchor - Duration::from_nanos(u64::try_from(behind / period_ns * period_ns).unwrap_or(u64::MAX));
+        return if back > after {
+            back
+        } else {
+            back + Duration::from_nanos(u64::try_from(period_ns).unwrap_or(u64::MAX))
+        };
     }
     let elapsed = after.duration_since(anchor).as_nanos();
     let beats = elapsed / period_ns + 1;
@@ -116,6 +125,12 @@ mod tests {
         assert_eq!(next_beat_from(anchor, at(10_000), BEAT), at(20_000));
         assert_eq!(next_beat_from(anchor, at(10_001), CHIEF_PERIOD), at(20_000));
         assert_eq!(next_beat_from(anchor, at(1_000), Duration::from_millis(2500)), at(2_500));
+        // Before the anchor the grid runs backwards from it.
+        let later = at(20_000);
+        assert_eq!(next_beat_from(later, at(0), BEAT), at(10_000));
+        assert_eq!(next_beat_from(later, at(1), BEAT), at(10_000));
+        assert_eq!(next_beat_from(later, at(10_000), BEAT), at(20_000));
+        assert_eq!(next_beat_from(later, at(19_999), BEAT), at(20_000));
         // A Chief beat is always a link beat.
         for ms in (0..600_000).step_by(1_250) {
             let chief = next_beat_from(anchor, at(ms), CHIEF_PERIOD);
@@ -290,28 +305,24 @@ mod wake_budget {
                     (Side::Mac, Msg::LinkPing { probe }) => {
                         post(&mut queue, t + half, Side::Phone, Msg::LinkPong { probe });
                     }
-                    (Side::Mac, Msg::LinkPong { .. }) => {
-                        if mac_ka_waiting {
-                            mac_ka_waiting = false;
-                            if !scenario.mac_aligned {
-                                mac_ka_next = t + link_ka_today;
-                            }
+                    (Side::Mac, Msg::LinkPong { .. }) if mac_ka_waiting => {
+                        mac_ka_waiting = false;
+                        if !scenario.mac_aligned {
+                            mac_ka_next = t + link_ka_today;
                         }
                     }
                     (Side::Phone | Side::Mac, Msg::Datagram) => {}
                     (Side::Service, Msg::SocketPing { socket }) => {
                         post(&mut queue, t + SERVICE_RTT_MS / 2, Side::Phone, Msg::SocketPong { socket });
                     }
-                    (Side::Phone, Msg::SocketPong { socket }) => {
-                        // Presence and Chief wait their interval after the pong.
-                        if socket > 0 {
-                            let period = if socket == 1 { PRESENCE_MS } else { CHIEF_MS };
-                            socket_next[socket] = if scenario.phone_aligned {
-                                beat_after(t, if socket == 1 { beat } else { ms(CHIEF_PERIOD) })
-                            } else {
-                                t + period
-                            };
-                        }
+                    // Presence and Chief wait their interval after the pong.
+                    (Side::Phone, Msg::SocketPong { socket }) if socket > 0 => {
+                        let period = if socket == 1 { PRESENCE_MS } else { CHIEF_MS };
+                        socket_next[socket] = if scenario.phone_aligned {
+                            beat_after(t, if socket == 1 { beat } else { ms(CHIEF_PERIOD) })
+                        } else {
+                            t + period
+                        };
                     }
                     _ => {}
                 }
@@ -339,7 +350,7 @@ mod wake_budget {
                 if scenario.phone_aligned {
                     // Probe a link quiet for a beat, or an idle one (no
                     // traffic, only keepalives) on the beat.
-                    let on_beat = t % interval == 0;
+                    let on_beat = t.is_multiple_of(interval);
                     if !probe_out && (quiet >= interval || on_beat) {
                         probe_out = true;
                         sent.push(t);
@@ -390,11 +401,11 @@ mod wake_budget {
                 mac_wg_next = Some(next + wg_ka);
             }
             // Signaling (fixed rate), presence and Chief (after their pong).
-            for socket in 0..3 {
-                if t >= socket_next[socket] {
+            for (socket, next) in socket_next.iter_mut().enumerate() {
+                if t >= *next {
                     sent.push(t);
                     post(&mut queue, t + SERVICE_RTT_MS / 2, Side::Service, Msg::SocketPing { socket });
-                    socket_next[socket] = if socket == 0 {
+                    *next = if socket == 0 {
                         if scenario.phone_aligned { beat_after(t, beat) } else { t + ms(SIGNALING_INTERVAL) }
                     } else {
                         u64::MAX
