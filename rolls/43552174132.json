@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43552174132",
+  "recorded_at": "2026-11-14T03:40:23Z",
+  "reason": "cmux-tui ecec06036fff changes the image's cmux-tui (pinned 8c95f58582fc)",
+  "dry_run": false,
+  "cmux_tui": "ecec06036ffffb4c09d16ba2da2e79f4cc553ec9",
+  "fixes": [
+    {
+      "sha": "ecec06036ffffb4c09d16ba2da2e79f4cc553ec9",
+      "mergedAt": "2026-11-14T03:10:14Z",
+      "subject": "cmux-tui: an Antigravity resume with no launcher runs agy (#42355 F1) (#42383)"
+    },
+    {
+      "sha": "296d5a1d97faa621f251b1834b790fa2c2866f84",
+      "mergedAt": "2026-11-14T03:09:59Z",
+      "subject": "cmux-rd-link: preserve first handshake until route exists (#42735)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T03:40:23Z",
+    "snapshot_id": "sh-c1a06fa18394454b8b0ca4d05e58f562",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43552174132): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5ee8f8816df0335d3394c2593d06ef0ab311ad0e",
+    "image": "cloud-native-auto-ecec0603-43552174132-1",
+    "revision": "ci-43552174132-1",
+    "at": "2026-11-14T03:40:23Z"
+  },
+  "rolled_back": false
+}
