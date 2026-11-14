@@ -275,6 +275,38 @@ mod tests {
         }
     }
 
+    /// The App Store chat ops (extensibility-DESIGN.md step 3): `chat.list` reads with
+    /// `chat:read`; `chat.mark_read` and `chat.pin` write with `chat:write` and only with a
+    /// tap's gesture token.
+    #[test]
+    fn chat_ops_take_the_chat_scopes_and_marks_need_a_gesture() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check("chat.list", &json!({}), &grant(&["chat:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        let mark = json!({"chat": "s1"});
+        let pin = json!({"chat": "s1", "pinned": true});
+        for (op, params) in [("chat.mark_read", &mark), ("chat.pin", &pin)] {
+            assert_eq!(
+                table.check(op, params, &grant(&["chat:write"])),
+                Decision::Allow(OpClass::Mutation),
+            );
+            assert!(matches!(
+                table.check(op, params, &grant(&["chat:read"])),
+                Decision::ScopeMissing(_),
+            ));
+            assert!(needs_gesture(op), "{op} needs a tap");
+        }
+        for scopes in [vec![], vec!["agent_chat:read"], vec!["agent:read"]] {
+            assert!(matches!(
+                table.check("chat.list", &json!({}), &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+        assert!(!needs_gesture("chat.list"));
+    }
+
     #[test]
     fn cmux_next_memory_search_admits_only_the_memory_read_grant() {
         let table = ScopeTable::get();
