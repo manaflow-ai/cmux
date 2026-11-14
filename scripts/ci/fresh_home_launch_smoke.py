@@ -59,8 +59,9 @@ output, its crash files (run.exception, the .ips) and a screenshot when the
 runner may take one (evidence only, never the verdict).
 
 Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
-arm; report.json's `arm` names the one the report describes), or the daemon
-refused a request of the app's plugin (report.json's `request_log`). 2: usage.
+arm; report.json's `arm` names the one the report describes), or a plain
+launch that passed all else has a request of the app's plugin that the daemon
+refused as invalid (report.json's `request_log`; no crash). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
 never launched is never published.
