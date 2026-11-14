@@ -113,12 +113,31 @@ class ProofTests(unittest.TestCase):
                 receipt = Rig().instance().run("Mac", "Phone", "abc")
                 receipt["cleanup"] = True
                 self.assertFalse(proof.export_receipt(receipt, directory))
-                result = proof.main(["--finalize-cleanup", "--status", str(status), "--out", directory])
+                result = proof.main(["--finalize-cleanup", "--status", str(status), "--out", directory,
+                                     "--sims", str(Path(directory) / "removed-simulators")])
                 public = json.loads((Path(directory) / "screen-sharing-proof.json").read_text())
                 self.assertEqual(result, status)
                 self.assertEqual(public["passed"], status == 0)
                 self.assertEqual(public["simulator_cleanup"], status == 0)
                 self.assertEqual(public["cleanup"], status == 0)
+
+    def test_simulator_cleanup_requires_absent_owned_device_set(self):
+        for bound in (False, True):
+            with self.subTest(bound=bound), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sims = root / "simulators"
+                sims.mkdir()
+                (sims / "private-data").write_text("owned simulator residue")
+                receipt = Rig().instance().run("Mac", "Phone", "abc")
+                receipt["cleanup"] = True
+                proof.export_receipt(receipt, root)
+                args = ["--finalize-cleanup", "--status", "0", "--out", directory]
+                if bound:
+                    args += ["--sims", str(sims)]
+                self.assertEqual(proof.main(args), 1)
+                public = json.loads((root / "screen-sharing-proof.json").read_text())
+                self.assertFalse(public["simulator_cleanup"])
+                self.assertFalse(public["passed"])
 
     def test_export_excludes_raw_files_and_rejects_unknown_fields(self):
         with tempfile.TemporaryDirectory() as directory:
