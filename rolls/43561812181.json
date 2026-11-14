@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43561812181",
+  "recorded_at": "2026-11-14T05:38:10Z",
+  "reason": "cmux-tui 6e6d25060796 changes the image's cmux-tui (pinned 17a55d1a943b)",
+  "dry_run": false,
+  "cmux_tui": "6e6d25060796df3c2c46e5fe44d972ce211f6526",
+  "fixes": [
+    {
+      "sha": "6e6d25060796df3c2c46e5fe44d972ce211f6526",
+      "mergedAt": "2026-11-13T21:06:04-08:00",
+      "subject": "test(cmux-tui-core): the host-death property test starts a restart after the millisecond of a process end (#42826)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:38:10Z",
+    "snapshot_id": "sh-1ddb938042ac4531bb2867af7cacd427",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43561812181): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b12b5516f77d34839d1522902d867588c2697a37",
+    "image": "cloud-native-auto-6e6d2506-43561812181-1",
+    "revision": "ci-43561812181-1",
+    "at": "2026-11-14T05:38:10Z"
+  },
+  "rolled_back": false
+}
