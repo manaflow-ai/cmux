@@ -33,7 +33,8 @@ struct MediaAppOpsCardTests {
         #expect(track["title"] == "Song" && track["source"] == "Music" && track["can_next"] == true && track["position_ms"] == 2_000)
         let url = try #require(track["artwork"]?.stringValue)
         #expect(url.hasPrefix("data:image/png;base64,"))
-        let image = try #require(NSImage(data: try #require(Data(base64Encoded: String(url.dropFirst("data:image/png;base64,".count))))))
+        let png = try #require(Data(base64Encoded: String(url.dropFirst("data:image/png;base64,".count))))
+        let image = try #require(NSImage(data: png))
         #expect(max(image.size.width, image.size.height) <= CGFloat(MediaAppOps.ArtworkURL.side))
     }
 
