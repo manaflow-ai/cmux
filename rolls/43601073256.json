@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43601073256",
+  "recorded_at": "2026-11-14T13:49:52Z",
+  "reason": "cmux-tui ead26e752c9b changes the image's cmux-tui (pinned c9b13b3d7648)",
+  "dry_run": false,
+  "cmux_tui": "ead26e752c9b4572e00c1b2968ef2917d03e7aac",
+  "fixes": [
+    {
+      "sha": "ead26e752c9b4572e00c1b2968ef2917d03e7aac",
+      "mergedAt": "2026-11-14T05:23:18-08:00",
+      "subject": "CMUX-572: request missing screen-share shards after the reorder grace (#42959)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T13:49:52Z",
+    "snapshot_id": "sh-95e4e74adaf44d6190eb2f53d7718f01",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43601073256): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "32e9b76a2651021951af33c56ac3cd923dcca11b",
+    "image": "cloud-native-auto-ead26e75-43601073256-1",
+    "revision": "ci-43601073256-1",
+    "at": "2026-11-14T13:49:52Z"
+  },
+  "rolled_back": false
+}
