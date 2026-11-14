@@ -14,6 +14,13 @@ reading files.
 
 Findings are warnings in the gate report (an agent's judgement), except a
 crash or a step it could not get past, which it marks blocking.
+
+The Debug build signs in a mock account, which has no billing model, so the
+app is launched with the DEBUG billing demo (CMUX_MOBILE_BILLING_DEMO=free,
+CmuxMobileShell/BillingDemo.swift): Settings > Plan then shows the real plans
+screen over an in-memory server and App Store, as a production account's
+would. simctl passes a SIMCTL_CHILD_ variable to every launch it makes, the
+agent's relaunches included.
 """
 
 from __future__ import annotations
@@ -25,6 +32,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# BillingDemo's state with the Free plan and the Go, Pro and Max offers.
+BILLING_DEMO_STATE = "free"
 
 PROMPT = """You are an Apple App Review reviewer testing the cmux iOS app on an iPad
 or iPhone simulator. You have no Mac and you have never seen cmux before.
@@ -45,7 +55,11 @@ written, in order, as a reviewer would, starting from a fresh launch. This
 is a debug build, so its sign-in buttons sign in a local sample account
 without a password: use them. Walk sign-in (every provider), Home, Chief
 (open it and send a message; a reply should come), Workspaces, Feed and
-Settings (every row and page). Open Settings > Account and tap Delete
+Settings (every row and page), including Settings > Plan: the plans screen
+with cmux Go, Pro and Max, Subscribe, Restore Purchases and the renewal terms.
+This build sells through a simulated App Store with sample prices: buy one
+plan and restore, judge whether a reviewer could find and understand the
+subscriptions, and do not judge the sample prices. Open Settings > Account and tap Delete
 Account to see that it asks first, then cancel: never confirm a deletion or
 sign out until everything else is done.
 
@@ -54,8 +68,9 @@ ends, no button that does nothing), 2.3 (accurate), 4.0 (design:
 truncation, overlapping text, layout glitches, inconsistent styling,
 confusing copy), 4.8 (Sign in with Apple offered beside Google and GitHub),
 5.1 (permissions explained before the prompt; account deletion in the app).
-The app sells nothing, so there are no purchases to find. Also anything that
-would embarrass the team.
+3.1.1 and 3.1.2 (subscriptions: Restore Purchases, the auto-renewal terms,
+Terms of Use and Privacy Policy links, nothing that sends you outside the app
+to pay). Also anything that would embarrass the team.
 
 When done, write ONLY a JSON array to {findings} where each item is
 {{"severity": "blocker"|"warning"|"info", "guideline": "2.1(a)",
@@ -104,7 +119,10 @@ def main() -> int:
         return 0
     subprocess.run(["xcrun", "simctl", "uninstall", args.udid, bid], check=False)
     subprocess.run(["xcrun", "simctl", "install", args.udid, str(app)], check=True)
-    subprocess.run(["xcrun", "simctl", "launch", args.udid, bid], check=False)
+    # Settings > Plan for the mock account (module docstring); every simctl
+    # launch below, the agent's too, inherits it.
+    env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_BILLING_DEMO=BILLING_DEMO_STATE)
+    subprocess.run(["xcrun", "simctl", "launch", args.udid, bid], check=False, env=env)
 
     prompt = PROMPT.format(udid=args.udid, bundle_id=bid, out=out, findings=findings,
                            setup=setup_text(Path(args.setup)))
@@ -113,7 +131,7 @@ def main() -> int:
          "--allowedTools", "Bash(axe:*)", "Bash(xcrun simctl:*)", "Read", "Write",
          "--max-turns", args.max_turns, "--output-format", "json"],
         capture_output=True, text=True, timeout=45 * 60, cwd=out,
-        env=dict(os.environ),
+        env=env,
     )
     (out / "transcript.json").write_text(proc.stdout or "")
     (out / "stderr.txt").write_text(proc.stderr or "")
