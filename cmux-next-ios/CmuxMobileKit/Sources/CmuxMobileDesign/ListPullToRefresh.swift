@@ -76,11 +76,12 @@ public final class ListPullToRefresh {
     public func scrolled() {
         guard let scrollView else { return }
         let distance = distance(scrollView)
+        if !isRefreshing {
+            let pull = Pull(distance: distance)
+            indicator.showTicks(scrollView.isDragging ? pull.ticks : min(pull.ticks, indicator.shownTicks))
+            if scrollView.isDragging, pull.triggers { begin() }
+        }
         layout(scrollView, distance: distance)
-        guard !isRefreshing else { return }
-        let pull = Pull(distance: distance)
-        indicator.showTicks(scrollView.isDragging ? pull.ticks : min(pull.ticks, indicator.shownTicks))
-        if scrollView.isDragging, pull.triggers { begin() }
     }
 
     /// Call from `scrollViewWillEndDragging`: the finger lifts, so the list can
@@ -125,8 +126,18 @@ public final class ListPullToRefresh {
         guard isRefreshing, let scrollView else { return }
         isRefreshing = false
         indicator.stopSpinning()
-        // Under a finger the slot closes when it lifts (`willEndDragging`).
-        guard !scrollView.isDragging else { return }
+        // Under a finger the slot closes when it lifts (`willEndDragging`); while the
+        // list still springs back or coasts, when it comes to rest (`endedDecelerating`):
+        // a slide would fight UIKit's own animation of the offset.
+        guard !scrollView.isDragging, !scrollView.isDecelerating else { return }
+        move(scrollView, inset: 0)
+    }
+
+    /// Call from `scrollViewDidEndDecelerating`: the list came to rest, so a slot left
+    /// open by a refresh that ended while it moved closes now.
+    public func endedDecelerating() {
+        guard let scrollView, !isRefreshing, held != 0, slide == nil,
+              !scrollView.isDragging, !scrollView.isDecelerating else { return }
         move(scrollView, inset: 0)
     }
 
@@ -138,14 +149,18 @@ public final class ListPullToRefresh {
     private func move(_ scrollView: UIScrollView, inset: CGFloat) {
         stopSliding()
         guard inset != held else { return }
-        let resting = scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 1
+        // The top without the slot, read now with the search drawer open. Each frame rests
+        // the list there plus the slot; following the live inset instead would follow the
+        // drawer as it gives a little on each frame's scroll, settling with the field short.
+        let top = scrollView.adjustedContentInset.top - held
+        // At rest anywhere above the rows (in the slot, or at the top): the rows move with
+        // the slot. Scrolled into the rows: the slot is out of sight, so it just goes.
+        let resting = scrollView.contentOffset.y <= -top + 1
         guard resting, !UIAccessibility.isReduceMotionEnabled, scrollView.window != nil else {
             return setHeld(inset, in: scrollView, pinToTop: resting)
         }
-        // The top without the slot, read now with the search drawer open: each frame rests the list
-        // there plus the slot. Following the live inset instead would follow the drawer as it gives a
-        // little on each frame's scroll, settling with the field a couple of points short.
-        slide = Slide(from: held, to: inset, start: CACurrentMediaTime(), top: scrollView.adjustedContentInset.top - held)
+        slide = Slide(from: held, to: inset, start: CACurrentMediaTime(), top: top,
+                      fromOffset: scrollView.contentOffset.y, written: scrollView.contentOffset.y)
         let link = CADisplayLink(target: SlideTarget(self), selector: #selector(SlideTarget.tick(_:)))
         link.add(to: .main, forMode: .common)
         slideLink = link
@@ -157,23 +172,35 @@ public final class ListPullToRefresh {
         var to: CGFloat
         var start: CFTimeInterval
         var top: CGFloat
+        /// Where the list was when the slide started, and where this slide last put it.
+        var fromOffset: CGFloat
+        var written: CGFloat
     }
 
     private var slide: Slide?
     private var slideLink: CADisplayLink?
 
     fileprivate func slideFrame() {
-        guard let slide, let scrollView else { return stopSliding() }
-        // A finger took the list: the slot settles when it lifts (`willEndDragging`).
+        guard var slide, let scrollView else { return stopSliding() }
+        // A finger took the list, or something else moved it (a reveal, a scroll to an item):
+        // stop following the slot. A finger settles it when it lifts (`willEndDragging`);
+        // otherwise the rest of it goes with the offset left where it is.
         guard !scrollView.isDragging else { return stopSliding() }
+        guard abs(scrollView.contentOffset.y - slide.written) < 0.5 else {
+            stopSliding()
+            return setHeld(slide.to, in: scrollView, pinToTop: false)
+        }
         let spring = CmuxMobileTheme.standard.motion.smooth
         let elapsed = CACurrentMediaTime() - slide.start
         // A critically damped spring (bounce 0) settling within the spring's duration.
         let omega = 2 * Double.pi / spring.duration
-        let progress = elapsed >= spring.duration ? 1 : 1 - (1 + omega * elapsed) * exp(-omega * elapsed)
-        let value = slide.from + (slide.to - slide.from) * CGFloat(progress)
-        setHeld(value, in: scrollView, pinToTop: false)
-        scrollView.contentOffset.y = -(slide.top + value)
+        let progress = CGFloat(elapsed >= spring.duration ? 1 : 1 - (1 + omega * elapsed) * exp(-omega * elapsed))
+        setHeld(slide.from + (slide.to - slide.from) * progress, in: scrollView, pinToTop: false)
+        let target = -(slide.top + slide.to)
+        let offset = slide.fromOffset + (target - slide.fromOffset) * progress
+        scrollView.contentOffset.y = offset
+        slide.written = scrollView.contentOffset.y
+        self.slide = slide
         if progress >= 1 { stopSliding() }
     }
 
@@ -194,12 +221,17 @@ public final class ListPullToRefresh {
     /// smaller than the slot, then in the slot right under the search field.
     private func layout(_ scrollView: UIScrollView, distance: CGFloat) {
         let gap = max(distance, 0)
-        let visible = gap > 0 || isRefreshing || indicator.isCollapsing
+        // Refreshing, the wheel stays in its slot even when the rows are scrolled over it
+        // (out of sight under the bars); otherwise it shows only while there is a gap.
+        let visible = isRefreshing || (gap > 0 && (indicator.shownTicks > 0 || indicator.isCollapsing))
         indicator.isHidden = !visible
         guard visible else { return }
         let size = ListRefreshIndicator.side
-        // Content coordinates: the rows start at y = 0, the gap's top is at -gap.
-        let centerY = -gap + min(max(gap, isRefreshing ? Self.slotHeight : 0), Self.slotHeight) / 2
+        let slot = Self.slotHeight
+        // Content coordinates: the rows start at y = 0, the gap's top is at -gap. Pulling, the
+        // wheel is centred in the gap until it is a slot tall, then rides right under the field.
+        // Refreshing, it is in the slot (-slot/2) or, pulled further, under the field.
+        let centerY = isRefreshing ? min(-gap + slot / 2, -slot / 2) : -gap + min(gap, slot) / 2
         indicator.bounds = CGRect(x: 0, y: 0, width: size, height: size)
         indicator.center = CGPoint(x: scrollView.bounds.midX, y: centerY)
     }

@@ -543,6 +543,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         pullToRefresh?.scrolled()
     }
 
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        pullToRefresh?.endedDecelerating()
+    }
+
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         pullToRefresh?.willEndDragging(targetContentOffset: targetContentOffset)

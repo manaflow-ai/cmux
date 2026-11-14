@@ -107,6 +107,102 @@ import UIKit
         host.window.isHidden = true
     }
 
+    /// A scroll view whose finger and coasting the test decides.
+    final class FingerScrollView: UIScrollView {
+        var fingerDown = false
+        var coasting = false
+        override var isDragging: Bool { fingerDown }
+        override var isDecelerating: Bool { coasting }
+    }
+
+    /// A list under no bars (top inset 0) in a window, with every offset it is given recorded.
+    private func fingerList(refresh: @escaping () async -> Void) -> (UIWindow, FingerScrollView, ListPullToRefresh) {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        let list = FingerScrollView(frame: root.view.bounds)
+        list.contentInsetAdjustmentBehavior = .never
+        list.contentSize = CGSize(width: 402, height: 4000)
+        root.view.addSubview(list)
+        return (window, list, ListPullToRefresh(scrollView: list, action: refresh))
+    }
+
+    private func wheel(_ list: UIScrollView) -> UIView? {
+        list.subviews.first { $0.accessibilityIdentifier == "list.refresh" }
+    }
+
+    @Test func aPullRefreshesOpensTheSlotWhenTheFingerLiftsAndClosesAtRest() async throws {
+        let gate = Gate()
+        let (window, list, refresh) = fingerList(refresh: { await gate.run() })
+        // The finger pulls past the refresh distance: the refresh starts, the inset stays (no rubber-band restart).
+        list.fingerDown = true
+        list.contentOffset.y = -(ListPullToRefresh.triggerDistance + 10)
+        refresh.scrolled()
+        await frames { gate.started == 1 }
+        #expect(gate.started == 1)
+        #expect(list.contentInset.top == 0)
+        // The finger lifts: the slot opens and the bounce ends at its top.
+        var target = list.contentOffset
+        refresh.willEndDragging(targetContentOffset: &target)
+        #expect(list.contentInset.top == ListPullToRefresh.slotHeight)
+        #expect(target.y == -ListPullToRefresh.slotHeight)
+        list.fingerDown = false
+        // Scrolled into the rows mid-refresh, the wheel stays in its slot, not behind the first row.
+        list.contentOffset.y = 300
+        refresh.scrolled()
+        let spinning = try #require(wheel(list))
+        #expect(!spinning.isHidden)
+        #expect(spinning.center.y == -ListPullToRefresh.slotHeight / 2)
+        // Back up and still springing when the refresh ends: nothing moves until the list rests.
+        list.coasting = true
+        list.contentOffset.y = -120
+        refresh.scrolled()
+        gate.finish()
+        for _ in 0 ..< 50 { await Task.yield() }
+        #expect(list.contentInset.top == ListPullToRefresh.slotHeight, "the slot closed while UIKit was still moving the list")
+        // At rest inside the slot (20 pt into it): the slot closes and the rows move with it, a little per frame.
+        list.coasting = false
+        list.contentOffset.y = -40
+        var offsets: [CGFloat] = []
+        let watch = list.observe(\.contentOffset, options: [.new]) { _, change in
+            if let y = change.newValue?.y { MainActor.assumeIsolated { offsets.append(y) } }
+        }
+        refresh.endedDecelerating()
+        await frames { list.contentInset.top == 0 }
+        watch.invalidate()
+        #expect(list.contentInset.top == 0)
+        #expect(list.contentOffset.y == 0)
+        let steps = zip([-40] + offsets, offsets).map { abs($1 - $0) }
+        #expect((steps.max() ?? 0) < 12, "a frame moved the rows \(steps.max() ?? 0) pt")
+        window.isHidden = true
+    }
+
+    @Test func aRefreshThatEndsUnderTheFingerClosesTheSlotWhenItLifts() async {
+        let gate = Gate()
+        let (window, list, refresh) = fingerList(refresh: { await gate.run() })
+        list.fingerDown = true
+        list.contentOffset.y = -(ListPullToRefresh.triggerDistance + 10)
+        refresh.scrolled()
+        await frames { gate.started == 1 }
+        #expect(gate.started == 1)
+        var target = list.contentOffset
+        refresh.willEndDragging(targetContentOffset: &target)
+        #expect(list.contentInset.top == ListPullToRefresh.slotHeight)
+        // The finger takes the list again and holds it while the refresh ends: the inset stays under it.
+        list.contentOffset.y = -150
+        refresh.scrolled()
+        gate.finish()
+        for _ in 0 ..< 50 { await Task.yield() }
+        #expect(list.contentInset.top == ListPullToRefresh.slotHeight)
+        // It lifts: the slot goes, and the bounce ends at the list's own top.
+        var lift = list.contentOffset
+        refresh.willEndDragging(targetContentOffset: &lift)
+        #expect(list.contentInset.top == 0)
+        #expect(lift.y == 0)
+        window.isHidden = true
+    }
+
     @Test func thePullFillsTheWheelThenRefreshesAtTheNativeDistance() {
         #expect(ListPullToRefresh.Pull(distance: 0).ticks == 0)
         #expect(ListPullToRefresh.Pull(distance: -40).ticks == 0)
