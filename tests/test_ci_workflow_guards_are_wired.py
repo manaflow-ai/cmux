@@ -100,6 +100,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
     # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
     "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks that a nightly-next loop run holds the push slot only in
+    # nightly-next-one, that the next notes start from the live feed, and the tick wake; run it by hand after
+    # changing nightly.yml's concurrency, nightly-next-one or wake-nightly-next-tick.
+    "tests/test_nightly_next_push_slot_at_build.py",
     # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group held through the
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.

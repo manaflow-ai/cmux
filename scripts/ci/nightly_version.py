@@ -28,6 +28,14 @@
       is latest-wins) prints `superseded=true` and exits 0 instead of
       refusing; otherwise `superseded=false` follows.
 
+  published-source --feed FILE_OR_URL
+      Prints the cmux:sourceCommit of the feed's newest item (the highest
+      sparkle:version), or nothing when that item names none. It is the
+      commit the live feed serves, written by the publishing job itself
+      (publish-nightly-next-r2.py write-feed, a compare-and-swap that only
+      moves to a descendant source), so it is current as soon as the feed
+      is, before the release body and tag a run's tail writes after it.
+
 CFBundleVersion is the run-derived number (`<run id><attempt, 2 digits>`),
 which only grows; Sparkle compares it, never the marketing version.
 """
@@ -187,6 +195,24 @@ def feed_builds(root):
     return numeric
 
 
+CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
+SOURCE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def published_source(source):
+    """The newest item's cmux:sourceCommit (40 lowercase hex), or "" when it has none."""
+    newest, commit = None, ""
+    for item in read_feed(source).iter("item"):
+        versions = [int(b) for b in feed_builds(item)]
+        if not versions:
+            continue
+        found = item.find(f"{{{CMUX_NS}}}sourceCommit")
+        text = (found.text or "").strip().lower() if found is not None else ""
+        if newest is None or max(versions) > newest:
+            newest, commit = max(versions), text if SOURCE.match(text) else ""
+    return commit
+
+
 class Superseded(Exception):
     """A feed is already above the build: a newer build published first."""
 
@@ -244,12 +270,16 @@ def main(argv):
     c.add_argument("--already-published-ok", action="store_true", help="a feed already offering this build is not a refusal")
     c.add_argument("--superseded-ok", action="store_true",
                    help="a feed already above this build (a newer build published first) is not a refusal")
+    s = commands.add_parser("published-source")
+    s.add_argument("--feed", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
         elif args.command == "next-base":
             print(next_base(args.root))
+        elif args.command == "published-source":
+            print(published_source(args.feed))
         else:
             try:
                 published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok,
