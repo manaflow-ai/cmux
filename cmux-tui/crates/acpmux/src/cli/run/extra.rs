@@ -853,8 +853,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::LeaveIntent { user_id }) => {
+            crate::cli::cloud_join::record_leave_intent(&user_id).await?;
+            if json_out {
+                print_json(&json!({ "recorded": true }));
+            } else {
+                println!("recorded");
+            }
+            Ok(())
+        }
         Command::Host(PeerCmd::Leave { local_only }) => {
             crate::cli::cloud_join::leave(local_only, json_out).await
+        }
+        // The enroll runs here; a running daemon starts its relay at its next start.
+        Command::Host(PeerCmd::EnrollSelf { access_token_stdin: _, hub, build_tag, user_id }) => {
+            let access = crate::cli::join_input::read_stdin_line(false)?
+                .ok_or_else(|| anyhow!("the access token must be on stdin"))?;
+            let request = crate::cli::cloud_join::EnrollRequest { hub, user_id, build_tag };
+            let outcome = crate::cli::cloud_join::enroll_self(request, access).await;
+            if json_out {
+                print_json(&json!({ "outcome": outcome }));
+            } else {
+                println!("{}", serde_json::to_value(outcome)?.as_str().unwrap_or_default());
+            }
+            Ok(())
         }
         Command::Host(PeerCmd::Vault { cmd }) => match cmd {
             crate::cli::command_host::VaultCmd::Pull => {
@@ -1160,6 +1182,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Join { .. }
                 | PeerCmd::Leave { .. }
+                | PeerCmd::LeaveIntent { .. }
+                | PeerCmd::EnrollSelf { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }

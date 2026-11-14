@@ -52,7 +52,8 @@ pub use checkpoint::{
 };
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
-    Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, RowRef, Side, Since, Window,
+    Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, ResumeSize, RowRef, Side, Since,
+    Window,
 };
 pub use record::{HEADER_LEN, RECORD_OVERHEAD};
 
@@ -78,7 +79,15 @@ const MAX_READERS: usize = 4;
 const LOCK_TRIES: u32 = 100;
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
-pub const MAX_BLOB_READ: usize = 1024 * 1024;
+pub const MAX_BLOB_READ: usize = 256 * 1024;
+
+/// Metadata for one bounded body range.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BlobRange {
+    pub start: u64,
+    pub end: u64,
+    pub total: u64,
+}
 const UNDO_HEAD_LEN: usize = 16;
 const UNDO_ENTRY_LEN: usize = 28;
 
@@ -264,6 +273,8 @@ pub struct Stats {
     pub bytes_read: u64,
     /// Read calls for those bytes.
     pub reads: u64,
+    /// Row index entries examined by window/page walks (including unsettled ids).
+    pub walk_entries: u64,
     /// Syncs of a file.
     pub syncs: u64,
     /// Checkpoints written.
@@ -1535,16 +1546,34 @@ impl Log {
         max: usize,
         out: &mut Vec<u8>,
     ) -> Result<u64, Error> {
+        Ok(self.read_blob_range(row_id, offset, max, out)?.total)
+    }
+
+    /// Reads one bounded body range and returns the exact range supplied plus the body's length.
+    pub fn read_blob_range(
+        &mut self,
+        row_id: u64,
+        offset: u64,
+        max: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<BlobRange, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
         out.clear();
         let file = File::open(self.blob_path(row_id))?;
         let len = file.metadata()?.len();
         let left = usize::try_from(len.saturating_sub(offset)).unwrap_or(usize::MAX);
-        out.resize(max.min(MAX_BLOB_READ).min(left), 0);
+        out.resize(Self::bound(max, MAX_BLOB_READ).min(left), 0);
         let read = fsio::read_at(&file, out, offset)?;
         out.truncate(read);
         self.stats.reads = self.stats.reads.saturating_add(1);
         self.stats.bytes_read = self.stats.bytes_read.saturating_add(read as u64);
-        Ok(len)
+        Ok(BlobRange {
+            start: offset.min(len),
+            end: offset.min(len).saturating_add(read as u64),
+            total: len,
+        })
     }
 
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the

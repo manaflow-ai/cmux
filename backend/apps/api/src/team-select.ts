@@ -4,7 +4,7 @@ import { roleHas } from "./domains/team-roles.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
-import { memberRoleHealed, stackHealDeps, type StackHealDeps } from "./stack-team-heal.ts"
+import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from "./stack-team-heal.ts"
 
 /**
  * Session team selection (cx-3bi.43; plans/cmux-next/enterprise.md "shared teams" item 3): a Stack
@@ -38,16 +38,17 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   const team = requested || p.team
   // The personal team needs no lookup (user.ensure made it); a machine install's team is its bound team (minted by UserDO).
   if (team === personalTeamIdFor(p.user) || (p.kind === "install" && isMachineInstallKind(p.install_kind))) return { ok: true, principal: { ...p, team } }
-  let role: string | null
+  let check: MemberCheck
   try {
-    // A team TeamDO never mirrored from Stack is synced first when Stack lists the person in it.
-    role = await memberRoleHealed(env, team, p.user, p.kind === "session" ? p.stack_user_id : undefined, heal)
+    // A team TeamDO never mirrored from Stack is synced first when Stack lists the person in it, within the heal's budget.
+    check = await memberCheck(env, team, p.user, p.kind === "session" ? p.stack_user_id : undefined, heal)
   } catch (e) {
     console.error(JSON.stringify({ msg: "team selection unreachable", error: String(e).slice(0, 200) }))
     return { ok: false, code: "owner.unreachable", message: "team membership could not be checked; retry" }
   }
+  if ("pending" in check) return { ok: false, code: "owner.unreachable", message: `team membership is not confirmed yet (${check.pending}); retry` }
   // Its own code (cx-5xew review): clients tell "not a member" apart from a role or op refusal inside the team.
-  if (!role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
+  if (!check.role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
   return { ok: true, principal: { ...p, team } }
 }
 
