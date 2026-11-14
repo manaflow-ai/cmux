@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43617967667",
+  "recorded_at": "2026-11-14T17:04:12Z",
+  "reason": "cmux-tui 92a6db1d38a2 changes the image's cmux-tui (pinned 70beec269ceb)",
+  "dry_run": false,
+  "cmux_tui": "92a6db1d38a29865129cf376da1d4386bec99149",
+  "fixes": [
+    {
+      "sha": "92a6db1d38a29865129cf376da1d4386bec99149",
+      "mergedAt": "2026-11-14T08:31:47-08:00",
+      "subject": "cmux-codecs: VP9 encodes from a wall-clock capture time (#43140)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T17:04:12Z",
+    "snapshot_id": "sh-96d029609ffb4fb9b1a10cd121b80d07",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43617967667): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5c5121466b747ef53cbe7f3314d0aacd1260a505",
+    "image": "cloud-native-auto-92a6db1d-43617967667-1",
+    "revision": "ci-43617967667-1",
+    "at": "2026-11-14T17:04:12Z"
+  },
+  "rolled_back": false
+}
