@@ -49,6 +49,8 @@ public final class DeviceHub {
     /// Session pushes (`session.*`) in the order they arrive, for the Mac Screen layer:
     /// a ticket starts signaling; a revocation or end closes the peer connection at once.
     @ObservationIgnored public var onSessionPush: ((DeviceHubPush) -> Void)?
+    /// Every state the socket reports, in order (the iPhone's connectivity incident detector).
+    @ObservationIgnored public var onConnection: ((DeviceHubSocket.State) -> Void)?
     /// The name this device registers with.
     @ObservationIgnored public var deviceName: String
 
@@ -179,6 +181,7 @@ public final class DeviceHub {
         switch event {
         case let .state(state):
             connection = state
+            onConnection?(state)
             if state == .connected {
                 // Back on the hub: whatever changed while away (a relaunched host's history) is read again.
                 pushCount += 1

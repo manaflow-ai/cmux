@@ -216,6 +216,8 @@ public final class ScreenSharingService {
         alert = nil
         if let hub {
             hub.onSessionPush = nil
+            hub.onConnection = nil
+            onHubConnection?(nil)
             let alreadySignedOut = signedOut
             let signOut = signOutDevice
             // task-owner: one sign-out call (the hub lists this phone offline at once), then the socket closes
@@ -250,6 +252,10 @@ public final class ScreenSharingService {
         viewer?.ended(reason: ScreenSharingEndReason.signedOut.rawValue)
     }
 
+    /// The hub socket's states in order, and nil once the hub stops (signed out): the shell passes
+    /// them to the connectivity incident detector (surface `device_hub`).
+    @ObservationIgnored public var onHubConnection: ((DeviceHubSocket.State?) -> Void)?
+
     /// The service the signed-in shell runs, for the auth model's sign-out hook.
     public static weak var current: ScreenSharingService?
 
@@ -267,6 +273,7 @@ public final class ScreenSharingService {
     private func attach(_ hub: DeviceHub) {
         self.hub = hub
         hub.onSessionPush = { [weak self] push in self?.route(push) }
+        hub.onConnection = { [weak self] state in self?.onHubConnection?(state) }
     }
 
     static func status(of status: DeviceHub.Status) -> Status {

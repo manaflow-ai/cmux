@@ -188,7 +188,6 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     // version, a Mac chip and an install method, none of which an iPhone report has.
                     LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
                         .accessibilityIdentifier("settings.sendFeedback")
-                    CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
                     LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
                     NavigationLink(value: SettingsRoute.acknowledgements) {

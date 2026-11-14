@@ -132,10 +132,17 @@ public struct LiveAPI: Sendable {
             "startedAt": incident.startedAt.formatted(iso),
             "observedAt": incident.observedAt.formatted(iso),
             "durationMs": Int((incident.duration * 1000).rounded()),
-            "mac": ["id": incident.macID, "name": incident.macName],
-            "app": ["version": app.version, "build": app.build, "config": app.config, "simulator": app.simulator],
             "device": ["model": app.model, "os": app.os],
         ]
+        var appBody: [String: Any] = ["version": app.version, "build": app.build, "config": app.config, "simulator": app.simulator]
+        if let commit = app.commit { appBody["commit"] = commit }
+        body["app"] = appBody
+        // A service incident names its socket; a Mac incident its Mac.
+        if let surface = incident.surface {
+            body["surface"] = surface.rawValue
+        } else {
+            body["mac"] = ["id": incident.macID, "name": incident.macName]
+        }
         if let endReason = incident.endReason { body["endReason"] = endReason.rawValue }
         if let attempts = incident.attempts { body["attempts"] = attempts }
         if let drops = incident.drops { body["drops"] = drops }

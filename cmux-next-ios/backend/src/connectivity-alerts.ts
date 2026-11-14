@@ -55,7 +55,13 @@ export const audienceOf = (
 
 // MARK: The report
 
-export type IncidentKind = "mac_unreachable" | "link_unstable"
+export type IncidentKind = "mac_unreachable" | "link_unstable" | "service_unreachable" | "service_unstable"
+/** A cmux service socket the phone keeps open (service_* kinds). */
+export type Surface = "presence" | "chief_cloud" | "device_hub"
+export const SURFACE_NAMES: Record<Surface, string> = { presence: "Mac presence", chief_cloud: "Cloud Chief", device_hub: "Screen Sharing hub" }
+/** A Mac the phone could not reach, or a service socket it could not open. */
+export const isUnreachable = (kind: IncidentKind): boolean => kind === "mac_unreachable" || kind === "service_unreachable"
+export const isServiceKind = (kind: IncidentKind): boolean => kind === "service_unreachable" || kind === "service_unstable"
 export type IncidentState = "open" | "resolved" | "ended"
 /** How an incident ended without the Mac answering again. */
 export type EndReason = "app_backgrounded" | "network_lost" | "mac_offline" | "link_closed" | "signed_out" | "app_relaunched" | "no_end_reported" | "became_unreachable"
@@ -71,7 +77,13 @@ export interface IncidentReport {
   readonly observedAt: string
   /** How long it lasted up to `observedAt`. */
   readonly durationMs: number
+  /**
+   * The Mac; for a service incident, the service (`service:<surface>`, its name) so threading and limits
+   * treat it like one more "Mac" of the reporter.
+   */
   readonly mac: { readonly id: string; readonly name: string }
+  /** The service socket of a service_* incident. */
+  readonly surface?: Surface
   /** Dials tried while the Mac was unreachable. */
   readonly attempts?: number
   /** Drops of a live link inside the window (link_unstable). */
@@ -82,14 +94,16 @@ export interface IncidentReport {
   /** Whether the phone could reach the cmux service while the Mac could not be reached. */
   readonly serviceReachable?: boolean
   readonly network?: string
-  readonly app: { readonly version: string; readonly build: string; readonly config: string; readonly simulator: boolean }
+  readonly app: { readonly version: string; readonly build: string; readonly config: string; readonly simulator: boolean; readonly commit?: string }
   readonly device: { readonly model: string; readonly os: string }
   /** Developer network simulations that were on (relay only, UDP blocked). */
   readonly simulations?: ReadonlyArray<string>
 }
 
 const ID = /^[A-Za-z0-9-]{8,64}$/
-const KINDS = new Set<IncidentKind>(["mac_unreachable", "link_unstable"])
+const KINDS = new Set<IncidentKind>(["mac_unreachable", "link_unstable", "service_unreachable", "service_unstable"])
+const SURFACES = new Set<Surface>(["presence", "chief_cloud", "device_hub"])
+const COMMIT = /^[0-9a-f]{7,40}$/
 const STATES = new Set<IncidentState>(["open", "resolved", "ended"])
 const END_REASONS = new Set<EndReason>(["app_backgrounded", "network_lost", "mac_offline", "link_closed", "signed_out", "app_relaunched", "became_unreachable"])
 const WORD = /^[a-z0-9_]{1,32}$/
@@ -126,7 +140,7 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
   const id = required(body.id, "id", 64)
   if (!ID.test(id)) throw new ReportError("id must be 8-64 letters, digits or dashes")
   const kind = body.kind as IncidentKind
-  if (!KINDS.has(kind)) throw new ReportError("kind must be mac_unreachable or link_unstable")
+  if (!KINDS.has(kind)) throw new ReportError("kind must be mac_unreachable, link_unstable, service_unreachable or service_unstable")
   const state = body.state as IncidentState
   if (!STATES.has(state)) throw new ReportError("state must be open, resolved or ended")
   let endReason: EndReason | undefined
@@ -134,8 +148,17 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
     endReason = body.endReason as EndReason
     if (!END_REASONS.has(endReason)) throw new ReportError("an ended incident needs its endReason")
   }
-  const mac = obj(body.mac, "mac")
+  let surface: Surface | undefined
+  let mac: Record<string, unknown>
+  if (isServiceKind(kind)) {
+    surface = body.surface as Surface
+    if (!SURFACES.has(surface)) throw new ReportError("a service incident needs its surface: presence, chief_cloud or device_hub")
+    mac = { id: `service:${surface}`, name: SURFACE_NAMES[surface] }
+  } else {
+    mac = obj(body.mac, "mac")
+  }
   const app = obj(body.app, "app")
+  const commit = typeof app.commit === "string" && COMMIT.test(app.commit.trim().toLowerCase()) ? app.commit.trim().toLowerCase() : undefined
   const device = typeof body.device === "object" && body.device !== null ? (body.device as Record<string, unknown>) : {}
   const durationMs = count(body.durationMs, 30 * 86_400_000)
   if (durationMs === undefined) throw new ReportError("durationMs must be a non-negative number")
@@ -159,6 +182,7 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
     observedAt: date(body.observedAt, "observedAt"),
     durationMs,
     mac: { id: required(mac.id, "mac.id", 64), name: descriptive(mac.name, 80, "Unnamed Mac")! },
+    ...(surface ? { surface } : {}),
     ...(attempts !== undefined ? { attempts } : {}),
     ...(drops !== undefined ? { drops } : {}),
     ...(lastError !== undefined ? { lastError } : {}),
@@ -169,7 +193,8 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
       version: descriptive(app.version, 24, "?")!,
       build: descriptive(app.build, 24, "?")!,
       config: descriptive(app.config, 24, "?")!,
-      simulator: app.simulator
+      simulator: app.simulator,
+      ...(commit ? { commit } : {})
     },
     device: { model: descriptive(device.model, 48, "unknown")!, os: descriptive(device.os, 24, "?")! },
     ...(simulations.length ? { simulations } : {})
@@ -295,6 +320,8 @@ export const judgedAt = (report: IncidentReport, now: number): number => {
  *   connect alone is no proof: a dark wake connects and goes back to sleep.
  */
 export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
+  // A cmux service socket has no Mac to be asleep: the service is the one at fault.
+  if (isServiceKind(report.kind)) return undefined
   if (report.serviceReachable === false) return undefined
   const live = check.liveness
   const at = judgedAt(report, now)
@@ -530,15 +557,42 @@ const othersAffected = (desk: DeskState, incident: Incident): number => {
   const reporters = new Set<string>()
   const start = Date.parse(incident.report.startedAt)
   for (const other of Object.values(desk.incidents)) {
-    if (other.reporter.key === incident.reporter.key || other.route !== incident.route || other.report.kind !== "mac_unreachable") continue
+    if (other.reporter.key === incident.reporter.key || other.route !== incident.route || other.report.kind !== incident.report.kind) continue
+    if (incident.report.kind === "service_unreachable" && other.report.surface !== incident.report.surface) continue
     if (other.suppressed && other.suppressed !== "rate_limited") continue
     if (Math.abs(Date.parse(other.report.startedAt) - start) <= CORRELATION_WINDOW_MS) reporters.add(other.reporter.key)
   }
   return reporters.size
 }
 
+const serviceHeadline = (who: string, report: IncidentReport): string => {
+  const service = `the ${SURFACE_NAMES[report.surface!]} service`
+  const unreachable = report.kind === "service_unreachable"
+  switch (report.state) {
+    case "open":
+      return unreachable
+        ? `:red_circle: *${who} can't reach ${service}* — down ${duration(report.durationMs)} and counting`
+        : `:large_orange_circle: *${who}'s connection to ${service} keeps dropping* — ${report.drops ?? "several"} drops in ${duration(report.durationMs)}`
+    case "resolved":
+      return unreachable
+        ? `:large_green_circle: *${who} couldn't reach ${service}* — reconnected after ${duration(report.durationMs)}`
+        : `:large_green_circle: *${who}'s connection to ${service} kept dropping* — stable again after ${duration(report.durationMs)}`
+    case "ended":
+      return unreachable
+        ? `:white_circle: *${who} couldn't reach ${service}* for ${duration(report.durationMs)} — never reconnected (${SERVICE_END_WORDS[report.endReason!] ?? END_WORDS[report.endReason!]})`
+        : `:white_circle: *${who}'s connection to ${service} kept dropping* for ${duration(report.durationMs)} — ended (${SERVICE_END_WORDS[report.endReason!] ?? END_WORDS[report.endReason!]})`
+  }
+}
+
+/** End words that read differently for a service than for a Mac. */
+const SERVICE_END_WORDS: Partial<Record<EndReason, string>> = {
+  link_closed: "the app stopped using it",
+  became_unreachable: "it then stopped answering (next reply)"
+}
+
 const headline = (incident: Incident, report: IncidentReport): string => {
   const who = esc(incident.reporter.email)
+  if (report.surface) return serviceHeadline(who, report)
   const mac = `“${esc(report.mac.name)}”`
   const unreachable = report.kind === "mac_unreachable"
   switch (report.state) {
@@ -560,10 +614,21 @@ const headline = (incident: Incident, report: IncidentReport): string => {
 /** The whole message for `incident` in the state `report` describes. */
 export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number, opts: { announceHeld?: boolean } = {}): string => {
   const lines = [headline(incident, report)]
-  if (report.kind === "mac_unreachable" && report.serviceReachable === false)
-    lines.push("• :warning: The phone could not reach the cmux service either (the internet worked): likely a cmux service outage")
-  const others = othersAffected(desk, incident)
-  if (others > 0) lines.push(`• :rotating_light: ${others} other teammate${others === 1 ? "" : "s"} lost a Mac within 10 minutes of this: likely service-side`)
+  // The phone's check asks the cmux mobile service (`/v1/health`), the one presence runs on; Cloud Chief and the
+  // device hub are other services, so for them it only says the mobile service failed too.
+  if (isUnreachable(report.kind) && report.serviceReachable === false)
+    lines.push(
+      report.surface === "chief_cloud" || report.surface === "device_hub"
+        ? "• :warning: The cmux mobile service also didn't answer the phone's health check (the internet worked)"
+        : "• :warning: The cmux mobile service didn't answer the phone's health check either (the internet worked): likely a cmux mobile service outage"
+    )
+  const others = isUnreachable(report.kind) ? othersAffected(desk, incident) : 0
+  if (others > 0)
+    lines.push(
+      report.surface
+        ? `• :rotating_light: ${others} other teammate${others === 1 ? "" : "s"} lost the ${SURFACE_NAMES[report.surface]} service within 10 minutes of this: likely service-side`
+        : `• :rotating_light: ${others} other teammate${others === 1 ? "" : "s"} lost a Mac within 10 minutes of this: likely service-side`
+    )
   const tried: Array<string> = []
   if (report.attempts !== undefined) tried.push(`${report.attempts} dial${report.attempts === 1 ? "" : "s"}`)
   if (report.lastError) tried.push(`last error: \`${esc(report.lastError).replace(/`/g, "'")}\``)
@@ -572,7 +637,7 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
     report.transport ? (TRANSPORTS[report.transport] ?? esc(report.transport)) : undefined,
     report.network ? esc(report.network) : undefined,
     `${esc(report.device.model)} · iOS ${esc(report.device.os)}`,
-    `cmux ${esc(report.app.version)} (${esc(report.app.build)}) ${esc(report.app.config)}`
+    `cmux ${esc(report.app.version)} (${esc(report.app.build)}) ${esc(report.app.config)}${report.app.commit ? ` \`${report.app.commit.slice(0, 9)}\`` : ""}`
   ].filter(Boolean)
   lines.push(`• ${where.join(" · ")}`)
   if (report.simulations?.length) lines.push(`• Developer network simulation on: ${report.simulations.join(", ")}`)
@@ -582,14 +647,14 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
   if (opts.announceHeld && held > 0)
     lines.push(`• ${held} more incident${held === 1 ? " was" : "s were"} held back since the last post (rate limit)`)
   if (incident.route === "test") lines.push(`• _Test route: ${TEST_WORDS[incident.why ?? "agent_account"]}_`)
-  lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · Mac \`${esc(report.mac.id.slice(0, 8))}\`_`)
+  lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · ${report.surface ? `Service \`${report.surface}\`` : `Mac \`${esc(report.mac.id.slice(0, 8))}\``}_`)
   return lines.join("\n")
 }
 
 const endLine = (report: IncidentReport): string =>
   report.state === "resolved"
-    ? `Resolved: ${report.kind === "mac_unreachable" ? "reconnected" : "stable again"} after ${duration(report.durationMs)}.`
-    : `Ended without reconnecting after ${duration(report.durationMs)}: ${END_WORDS[report.endReason!]}.`
+    ? `Resolved: ${isUnreachable(report.kind) ? "reconnected" : "stable again"} after ${duration(report.durationMs)}.`
+    : `Ended without reconnecting after ${duration(report.durationMs)}: ${(report.surface ? SERVICE_END_WORDS[report.endReason!] : undefined) ?? END_WORDS[report.endReason!]}.`
 
 // MARK: Slack
 

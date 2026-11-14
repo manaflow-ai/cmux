@@ -41,6 +41,7 @@ export default defineConfig({
           STACK_TEST_EMAILS: JSON.stringify({
             tina: { email: "tina@manaflow.ai", verified: true },
             ted: { email: "ted@cmux.com", verified: true },
+            tara: { email: "tara@manaflow.ai", verified: true },
             tom: { email: "tom@manaflow.com", verified: true },
             sub: { email: "sam@eng.manaflow.ai", verified: true },
             una: { email: "una@manaflow.ai", verified: false },

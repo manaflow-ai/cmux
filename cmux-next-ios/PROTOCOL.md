@@ -1581,7 +1581,7 @@ to a phone: it changes the Mac-wide preference only.
   terminal background and a one-line note (`120×40 · set by <device>`).
   It never reflows the host's output to its own width.
 
-## Connectivity incidents (API 0.15.0)
+## Connectivity incidents (API 0.15.0; service surfaces and `app.commit` 0.16.0)
 
 A cmux team member's phone tells the team's Slack when it suffers a major connectivity incident. The
 phone decides what is major; the service decides who is heard.
@@ -1605,6 +1605,12 @@ Only when the signed-in account's connectivity audience is the team (`Connectivi
   inside its window: a host that crashed and came back within a second never shows the Mac offline; the
   phone then forgets it and its cooldown. At most one per Mac per 30 minutes. If the Mac stops answering
   for 30 s while it is open, it ends (`became_unreachable`) and an unreachable incident takes over.
+- `service_unreachable` / `service_unstable` (0.16.0): the same two rules for a cmux service socket the
+  phone keeps open, named by `surface`: `presence` (the team's signaling socket, Mac presence),
+  `chief_cloud` (Cloud Chief conversation sockets; the service counts as reachable while any of them is
+  live) and `device_hub` (the device hub socket, for Screen Sharing). The socket is wanted while its
+  feature runs; there is no Mac to be asleep, so the service is the one at fault. The same reachability
+  check gates both, so a phone whose own internet is down never reports one.
 - Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
   the background or without a network, sign-out.
 - A Mac that goes offline in the middle of an incident (or while drops are being counted) gets 60 s to come
@@ -1624,9 +1630,14 @@ as `app_relaunched`, at the time it was last seen.
 {"id":"<uuid>","kind":"mac_unreachable","state":"open","startedAt":"<iso>","observedAt":"<iso>",
  "durationMs":31000,"mac":{"id":"<device id>","name":"Studio"},"attempts":6,"lastError":"…",
  "transport":"wireguard","serviceReachable":true,"network":"wifi",
- "app":{"version":"1.2.0","build":"450","config":"TestFlight","simulator":false},
+ "app":{"version":"1.2.0","build":"450","config":"TestFlight","simulator":false,"commit":"4f1c2a9d0e"},
  "device":{"model":"iPhone17,4","os":"27.2"},"simulations":["block_udp"],"drops":3,"endReason":"…"}
 ```
+
+A service incident sends `"surface":"presence"|"chief_cloud"|"device_hub"` instead of `mac` (the service
+files it under `service:<surface>`, so threading and limits treat it as one more Mac of the reporter).
+`app.commit` (0.16.0) is the build's source commit (`CmuxMobileSourceCommit`, 7-40 hex digits; anything
+else is left out); the message shows its first 9 digits after the version.
 
 ### What the service does (`src/connectivity-alerts.ts`)
 
@@ -1635,6 +1646,7 @@ as `app_relaunched`, at the time it was last seen.
   builds, Debug builds and reports with a developer network simulation on go to the test channel
   (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
   `CONNECTIVITY_ALERT_CHANNEL`.
+- A service incident is never judged by a Mac's pings: it is posted (subject to the limits below).
 - For `mac_unreachable`, asks the caller's own hub whether the Mac was awake when the phone saw the incident
   (`observedAt`, never later than now; `TeamHub.macLiveness`): it sent an application `ping` after the link
   stopped working (`startedAt`) and within 45 s of that moment. An awake host pings every 15 s through the
@@ -1666,6 +1678,7 @@ as `app_relaunched`, at the time it was last seen.
   An end whose start was held back is posted whole later. One open incident per Mac at a time.
 - The verdict uses the phone's own `observedAt - startedAt` with the server's clock, so a phone clock that
   runs fast or slow does not change it. A Mac outage that two or more
-  teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
+  teammates hit within 10 minutes is flagged as likely service-side (for a service, two teammates losing the
+  same surface); a phone that could not reach the
   service is flagged as a likely service outage.
 - 10 reports a minute per user (`INCIDENT_LIMIT`).

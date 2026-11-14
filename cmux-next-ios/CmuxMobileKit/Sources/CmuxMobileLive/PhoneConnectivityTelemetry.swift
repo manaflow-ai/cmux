@@ -3,15 +3,24 @@ import Foundation
 import os
 
 extension ConnectivityTelemetry {
-    /// Starts the iPhone's connectivity recording once per process: its journal
-    /// (``ConnectivityJournal/applicationSupport(maxBytes:)``, at most 2 MB on disk; Settings →
-    /// Help → Copy Logs includes it) and the unified log under `dev.cmux.mobile`, category
-    /// `connectivity`. The audience follows the account through ``setAccount(email:)``; until
-    /// then it is ``ConnectivityAudience/everyone``.
+    /// Starts the iPhone's connectivity recording once per process: the unified log under
+    /// `dev.cmux.mobile`, category `connectivity`. Nothing reads an on-disk journal on the phone
+    /// any more (Copy Logs was removed; the team's major incidents reach Slack through
+    /// ``ConnectivityIncidentReporter``), so none is written, and one left by an older build is
+    /// deleted. The audience follows the account through ``setAccount(email:)``; until then it is
+    /// ``ConnectivityAudience/everyone``.
     public func startOnPhone() {
         guard PhoneConnectivityStart.claim() else { return }
-        setJournal(.applicationSupport())
+        Self.removeOldJournal()
         addSink(Self.unifiedLogSink(subsystem: "dev.cmux.mobile"))
+    }
+
+    /// Deletes the journal an older build kept in Application Support (and its rolled copy).
+    private static func removeOldJournal() {
+        let journal = ConnectivityJournal.applicationSupport()
+        Task.detached(priority: .utility) {
+            for url in [journal.url, journal.previousURL] { try? FileManager.default.removeItem(at: url) }
+        }
     }
 }
 
