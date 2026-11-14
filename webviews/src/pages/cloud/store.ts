@@ -969,6 +969,10 @@ export class CloudStore {
   private restartSession(): number {
     this.accountEpoch += 1;
     this.endSession();
+    // Another account or team starts with its own quiet re-reads, not the old one's spent count.
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     return this.session;
   }
 

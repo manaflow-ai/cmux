@@ -53,6 +53,9 @@ class BlipProvider extends MockCloudProvider {
     }
     return super.call<R>(op, params);
   }
+  failuresLeft(count: number): void {
+    this.failures = count;
+  }
 }
 
 async function run(op: string, failures: number, ms: number) {
@@ -91,3 +94,30 @@ for (const op of [CloudOps.authStatus, CloudOps.machineList]) {
     expect(alerted).toBe(true);
   });
 }
+
+test("another account starts with its own quiet re-reads", async () => {
+  jest.useFakeTimers();
+  const turn = async () => {
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+  };
+  // One blip spends a quiet re-read; another user signs in before it runs, and that account's list
+  // blips three times: it gets its own three quiet re-reads, then its machines.
+  const provider = new BlipProvider(CloudOps.machineList, 1);
+  const store = new CloudStore(provider);
+  const stop = store.subscribe(() => undefined);
+  try {
+    await turn();
+    provider.failuresLeft(3);
+    provider.switchUser("user_2", sampleMachines());
+    for (let t = 0; t < 10_000; t += 100) {
+      jest.advanceTimersByTime(100);
+      await turn();
+      expect(store.getSnapshot().error).toBeUndefined();
+    }
+    expect(store.getSnapshot().connection).toBe("connected");
+    expect(store.getSnapshot().machines).toHaveLength(sampleMachines().length);
+  } finally {
+    stop();
+    jest.useRealTimers();
+  }
+});
