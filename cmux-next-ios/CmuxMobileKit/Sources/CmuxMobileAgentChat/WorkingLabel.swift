@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileModel
 import os
 import SwiftUI
 
@@ -9,6 +10,8 @@ public struct WorkingLabel: View {
     var since: Date?
     var font: Font
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Between `onAppear` and `onDisappear`: the elapsed time ticks only then.
+    @State private var shown = true
 
     public init(_ text: String = "Working", since: Date? = nil, font: Font = .body) {
         self.text = text
@@ -22,15 +25,21 @@ public struct WorkingLabel: View {
                 Text(text).font(font)
             }
             if let since {
-                TimelineView(Self.elapsedSchedule(since: since)) { context in
+                // Ticks only while it can be seen: its row on screen (a row scrolled away stays
+                // alive in the list's reuse pool) and the app not in the background.
+                TimelineView(Self.elapsedSchedule(since: since, live: shown && MinuteClock.shared.isActive)) { context in
                     let _ = Self.noteRedraw(since: since)
-                    if let elapsed = Self.elapsedText(since: since, at: context.date) {
+                    // The time of this redraw, or now if later: when the label is seen again its
+                    // schedule starts over, and it shows the current time at once.
+                    if let elapsed = Self.elapsedText(since: since, at: max(context.date, Date())) {
                         Text(elapsed)
                             .font(.footnote.monospacedDigit())
                             .foregroundStyle(.tertiary)
                             .contentTransition(.numericText())
                     }
                 }
+                .onAppear { shown = true }
+                .onDisappear { shown = false }
             }
         }
         .accessibilityElement(children: .combine)
@@ -45,8 +54,9 @@ public struct WorkingLabel: View {
 
     /// When the elapsed time redraws: when the row appears, then each second from 5 s on
     /// (before that the text is nothing, and a redraw would draw nothing again).
-    static func elapsedSchedule(since: Date) -> ElapsedTextSchedule {
-        ElapsedTextSchedule(since: since, quietSeconds: 5)
+    /// Not `live`: only the moment it is asked, then nothing.
+    static func elapsedSchedule(since: Date, live: Bool = true) -> ElapsedTextSchedule {
+        ElapsedTextSchedule(since: since, quietSeconds: 5, live: live)
     }
 
     /// DEBUG and Demo: in the list rig's running chat (`CMUX_MOBILE_LIST_HOLD_TURN=1`), one
