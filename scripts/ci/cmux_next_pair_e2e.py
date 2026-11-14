@@ -585,12 +585,15 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
                         f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
 
 
-def daemon_request(sock_path, cmd, params=None, timeout=10):
-    """One request on its own connection to the tag's cmux-tui daemon; its reply's data."""
+def daemon_request(sock_path, cmd, params=None, timeout=10, capabilities=None):
+    """One request on its own connection to the tag's cmux-tui daemon; its reply's data. With
+    `capabilities`, the connection declares them first (`set-client-info`)."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
         conn.settimeout(timeout)
         conn.connect(sock_path)
-        conn.sendall((json.dumps({"id": "rz", "cmd": cmd, **(params or {})}) + "\n").encode())
+        first = (json.dumps({"id": "ci", "cmd": "set-client-info", "name": "resize-rig", "kind": "script",
+                             "capabilities": capabilities}) + "\n") if capabilities else ""
+        conn.sendall((first + json.dumps({"id": "rz", "cmd": cmd, **(params or {})}) + "\n").encode())
         buf = b""
         while True:
             chunk = conn.recv(1 << 20)
@@ -655,7 +658,8 @@ def resize_leg(rpc, simctl, udid, bundle_id, phone_env, out, note):
               'for i in $(seq 1 12); do printf "%02d %s\\n" "$i" "$(printf "%0.s=" $(seq 1 110))"; done; '
               'printf "grid at start: %s\\n" "$(stty size)"; while :; do sleep 0.2; done')
     created = daemon_request(sock_path, "run", {"argv": ["/bin/sh", "-c", script], "new_workspace": True,
-                                                "name": "resize e2e", "cols": 120, "rows": 40})
+                                                "name": "resize e2e", "cols": 120, "rows": 40},
+                             capabilities=["terminal-public-ids-v1"])
     surface, tab = created.get("surface"), created.get("tab_id")
     if surface is None or not tab:
         return f"SKIPPED: run gave no surface/tab_id ({created})"
