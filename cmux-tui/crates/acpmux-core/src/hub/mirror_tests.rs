@@ -449,9 +449,13 @@ fn a_join_is_refused_when_the_next_unit_does_not_follow() {
     let directory = tempfile::tempdir().unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
     hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
-    writer.mirror.fail_appends = 1;
-    assert!(dispatch_batch(&hub, &mut writer)[0].is_err(), "the append failed");
+    let batch = hub.updates.take_batch();
+    // The slot takes the walk's first unit while the writer holds unit 1.
     hub.submit_unit(Source::Mirror, first(9, &["b"])).unwrap();
+    writer.mirror.fail_appends = 1;
+    for (key, update) in batch {
+        assert!(writer.dispatch_update(key, update).is_err(), "the append failed");
+    }
     writer.process_batch();
     let counts = hub.mirror_counts();
     assert_eq!((counts.join_refused, counts.applied), (1, 1));
