@@ -169,7 +169,7 @@ async fn timed_append(
     target: u64,
     offset: usize,
     permit: Arc<AtomicBool>,
-) -> (HubWriter, u128) {
+) -> Result<(HubWriter, u128), tokio::task::JoinError> {
     // Both sides move the writer through the same worker boundary and time
     // exactly the same construction, append, and permit store.
     tokio::task::spawn_blocking(move || {
@@ -179,7 +179,6 @@ async fn timed_append(
         (writer, start.elapsed().as_nanos().max(1))
     })
     .await
-    .unwrap()
 }
 
 async fn append_round() -> Vec<u128> {
@@ -190,7 +189,8 @@ async fn append_round() -> Vec<u128> {
     let mut samples = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
         let permit = Arc::new(AtomicBool::new(false));
-        let (next, elapsed) = timed_append(writer, target + offset as u64, offset, permit).await;
+        let (next, elapsed) =
+            timed_append(writer, target + offset as u64, offset, permit).await.unwrap();
         writer = next;
         samples.push(elapsed);
     }
@@ -216,7 +216,7 @@ async fn append_replay_sample(
         // measured append runs; free it after the writer stops its clock.
         let mut buffer = vec![0; MAX_REPLAY_FRAME_BYTES];
         let mut replay_cursor = cursor;
-        while !copy_stop.load(Ordering::Acquire) {
+        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
             let Some(RawRead::Span(span)) =
                 receiver.try_next_raw_with_buffer(Some(target), MAX_REPLAY_FRAME_BYTES, buffer)
@@ -243,11 +243,12 @@ async fn append_replay_sample(
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let (writer, elapsed) = timed_append(writer, target, offset, permit.clone()).await;
+    let result = timed_append(writer, target, offset, permit.clone()).await;
     let copies_during = hub.history_raw_copies();
     permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
+    let (writer, elapsed) = result.unwrap();
     (writer, elapsed, copies_during)
 }
 
