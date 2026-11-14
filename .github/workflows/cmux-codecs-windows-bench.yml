@@ -55,10 +55,10 @@ jobs:
           Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Format-Table -AutoSize | Out-String | Tee-Object -Variable gpus
           Add-Content $env:GITHUB_STEP_SUMMARY "GPU: $gpus"
 
+      # GitHub runs pwsh steps with $ErrorActionPreference = stop already.
       - name: Rows
         working-directory: cmux-tui/crates/cmux-codecs
         run: |
-          $ErrorActionPreference = 'Stop'
           $rows = Join-Path $env:RUNNER_TEMP 'codec-bench-windows.jsonl'
           .\target\release\codec-bench.exe --codecs h264,h264-mf,h264-mf-sw `
             --scenes page,scroll,drag,typing --loss 0,2,2b --rtt-ms 50 --seconds 10 `
