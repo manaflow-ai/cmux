@@ -596,6 +596,10 @@ impl Supervisor {
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
                 outs
             }
+            Effect::SettingsChanged(app) => {
+                Self::push_settings_locked(inner, app);
+                vec![]
+            }
             Effect::GrantsChanged(app) => {
                 let mut outs = self.terminal_access_changed_locked(inner, app);
                 outs.extend(self.regrant_locked(inner, app));
