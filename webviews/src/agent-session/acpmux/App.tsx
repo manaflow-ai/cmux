@@ -4242,16 +4242,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
-        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts); it reads
-        // acpmux's capabilities, `retryCapabilities`, set with Resume below.
+        // Retry asks acpmux, the only one that retries (subagents/retryState.ts); it reads acpmux's
+        // capabilities, `retryCapabilities`, set with Resume below.
         // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
           const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
           if (!client) return Promise.resolve("retry.failed" as const);
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
-          const send = (text: string) => callNative("chat.send", { text });
-          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
+          return runRetry(agent, owner, { request, capabilities: client.capabilities, reaches });
         })(restartChat),
       }),
       // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
