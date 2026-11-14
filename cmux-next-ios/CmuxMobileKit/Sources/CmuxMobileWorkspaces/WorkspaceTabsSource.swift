@@ -3,6 +3,7 @@ import CmuxTabsKit
 import CmuxMobileAgentChat
 import CmuxMobileBrowserStream
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileModel
 import CmuxMobileScreenSharing
 import Observation
@@ -14,10 +15,11 @@ import UIKit
 private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
-/// terminals, browsers) as TabsKit tabs, opening on the active tab of the
-/// leftmost, topmost pane of the Mac's layout unless the open asked for a tab
-/// (`AppStore.openingTab`). Every activation is remembered
-/// (`AppStore.noteOpened`), so a relaunch restores the tab on screen.
+/// terminals, browsers) as TabsKit tabs, opening on the tab the open asked for, else
+/// the tab left on screen in this workspace in this launch, else the active tab of the
+/// leftmost, topmost pane of the Mac's layout (`AppStore.openingTab`). Every activation
+/// is remembered (`AppStore.noteOpened`), so going back in, or a relaunch, restores the
+/// tab on screen.
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
@@ -44,6 +46,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
+    /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
+    /// shows, once the person chose one (else Rust's default).
+    var chosenFaces: [String: TabFace] = [:]
+    /// The View Only chat this phone had the Mac open for a terminal's session (`macID|harness|session`).
+    var openedTerminalChats: [String: String] = [:]
+    /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
+    var terminalChatRefusingMacs: Set<String> = []
+    @ObservationIgnored var openingTerminalChats: Set<String> = []
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -107,7 +117,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func opened() {
         hasAppeared = true
         if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
-        // `init` already opened on the requested tab: the next open starts at the layout's top-left again.
+        // `init` already opened on the requested tab: the next open starts where this screen is left.
         store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
     }
@@ -243,7 +253,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
            !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = opening
-            // Taken outside this rebuild (an action), so the next open starts at the layout's top-left.
+            // Taken outside this rebuild (an action), so the next open starts where this screen is left.
             Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
         }
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
@@ -920,7 +930,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                let draft = sessions.takeNewChatDraft(for: workspaceID, resolve: { [store] in store.resolvedWorkspaceID($0) }) {
                 surface.text = draft
             }
-        case .terminal: terminal.focusInput(for: tab, in: workspace)
+        case .terminal: if !showsChatFace(tab, in: workspace) { terminal.focusInput(for: tab, in: workspace) }
         case .browser, .simulator: break
         }
         if !store.isPending(workspaceID) { focusOnOpen = false }
@@ -1458,17 +1468,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
-    /// Opens a web link on this iPhone (Safari); tests watch it.
+    /// Opens a web link on this iPhone (Safari) when there is no Mac to open it on; tests watch it.
     @ObservationIgnored public var openOnPhone: @MainActor (URL) async -> Void = { await UIApplication.shared.open($0) }
 
-    /// A web link tapped in a terminal tab. A public page (github.com) opens here, on the
-    /// phone, where the person signs in (`WebLinkPlace`). A page only the Mac reaches (its
-    /// dev server on `localhost`, a LAN or tailnet host) is the Mac's Cmd-click: a cmux
-    /// browser tab at `url` beside the terminal on the Mac, shown here once the Mac lists it.
+    /// A terminal web link that opens on the Mac: one only the Mac reaches (its dev server on
+    /// `localhost`, a LAN or tailnet host), or any link through the link menu's Open on Mac.
+    /// The terminal decides which (`TerminalLinkRoute`, from the Rust `link_open_side`): a
+    /// public page tapped in the terminal opens on the phone and never comes here. The Mac's
+    /// Cmd-click: a cmux browser tab at `url` beside the terminal on the Mac, shown here once
+    /// the Mac lists it.
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
-        // A public page, or no Mac to open it on (the workspace went away, the Mac is
-        // offline or doesn't let this iPhone open tabs): Safari, never nothing.
-        guard WebLinkPlace(url) == .mac, canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
+        // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let
+        // this iPhone open tabs): Safari, never nothing.
+        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
             await openOnPhone(url)
             return
         }
@@ -2173,6 +2185,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let store = chatStore(tab, workspace)
             let surface = surface(tab.id)
             return [
+                terminalChatItems(tab, in: workspace),
                 [
                     TabsKitMenuItem(title: "Agent Edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
@@ -2225,8 +2238,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 }] : []
             // Files and Links, Paste, Find, Clear, Scroll to Bottom | Copy Directory | chats,
             // Panes and Screens, edit rows | the close rows: no
-            // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], chatsItems, layoutPages, edit, [reveal], closes].filter { !$0.isEmpty }
+            // "All Workspaces" (Back leaves the workspace; design/terminal P1). Show Chat / Show
+            // Terminal leads on half of a pair, as the Mac's tab right-click leads with Toggle.
+            return [terminalChatItems(tab, in: workspace), restart, own, [copy], chatsItems, layoutPages, edit, [reveal], closes]
+                .filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             let streamedPage = model as? StreamedBrowserModel
@@ -2318,23 +2333,16 @@ struct WorkspaceTabPage: View {
             .onChange(of: context.isInteractive) { _, interactive in
                 if interactive, surface.following { surface.scrollToBottom(animated: false) }
             }
+            // A chat of a Claude Code or Codex session a terminal runs: the same control, at the
+            // same place, whose other face is that terminal.
+            .overlay(alignment: .topTrailing) { ChatTerminalToggle(source: source, tab: tab, workspace: workspace, topInset: insets.top) }
         case .terminal:
-            source.terminal.page(for: tab, in: workspace, context: terminalContext)
-                .overlay {
-                    // The Mac's dead-tab overlay: the shell ended; its button restarts it.
-                    if tab.hasEndedShell {
-                        VStack(spacing: 12) {
-                            Text("The shell ended.").font(.headline)
-                            Button(WorkspaceTabsSource.restartShellTitle, systemImage: "arrow.counterclockwise") {
-                                Task { await source.restartShell(tab.id) }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!source.canEditTabs)
-                        }
-                        .padding(20)
-                        .background(.regularMaterial, in: .rect(cornerRadius: 16))
-                    }
-                }
+            // Claude Code and Codex: the terminal and a View Only chat of its session, both parked,
+            // with the Chat | Terminal control (Toggle Terminal and Chat).
+            TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: insets.top,
+                             reportScroll: { context.reportScroll(fingerDelta: $0) }) {
+                terminalPage(tab, workspace)
+            }
         case .browser:
             if let model = source.nativeBrowser(tab) {
                 NativeBrowserPage(model: model, macName: source.macName, insets: insets,
@@ -2358,6 +2366,26 @@ struct WorkspaceTabPage: View {
                     .environment(\.colorScheme, .dark)
             }
         }
+    }
+
+    /// A terminal tab's terminal face.
+    private func terminalPage(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
+        source.terminal.page(for: tab, in: workspace, context: terminalContext)
+            .overlay {
+                // The Mac's dead-tab overlay: the shell ended; its button restarts it.
+                if tab.hasEndedShell {
+                    VStack(spacing: 12) {
+                        Text("The shell ended.").font(.headline)
+                        Button(WorkspaceTabsSource.restartShellTitle, systemImage: "arrow.counterclockwise") {
+                            Task { await source.restartShell(tab.id) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!source.canEditTabs)
+                    }
+                    .padding(20)
+                    .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                }
+            }
     }
 
     /// Above the floating composer (which rides the toolbar or the keyboard).
@@ -2392,6 +2420,9 @@ struct WorkspaceTabAccessory: View {
             switch tab.kind {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
+            case .terminal where source.showsChatFace(tab, in: workspace):
+                // A View Only chat takes no prompt: no key bar over it (the terminal face has it).
+                EmptyView()
             case .terminal:
                 let context = context
                 source.terminal.accessory(for: tab, in: workspace, context: TerminalTabContext(
