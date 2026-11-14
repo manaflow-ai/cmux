@@ -246,6 +246,16 @@
       "optional": "app.open may not open a customize pane on this build"
     },
     {
+      "title": "Select the Activity tab (cmux action run nextSurface)",
+      "cmux": [
+        "action",
+        "run",
+        "nextSurface"
+      ],
+      "wait": 3,
+      "optional": "depends on the pane having opened"
+    },
+    {
       "title": "Rename Gamma: the feed pane shows a workspace.changed entry",
       "cmux": [
         "workspace",
@@ -253,6 +263,18 @@
         "rename",
         "--name",
         "Gamma renamed"
+      ],
+      "wait": 3,
+      "optional": "depends on the pane having opened"
+    },
+    {
+      "title": "Rename Alpha: another workspace.changed entry at the top of the feed",
+      "cmux": [
+        "workspace",
+        "name:Alpha",
+        "rename",
+        "--name",
+        "Alpha renamed"
       ],
       "wait": 3,
       "optional": "depends on the pane having opened"
