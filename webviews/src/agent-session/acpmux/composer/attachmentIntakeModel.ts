@@ -370,9 +370,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
-  /// The chips a render has staged: one not yet rendered is not gone, only not drawn yet.
-  const everStaged = useRef(new Set<string>());
-  for (const attachment of attachments) everStaged.current.add(attachment.id);
+  /// The chips a commit has drawn: one not yet drawn is not gone, only not drawn yet. Kept from the
+  /// layout phase, so before that commit's passive effects (the cleanup effect below), and never from
+  /// a render React threw away without committing it (an interrupted transition, a suspended one).
+  const everDrawn = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    for (const attachment of attachments) everDrawn.current.add(attachment.id);
+  }, [attachments]);
   /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
   /// still lands where it was pasted, across batches too.
   const places = useRef(new Map<string, number>());
@@ -668,7 +672,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               return chipRemoved({
                 chip,
                 stagedHere: staged.has(chip),
-                everDrawn: everStaged.current.has(chip),
+                everDrawn: everDrawn.current.has(chip),
                 pastedIn: batch.scope,
                 showing: live.current.options.scope,
                 strip: stagedNow.current,
@@ -893,12 +897,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     originalMissed(id, intakeErrorText(error, live.current.t));
   });
   /// An image no longer in the strip has no Retry to show: its original's file and failure go. Only one
-  /// a render staged (`everStaged`): this effect runs after its commit's paint, and an original that
-  /// failed in between belongs to a chip whose staging no render has drawn yet, which is not gone
+  /// a commit drew (`everDrawn`): this effect runs after its commit's paint, and an original that
+  /// failed in between belongs to a chip whose staging no commit has drawn yet, which is not gone
   /// (the same race as inlineAttachments.tsx `drawnLoading`).
   useEffect(() => {
     const left = [...originals.current.keys()].filter(
-      (id) => everStaged.current.has(id) && !attachments.some((chip) => chip.id === id),
+      (id) => everDrawn.current.has(id) && !attachments.some((chip) => chip.id === id),
     );
     for (const id of left) originals.current.delete(id);
     if (left.length)

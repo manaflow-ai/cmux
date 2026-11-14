@@ -89,7 +89,7 @@ public nonisolated enum DesignTunables {
             + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor,
                CornerFlush.tunable.descriptor, TabCornerCurve.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane + [ChromeTunables.dividerStrength.descriptor] + TerminalDragTunables.all + frameOwnerTunables
-            + ThemeDecorations.tunables
+            + ThemeDecorations.tunables + CmuxToastTunables.all
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

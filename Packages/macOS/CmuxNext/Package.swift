@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 363356b91ddeb8db6dc567262cb23d677e1f16bb035a5fb28709e2f25bdb328b
+// app-ffi-pin-checksum: 90fd30df4c87c772372cf373b5c4c4b7fd3cfefeee4152b383b79177d438fb73
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -492,6 +492,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextSettings",
+                "CmuxNextSettingsWindow",
                 "CmuxNextSidebar",
             ],
             resources: [.process("Resources")],
@@ -992,6 +993,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFocusUI",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSignposts",
             ],

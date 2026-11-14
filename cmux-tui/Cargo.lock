@@ -6,7 +6,10 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-book",
  "acpmux-build-id",
+ "acpmux-client",
+ "acpmux-core",
  "acpmux-hot",
  "aho-corasick",
  "anyhow",
@@ -129,11 +132,23 @@ name = "acpmux-build-id"
 version = "1.0.0"
 
 [[package]]
+name = "acpmux-client"
+version = "1.0.0"
+dependencies = [
+ "acpmux-book",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "acpmux-core"
 version = "1.0.0"
 dependencies = [
  "acpmux-book",
+ "acpmux-client",
  "arc-swap",
+ "cmux-scope",
  "serde",
  "serde_json",
  "tempfile",
@@ -150,6 +165,15 @@ dependencies = [
  "libc",
  "sha2 0.10.9",
  "wasmtime",
+]
+
+[[package]]
+name = "acpmux-standalone"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "acpmux-build-id",
+ "anyhow",
 ]
 
 [[package]]
@@ -1170,6 +1194,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-import"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "plist",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1199,6 +1234,8 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1220,6 +1257,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "unicode-segmentation",
  "uuid",
  "zeroize",
 ]
@@ -1792,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-pty"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -2260,6 +2298,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-import",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",

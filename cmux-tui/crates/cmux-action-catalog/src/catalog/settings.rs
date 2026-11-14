@@ -900,6 +900,19 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Debug Settings > Toasts beside live sample toasts (Lawrence 2026-11-12: "so we can refine the toasts").
+    Action {
+        id: "debug.toastTuning",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastTuning", "Toast Tuning"),
+        keywords: &["toast", "toasts", "notice", "duration", "glass", "padding", "motion", "tuning", "playground", "debug"],
+        category: "settings",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-tuning",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,

@@ -19,6 +19,7 @@
 //! they go, and it stops at its page's bytes. Leo, 2026-11-12: "Delete the pacer, the snapshot
 //! variants, watch_delta.rs and Known."
 
+use super::list_guard::BuiltRow;
 use super::session_pages::{PageRow, Picked, pick_page};
 use super::*;
 
@@ -59,7 +60,7 @@ impl PageRow for Unbuilt {
     fn session_id(&self) -> &str {
         match &self.source {
             Source::Own(session) => &session.id,
-            Source::Peer(row) => row.summary.session_id(),
+            Source::Peer(row) => row.summary.session_id().unwrap_or(""),
         }
     }
 
@@ -99,18 +100,24 @@ impl ListRows {
     pub(crate) fn value(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Value {
         match &row.source {
             Source::Own(session) => hub.cached_closed_summary(session, with_tools),
+            // Parsed from the text the list writes (`peer_row.rs`), its tools left out unless
+            // `with_tools`.
             Source::Peer(row) => {
-                let row = super::peers::listed_remote_row(row, &self.states);
-                if with_tools { row } else { super::views::without_summary_tools(row) }
+                serde_json::from_str(&self.peer_text(row, with_tools)).unwrap_or(Value::Null)
             }
         }
+    }
+
+    /// Peer row `row` as the list writes it, with tools when `with_tools`: its own text, no parse.
+    fn peer_text(&self, row: &RemoteSession, with_tools: bool) -> String {
+        super::peers::listed_remote_text(row, &self.states, with_tools)
     }
 
     /// [`Self::value`], serialized: a closed row of this daemon's is its cached bytes, unparsed.
     pub(crate) fn text(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Arc<str> {
         match &row.source {
             Source::Own(session) => hub.own_row_text(session, with_tools),
-            Source::Peer(_) => self.value(hub, row, with_tools).to_string().into(),
+            Source::Peer(row) => self.peer_text(row, with_tools).into(),
         }
     }
 }
@@ -185,7 +192,7 @@ impl Hub {
             own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
         // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
         let within = |r: &RemoteSession| {
-            let (at, id) = (r.summary.updated_ms(), r.summary.session_id());
+            let (at, id) = (r.summary.updated_ms(), r.summary.session_id().unwrap_or(""));
             from.is_none_or(|from| at <= from)
                 && last.as_ref().is_none_or(|(last_at, last_id)| {
                     at > *last_at || (at == *last_at && id < last_id.as_str())
@@ -206,12 +213,17 @@ impl Hub {
         &self,
         params: &Value,
         with_tools: bool,
-    ) -> Result<(Vec<Value>, Option<Value>), RpcError> {
+    ) -> Result<(Vec<BuiltRow>, Option<Value>), RpcError> {
         let (list, Picked { rows: picked, next }) = self.picked_page(params)?;
         let built = picked
             .iter()
             .filter_map(|&at| list.rows().get(at))
-            .map(|row| list.value(self, row, with_tools))
+            .map(|row| match &row.source {
+                Source::Own(_) => BuiltRow::Tree(list.value(self, row, with_tools)),
+                Source::Peer(peer) => {
+                    BuiltRow::Peer(list.peer_text(peer, with_tools), peer.clone())
+                }
+            })
             .collect();
         Ok((built, next))
     }

@@ -28,17 +28,21 @@ import Testing
 
     /// The buttons are the window's one chrome row (a sidebar row, a tab pill: Lawrence 2026-11-09,
     /// in place of Helium's `kToolbarButtonHeight` 28), and the glyph's ink is a tab icon's side.
-    /// toolbar.patch: the hover shape is a rounded square, `Emphasis::kHigh` (8), not Chrome's circle
-    /// (`kMaximum`).
-    @Test func toolbarButtonsAreHeliumsSquareWithAnEightPointHover() {
+    /// toolbar.patch: the hover shape is a rounded square, not Chrome's circle (`kMaximum`). Its corner is
+    /// the tab's (Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces"),
+    /// Helium's `Emphasis::kHigh` 8 at Default, 6 at a compact row.
+    @Test func toolbarButtonsAreHeliumsSquareWithATabCornerHover() {
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = chrome(in: window)
         let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
         let row = Metrics.chromeRowHeight
         #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
-        #expect(chrome.reloadButton.layer?.cornerRadius == 8, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
-        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio - Metrics.iconSize) < 0.001)
+        // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
+        // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
+        #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.tabCornerRadius, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
+        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
+            - DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)) < 0.001)
     }
 
     /// layout-constants.patch: `kToolbarElementPadding` and `kToolbarIconDefaultMargin` are the
@@ -60,9 +64,10 @@ import Testing
     /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
     /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
-        #expect(OmnibarStyle.trailingIconSize == 18)
+        // 18 pt, or what a short bar leaves (Compact's 20 pt bar: 14).
+        #expect(OmnibarStyle.trailingIconSize == min(18, OmnibarStyle.barHeight - 6))
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
-        #expect(OmnibarStyle.chipCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
+        #expect(OmnibarStyle.chipButtonCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
         #expect(OmnibarStyle.buttonSpacing == 3)
     }
@@ -90,8 +95,9 @@ import Testing
         let side = metrics.closeButtonSize
         let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
         let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
-        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight) && (pill.height - side) / 2 == 4,
-                "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
-        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - 4))
+        let inset = (pill.height - side) / 2
+        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight),
+                "pill \(metrics.cornerRadius) pt, x inset \(inset) pt")
+        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - inset))
     }
 }
