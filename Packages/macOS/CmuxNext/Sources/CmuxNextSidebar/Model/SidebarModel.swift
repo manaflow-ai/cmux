@@ -476,7 +476,7 @@ public final class SidebarModel {
         case let .toggleCollapse(.section(id)):
             let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
             if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
-            sections = Self.folding(sections, collapsedSections)
+            setDisplayedSections(Self.folding(sections, collapsedSections))
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
@@ -518,9 +518,7 @@ public final class SidebarModel {
         let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
         // A set that only closes or moves one loose workspace row: the list takes it out (and puts it back) the same way.
         let removal = splicesRemovals && filterText.isEmpty && added == nil ? looseRemoval(to: next) : nil
-        isReprojecting = true
-        sections = next // the setter skips an unchanged list
-        isReprojecting = false
+        setDisplayedSections(next) // the setter skips an unchanged list
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
         rowRemoval = removal.map { removal in
             let insertion = removal.insertion.map {
@@ -529,6 +527,14 @@ public final class SidebarModel {
             return SidebarRowRemoval(from: from, to: sectionsRevision, content: contentRevision, section: removal.section,
                                      node: removal.node, workspace: removal.workspace, insertion: insertion)
         }
+    }
+
+    /// Applies a derived display update without replacing the unfiltered
+    /// document source used by a later settings re-projection.
+    func setDisplayedSections(_ next: [SidebarSection]) {
+        isReprojecting = true
+        defer { isReprojecting = false }
+        sections = next
     }
 
     /// Whether `sections` list workspace `id` once (a scan that stops at a second listing; no index is built).
@@ -667,7 +673,7 @@ public final class SidebarModel {
         if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
         guard !sectionIDs.isEmpty else { return }
         collapsedSections.subtract(sectionIDs)
-        sections = Self.folding(sections, collapsedSections)
+        setDisplayedSections(Self.folding(sections, collapsedSections))
     }
 
     func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {

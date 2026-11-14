@@ -120,9 +120,14 @@ fn list(value: &Value, path: &str, problems: &mut Vec<Problem>) -> Vec<String> {
             });
             continue;
         }
-        if !out.iter().any(|seen| seen == id) {
-            out.push(id.to_owned());
+        if out.iter().any(|seen| seen == id) {
+            problems.push(Problem {
+                path: format!("{path}[{index}]"),
+                why: "duplicate id; keeping the first occurrence".into(),
+            });
+            continue;
         }
+        out.push(id.to_owned());
     }
     out
 }
@@ -226,6 +231,8 @@ fn plan(
 ) -> Plan {
     let input_len = input.len().min(MAX_ENTRIES);
     let mut section_for_workspace = BTreeMap::new();
+    let mut section_ids = BTreeSet::new();
+    let mut section_keys = BTreeSet::new();
     // `None` marks an ambiguous display name. Exact group ids are kept in a
     // separate set, so an id still wins when it happens to equal another
     // group's display name.
@@ -243,17 +250,50 @@ fn plan(
             }
         }
     };
-    for section in input.iter().take(input_len) {
-        for node in section.nodes.iter().take(MAX_ENTRIES) {
+    for (section_index, section) in input.iter().take(input_len).enumerate() {
+        if !section_ids.insert(section.id.clone()) {
+            problems.push(Problem {
+                path: format!("sidebar.input[{section_index}].id"),
+                why: "duplicate section id; keeping the first section".into(),
+            });
+        }
+        section_keys.insert(section.id.clone());
+        section_keys.extend(section.keys.iter().cloned());
+        for (node_index, node) in section.nodes.iter().take(MAX_ENTRIES).enumerate() {
             if node.kind == "group" {
                 group_ids.entry(section.id.clone()).or_default().insert(node.id.clone());
                 if let Some(name) = &node.name {
                     add_group_alias(&section.id, name, &node.id);
                 }
             }
-            for workspace in node.workspace_ids.iter().take(MAX_ENTRIES) {
-                section_for_workspace.insert(workspace.clone(), section.id.clone());
+            for (workspace_index, workspace) in
+                node.workspace_ids.iter().take(MAX_ENTRIES).enumerate()
+            {
+                if section_for_workspace.contains_key(workspace) {
+                    problems.push(Problem {
+                        path: format!("sidebar.input[{section_index}].nodes[{node_index}].workspace_ids[{workspace_index}]"),
+                        why: "duplicate workspace id; keeping the first listing".into(),
+                    });
+                } else {
+                    section_for_workspace.insert(workspace.clone(), section.id.clone());
+                }
             }
+        }
+    }
+    for (index, key) in hidden.iter().enumerate() {
+        if !section_keys.contains(key) {
+            problems.push(Problem {
+                path: format!("sidebar.sections.hidden[{index}]"),
+                why: "unknown section id; ignoring it".into(),
+            });
+        }
+    }
+    for (index, key) in order.iter().enumerate() {
+        if !section_keys.contains(key) {
+            problems.push(Problem {
+                path: format!("sidebar.sections.order[{index}]"),
+                why: "unknown section id; ignoring it".into(),
+            });
         }
     }
     let selected_section = selected.and_then(|id| section_for_workspace.get(id)).cloned();
@@ -285,7 +325,13 @@ fn plan(
         }
     }
     for (workspace, setting) in workspaces {
-        let Some(section) = section_for_workspace.get(workspace) else { continue };
+        let Some(section) = section_for_workspace.get(workspace) else {
+            problems.push(Problem {
+                path: format!("sidebar.workspaces.{workspace}"),
+                why: "unknown workspace id; ignoring it".into(),
+            });
+            continue;
+        };
         if setting.hidden
             && selected != Some(workspace.as_str())
             && !hidden_section_set.contains(section)
@@ -469,5 +515,25 @@ mod tests {
         assert!(reply.hidden_workspaces.is_empty());
         assert_eq!(reply.section_order, Vec::<String>::new());
         assert_eq!(reply.problems.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_and_unknown_ids_are_diagnosed_without_changing_safe_fallbacks() {
+        let request: Request = serde_json::from_value(json!({
+            "sections": {"hidden": ["projects", "projects", "missing"], "order": ["missing"]},
+            "workspaces": {"unknown": {"hidden": true}},
+            "input": [{"id": "projects", "keys": ["projects"], "region": "middle", "nodes": [
+                {"id": "ws", "kind": "workspace", "workspace_ids": ["ws", "ws"]}
+            ]}]
+        }))
+        .unwrap();
+        let reply = respond(&request);
+        assert_eq!(reply.hidden_sections, ["projects"]);
+        assert!(reply.hidden_workspaces.is_empty());
+        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.hidden[1]"));
+        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.hidden[2]"));
+        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.order[0]"));
+        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.workspaces.unknown"));
+        assert!(reply.problems.iter().any(|problem| problem.path.ends_with("workspace_ids[1]")));
     }
 }
