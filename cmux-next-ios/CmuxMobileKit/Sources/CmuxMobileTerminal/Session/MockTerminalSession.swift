@@ -136,6 +136,9 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
+    /// The mouse reporting htop turns on (and the Mac's replay keeps).
+    static let htopMouse = "\u{1B}[?1000h\u{1B}[?1006h"
+
     private func answer(columns: Int, rows: Int) {
         if let grid = macGrid, grid.columns == columns, grid.rows == rows { return }
         self.columns = columns
@@ -147,7 +150,7 @@ public final class MockTerminalSession: TerminalSession {
         switch program {
         case .shell: break
         case .htop(let tick):
-            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + MockHtop.render(columns: columns, rows: rows, tick: tick)
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse + MockHtop.render(columns: columns, rows: rows, tick: tick)
         case .vim(var vim):
             replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
             program = .vim(vim)
@@ -345,6 +348,8 @@ public final class MockTerminalSession: TerminalSession {
             busy = false
             program = .htop(tick: 0)
             setAlternate(true, program: "htop")
+            // htop reports the mouse (button events, SGR coordinates).
+            handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
         case "vim", "vi", "nvim":

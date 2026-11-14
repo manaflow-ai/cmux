@@ -227,8 +227,11 @@ struct TerminalDemoDriver {
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
+    /// `-CmuxMobileTerminalDemoTUI htop` runs htop (it reports the mouse)
+    /// instead of vim.
     private func keyboardOverTUI() async {
-        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        let program = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md"
+        model.controller?.surface.sendText(program, pressReturn: true)
         // Past the resize settle (250 ms), so every size before the toggles is counted.
         await wait(2.5)
         guard model.isTUI else {
@@ -254,21 +257,46 @@ struct TerminalDemoDriver {
         note("done.rz\(before)-\(model.ptyResizesSent)")
     }
 
-    /// `kbshell` (opt-in): the shell's prompt, then the keyboard key pressed
+    /// `kbshell` (opt-in): the primary screen, then the keyboard key pressed
     /// to show and hide the keyboard five times. A shell never resizes for
     /// the keyboard (R1-1); `demoNote` ends at `done.rz<before>-<after>`.
+    /// `-CmuxMobileTerminalDemoShell` picks what the screen shows:
+    /// `prompt` (the default), `follow` (a long build log, at its end),
+    /// `reading` (the same log, scrolled up), `stream` (numbered rows
+    /// streaming through the toggles) or `inline` (an inline agent's box on
+    /// the primary screen, like Codex CLI).
     private func keyboardOverShell() async {
-        await wait(1)
+        let scenario = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoShell") ?? "prompt"
+        switch scenario {
+        case "follow", "reading":
+            model.composerText = "cargo build"
+            model.send()
+            await wait(6)
+            if scenario == "reading" {
+                model.controller?.fling(velocity: -3500)
+                await wait(2.5)
+            }
+        case "stream":
+            model.composerText = "stream 3000 30"
+            model.send()
+            await wait(1.5)
+        case "inline":
+            model.composerText = "codex 14"
+            model.send()
+            await wait(2)
+        default:
+            await wait(1)
+        }
         let before = model.ptyResizesSent
         note("shell.rz\(before)")
         await wait(1.6)
         for round in 0..<5 {
             note("show\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
             note("hide\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")
