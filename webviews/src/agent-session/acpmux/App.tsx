@@ -22,7 +22,7 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
-import { chatOnThisMac, chatPlace } from "./chatMachine";
+import { chatMachine as chatMachineOf, chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
@@ -550,8 +550,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -563,6 +561,8 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
+  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -662,10 +662,10 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
-  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
+  hostSelfRetrying,
   lostRetryDelay,
   jitteredDelay,
 } from "./hostRetry";
@@ -725,6 +725,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { runResume } from "./resumeCommand";
+import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -4073,6 +4074,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (toolCallId: string, startedAt?: number) => showCallRef.current(toolCallId, startedAt),
     [],
   );
+  // A chat on another machine (a Cloud one, a peer, or the machine the app's wire reaches) signs its
+  // agent in there with the one-click card, never a terminal with the login command (Leo 2026-11-14:
+  // "and how are the ergonomics of cmux remote tho esp in the gui?").
+  const chatElsewhere =
+    cloudMachineID !== undefined ||
+    chatMachineOf(snapshot.summary, undefined, snapshot.peerKinds, chatPlace(snapshot)).kind !== "local";
+  // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
+  // important"): its own login, never this Mac's. Its page opens as a link click does here.
+  // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
+  // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
+  // credits or add their own api key").
+  const chatSignIns = useMemo(() => {
+    const login: Parameters<typeof cloudAgentLogin>[0] = {
+      connected,
+      machineID: cloudMachineID,
+      elsewhere: chatElsewhere,
+      sessionId: snapshot.sessionId,
+      harness: snapshot.summary?.harness,
+      supported: directClient.current?.supportsAgentLogin === true,
+      gesture: (intent) =>
+        postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+      openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+      // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
+      // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
+      openOnMachine: (url) =>
+        postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
+          () => true,
+          () => false,
+        ),
+      isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+      currentClient: () => directClient.current ?? undefined,
+    };
+    return { cloudSignIn: cloudAgentLogin(login), apiKeySignIn: localApiKeyLogin(login) };
+  }, [connected, cloudMachineID, chatElsewhere, snapshot.sessionId, snapshot.summary?.harness]);
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
@@ -4241,16 +4276,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
-        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts); it reads
-        // acpmux's capabilities, `retryCapabilities`, set with Resume below.
+        // Retry asks acpmux, the only one that retries (subagents/retryState.ts); it reads acpmux's
+        // capabilities, `retryCapabilities`, set with Resume below.
         // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
           const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
           if (!client) return Promise.resolve("retry.failed" as const);
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
-          const send = (text: string) => callNative("chat.send", { text });
-          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
+          return runRetry(agent, owner, { request, capabilities: client.capabilities, reaches });
         })(restartChat),
       }),
       // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
@@ -4290,9 +4324,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
           }),
       }),
+      // Sign in again runs the login in a terminal only where the card can't: a chat on this Mac, or
+      // on a machine whose acpmux has no `agent_login`.
       ...(connected &&
         loginCommand &&
         !cloudMachineID &&
+        !chatSignIns.cloudSignIn &&
         snapshot.summary?.hostKind !== "cloud" && {
           reauthenticate: () =>
             void callNative("tab.open", {
@@ -4312,33 +4349,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         () => directClient.current ?? undefined,
         automaticCloudCredentialAttempts.current,
       ),
-      // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
-      // important"): its own login, never this Mac's. Its page opens as a link click does here.
-      // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
-      // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
-      // credits or add their own api key").
-      ...((login: Parameters<typeof cloudAgentLogin>[0]) => ({
-        cloudSignIn: cloudAgentLogin(login),
-        apiKeySignIn: localApiKeyLogin(login),
-      }))({
-        connected,
-        machineID: cloudMachineID,
-        sessionId: snapshot.sessionId,
-        harness: snapshot.summary?.harness,
-        supported: directClient.current?.supportsAgentLogin === true,
-        gesture: (intent) =>
-          postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
-        openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
-        // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
-        // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
-        openOnMachine: (url) =>
-          postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
-            () => true,
-            () => false,
-          ),
-        isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
-        currentClient: () => directClient.current ?? undefined,
-      }),
+      ...chatSignIns,
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
@@ -4354,6 +4365,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [
       access,
       showCall,
+      chatSignIns,
       chatAccounts,
       snapshot.sessionId,
       stableBranches,
@@ -7301,6 +7313,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
+  const extensionCommands = useExtensionCommands();
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7322,7 +7336,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: mergedCommands(snapshot.commands, enabledCmuxActions),
+      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7356,6 +7370,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     keptStopping,
     cloudPicked,
     cloudModePick,
+    extensionCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -9574,8 +9589,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
             return {
               ...composer,
-              // An edit only this page holds (a queued message being edited): a release by
-              // agents.hiddenChats.discard keeps the page for it, as for a draft.
+              // An edit only this page holds (a queued message being edited, a send or draft not yet
+              // saved): every hidden-chat release keeps the page for it, so nothing typed is lost.
+              // The composer's draft itself is settled into acpmux above and comes back on reopen.
               ...(quitting !== true && pageEditHold() ? { holdsEdits: true } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(subagentDrafts ? { subagentDrafts } : {}),
@@ -13398,7 +13414,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={
+                    commandSession
+                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      : newTabSnapshot
+                  }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}

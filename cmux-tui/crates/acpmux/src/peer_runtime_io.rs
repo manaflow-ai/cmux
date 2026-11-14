@@ -215,12 +215,13 @@ impl Peer {
             tracing::warn!(peer = %self.name, "peer link already running");
             return;
         };
+        // The wait goes out as `nextRetryAt` (`park_at_start`), never as a countdown in the
+        // error text, which is read long after it was written (a frozen "retry in 2519s").
         if !self.retry_immediately.load(Ordering::SeqCst)
-            && let Some(wait) = self.link().parked_retry_wait(crate::store::now_ms())
+            && let Some(wait) = self.with_link(|l| l.park_at_start(crate::store::now_ms()))
         {
-            let reason = format!("peer unavailable; next automatic retry in {}s", wait.as_secs());
+            let reason = "peer unreachable for over a day; retried hourly".to_owned();
             *self.last_error.lock_or_recover() = Some(reason.clone());
-            self.with_link(|_| ());
             // Settle startup watchers now; no SSH is spawned just because this daemon updated.
             let _ = self
                 .notices

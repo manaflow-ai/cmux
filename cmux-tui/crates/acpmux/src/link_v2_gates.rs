@@ -287,7 +287,7 @@ async fn fanout_round(
         assert_eq!(crate::secret_scan::scans(), scans, "nothing scans at send");
         assert_eq!(acpmux_core::hub::extra_parses(), parses, "nothing parses extra at send");
         for wire in wires {
-            let line = wire.slot.take().unwrap();
+            let line = wire.slot.take_frame().unwrap();
             assert!(parse(&line).is_some_and(|frame| frame.kind == 3));
         }
     }

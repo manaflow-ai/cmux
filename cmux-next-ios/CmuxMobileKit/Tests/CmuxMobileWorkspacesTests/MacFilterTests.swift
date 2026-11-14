@@ -249,7 +249,8 @@ import Testing
 }
 
 /// Opening: a needs-you workspace on its waiting tab, else the layout's
-/// top-left pane's active tab, else the Mac's active tab, else the first.
+/// tab left on screen in this launch, else the top-left pane's active tab, else the Mac's
+/// active tab, else the first.
 @MainActor @Suite struct OpeningTabTests {
     @Test func mockOpensTheWaitingTabAndTheMacsActiveTab() throws {
         let store = AppStore.mock(tabMemory: .inMemory())

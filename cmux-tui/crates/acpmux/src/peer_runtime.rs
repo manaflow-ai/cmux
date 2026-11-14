@@ -739,6 +739,7 @@ impl Peer {
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
+            "parked": link.parked(crate::store::now_ms()),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,

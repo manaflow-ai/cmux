@@ -74,7 +74,7 @@ impl Peer {
             };
             let sending = async {
                 loop {
-                    let line = slot.next().await;
+                    let line = slot.next_frame().await;
                     if me.link_epoch() != link {
                         break;
                     }

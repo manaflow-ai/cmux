@@ -3,9 +3,9 @@
 //!
 //! A file is hashed again only when its stat entry (size, the two time
 //! stamps, inode, device, mode) is not the kept one, or when the kept hash is
-//! "racy" by git's own rule: made less than [`RACY`] after the file's last
-//! change, when a later write could still carry the same time stamp. So a
-//! read of a work tree at rest reads no file.
+//! "racy", the word that git has for such an entry of its index: made less
+//! than [`RACY`] after the file's last change, when a later write could still
+//! carry the same time stamp. So a read of a work tree at rest reads no file.
 //!
 //! One read hashes a bounded part of its list: the first [`MAX_FILES`] files,
 //! while their sizes stay below [`MAX_BYTES`], and no file above
@@ -35,7 +35,8 @@ const MAX_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 /// Kept hashes, in the daemon: enough for the lists of several work trees.
 const MAX_KEPT: usize = 65536;
-/// git's bound for a racy entry on a file system with coarse time stamps.
+/// How long after a file's last change its hash is racy. The daemon's own
+/// bound: it covers a file system with coarse time stamps.
 const RACY: Duration = Duration::from_secs(2);
 
 /// What `lstat` says of a file, as far as a write to the file moves it.

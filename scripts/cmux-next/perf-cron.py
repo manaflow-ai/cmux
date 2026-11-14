@@ -1768,10 +1768,14 @@ ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (e
 
 def commit_on_branch(repo, tip, known=()):
     """ok(sha): the sha is 40 hex characters and an ancestor of tip (or tip). The plan's checkout is shallow, so a
-    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once: known
-    holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists every
-    commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch' (that
-    would drop the state's commits)."""
+    commit it cannot place under tip is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once:
+    known holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists
+    every commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch'
+    (that would drop the state's commits).
+
+    Only the checkout's yes counts. It is a partial clone too, so asking for a commit older than its depth fetches
+    that one commit with no path to tip, and 'not an ancestor' is then true of every such commit: on 2026-11-14 each
+    tick dropped its bisect step at 281f9aa9680d that way and started it again (15:20Z to 17:27Z, 0 of 3 parts)."""
     cache = {sha: True for sha in known if is_sha(sha)}
 
     def ok(sha):
@@ -1779,8 +1783,8 @@ def commit_on_branch(repo, tip, known=()):
             return False
         if sha not in cache:
             have = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
-            if have:
-                cache[sha] = is_ancestor(sha, tip)
+            if have and is_ancestor(sha, tip):
+                cache[sha] = True
             else:
                 try:
                     cache[sha] = gh_request(f"/repos/{repo}/compare/{sha}...{tip}").get("status") in ("ahead", "identical")

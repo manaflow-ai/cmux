@@ -82,9 +82,6 @@ export type ModelPickerProps = {
   onSetUpPick?(pick: SetupRequest): void;
   /// What that setup is doing: the compact menu's setup strip.
   setup?: QuickSetup;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message

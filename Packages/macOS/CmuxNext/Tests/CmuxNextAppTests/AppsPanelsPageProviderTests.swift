@@ -19,6 +19,21 @@ import Testing
         #expect(!PageDescriptor.settings.admits("cmux.apps.panels.list"))
     }
 
+    /// The composer's extension commands are the daemon's answer, passed through as it is.
+    @Test func forwardsTheComposerPlacesAsTheDaemonAnswersThem() async throws {
+        let transport = FakePanelsTransport()
+        let client = AppsClient(transport: transport)
+        client.start()
+        for _ in 0..<100 where !client.hasList { await Task.yield() }
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(PageDescriptor.agent.admits("cmux.apps.panels.composer"))
+        let listed = try await provider.call("cmux.apps.panels.composer", params: .object([:]), context: Self.page)
+        let command = listed["commands"]?.arrayValue?.first
+        #expect(command?["name"]?.stringValue == "standup")
+        #expect(command?["insert"]?.stringValue == "Write my standup notes.")
+        #expect(command?["extension"]?.stringValue == "Standup")
+    }
+
     @Test func forwardsListMountSceneDispatchAndUnmountsOnClose() async throws {
         let transport = FakePanelsTransport()
         let client = AppsClient(transport: transport)
@@ -295,6 +310,11 @@ private final class FakePanelsTransport: AppsTransport {
     }
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }
+    }
+    func composerPlaces() async throws(AppsTransportError) -> AppJSON {
+        ["commands": [["app": "local/standup", "extension": "Standup", "name": "standup",
+                       "description": "Ask for today's standup", "insert": "Write my standup notes."]],
+         "mentions": []]
     }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         throw AppsTransportError(message: "unused")

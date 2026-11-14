@@ -96,6 +96,8 @@ mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
 #[cfg(test)]
+mod steer_on_start_tests;
+#[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
@@ -390,6 +392,7 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
@@ -1961,6 +1964,7 @@ impl Hub {
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
             restoring: AtomicBool::new(false),

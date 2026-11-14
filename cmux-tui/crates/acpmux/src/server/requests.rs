@@ -20,6 +20,9 @@ mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+#[cfg(test)]
+#[path = "requests/hold_attach_tests.rs"]
+mod hold_attach_tests;
 mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
@@ -52,6 +55,33 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
             .collect(),
         Some(_) => Err(refused()),
     }
+}
+
+/// Validate the read-free `_acpmux/attach {hold:true}` shape and return its exact-kind filter.
+fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcError> {
+    if params.get("eventStream") != Some(&Value::Bool(true)) {
+        return Err(RpcError::invalid_params("hold attach requires eventStream: true"));
+    }
+    let kinds = params.get("kinds").and_then(Value::as_array).ok_or_else(|| {
+        RpcError::invalid_params("hold attach requires kinds to be an array of exact kinds")
+    })?;
+    if kinds.len() > 16
+        || kinds.iter().any(|kind| {
+            kind.as_str().is_none_or(|kind| {
+                kind.is_empty() || matches!(kind, "transcript" | "mux" | "wire" | "all")
+            })
+        })
+    {
+        return Err(RpcError::invalid_params(
+            "hold attach kinds must contain at most 16 non-empty exact kinds",
+        ));
+    }
+    for name in ["limit", "afterSeq", "beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
+        if params.get(name).is_some() {
+            return Err(RpcError::invalid_params(format!("hold attach does not accept {name}")));
+        }
+    }
+    crate::hub::EventFilter::parse(Some(&Value::Array(kinds.clone())))
 }
 
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
@@ -1277,7 +1307,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -3067,6 +3097,37 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            if params.get("hold") == Some(&Value::Bool(true)) {
+                let filter = hold_attach_filter(&params)?;
+                if !hidden {
+                    hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
+                }
+                view::attach(
+                    hub,
+                    conn,
+                    &s,
+                    SubOpts {
+                        event_stream: true,
+                        filter,
+                        hidden,
+                        idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
+                        remote: false,
+                        rows: None,
+                    },
+                );
+                let detail = hub.session_detail(&s);
+                let last = s.meta().last_seq;
+                let presence = hub.presence.snapshot(&s.id);
+                let reader = crate::author::author(&params).ok().flatten();
+                let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
+                return Ok(json!({
+                    "session": detail,
+                    "lastSeq": last,
+                    "presence": presence,
+                    "readThrough": read_through,
+                    "hold": true,
+                }));
+            }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
             // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
             let settled = settled_attach::saved(hub, &s, &params);
@@ -3280,6 +3341,7 @@ async fn dispatch_request_with_identity(
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
+        method::MUX_RELEASE_TO_WATCH => super::chats::release_to_watch(hub, &params).await,
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.

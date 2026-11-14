@@ -293,8 +293,10 @@ impl Slot {
         Ok(())
     }
 
-    /// The frame line waiting, if one is; its writer may then write the next.
-    pub fn take(&self) -> Option<String> {
+    /// The frame line waiting, if one is; its writer may then write the next. Not `take` and
+    /// `next`: the home-writer detector resolves methods by name across the crate, and a `next`
+    /// returning what a `take` does marked every `.next()` as a path from the home.
+    pub fn take_frame(&self) -> Option<String> {
         let mut state = self.lock();
         let line = state.line.take()?;
         self.held(-(line.len() as i64));
@@ -309,12 +311,12 @@ impl Slot {
     }
 
     /// The next frame line, when one comes. Cancel safe: a line is taken only when returned.
-    pub async fn next(&self) -> String {
+    pub async fn next_frame(&self) -> String {
         loop {
             let filled = self.filled.notified();
             tokio::pin!(filled);
             filled.as_mut().enable();
-            if let Some(line) = self.take() {
+            if let Some(line) = self.take_frame() {
                 return line;
             }
             filled.await;
@@ -332,7 +334,7 @@ pub async fn next_line(
 ) -> Option<String> {
     let Some(slot) = slot else { return outbound.recv().await };
     if *streak >= V1_BURST
-        && let Some(line) = slot.take()
+        && let Some(line) = slot.take_frame()
     {
         *streak = 0;
         return Some(line);
@@ -343,7 +345,7 @@ pub async fn next_line(
             *streak = if slot.holds() { streak.saturating_add(1) } else { 0 };
             line
         }
-        line = slot.next() => {
+        line = slot.next_frame() => {
             *streak = 0;
             Some(line)
         }

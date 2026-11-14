@@ -120,6 +120,9 @@ pub struct Session {
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
+    /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.
+    pub(super) releasing: AtomicBool,
     /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
     /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
     /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
