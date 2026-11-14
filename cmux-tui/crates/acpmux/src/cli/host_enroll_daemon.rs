@@ -112,6 +112,26 @@ pub(super) fn judge_daemon(
             Verdict::Done(port_mismatch(host, name, "the daemon", b, port))
         }
         Err(why) => Verdict::Repair(why),
+        // Running this build on another port than the peer's (its configured
+        // port was taken, so it moved to a free one, `daemon.rs`): the link
+        // dials the port its listener record names and proves it there
+        // (`Peer::prove_tunnel`), so nothing needs lining up.
+        Ok(l)
+            if l != port
+                && bound == Some(l)
+                && used
+                    .as_ref()
+                    .is_some_and(|u| u.pid.is_some() && u.build.as_deref() == Some(build)) =>
+        {
+            let pid = used.as_ref().and_then(|u| u.pid).unwrap_or_default();
+            Verdict::Done(StepResult::new(
+                Step::Daemon,
+                StepState::Ok,
+                format!(
+                    "running, pid {pid}, build {build}, on port {l} (port {port} was taken; the link follows its listener record)"
+                ),
+            ))
+        }
         // Configured or running on another port than the peer's: refused
         // before any change (a stopped daemon's listener is kept too).
         Ok(l) if l != port => Verdict::Done(port_mismatch(host, name, "the daemon", l, port)),
