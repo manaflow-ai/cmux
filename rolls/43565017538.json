@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43565017538",
+  "recorded_at": "2026-11-14T06:19:30Z",
+  "reason": "cmux-tui c2548a7e941f changes the image's cmux-tui (pinned 0eaa7b71a22b)",
+  "dry_run": false,
+  "cmux_tui": "c2548a7e941f15bb06c50044a8af3365926f497d",
+  "fixes": [
+    {
+      "sha": "c2548a7e941f15bb06c50044a8af3365926f497d",
+      "mergedAt": "2026-11-13T21:47:35-08:00",
+      "subject": "Toasts: Toast Playground and one picked style for every toast and prompt"
+    },
+    {
+      "sha": "faf5d669726e306216689e3185efe0ee4071d6a3",
+      "mergedAt": "2026-11-13T21:46:14-08:00",
+      "subject": "cmux-git: open a folder only as a part of its own work tree (#42776)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:19:30Z",
+    "snapshot_id": "sh-a43a36a738a548b8b7cff9127837721c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43565017538): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9326dc766d774411816546a9cbf07ad4169e007b",
+    "image": "cloud-native-auto-c2548a7e-43565017538-1",
+    "revision": "ci-43565017538-1",
+    "at": "2026-11-14T06:19:30Z"
+  },
+  "rolled_back": false
+}
