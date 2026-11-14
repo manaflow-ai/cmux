@@ -9,7 +9,7 @@
 //! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
 //! Without `limit` the reply is the whole list, as before, unless it is too large for one
 //! message: then it goes in pages by size, each with the `nextCursor` of the rest
-//! (`Snapshot::bounded`, [`byte_page`]). `orderBy: "sessionId"`
+//! (`list_guard::bounded`, [`byte_page`]). `orderBy: "sessionId"`
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
@@ -41,8 +41,9 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     session_list_reply_borrowed(&sorted, params)
 }
 
-/// Pick rows by reference from the shared session-list snapshot, then clone only rows
-/// actually returned. A list page of one must not copy all 3,000 session keys first.
+/// Pick rows by reference, then clone only rows actually returned: the reference a page built
+/// from its own rows is checked against.
+#[cfg(test)]
 pub(crate) fn session_list_reply_borrowed(
     sorted: &[Value],
     params: &Value,
@@ -60,6 +61,24 @@ pub(crate) trait PageRow {
     fn updated_ms(&self) -> u64;
     fn peer(&self) -> Option<&str>;
     fn status(&self) -> Option<&str>;
+}
+
+impl<R: PageRow + ?Sized> PageRow for &R {
+    fn session_id(&self) -> &str {
+        (**self).session_id()
+    }
+
+    fn updated_ms(&self) -> u64 {
+        (**self).updated_ms()
+    }
+
+    fn peer(&self) -> Option<&str> {
+        (**self).peer()
+    }
+
+    fn status(&self) -> Option<&str> {
+        (**self).status()
+    }
 }
 
 impl PageRow for Value {
@@ -148,6 +167,33 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
     Ok(Picked { rows, next: Some(next.map_or(Value::Null, Value::String)) })
 }
 
+/// Where a newest-first page of `params` may start in the list, by `updatedAt`: from its top
+/// (`Some(None)`), or from the first row no newer than its `k` cursor's session
+/// (`Some(Some(at))`); every row before that is newer than the cursor, so none is on the page
+/// ([`SessionCursor::start`]). None for any other cursor: the page is picked from the whole list,
+/// which answers its error.
+pub(crate) fn page_from(params: &Value) -> Option<Option<u64>> {
+    match params.get("cursor") {
+        None | Some(Value::Null) => Some(None),
+        Some(Value::String(text)) => {
+            let cursor = SessionCursor::parse(text)?;
+            // A clamped stamp stands for every row at or past it, which sort first.
+            Some((cursor.updated_ms < MAX_STAMP).then_some(cursor.updated_ms))
+        }
+        Some(_) => None,
+    }
+}
+
+/// Whether `row` is the session `params`' `k` cursor names (its `updatedAt` and id key), the row a
+/// page after it starts past ([`SessionCursor::start`]).
+pub(crate) fn names_cursor<R: PageRow + ?Sized>(params: &Value, row: &R) -> bool {
+    params
+        .get("cursor")
+        .and_then(Value::as_str)
+        .and_then(SessionCursor::parse)
+        .is_some_and(|cursor| stamp(row) == cursor.updated_ms && row_key(row) == cursor.key)
+}
+
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
 /// `session/list`): of the rows whose paging `keys` are given, those after `cursor` (a
 /// `nextCursor` of this list) that `row` makes and whose `size`s fit in `budget`, at least one,
@@ -158,8 +204,8 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
 /// updates or leaves while a client pages moves no other, so none is skipped or repeated. A
 /// row listed twice (one id, one peer) comes once. A page never ends between rows of one hash,
 /// which two different rows share only if 128-bit hashes collide.
-pub(crate) fn byte_page<R>(
-    keys: &[Value],
+pub(crate) fn byte_page<K: PageRow, R>(
+    keys: &[K],
     cursor: Option<&str>,
     budget: usize,
     row: impl Fn(usize) -> R,
@@ -235,6 +281,7 @@ fn session_id_page<R: PageRow>(
 }
 
 /// `{sessions, nextCursor?}`, moving the sessions in: `json!` would deep-copy the whole list.
+#[cfg(test)]
 fn page(sessions: Vec<Value>, next: Option<Value>) -> Value {
     let mut reply = serde_json::Map::new();
     reply.insert("sessions".to_owned(), Value::Array(sessions));
@@ -384,7 +431,7 @@ fn peer<R: PageRow + ?Sized>(session: &R) -> Option<&str> {
 
 /// Where a row stands in [`byte_page`]'s order: two FNV-1a hashes of its `sessionId` and
 /// `peer` ([`row_key`]'s bytes), the same in every daemon run.
-fn page_key(session: &Value) -> u128 {
+fn page_key<R: PageRow + ?Sized>(session: &R) -> u128 {
     let high = fnv(0xcbf2_9ce4_8422_2325, row_key_bytes(session));
     let low = fnv(0x6c62_272e_07bb_0142, row_key_bytes(session));
     (u128::from(high) << 64) | u128::from(low)

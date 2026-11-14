@@ -41,10 +41,6 @@ cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_lat
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_call
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_free
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_scope_new
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_heartbeat_new
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_heartbeat_start
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_heartbeat_stop
-cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_heartbeat_tick
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_busy_cap_ns
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pacer_failed_at
@@ -59,16 +55,12 @@ cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_pace
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_policy_new
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_retry_policy_preset
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_abi_version
-cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_bytes_free
-cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_call
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_lines_free
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_lines_new
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_lines_push
-cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_login_env_accept
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_call
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_free
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_new
-cmux-tui/crates/cmux-health-core/include/cmux_health.h	cmux_health_abi_version
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_ffi_abi_version
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_judge_json
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_local_verdict_json

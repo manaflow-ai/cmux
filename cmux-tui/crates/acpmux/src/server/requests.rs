@@ -877,6 +877,9 @@ pub(super) async fn handle_request(
             "trigger connection accepts trigger/chat operations only",
         ));
     }
+    if m == method::MUX_V2 {
+        return Err(RpcError::method_not_found(method::MUX_V2));
+    }
     if matches!(
         m,
         method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
@@ -1222,10 +1225,10 @@ async fn dispatch_request_with_identity(
             #[rustfmt::skip]
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
-                method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
+                method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
-                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
+                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
@@ -1284,6 +1287,9 @@ async fn dispatch_request_with_identity(
                 && bundled_cli_is_executable(std::path::Path::new(&path))
             {
                 reply.set_path(&["_meta", "acpmux", "cliPath"], json!(path));
+            }
+            if matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                hub.mark_local_ready();
             }
             // Advertised only where they work; other builds answer `not_built`.
             #[cfg(all(unix, feature = "tailnet"))]
@@ -1740,6 +1746,17 @@ async fn dispatch_request_with_identity(
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // A delivery again names the generation it first reached (`outbox.rs`
+            // `redeliver_open`): a session purged and made again under its id never runs it.
+            if let Some(generation) =
+                mux_meta(&params).and_then(|m| m.get("sessionCreatedAt")).and_then(Value::as_u64)
+                && s.meta().created_at != generation
+            {
+                return Err(RpcError::invalid_params(
+                    "this prompt was sent to an earlier session of this id; it is not run",
+                )
+                .with_data(json!({"reason": "stale_generation", "retryable": false})));
+            }
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2459,6 +2476,22 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
+        // A machine started from an older disk takes back what its owner's daemon kept of a
+        // chat (`hub/journal_restore.rs`): that daemon's peer link, proven by this launch's peer
+        // token, or this machine's socket. A paired client device is served as Peer too, with
+        // its own credential: it may drive chats, never write their history.
+        "_acpmux/journal_restore" | "_acpmux/attachments_held"
+            if !matches!(
+                (conn.origin, conn.auth),
+                (Origin::Peer, ConnAuth::PeerToken) | (Origin::Local, ConnAuth::LocalSocket)
+            ) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/journal_restore and _acpmux/attachments_held answer the owner's peer link and the unix socket only",
+            ))
+        }
+        "_acpmux/journal_restore" => hub.journal_restore(&params).await,
+        "_acpmux/attachments_held" => hub.attachments_held(&params).await,
         "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
             RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
         ),
@@ -3073,8 +3106,11 @@ async fn dispatch_request_with_identity(
             let last = s.meta().last_seq;
             // The app's open names its bound: superseded tool output stays out of its page
             // (`store/superseded.rs`); the live stream is unchanged.
-            let page_filter =
-                filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
+            // A phone's open also cuts a tool call's oversized output (`toolOutputMaxBytes`,
+            // `hub/tool_output_cut.rs`); live records always go whole.
+            let page_filter = filter
+                .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
+                .cutting_tool_output(events::tool_output_max(&params));
             let read = || {
                 hub.events_page(
                     &s.id,
@@ -3143,6 +3179,7 @@ async fn dispatch_request_with_identity(
             Ok(done)
         }
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_MARK_READ => view::mark_read(hub, &params),
         method::MUX_SEEN => view::seen(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),

@@ -529,9 +529,16 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.sessionInfo.pinch":
+            if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
+            else { self = .unsupported(method) }
         case "pane.toastAvoidance":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
             else { self = .unsupported(method) }
+        case "pane.toast":
+            if let message = params?["message"] as? String, !message.isEmpty {
+                self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
+            } else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }

@@ -5,7 +5,9 @@
 // card's and Session Info's Subagents (summary/SubagentStatusList.tsx, summary/SubagentsTab.tsx,
 // session-info/SubagentsSection.tsx; the native panel's button is session-info/native/subagents.ts),
 // an open group's line (SubagentGroup.tsx `SubagentListRow`) and the helper's own pane, on its
-// "Subagent of" line (SubagentGroup.tsx `SubagentOfRow`).
+// "Subagent of" line (SubagentGroup.tsx `SubagentOfRow`). A stopped acpmux sub-session offers it on
+// the same rows, and on its card in the transcript (conversation/SubsessionCallCard.tsx), from its
+// session row (resumeState.ts ``subsessionResumeRow``).
 //
 // The gate (resumeState.ts `canResume`), the call (`TurnActions.resumeAgent`) and what it leaves
 // (``ResumeRun``: busy while acpmux has it, else a refusal's note) are the same everywhere: here.

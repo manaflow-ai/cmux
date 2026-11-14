@@ -5,10 +5,15 @@
 // (SEND_RISE_MS, 1 s) still counts later rows as the send's (no cap under the composer), but a row
 // that lands after the send motion has played (a delayed thinking or tool row, 400 ms on) arrives on
 // the arrival step: passing `sent` there started the 180 ms send curve over after the bubble rested.
+// The product's send step is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
+// just do it."): its send lands at once, with no send chase. The first two tests read the rise a page
+// that sets its own send clock (a gallery) still plays, on the 180 ms it had.
 import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { broughtSentPrompt } from "../src/agent-session/acpmux/VirtualTranscript";
 import { installJsdomScroller } from "./support/jsdomScroller";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -38,6 +43,10 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // The send's rise and the arrival step are the chase's, which the blocks follow arm plays; the slim
+  // `send` arm (the product's) moves every pass's rows at once and plays neither (VirtualTranscript
+  // `slimFollow`; Leo, 2026-11-09: "the scroll up is extremely sluggish").
+  cmuxExperiments: { "follow-motion": "blocks" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
@@ -48,6 +57,16 @@ Object.assign(scope, replacements);
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 installJsdomScroller(dom.window as never, () => VIEWPORT);
+
+// The page's send clock (`--agent-motion-send`): a gallery's 180 ms, or "" for the scale's step (0).
+let sendClock = "180ms";
+const realStyle = dom.window.getComputedStyle.bind(dom.window);
+dom.window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
+  const style = realStyle(element, pseudo);
+  const read = style.getPropertyValue.bind(style);
+  style.getPropertyValue = (name: string) => (name === "--agent-motion-send" && sendClock ? sendClock : read(name));
+  return style;
+}) as typeof dom.window.getComputedStyle;
 
 // The test's clock: performance.now runs on, plus what the test steps it by.
 const realNow = performance.now.bind(performance);
@@ -79,7 +98,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (ownNow) Object.defineProperty(performance, "now", ownNow);
   else delete (performance as unknown as Record<string, unknown>).now;
   dom.window.close();
@@ -182,6 +202,106 @@ test("a send that makes a tail that fit overflow rises on the send's clock", asy
     const rise = shifts.slice(first);
     expect(rise.length).toBeGreaterThan(0);
     expect(rise[0]?.sent).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test("on the product's 0 send clock, a send's rows land at once: no send chase", async () => {
+  sendClock = "";
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const render = (rows: AcpmuxRow[], sends: number) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sessionId="session-3"
+          sends={sends}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await nextFrame();
+    });
+  try {
+    const rows = history.map((item) => ({ ...item, id: `zero-${item.id}` }));
+    await render(rows, 0);
+    stepped += 1_000;
+    await render(
+      rows.map((item) => ({ ...item })),
+      0,
+    );
+    const first = shifts.length;
+    const prompt = row("zero-sent", "user", "A new question");
+    // The prompt and a burst of rows can arrive in one snapshot. The bounded detector must see the
+    // prompt at the append boundary even when it is followed by more than ARRIVAL_TAIL rows.
+    const burst = Array.from({ length: 8 }, (_, index) => row(`zero-burst-${index}`, "toolCall", `Tool ${index}`));
+    await render([...rows, prompt, ...burst], 1);
+    expect(shifts.slice(first).filter((call) => call.sent === true)).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    sendClock = "180ms";
+  }
+});
+
+test("the send detector treats an equal-length optimistic prompt replacement as a landing", () => {
+  const before = [...history, { ...row("local-prompt-21", "user", "A new question"), pending: true }];
+  const after = [...history, row("user-event-21", "user", "A new question")];
+  expect(broughtSentPrompt(before, after)).toBe(true);
+});
+
+test("a sent thinking row keeps its instant marker across finished activity rows", async () => {
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const render = (rows: AcpmuxRow[], sends: number) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sessionId="session-thinking-marker"
+          sends={sends}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await nextFrame();
+    });
+  try {
+    await render(history.slice(0, 3), 0);
+    // The send count is recorded before the async client registers its optimistic prompt.
+    await render(history.slice(0, 3), 1);
+    const prompt = row("marker-prompt", "user", "A new question");
+    const rows = [
+      ...history.slice(0, 3),
+      prompt,
+      row("working-marker", "working", "Working for"),
+      row("finished-marker-1", "activity", "Ran a command"),
+      row("finished-marker-2", "activity", "Ran another command"),
+      { ...row("thinking-marker", "thinking", "Thinking"), verbKey: prompt.id, below: true },
+    ];
+    await render(rows, 1);
+    expect(container.querySelector('.acpmux-thinking[data-send-thinking="true"]')).not.toBeNull();
+
+    // A second send first renders the same rows. The first prompt must not consume its pending
+    // slot, or the asynchronously registered second prompt loses its instant thinking marker.
+    await render(rows, 2);
+    const secondPrompt = row("second-marker-prompt", "user", "Another question");
+    await render(
+      [
+        ...rows,
+        secondPrompt,
+        row("second-working-marker", "working", "Working for"),
+        row("second-finished-marker", "activity", "Ran a command"),
+        { ...row("second-thinking-marker", "thinking", "Thinking"), verbKey: secondPrompt.id, below: true },
+      ],
+      2,
+    );
+    expect(container.querySelector('[data-row-id="second-thinking-marker"][data-send-thinking="true"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     container.remove();

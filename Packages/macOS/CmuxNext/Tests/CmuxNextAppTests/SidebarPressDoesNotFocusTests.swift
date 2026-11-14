@@ -6,8 +6,8 @@ import Testing
 /// Lawrence 2026-10-21: "changing workspaces is laggy now" (#23977 moved every click's switch to the release). With
 /// Debug Settings `sidebar.multiView` off (the default): a right-click or control-click on a workspace row opens its
 /// menu and switches to nothing; a plain left press switches at once, on mouse-down; a press that becomes a drag moves
-/// the row and puts the shown workspace and the selection back as they were, so the dragged workspace is not left
-/// selected. The list is `SidebarPointerGestureTests`':
+/// the row and keeps that switch, as Chrome and Edge do (Leo 2026-11-08: "The second you click, it focuses. So we
+/// might as well make the thing be better"). The list is `SidebarPointerGestureTests`':
 /// loose `x`, `y`; group `g1` (`a`, `b`); collapsed group `g2` (`c`, `d`); `x` shown.
 @MainActor @Suite(.serialized) struct SidebarPressDoesNotFocusTests {
     typealias G = SidebarPointerGestureTests
@@ -91,7 +91,7 @@ import Testing
         }
     }
 
-    @Test func aPressThatDragsMovesTheRowAndLeavesTheShownWorkspaceAsItWas() throws {
+    @Test func aPressThatDragsMovesTheRowAndKeepsItShown() throws {
         try Self.withToggleOff {
             let (list, window, selects) = Self.list()
             defer { window.close() }
@@ -101,15 +101,15 @@ import Testing
                 list.mouseDragged(with: try G.event(list, .leftMouseDragged, at: NSPoint(x: start.x, y: start.y + dy)))
             }
             #expect(list.drag != nil, "a 40 pt drag did not lift the row")
-            #expect(list.model.activeWorkspaceID == WorkspaceID("x"), "the drag left y shown")
-            #expect(list.model.selection == [WorkspaceID("x")], "the drag left y selected: \(list.model.selection)")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"), "the lift switched back to x")
+            #expect(list.model.selection == [WorkspaceID("y")], "the lift changed the selection: \(list.model.selection)")
             list.mouseUp(with: try G.event(list, .leftMouseUp, at: NSPoint(x: start.x, y: start.y - 40)))
             if let landing = list.landing { list.finishLand(landing, then: nil) }
             #expect(Array(G.ids(list).prefix(2)) == ["y", "x"], "the drop did not move y: \(G.ids(list))")
-            #expect(selects() == ["y", "x"], "the press's switch was not undone once: \(selects())")
-            #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
-            #expect(list.model.selection == [WorkspaceID("x")])
-            #expect(G.filledRows(list) == ["x"])
+            #expect(selects() == ["y"], "the gesture switched more than once: \(selects())")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"))
+            #expect(list.model.selection == [WorkspaceID("y")])
+            #expect(G.filledRows(list) == ["y"])
         }
     }
 

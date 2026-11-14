@@ -364,7 +364,17 @@ for name in "${names[@]}"; do
   fi
   ran=1
 
+  # A target whose `caps` verb prints window-only (cu-png, rd-window: no input path to time) skips
+  # the latency stage, and eval.py then judges it on its window rows alone. Every other target
+  # answers `caps` with nothing or an error and runs both stages.
+  window_only=0
+  if bash "$script" caps 2>/dev/null | grep -qx window-only; then
+    window_only=1
+    : >"$dir/window-only"
+  fi
+
   # Latency: the marker (cmux-rd-host/scripts/mac-marker) above everything, then the host.
+  if [[ "$window_only" == 0 ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE $name latency"
   export EVAL_MARKER_LOG="$EVAL_STATE/marker.log"
   "$EVAL_BIN/cmux-rd-marker" --verbose >"$EVAL_MARKER_LOG" 2>&1 &
@@ -388,6 +398,7 @@ for name in "${names[@]}"; do
   bash "$script" host-stop
   kill "$marker" 2>/dev/null || true
   wait "$marker" 2>/dev/null || true
+  fi
 
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
   # each time); eval.py reports each number's median and keeps every repeat's.

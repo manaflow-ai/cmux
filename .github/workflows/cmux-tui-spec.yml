@@ -240,6 +240,8 @@ jobs:
           set -o pipefail
           log="$RUNNER_TEMP/acpmux-protocol-tests.log"
           if ! cargo test --locked -p acpmux --lib -- protocol:: 2>&1 | tee "$log"; then
+            # A stale Cargo.lock is named as such, not as a failed test (cargo-locks.py explain).
+            if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
             echo "::error title=acpmux protocol tests::a protocol test failed. A stale IR (protocol_ir_is_current) is regenerated with ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol_ir_is_current in cmux-tui, then bun run acpmux-protocol:codegen in webviews"
             exit 1
           fi
@@ -257,6 +259,13 @@ jobs:
   # a flake or a test that fails on the merge parent too only warns, and a crash, a cut-short
   # binary, a compile error or a test the merge parent passes fails the job. A
   # feat-cmux-next push runs the suites plainly, so a base red shows red there.
+  # The acpmux-* crates acpmux is built from (acpmux-book, acpmux-core, acpmux-client,
+  # acpmux-build-id, acpmux-list-types) run here too, lib and tests/: no hosted job ran them,
+  # so two changes left their tests red on base in one day (2026-11-14): #42834 changed what
+  # acpmux-book answers and left acpmux-core's test of the old answer, and #42906 left two
+  # acpmux-core tests that #42943 repaired. tests/test_cargo_test_verdict.py fails when the
+  # suites miss such a crate or one of its tests/ files. The job and step keep their names:
+  # the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -377,7 +386,8 @@ jobs:
           umask 022
           verdict=../scripts/ci/cargo_test_verdict.py
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
-          suites=(--locked -p acpmux --lib --test hub_integration --no-fail-fast)
+          suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
+            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"

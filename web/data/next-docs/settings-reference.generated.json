@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 617,
   "sections": [
     {
       "id": "general",
@@ -1214,12 +1214,17 @@
           "group": "cmux Remote"
         },
         {
-          "key": "remote.ultraMode",
+          "key": "remote.ultra",
           "title": "Ultra Connection Mode",
-          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
-          "kind": "toggle",
-          "default": false,
-          "group": "cmux Remote"
+          "help": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "cmux Remote",
+          "values": [
+            "off",
+            "auto",
+            "always"
+          ]
         },
         {
           "key": "screenshots.findTools",
@@ -1758,7 +1763,7 @@
           "title": "New Workspace Position",
           "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
-          "default": "afterCurrent",
+          "default": "top",
           "group": "Sidebar",
           "values": [
             "top",
@@ -6604,14 +6609,6 @@
           "group": "Cloud Workspaces"
         },
         {
-          "key": "phone.allowConnections",
-          "title": "Let Your Phone Use This Mac",
-          "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Phone Access"
-        },
-        {
           "key": "phone.cloudDesktop",
           "title": "Show Your Cloud Machine's Screen on Your Phone",
           "help": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
@@ -6639,14 +6636,6 @@
             "pluggedIn",
             "always"
           ]
-        },
-        {
-          "key": "phone.startSessions",
-          "title": "Let Your Phone Start New Workspaces",
-          "help": "Off, your phone can still follow, type into and answer what's already running.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Phone Access"
         },
         {
           "key": "ssh.linkAllowedHosts",

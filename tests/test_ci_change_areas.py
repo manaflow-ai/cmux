@@ -26,7 +26,12 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-import workflow_jobs
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -2603,6 +2608,16 @@ def test_trusted_base_router_copy_applies_the_registry_lane_rule() -> None:
                 sys.modules["test_execution_registry"] = saved_registry
 
 
+def test_helper_a_toml_or_yaml_comment_names_runs_nothing() -> None:
+    # A Cargo.toml note about the release strip named its script (#42338).
+    for relative in ("server/Cargo.toml", "config/settings.yml"):
+        assert helper_areas({relative: "# scripts/ci/helper.py strips this later\nname = 1\n"}) == areas(), relative
+        why: list[str] = []
+        head = _helper_repo({**ROUTED_TREE, relative: 'run = "scripts/ci/helper.py"\n'})
+        assert module.ci_helper_areas("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, why=why) is None, relative
+        assert why == [f"{relative} names helper"], why
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
@@ -2639,6 +2654,34 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     assert_routes("scripts/ci/reuse_release_product.py", areas(macos=True, release_build=True))
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
     assert route("scripts/ci/test_execution_registry.py") is None
+
+
+def test_every_github_file_is_placed_by_the_helper_walk() -> None:
+    # #40880 added .github/single-host-fallbacks.json, whose prose names
+    # owned_pool_rescue.py. The helper walk could not place a data file, so
+    # that helper routed to every area and the route test above went red on
+    # the base branch, after the file had landed (#41268). Every tracked file
+    # under .github/ that git can search must be one the walk places, so the
+    # pull request that adds the next data file fails here instead.
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".github"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    assert tracked, "git ls-files found nothing under .github/"
+    searchable = module.searchable_files(ROOT, ".github")
+    assert searchable is not None, "git grep could not search .github/"
+    unplaced = sorted(
+        path for path in tracked
+        if path in searchable and module.referrer_role(path) is None
+    )
+    assert not unplaced, (
+        "The CI helper walk (ci_helper_areas in scripts/ci/detect_ci_change_areas.py) "
+        "cannot place these files, so any helper they name routes to every area:\n  "
+        + "\n  ".join(unplaced)
+        + "\nIf nothing executes what the file names (a table a script reads, a template, "
+        "prose), add it to _NON_RUNNING_FILES there. If it runs commands, make it a script "
+        "(.py, .sh, ...) or move it under .github/workflows/ or .github/actions/."
+    )
 
 
 def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:

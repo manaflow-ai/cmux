@@ -122,6 +122,7 @@ echoes the token),
 | `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
+| `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
 | `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the caller's hub runs (since 0.10.0 the hub is the caller's, whatever `teamId` names; the caller must still be a member of it), and the region a hub created by this request would get (`null` when unknown) |
 
@@ -773,6 +774,28 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
+- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
+  2026-11-13 the phone takes only the accent and the terminal theme from it: its own
+  backgrounds stay the stock ones and it never fetches the picture. One JSON frame now and on every change, nothing before the
+  Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
+  16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
+  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
+  the accent is the same at launch and offline. Since 2026-11-13 a
+  frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
+  applied Ghostty config's value for each terminal theme key
+  (`appearance.rs` `TERMINAL_KEYS`: background, foreground, every palette entry, cursor,
+  selection, bold, contrast, faint and cursor opacity, palette generation, blending,
+  colorspace, search colors). hostd drops any other key and any value that is not a plain
+  color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
+  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
+  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  older Mac) stands in with `theme`'s colors.
+- `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
+  or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
+  `not_found` when it shows none. Machines need the View grant for both. The phone
+  stopped reading this service on 2026-11-13.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -919,7 +942,13 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   (and opens it at launch and on foreground, before any Mac is asked for);
   a dial reuses it. Signaling sockets send a WebSocket ping every 15 s and
   close after 40 s without any inbound frame, so a kept socket is never a
-  dead TCP connection. A reused socket that does not answer a ping within
+  dead TCP connection. Since 0.15.0 each keepalive also sends the text frame
+  `ping`, which the hub answers with `pong` without waking (a hibernation
+  auto-response) and whose time it keeps: it tells a Mac that is awake from
+  one that slept with its socket half open ("Connectivity incidents"). An
+  older Worker answers `ping` with a session-less `bad_request` error frame:
+  the reader counts the pings it sent and swallows one such answer per ping,
+  so it never fails a dial in flight; `pong` is dropped the same way. A reused socket that does not answer a ping within
   2.5 s while a dial runs is replaced and the dial redone.
 - `GET /v1/ice` is cached for half its `ttl` (60 s when it lists no TURN
   server) by the phone and by `cmux-mobile-host`, which refreshes it in the
@@ -1551,3 +1580,92 @@ to a phone: it changes the Mac-wide preference only.
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
   It never reflows the host's output to its own width.
+
+## Connectivity incidents (API 0.15.0)
+
+A cmux team member's phone tells the team's Slack when it suffers a major connectivity incident. The
+phone decides what is major; the service decides who is heard.
+
+### What the phone reports (`ConnectivityIncidentDetector`, CmuxMobileLive)
+
+Only when the signed-in account's connectivity audience is the team (`ConnectivityAudience`: an email on
+`manaflow.ai`, `manaflow.com` or `cmux.com`, or a subdomain). Everyone else's phone never checks or sends.
+
+- `mac_unreachable`: a Mac the service says is online has not connected for 30 s of qualifying time (the
+  app in front, the phone on a network, no network change since). Before it reports, the phone fetches
+  `https://captive.apple.com/hotspot-detect.html` and `GET /v1/health` at once: if the internet does not
+  answer, the phone itself is offline, nothing is sent, and the 30 s start again from that check.
+  `serviceReachable` says whether the cmux service answered.
+- `link_unstable`: three drops of a live link (its stream ended or a probe went unanswered) in five minutes,
+  each back within 20 s while the Mac stayed online, not counting drops in the 10 s after the app came to
+  the front or the network changed. A drop where the Mac itself went away (presence offline), or that
+  turned into an unreachable stretch, is not instability. The same reachability check gates it, and it is
+  reported only once the link is up again (the Mac is then awake; one that went to sleep never
+  reconnects). The service holds it (`mac_restarted`) when one of the Mac's last signaling connects falls
+  inside its window: a host that crashed and came back within a second never shows the Mac offline; the
+  phone then forgets it and its cooldown. At most one per Mac per 30 minutes. If the Mac stops answering
+  for 30 s while it is open, it ends (`became_unreachable`) and an unreachable incident takes over.
+- Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
+  the background or without a network, sign-out.
+- A Mac that goes offline in the middle of an incident (or while drops are being counted) gets 60 s to come
+  back (a host restarting): back and connected, the incident resolves; still offline, it ends as
+  `mac_offline` at the moment the Mac left. Drops counted before the blink still count.
+
+Each incident is reported `open`, then exactly once more: `resolved` (the Mac reconnected, or the link
+stayed up 10 minutes) or `ended` with `endReason` (`app_backgrounded`, `network_lost`, `mac_offline`,
+`link_closed`, `signed_out`, `app_relaunched`). Reports wait in a file in Application Support and are sent
+in order, each retried (5 s, 30 s, 2 min, 10 min, then every 30 min) until the service accepts it or
+refuses it with a 400, 403, 409 or 413 (a 404, a service that predates the route, is retried); a report older than a week is dropped. Only a team account checks; the end of an incident already reported is always sent, even after the audience changed, and sign-out sends the ends (as `signed_out`) before the token goes. A launch ends what the last one left open
+as `app_relaunched`, at the time it was last seen.
+
+### The report
+
+```json
+{"id":"<uuid>","kind":"mac_unreachable","state":"open","startedAt":"<iso>","observedAt":"<iso>",
+ "durationMs":31000,"mac":{"id":"<device id>","name":"Studio"},"attempts":6,"lastError":"…",
+ "transport":"wireguard","serviceReachable":true,"network":"wifi",
+ "app":{"version":"1.2.0","build":"450","config":"TestFlight","simulator":false},
+ "device":{"model":"iPhone17,4","os":"27.2"},"simulations":["block_udp"],"drops":3,"endReason":"…"}
+```
+
+### What the service does (`src/connectivity-alerts.ts`)
+
+- Looks up the caller's primary email in Stack (never from the body). Unverified or not on a team domain:
+  `403`. Agent and service accounts (`cmux-agent-*@…`, `CONNECTIVITY_ALERT_EXCLUDED_EMAILS`), simulator
+  builds, Debug builds and reports with a developer network simulation on go to the test channel
+  (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
+  `CONNECTIVITY_ALERT_CHANNEL`.
+- For `mac_unreachable`, asks the caller's own hub whether the Mac was awake when the phone saw the incident
+  (`observedAt`, never later than now; `TeamHub.macLiveness`): it sent an application `ping` after the link
+  stopped working (`startedAt`) and within 45 s of that moment. An awake host pings every 15 s through the
+  30 s stretch; one that froze or slept as the link stopped cannot. (`link_unstable` is not judged by
+  pings: the phone reports it only while its link to the Mac is up; it is held only for a host restart,
+  above.) The hub
+  keeps each Mac socket's last ping, and the last one of a socket that closed or was replaced, so a report
+  delivered late is judged as it was (a Mac that woke and reconnected since does not count as awake then).
+  A Mac that sleeps keeps its socket half open, so presence still says online, but its pings stop: such an
+  incident (`mac_asleep`), one whose Mac is not connected and did not ping then (`mac_offline`), and one
+  whose Mac never pinged (a dark wake's connect, or a host that predates the pings:
+  `mac_liveness_unknown`) are kept but never posted, start or end. A phone that could not reach the cmux
+  service (`serviceReachable:false`) is always posted. Rollout: until a Mac runs a build with the pings,
+  its incidents are held.
+- One Durable Object (`ConnectivityAlertDesk`) stores each incident under its own key for a week (at most 100
+  per reporter) before answering, and keeps an ordered outbox of Slack calls sent after the answer. A start
+  posts one message; its end edits that message and replies in its thread. A resend of a state already seen
+  is a no-op. The same reporter's next incident for the same Mac (either kind) within 30 minutes goes in the
+  first one's thread as its own "Again:" reply, which its end edits in place.
+- An incident whose end never comes (the app was closed for good or removed) is closed after 3 hours: its
+  message is edited to say no end arrived from the phone. An end that comes later still edits it.
+- Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm
+  (5 s, 30 s, 2 min, 10 min, then every 30 min) for as long as the incident is kept. Any other Slack error
+  drops that call (logged), so one bad call never holds up the alerts behind it.
+- At most 5 new incidents per reporter and 20 overall per hour (both routes share one channel, so they share
+  the limits), thread replies included. Each
+  held-back incident is counted once; the next post (whatever its state) says how many were held back
+  since the last post, and if none comes within the hour the desk posts that count (and whose) on its own.
+  An end whose start was held back is posted whole later. One open incident per Mac at a time.
+- The verdict uses the phone's own `observedAt - startedAt` with the server's clock, so a phone clock that
+  runs fast or slow does not change it. A Mac outage that two or more
+  teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
+  service is flagged as a likely service outage.
+- 10 reports a minute per user (`INCIDENT_LIMIT`).
