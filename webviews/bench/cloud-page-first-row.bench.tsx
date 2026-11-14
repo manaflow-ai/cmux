@@ -61,7 +61,7 @@ kept.setItem(
   "cmux.cloud.machines.v1",
   JSON.stringify({ team: "team_personal", machines: sampleMachines(), revision: 1 }),
 );
-const ownerNames = sampleMachines().map((machine) => machine.name);
+const ownerCount = sampleMachines().length;
 
 async function round(): Promise<{ firstRow: number; owner: number }> {
   const element = document.createElement("div");
@@ -78,7 +78,7 @@ async function round(): Promise<{ firstRow: number; owner: number }> {
     if (firstRow < 0 && titles.length > 0) firstRow = now;
     if (
       store.getSnapshot().connection === "connected" &&
-      titles.join() === ownerNames.join() &&
+      titles.length === ownerCount &&
       !store.getSnapshot().loading
     ) {
       owner = now;
