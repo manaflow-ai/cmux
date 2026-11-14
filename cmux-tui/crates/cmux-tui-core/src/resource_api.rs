@@ -584,6 +584,7 @@ fn session_snapshot_with_journal_head(
     // Collect the auxiliary runtime first, as the read did when it held the
     // registry + state projection lock (sidebar status locks its own
     // lifecycle and then looks up a surface).
+    let lap = crate::measure_probe::now();
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
@@ -595,6 +596,7 @@ fn session_snapshot_with_journal_head(
     };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
+    crate::measure_probe::since("ss.sidebar_and_agent_maps", lap);
     // No registry lock and no state lock across this walk: the durable rows are one committed revision
     // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
     // never older than a commit of the rows that changed a route in its state hold.
@@ -605,16 +607,22 @@ fn session_snapshot_with_journal_head(
         if mux.registry_connection.owes_settlement() {
             mux.with_resource_projection(|_, _| Ok(()))?;
         }
+        let lap = crate::measure_probe::now();
         let committed = committed_snapshot::committed_snapshot(mux)?;
+        crate::measure_probe::since("=ss.committed_rows (holds the ss.build parts)", lap);
+        let lap = crate::measure_probe::now();
         let routes = mux.published_routes()?;
         #[cfg(test)]
         run_snapshot_after_routes_hook();
         let browser_surfaces = routes.browser_surfaces_by_content();
+        crate::measure_probe::since("ss.routes", lap);
         let journal_head = committed.rows.journal_head;
         let topology = &committed.rows.topology;
         let terminal_registry = &committed.rows.terminals;
         let terminal_resource_ids = &committed.rows.terminal_resource_ids;
+        let lap = crate::measure_probe::now();
         let public_projections = committed.rows.projections.clone();
+        crate::measure_probe::since("ss.copy_projections", lap);
         let context = LocalResourceContext {
             machine_id: mux.machine_public_id.clone(),
             session_id: mux.session_public_id.clone(),
@@ -653,6 +661,7 @@ fn session_snapshot_with_journal_head(
             };
             Some(LiveTerminal { surface: routed.clone(), host: Some(host) })
         };
+        let lap = crate::measure_probe::now();
         let terminals = public_terminal_values(
             &terminal_registry.terminals,
             terminal_resource_ids.clone(),
@@ -660,7 +669,9 @@ fn session_snapshot_with_journal_head(
             live_terminal,
             &last_sessions,
         )?;
+        crate::measure_probe::since("ss.terminals", lap);
 
+        let lap = crate::measure_probe::now();
         let browsers_by_id = topology
             .browsers
             .iter()
@@ -681,7 +692,9 @@ fn session_snapshot_with_journal_head(
                 Some(public_browser_snapshot(tab, durable, surface))
             })
             .collect::<Vec<_>>();
+        crate::measure_probe::since("ss.browsers", lap);
 
+        let lap = crate::measure_probe::now();
         let notifications = public_projections
             .notifications
             .into_iter()
@@ -711,6 +724,8 @@ fn session_snapshot_with_journal_head(
                 snapshot
             })
             .collect::<Vec<_>>();
+        crate::measure_probe::since("ss.notifications", lap);
+        let lap = crate::measure_probe::now();
         let mut agents = public_projections
             .agents
             .into_iter()
@@ -737,6 +752,8 @@ fn session_snapshot_with_journal_head(
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
         });
+        crate::measure_probe::since("ss.agents", lap);
+        let lap = crate::measure_probe::now();
         let frontend_projections = public_projections
             .frontend_projections
             .into_iter()
@@ -746,11 +763,13 @@ fn session_snapshot_with_journal_head(
             })
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
+        crate::measure_probe::since("ss.frontend_projections", lap);
 
         // The rows built for this request move in; `json!` would copy each of
         // them (a deep copy of every terminal, notification and agent value).
         // The committed parts are copied: the cached snapshot keeps them. A
         // map's keys serialize sorted, so the reply bytes do not change.
+        let lap = crate::measure_probe::now();
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
@@ -764,6 +783,8 @@ fn session_snapshot_with_journal_head(
                 "revision": topology.revision.to_string(),
             },
         });
+        crate::measure_probe::since("ss.copy_committed_lists", lap);
+        let lap = crate::measure_probe::now();
         for (name, rows) in [
             ("terminals", terminals),
             ("browsers", browsers),
@@ -774,7 +795,10 @@ fn session_snapshot_with_journal_head(
         ] {
             snapshot.set(name, Value::Array(rows));
         }
+        crate::measure_probe::since("ss.set_rows", lap);
+        let lap = crate::measure_probe::now();
         snapshot.set("extra", json!({"state": committed.state}));
+        crate::measure_probe::since("ss.copy_state", lap);
         Ok((snapshot, journal_head))
     })()
     .map_err(operation_failed)
