@@ -195,7 +195,7 @@ impl FamilyWalk<'_> {
         let root_children = index
             .kin()
             .children(root)
-            .map(Arc::new)
+            .map(|children| Arc::new(children.clone()))
             .unwrap_or_else(|| Arc::new(ChildSet::default()));
         *lookups += 1;
         frames.push(FamilyFrame { key: root.clone(), children: root_children });
