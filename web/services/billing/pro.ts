@@ -210,6 +210,8 @@ export type StripeBillingStatus = {
   readonly activePlanId: PersonalPlanId | null;
   /** Lifetime purchases grant access but cannot be switched in Stripe. */
   readonly hasRecurringSubscription?: boolean;
+  /** Whether a lifetime Founder entitlement is active for this owner. */
+  readonly hasFounderEntitlement?: boolean;
   /** Whether the newest subscription is scheduled to cancel at period end. */
   readonly cancelAtPeriodEnd: boolean;
   readonly hasCustomer: boolean;
@@ -650,9 +652,24 @@ export async function hasActiveStripeProSubscription(
 export async function activePersonalPlanForUser(
   stackUserId: string,
 ): Promise<PersonalPlanId | null> {
+  return (await activePersonalAccessForUser(stackUserId)).planId;
+}
+
+/**
+ * One read of the user's active personal rows: the best plan they grant and
+ * whether a Founder's Edition purchase is among them. An admin-revoked
+ * Founder row is canceled, so it never appears here.
+ */
+async function activePersonalAccessForUser(
+  stackUserId: string,
+): Promise<{ readonly planId: PersonalPlanId | null; readonly hasFounderEntitlement: boolean }> {
   try {
     const rows = await cloudDb()
-      .select({ plan: stripeSubscriptions.plan })
+      .select({
+        id: stripeSubscriptions.id,
+        plan: stripeSubscriptions.plan,
+        raw: stripeSubscriptions.raw,
+      })
       .from(stripeSubscriptions)
       .where(
         and(
@@ -663,9 +680,12 @@ export async function activePersonalPlanForUser(
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
       );
-    return highestPersonalPlanId(rows.map((row) => row.plan));
+    return {
+      planId: highestPersonalPlanId(rows.map((row) => row.plan)),
+      hasFounderEntitlement: rows.some((row) => isFounderSubscriptionRow(row)),
+    };
   } catch (error) {
-    if (isMissingDatabaseConfig(error)) return null;
+    if (isMissingDatabaseConfig(error)) return { planId: null, hasFounderEntitlement: false };
     throw error;
   }
 }
@@ -744,17 +764,17 @@ export async function stripeBillingStatusForUser(
     // row: historical rows mean a newer canceled record can hide an older
     // active subscription, which would re-sell Pro to a paying customer. The
     // newest row still supplies portal/recovery metadata.
-    const [customerRows, subscriptionRows, activePlanId] = await Promise.all([
+    const [customerRows, subscriptionRows, activeAccess] = await Promise.all([
       customerRowsPromise,
       orderedSubscriptionQuery.limit(10),
-      activePersonalPlanForUser(stackUserId),
+      activePersonalAccessForUser(stackUserId),
     ]);
-    // Founder rows are read only to report the lifetime purchase; every
+    const activePlanId = activeAccess.planId;
+    // Founder rows are read from every active personal row (no row limit),
+    // so an old lifetime purchase behind newer rows is still reported. Every
     // subscription decision below uses the recurring rows.
+    const hasFounderEntitlement = activeAccess.hasFounderEntitlement;
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
-    const hasFoundersEdition = subscriptionRows.some((row) =>
-      isFounderSubscriptionRow(row) && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
-    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -766,10 +786,12 @@ export async function stripeBillingStatusForUser(
     ), subscriptionStatus: subscription?.status ?? null,
     planLookupKey: planLookupKeyFromRaw(subscription?.raw),
     subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
-    hasFoundersEdition,
+    hasFoundersEdition: hasFounderEntitlement,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
-    ) };
+    ),
+    hasFounderEntitlement,
+    };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;
@@ -831,11 +853,17 @@ export async function stripeBillingStatusForTeam(
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const subscription = pickPortalMetadataRow(subscriptionRows);
-    return stripeBillingStatusFromRows(
-      customerRows[0]?.id ?? null,
-      subscription,
-      hasActiveSubscription,
-    );
+    return {
+      ...stripeBillingStatusFromRows(
+        customerRows[0]?.id ?? null,
+        subscription,
+        hasActiveSubscription,
+      ),
+      // A Team plan is always a recurring subscription; Founder's Edition is
+      // personal only.
+      hasRecurringSubscription: hasActiveSubscription,
+      hasFounderEntitlement: false,
+    };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;
