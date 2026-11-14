@@ -119,15 +119,20 @@ extension CmuxRemoteService {
 
     static func strictCaptureResult(_ raw: JSONValue, exited: Bool = false) -> JSONValue {
         let code = raw["code"]?.stringValue ?? "remote_invalid_result"
-        let workerStarted = raw["worker_started"]?.boolValue ?? false
+        guard let workerStarted = raw["worker_started"]?.boolValue,
+              let identityRemoved = raw["identity_removed"]?.doubleValue,
+              let identities = Int(exactly: identityRemoved), identities >= 0,
+              let relaysRemoved = raw["relays_removed"]?.doubleValue,
+              let relays = Int(exactly: relaysRemoved), relays >= 0 else {
+            return captureFailure(code: "remote_invalid_result")
+        }
         let leaseBound = raw["lease_bound"]?.boolValue ?? false
-        let identityRemoved = raw["identity_removed"]?.doubleValue ?? 0
-        let relaysRemoved = raw["relays_removed"]?.doubleValue ?? 0
         let verifiedAbsent = raw["verified_absent"]?.boolValue ?? false
         let workerQuiescent = raw["worker_quiescent"]?.boolValue ?? false
         let terminal = leaseBound && exited && verifiedAbsent && workerQuiescent
         let publicCode = terminal && code == "remote_exit_unverified" ? "ok" : code
         let noRemote = code == "no_remote_started" && raw["ok"]?.boolValue == true && terminal
+            && !workerStarted && identities == 0 && relays == 0
         return .object(["ok": .bool(noRemote || (terminal && code == "remote_exit_unverified")),
                         "code": .string(publicCode), "lease_bound": .bool(leaseBound),
                         "worker_started": .bool(workerStarted), "identity_removed": .number(identityRemoved),
