@@ -15,14 +15,14 @@ import Testing
         HubDevice(id: "studio", name: "Studio", platform: .macos, signingKey: "", macScreenShared: true, online: online)
     }
 
-    func store(holding macs: [HubDevice]) throws -> UserDefaults {
+    func makeStore(holding macs: [HubDevice]) throws -> UserDefaults {
         let store = try #require(UserDefaults(suiteName: "screen-sharing-last-macs-\(UUID().uuidString)"))
         store.set(try JSONEncoder().encode(macs), forKey: lastMacsKey)
         return store
     }
 
     /// A hub that registered nothing and read no list yet: discovery is `finding`.
-    func service(_ store: UserDefaults) -> ScreenSharingService {
+    func makeService(_ store: UserDefaults) -> ScreenSharingService {
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "token" })
@@ -34,7 +34,7 @@ import Testing
 
     @Test func beforeTheListIsReadThePageDrawsTheLastListsMacs() throws {
         let phone = HubDevice(id: "phone", name: "Phone", platform: .ios, online: true)
-        let service = service(try store(holding: [studio(online: false), phone,
+        let service = makeService(try makeStore(holding: [studio(online: false), phone,
                                                   HubDevice(id: "mini", name: "Mini", platform: .macos, macScreenShared: true, online: true)]))
         #expect(service.discovery == .finding)
         #expect(service.macs.map(\.id) == ["mini", "studio"], "the last list's Macs, in list order, no phones")
@@ -42,7 +42,7 @@ import Testing
 
     /// The drawn state may be old: a tap waits for this list instead of acting on it.
     @Test func aTapOnALastListMacWaitsForTheList() throws {
-        let service = service(try store(holding: [studio(online: false)]))
+        let service = makeService(try makeStore(holding: [studio(online: false)]))
         service.select(studio(online: false), scope: .full)
         #expect(service.alert == nil, "no 'offline' alert from the old list")
         #expect(service.viewer == nil)
@@ -52,11 +52,11 @@ import Testing
     }
 
     @Test func theLastListIsKeptAndSigningOutForgetsIt() throws {
-        let store = try store(holding: [])
+        let store = try makeStore(holding: [])
         let preferences = ScreenSharingPreferences(store: store)
         preferences.rememberMacs([studio()])
         #expect(ScreenSharingPreferences(store: store).lastMacs == [studio()])
-        let service = service(store)
+        let service = makeService(store)
         #expect(service.macs == [studio()])
         service.stop()
         #expect(ScreenSharingPreferences(store: store).lastMacs.isEmpty)
