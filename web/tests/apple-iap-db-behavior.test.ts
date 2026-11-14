@@ -263,12 +263,12 @@ describe("Apple IAP store", () => {
     expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toBeNull();
     const cursor = {
       bundleId: "com.cmux.app", environment: "Production", nextStartAt: new Date(NOW - DAY),
-      windowStartAt: new Date(NOW - DAY), windowEndAt: new Date(NOW), paginationToken: "page-2",
+      windowStartAt: new Date(NOW - DAY), windowEndAt: new Date(NOW), paginationToken: "page-2", retryableRuns: 3,
     };
     await store.saveNotificationHistoryCursor(cursor);
     await store.saveNotificationHistoryCursor({ ...cursor, environment: "Sandbox", paginationToken: null });
     expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(cursor);
-    const done = { ...cursor, nextStartAt: new Date(NOW), windowStartAt: null, windowEndAt: null, paginationToken: null };
+    const done = { ...cursor, nextStartAt: new Date(NOW), windowStartAt: null, windowEndAt: null, paginationToken: null, retryableRuns: 0 };
     await store.saveNotificationHistoryCursor(done);
     expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(done);
     expect((await store.notificationHistoryCursor("com.cmux.app", "Sandbox"))?.paginationToken).toBeNull();
