@@ -86,6 +86,7 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     assert!(hub.list_window(&Sub::new("page", "list")).is_err());
     writer.process_batch();
     assert_eq!(hub.rebuild_count(), 1);
+    hub.wait_hydrated().await.unwrap();
     assert_eq!(hub.subscriber_count(), 2);
     hub.source_walk_finished(Source::Local, hub.rebuild_count(), false);
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
