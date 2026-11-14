@@ -93,6 +93,8 @@ anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 # The host CPU/RAM budget (src/host_pressure.rs re-exports it); the macOS app is to link the same crate (cmux-app-ffi).
 cmux-host-budget.workspace = true
+# What kind of device this machine is (`host_health` `device`), for the glyph every machine row draws.
+cmux-device-kind.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true

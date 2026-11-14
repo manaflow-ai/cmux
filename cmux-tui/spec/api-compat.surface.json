@@ -17540,6 +17540,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17556,6 +17559,9 @@
       "/data/machine_platform/os": {
         "ty": "string",
         "required": true
+      },
+      "/data/machine_symbol": {
+        "ty": "string"
       },
       "/data/min_api_revision": {
         "ty": "uint32",

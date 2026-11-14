@@ -2423,6 +2423,24 @@
      "nullable": false,
      "since": 12
     },
+    "machine_device": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "machine_symbol": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "machine_capabilities": {
      "type": {
       "kind": "array",
