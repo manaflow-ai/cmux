@@ -220,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext = services.startCloud()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
+        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); AcpmuxEnvironment.startBuildHomeAdoption() } // the homes' adoption spawns a CLI: never before the first frame
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)

@@ -41,7 +41,7 @@ public struct CmuxNextApp {
             SingleInstanceGuard.handOff(activates: activates)
         }
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
+        LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
