@@ -9,7 +9,11 @@
 //! what the original app appends. It only reads: nothing is written to the transcript or its
 //! folder, and nothing locks it.
 //!
-//! - A watched chat takes no prompt (`watch.read_only`). Its summary carries `watching`, so a
+//! - A prompt typed in the terminal while a turn runs shows at once: Claude Code writes a
+//!   `queue-operation` line for it the moment it is queued, long before the turn takes it
+//!   (`Queue`, `Watching::queued`).
+//! - A watched chat takes no prompt (`watch.read_only`), unless its terminal or the desktop
+//!   bridge takes it into the running app (`bridge.rs`). Its summary carries `watching`, so a
 //!   client shows the composer off with a Take over action.
 //! - `_acpmux/watch_take_over` ends the watch. While the original app still runs the
 //!   conversation (`adopt_live.rs`) it is refused with `adopt.live` unless `ifLive` is `fork`
@@ -155,6 +159,54 @@ fn bridged_line(family: &str, session_id: &str, record: &Value) -> Option<(Strin
     super::bridge::delivered(session_id, record.get("uuid")?.as_str()?)
 }
 
+/// Most prompts kept as queued in the terminal (`Watching::queued`); past it the oldest go.
+const MAX_QUEUED: usize = 64;
+
+/// What a Claude Code transcript line says of the prompts its terminal queued while a turn ran.
+/// Claude Code 2.1 writes a `queue-operation` `enqueue` line with the text the moment a prompt is
+/// typed mid-turn (measured: about 60 ms after Enter), then either takes it into the running turn
+/// at its next tool boundary (an `attachment` of type `queued_command`, and a `remove` with reason
+/// `absorbed_mid_turn`) or runs it after the turn (`dequeue`, then its `user` line).
+#[derive(Debug, PartialEq)]
+enum Queue {
+    /// Typed while a turn ran: shown at once.
+    Enqueued(String),
+    /// Taken out of the queue: `absorbed` when the running turn took it (its attachment follows).
+    Removed { text: String, absorbed: bool },
+    /// Taken into the running turn; `source` is the uuid it was sent with.
+    Absorbed { text: String, source: Option<String> },
+}
+
+fn queue_line(record: &Value) -> Option<Queue> {
+    // Trimmed as a prompt line's text is (`adopt_replay::text_of`), so the two compare equal.
+    let text = |v: Option<&Value>| crate::adopt_replay::text_of(v?);
+    match record.get("type").and_then(Value::as_str)? {
+        "queue-operation" => {
+            let content = text(record.get("content"))?;
+            match record.get("operation").and_then(Value::as_str)? {
+                "enqueue" => Some(Queue::Enqueued(content)),
+                "remove" => Some(Queue::Removed {
+                    text: content,
+                    absorbed: record.get("reason").and_then(Value::as_str)
+                        == Some("absorbed_mid_turn"),
+                }),
+                _ => None,
+            }
+        }
+        "attachment" => {
+            let a = record.get("attachment")?;
+            if a.get("type").and_then(Value::as_str) != Some("queued_command")
+                || a.get("commandMode").and_then(Value::as_str).is_some_and(|m| m != "prompt")
+            {
+                return None;
+            }
+            let source = a.get("source_uuid").and_then(Value::as_str).map(str::to_owned);
+            Some(Queue::Absorbed { text: text(a.get("prompt"))?, source })
+        }
+        _ => None,
+    }
+}
+
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -163,8 +215,14 @@ impl Hub {
         family: &str,
         file: std::path::PathBuf,
     ) -> Arc<Session> {
-        let watching =
-            Watching { family: family.to_owned(), file, offset: 0, codex_items: false, open: None };
+        let watching = Watching {
+            family: family.to_owned(),
+            file,
+            offset: 0,
+            codex_items: false,
+            open: None,
+            ..Default::default()
+        };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
         self.append(session, "mux", "watch_started", json!({"family": family}));
@@ -396,6 +454,54 @@ impl Hub {
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
+            // What the terminal queued while a turn ran shows the moment it is typed, once.
+            if watching.family == "claude"
+                && let Some(queue) = queue_line(&record)
+            {
+                match queue {
+                    // A prompt acpmux delivered shows by its own line, under its id.
+                    Queue::Enqueued(text) if super::bridge::pending_wire(&session.id, &text) => {}
+                    Queue::Enqueued(text) => {
+                        if let Some(turn) = open.take() {
+                            self.end_watched_turn(session, &turn, at);
+                        }
+                        *open = Some(self.begin_watched_turn(session, &text, at, None));
+                        watching.queued.push(text);
+                        if watching.queued.len() > MAX_QUEUED {
+                            watching.queued.remove(0);
+                        }
+                    }
+                    // Taken back (edited, cancelled): it will not run as queued.
+                    Queue::Removed { text, absorbed: false } => {
+                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            watching.queued.remove(i);
+                        }
+                    }
+                    Queue::Removed { absorbed: true, .. } => {}
+                    Queue::Absorbed { text, source } => {
+                        let bridged = source
+                            .as_deref()
+                            .and_then(|uuid| super::bridge::delivered(&session.id, uuid));
+                        if let Some((prompt_id, sent)) = bridged {
+                            if let Some(turn) = open.take() {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                            *open =
+                                Some(self.begin_watched_turn(session, &sent, at, Some(prompt_id)));
+                        } else if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            // Shown when it was typed.
+                            watching.queued.remove(i);
+                        } else if !super::bridge::pending_wire(&session.id, &text) {
+                            // Its enqueue line was not read (before the watch began): shown now.
+                            if let Some(turn) = open.take() {
+                                self.end_watched_turn(session, &turn, at);
+                            }
+                            *open = Some(self.begin_watched_turn(session, &text, at, None));
+                        }
+                    }
+                }
+                continue;
+            }
             // A prompt acpmux delivered into the app (`bridge.rs`) shows as sent, under its id.
             if let Some((prompt_id, text)) = bridged_line(&watching.family, &session.id, &record) {
                 if let Some(turn) = open.take() {
@@ -407,6 +513,14 @@ impl Hub {
             for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
                 match step {
                     Step::Prompt(text) => {
+                        // A prompt the terminal queued runs now: it shows already, as typed.
+                        if let Some(i) = watching.queued.iter().position(|q| *q == text) {
+                            watching.queued.remove(i);
+                            continue;
+                        }
+                        // A prompt that was never queued starts only once the queue is empty:
+                        // what is left there was taken back.
+                        watching.queued.clear();
                         if let Some(turn) = open.take() {
                             self.end_watched_turn(session, &turn, at);
                         }
@@ -435,7 +549,10 @@ impl Hub {
                     Step::Tool(_) | Step::ToolResult(_) => {}
                 }
             }
+            // The turn a queued prompt is shown in has not begun while it waits: an end then is
+            // the end of the turn before it.
             if ends_turn(&watching.family, &record)
+                && watching.queued.is_empty()
                 && let Some(turn) = open.take()
             {
                 self.end_watched_turn(session, &turn, at);
@@ -616,6 +733,7 @@ mod tests {
                 offset: 0,
                 codex_items: false,
                 open: None,
+                ..Default::default()
             });
         }
 
@@ -691,6 +809,7 @@ mod tests {
                 offset: 0,
                 codex_items: false,
                 open: None,
+                ..Default::default()
             });
         }
         let line = json!({"type": "user", "message": {"content": "watched prompt"}}).to_string();

@@ -129,6 +129,7 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -200,6 +201,7 @@ async fn a_watched_chat_with_no_live_app_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -236,6 +238,7 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -309,6 +312,7 @@ async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     crate::hub::register::mark_registered_for_test(&session.id);
@@ -352,6 +356,7 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -427,6 +432,7 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let mut prompt = fresh();
@@ -511,6 +517,7 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -584,6 +591,7 @@ async fn a_watched_codex_chat_with_no_live_thread_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -627,6 +635,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
@@ -675,6 +684,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_codex_thread() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
@@ -722,6 +732,7 @@ async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     session.web_control_ended.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -749,4 +760,94 @@ fn the_reply_goes_to_the_verified_senders_chat_by_name() {
     let agent = Some(label.to_owned());
     let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
     assert_eq!(reply_name(&opts).as_deref(), Some(label));
+}
+
+/// A Codex chat handed to a cmux terminal (`release_to_watch.rs`): the terminal's `codex resume`
+/// (originator `codex-tui`, which no listing names) holds the thread, and the chat's prompt goes
+/// into its queue (`thread/queue/add`), which a terminal Codex runs after its turn (measured with
+/// Codex 0.164 on 2026-11-14), with no bridge setting and no tag. Once that terminal's process is
+/// gone the chat is a watch as any other.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queue() {
+    use crate::codex_desktop::tests as codex;
+    let thread = "01a1bf30-0000-7000-8000-00000000fe11";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex-tui", "/w", false)]);
+    let _lock = codex::hold(&home, thread);
+    let rollout = home.join("rollout.jsonl");
+    std::fs::write(&rollout, "").unwrap();
+    let written = rollout.clone();
+    let added = codex::fake_daemon(&home, move |params| {
+        let text = params["input"][0]["text"].as_str().unwrap();
+        let user =
+            json!({"type": "event_msg", "payload": {"type": "user_message", "message": text}});
+        let answer =
+            json!({"type": "event_msg", "payload": {"type": "agent_message", "message": "OK"}});
+        let end = json!({"type": "event_msg", "payload": {"type": "task_complete"}});
+        let mut f = std::fs::OpenOptions::new().append(true).open(&written).unwrap();
+        writeln!(f, "{user}\n{answer}\n{end}").unwrap();
+    });
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    let pid = std::process::id();
+    let terminal = crate::store::TerminalDriver {
+        pid,
+        started: crate::adopt_live::pid_start_ms(pid),
+        store: home.clone(),
+    };
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: rollout,
+            terminal: Some(terminal.clone()),
+            ..Default::default()
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+    let opts = PromptOptions { prompt_id: Some("p-term".into()), ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "from the chat"})];
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+    let sent = added.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "queued once");
+    assert_eq!(sent[0]["threadId"], thread);
+    assert_eq!(sent[0]["input"][0]["text"], "from the chat", "as typed: no reply hint");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let users: Vec<_> = events.iter().filter(|e| e.kind == "user_message").collect();
+    assert_eq!(users.len(), 1, "shown once");
+    assert_eq!(users[0].msg["promptId"], "p-term");
+
+    // A later process under the terminal's pid is not it: the binding's start time says so.
+    {
+        let mut meta = session.meta.lock().unwrap();
+        let w = meta.watching.as_mut().unwrap();
+        w.terminal = Some(crate::store::TerminalDriver {
+            started: terminal.started.map(|s| s.saturating_sub(60_000)),
+            ..terminal
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "late"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, PromptOptions::default()).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert_eq!(added.lock().unwrap().len(), 1, "nothing more reached the terminal");
 }

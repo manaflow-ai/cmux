@@ -12,6 +12,17 @@
 //! the watch ends that turn, so a person's send and an agent's `--wait` read the answer as from
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
+//! A chat handed to a cmux terminal (`release_to_watch.rs`, `acpmux resume-here`) is bridged by
+//! that terminal, whatever the setting says (Leo, 2026-11-14: "this is obviously what we need",
+//! on the chat writable in both directions while the terminal drives the session). The daemon
+//! recorded the terminal's process (`Watching::terminal`: `resume-here` becomes the harness, same
+//! pid); a prompt goes to the Claude Code session registered under that pid for this conversation
+//! (its inbox, opened with the peer key), or to the Codex thread a running Codex holds (its
+//! queue). The harness takes it as its terminal takes a typed prompt: mid-turn it waits for the
+//! turn's end. A harness with no inbox (Claude Code's cross-session messaging off) refuses the
+//! send with `bridge.no_inbox`, never as View Only; once the terminal's process is gone the chat
+//! is a watch as any other.
+//!
 //! A chat whose app no longer runs it falls through to the refusal: Take Over runs it here. A
 //! chat its session registered by name (`acpmux register`, `register.rs`) is that name's address
 //! instead: while its app is not running it, a prompt is refused as `bridge.not_running`, which
@@ -112,13 +123,28 @@ impl Deliveries {
 }
 
 /// The delivery a transcript line with `uuid` in `session_id` shows, if acpmux sent it and the
-/// watch has not shown it yet.
+/// watch has not shown it yet, marked shown: Claude Code may write it twice (the attachment that
+/// takes it into a running turn, then its line), and it shows once.
 pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)> {
-    deliveries()
+    let mut all = deliveries();
+    let p = all
         .by_uuid
-        .get(uuid)
-        .filter(|p| p.session_id == session_id && p.turn.borrow().is_none())
-        .map(|p| (p.prompt_id.clone(), p.text.clone()))
+        .get_mut(uuid)
+        .filter(|p| p.session_id == session_id && !p.shown && p.turn.borrow().is_none())?;
+    p.shown = true;
+    Some((p.prompt_id.clone(), p.text.clone()))
+}
+
+/// Whether `text`, a prompt the app queued, is one acpmux delivered into `session_id` and has not
+/// answered: it shows by its own line, under its id (`delivered`, `delivered_text`), not as typed.
+pub(super) fn pending_wire(session_id: &str, text: &str) -> bool {
+    let text = text.trim();
+    deliveries().by_uuid.values().any(|p| {
+        p.session_id == session_id
+            && p.turn.borrow().is_none()
+            && !p.wire.trim().is_empty()
+            && (p.wire.trim() == text || text.contains(p.wire.trim()))
+    })
 }
 
 /// The delivery a Codex rollout's prompt `text` in `session_id` shows: the oldest one acpmux
@@ -205,44 +231,19 @@ impl Target {
 }
 
 impl Hub {
-    /// `Some` answer when `session` is a watched bridged chat this prompt was delivered into;
-    /// `None` leaves the prompt to the usual path (which refuses it while watched).
-    pub(super) async fn bridged_prompt(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        blocks: &[Value],
-        client: &str,
-        opts: &mut PromptOptions,
-    ) -> Option<Result<Value, RpcError>> {
-        let watching = session.meta().watching?;
-        let family = watching.family.clone();
-        if family != "claude" && family != "codex" {
-            return None;
-        }
-        let agent_session_id = session.meta().agent_session_id?;
-        // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
-        // chat stays read-only, whatever runs its conversation.
-        if session.meta().tags.get("bridge").is_none_or(|t| t.value != family) {
-            return None;
-        }
-        let registered = super::register::is_registered(session);
-        // A prompt that waits for the owner's approval (a shared chat's guest, `author.rs`) is
-        // never delivered: the app would run it before anyone approved it. It goes the usual way,
-        // which refuses it while the chat is watched, until the bridge holds prompts for approval.
-        if crate::author::awaits_owner(opts.provenance.as_ref()) {
-            return None;
-        }
-        // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
-        if let Some(id) = opts.prompt_id.clone() {
-            let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
-            if let Some(rx) = kept {
-                return Some(resent(session, &id, rx, opts).await);
-            }
-        }
+    /// Where a watched chat the bridge listed goes (`desktop_bridge.rs`, `register.rs`): the app's
+    /// session, when the setting or the session's own registration lets it through.
+    async fn listed_target(
+        &self,
+        session: &Session,
+        family: String,
+        agent_session_id: String,
+        registered: bool,
+    ) -> Option<Target> {
         let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let acpmux_home = crate::config::home();
         let chat_id = session.id.clone();
-        let target = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             // A chat its session registered is bridged whatever the setting says: the session
             // asked for it from its own shell (`register.rs`).
             if !registered && !crate::claude_peers::enabled() {
@@ -288,7 +289,59 @@ impl Hub {
         })
         .await
         .ok()
-        .flatten();
+        .flatten()
+    }
+
+    /// `Some` answer when `session` is a watched bridged chat this prompt was delivered into;
+    /// `None` leaves the prompt to the usual path (which refuses it while watched).
+    pub(super) async fn bridged_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: &[Value],
+        client: &str,
+        opts: &mut PromptOptions,
+    ) -> Option<Result<Value, RpcError>> {
+        let watching = session.meta().watching?;
+        let family = watching.family.clone();
+        if family != "claude" && family != "codex" {
+            return None;
+        }
+        let agent_session_id = session.meta().agent_session_id?;
+        // A chat handed to a cmux terminal (`release_to_watch.rs`) goes into that terminal's
+        // harness, bound by its process: the daemon's own record, never a tag.
+        let terminal = watching.terminal.clone();
+        // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
+        // chat stays read-only, whatever runs its conversation.
+        if terminal.is_none() && session.meta().tags.get("bridge").is_none_or(|t| t.value != family)
+        {
+            return None;
+        }
+        let registered = terminal.is_none() && super::register::is_registered(session);
+        // A prompt that waits for the owner's approval (a shared chat's guest, `author.rs`) is
+        // never delivered: the app would run it before anyone approved it. It goes the usual way,
+        // which refuses it while the chat is watched, until the bridge holds prompts for approval.
+        if crate::author::awaits_owner(opts.provenance.as_ref()) {
+            return None;
+        }
+        // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
+        if let Some(id) = opts.prompt_id.clone() {
+            let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
+            if let Some(rx) = kept {
+                return Some(resent(session, &id, rx, opts).await);
+            }
+        }
+        let target = match terminal {
+            Some(driver) => match terminal_target(&family, &agent_session_id, driver).await {
+                TerminalTarget::Ready(target) => Some(target),
+                // The terminal's harness ended: a watch as any other (Take Over runs it here).
+                TerminalTarget::Gone => None,
+                TerminalTarget::NoInbox(why) => return Some(Err(no_inbox(&why))),
+            },
+            None => {
+                self.listed_target(session, family.clone(), agent_session_id.clone(), registered)
+                    .await
+            }
+        };
         let Some(target) = target else {
             // A registered name keeps its address while its app is closed: a send the outbox
             // carries (here, or a peer's forwarded) waits and is tried again, instead of failing
@@ -431,6 +484,97 @@ fn not_running(name: &str) -> RpcError {
         ),
     )
     .with_data(json!({"reason": "bridge.not_running", "retryable": true}))
+}
+
+/// A chat's terminal runs its harness, which takes no message from acpmux now (`why`): the
+/// person types it in the terminal. Never View Only: the next send tries again.
+fn no_inbox(why: &str) -> RpcError {
+    RpcError::new(-32000, format!("bridge.no_inbox: {why}; type it in the terminal for now"))
+        .with_data(json!({"reason": "bridge.no_inbox", "retryable": true}))
+}
+
+/// Where a terminal-driven chat's prompt goes ([`terminal_target`]).
+enum TerminalTarget {
+    Ready(Target),
+    /// The terminal's process ended (or another took its pid).
+    Gone,
+    /// It runs, but takes nothing from acpmux now: why.
+    NoInbox(String),
+}
+
+/// How long a send waits for the terminal's Claude Code to register its session after
+/// `acpmux resume-here` started it (it registers within a second or two of its start).
+const REGISTER_WAIT: Duration = Duration::from_secs(10);
+
+/// The harness the terminal `driver` runs, by its process: the Claude Code session registered
+/// under that very pid (`resume-here` became it, `exec`) for this conversation, the only one that
+/// claims it, with an inbox (Claude Code's cross-session messaging); or the Codex thread a running
+/// Codex holds, whose queue (`thread/queue/add`) the terminal's Codex reads. A send right after the
+/// hand-off waits up to [`REGISTER_WAIT`] for the Claude Code session to register.
+async fn terminal_target(
+    family: &str,
+    agent_session_id: &str,
+    driver: crate::store::TerminalDriver,
+) -> TerminalTarget {
+    let deadline = tokio::time::Instant::now() + REGISTER_WAIT;
+    loop {
+        let (fam, sid, d) = (family.to_owned(), agent_session_id.to_owned(), driver.clone());
+        let found = tokio::task::spawn_blocking(move || terminal_target_now(&fam, &sid, &d))
+            .await
+            .unwrap_or(TerminalTarget::Gone);
+        match found {
+            TerminalTarget::NoInbox(why)
+                if why == NOT_REGISTERED && tokio::time::Instant::now() < deadline =>
+            {
+                // poll: the registry has no event to wait on; bounded by REGISTER_WAIT, only
+                // between a hand-off and its harness's start.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+const NOT_REGISTERED: &str =
+    "Claude Code in this chat's terminal has not opened the conversation (yet)";
+
+fn terminal_target_now(
+    family: &str,
+    agent_session_id: &str,
+    d: &crate::store::TerminalDriver,
+) -> TerminalTarget {
+    if !crate::adopt_live::registered_runs(d.pid, d.started) {
+        return TerminalTarget::Gone;
+    }
+    if family == "codex" {
+        return match crate::codex_desktop::find_held(&d.store, agent_session_id) {
+            Some(thread) => TerminalTarget::Ready(Target::Codex { home: d.store.clone(), thread }),
+            None => TerminalTarget::NoInbox(
+                "Codex in this chat's terminal does not hold the conversation open".to_owned(),
+            ),
+        };
+    }
+    let live = crate::claude_peers::live(&d.store);
+    let Some(peer) = live.iter().find(|p| p.pid == d.pid && p.session_id == agent_session_id)
+    else {
+        return TerminalTarget::NoInbox(NOT_REGISTERED.to_owned());
+    };
+    if !crate::claude_peers::sole_claimant(peer, &live) {
+        return TerminalTarget::NoInbox(
+            "another Claude Code also claims this conversation".to_owned(),
+        );
+    }
+    if peer.socket.is_none() {
+        return TerminalTarget::NoInbox(
+            "Claude Code in this chat's terminal takes no messages from other sessions (its cross-session messaging is off)"
+                .to_owned(),
+        );
+    }
+    TerminalTarget::Ready(Target::Claude {
+        config: d.store.clone(),
+        peer: peer.clone(),
+        token: None,
+    })
 }
 
 fn undelivered(e: &str) -> RpcError {

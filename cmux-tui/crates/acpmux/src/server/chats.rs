@@ -609,11 +609,28 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     hub.watch_take_over(&s, if_live).await
 }
 
-/// `_acpmux/release_to_watch {sessionId}`: once idle, the chat's harness stops and the chat
-/// watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
-pub(super) async fn release_to_watch(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+/// `_acpmux/release_to_watch {sessionId, terminalPid?}`: once idle, the chat's harness stops and
+/// the chat watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+/// `terminalPid` is the process that runs the conversation next (`acpmux resume-here`, which
+/// becomes the harness): the chat's prompts go into it. Over the unix socket it must be the
+/// caller itself, by the pid the kernel gave at accept; an in-process caller (tests, an
+/// embedding) names it. Any other caller binds no terminal.
+pub(super) async fn release_to_watch(
+    hub: &Arc<Hub>,
+    params: &Value,
+    origin: super::Origin,
+    socket_peer: crate::sender_harness::SocketPeer,
+) -> Result<Value, RpcError> {
+    use crate::sender_harness::SocketPeer;
     let s = hub.resolve(super::session_key(params)?)?;
-    hub.release_to_watch(&s).await
+    let named =
+        params.get("terminalPid").and_then(Value::as_u64).and_then(|p| u32::try_from(p).ok());
+    let terminal = match (named, origin, socket_peer) {
+        (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => Some(pid),
+        (Some(named), super::Origin::Local, SocketPeer::Unknown) => Some(named),
+        _ => None,
+    };
+    hub.release_to_watch(&s, terminal).await
 }
 
 #[cfg(test)]
