@@ -1990,7 +1990,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             snapshot.autoresizingMask = [.flexibleTopMargin]
             tuiHost.addSubview(snapshot)
         }
+        // On screen before Ghostty can present the replay: its renderer
+        // presents on its own thread, and a present that beat this pass's
+        // commit showed the new grid in the old area for a frame (htop's
+        // first show, a source frame of 5 ms).
+        CATransaction.flush()
         freezeView = snapshot
+        #if DEBUG
+        heldCommitted = true
+        #endif
         freezeBatches = 0
         placedSinceHold = false
         // A TUI's replay at a new size can be an empty alternate screen until
@@ -2492,6 +2500,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The held frame may go (`TerminalHeldFrame.releasesOnPresent`).
     private func heldFrameMayGo() -> Bool {
         guard !holdAwaitsReset else { return false }
+        if model.isTUI, areaSwapPending, !swapFits() {
+            awaitSwapFit()
+            return false
+        }
         guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
         let visible = model.isTUI ? 0..<0 : visibleRowRange
         return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: restorePending,
