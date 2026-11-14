@@ -143,6 +143,24 @@ class HostTests(unittest.TestCase):
     def setUp(self):
         self.host = proof.host_module()
 
+    def test_protected_whole_host_admission_rejects_gui_only_or_other_workflow(self):
+        admitted = dict(GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmuxterm-hq",
+                        GITHUB_WORKFLOW_REF="manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
+                        GLAEDA_JOB_CLAIM="exclusive", GLAEDA_HOOK_SHA256="a" * 64)
+        self.host.require_admission(admitted)
+        for key in admitted:
+            with self.subTest(key=key), self.assertRaisesRegex(self.host.HostFailure, "host_admission_unverified"):
+                self.host.require_admission({**admitted, key: ""})
+
+    def test_staging_account_never_reaches_a_production_or_local_backend(self):
+        bundle = "com.cmuxterm.app.debug.capabc"
+        selection = dict(bundle_id=bundle, legacy_storage=False, auth_namespace="staging",
+                         name="staging", stack_project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895")
+        for changed in ({"name": "prod"}, {"name": "local"}, {"stack_project_id": "other"}):
+            with self.subTest(changed=changed), patch.object(self.host, "command", return_value=json.dumps({**selection, **changed})):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_staging_backend_unverified"):
+                    self.host.identity_service(Path("/tmp/owned.app"), bundle, {})
+
     def test_freshness_checks_resolved_app_identity_namespace(self):
         bundle = "com.cmuxterm.app.debug.capabc"
         for legacy in (False, True):
