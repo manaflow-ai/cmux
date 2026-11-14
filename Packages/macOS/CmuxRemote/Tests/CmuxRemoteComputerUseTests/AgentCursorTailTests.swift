@@ -224,6 +224,9 @@ import UniformTypeIdentifiers
         var moving = false
         Self.run(&tail, Self.glide(from: at, to: CGPoint(x: 900, y: 500))) { _, tail in moving = moving || tail.isLively }
         #expect(moving, "following the pointer wants the full rate")
+        Self.run(&tail, Self.hold(CGPoint(x: 900, y: 500), seconds: 2.2))
+        tail.activity()
+        #expect(!tail.isLively, "a step that does not move the pointer (a look) keeps the idle rate")
         let still = AgentCursorTail(session: "rate", animates: false)
         #expect(!still.isLively, "without animation it never asks for frames")
     }

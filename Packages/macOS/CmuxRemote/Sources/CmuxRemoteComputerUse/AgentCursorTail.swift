@@ -178,10 +178,10 @@ struct AgentCursorTail {
         sinceStir = 0
     }
 
-    /// Any other step of the agent: wakes it from calm.
+    /// Any other step of the agent: wakes it from calm. (It stirs the tail only through the
+    /// pointer's motion, if the step moves the pointer: a look in place stays at the idle rate.)
     mutating func activity() {
         sinceEvent = 0
-        sinceStir = 0
     }
 
     /// True while the tail does more than its slow idle life (following the pointer, flicking,
