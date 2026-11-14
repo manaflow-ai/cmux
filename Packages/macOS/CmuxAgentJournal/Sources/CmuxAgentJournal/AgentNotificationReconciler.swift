@@ -48,6 +48,32 @@ public struct AgentNotificationReconciler: Sendable {
         var starts: Set<String> = []
         var resolvedRequests: Set<String> = []
         var completionTurns: [String: String] = [:]
+        /// Only the pane's own idle settlement stopped the root, ahead of the
+        /// agent's Stop. The agent's failure for that turn can still follow.
+        var settledByPane = false
+        /// Whether the turn was over when the session last reported an error.
+        var overWhenErrored = false
+        /// A child spawned, or fresh tool activity ran, after the root stopped:
+        /// the agent is working again even where the phase keeps the Stop
+        /// (a Stop hook that blocks continues the same turn).
+        var workedSinceStop = false
+
+        /// The agent itself ended its last turn and nothing has run since: an
+        /// error now is a late report for that turn, not a failure of work in
+        /// progress. A wait on a human after the Stop keeps the turn over, and
+        /// so do children that were still running at the Stop.
+        var turnOver: Bool {
+            if ended { return true }
+            guard !settledByPane, !workedSinceStop else { return false }
+            if phase == .error { return overWhenErrored }
+            return phase == .idle || rootStopped
+        }
+
+        /// The root stopped, or an idle report settled the session.
+        mutating func markStopped() {
+            rootStopped = true
+            workedSinceStop = false
+        }
 
         /// The agent continues after the user's decision: a settled turn is live again.
         mutating func resumeWork() {
@@ -278,7 +304,8 @@ public struct AgentNotificationReconciler: Sendable {
                 // Only an idle declaration (a dismissed idle dialog) settles the
                 // turn. Fresh tool activity explicitly reopens it below.
                 session.phase = .idle
-                session.rootStopped = true
+                session.markStopped()
+                session.settledByPane = false
             } else if session.rootStopped && session.children.isEmpty {
                 session.phase = .idle
             } else if session.phase == .needsInput {
@@ -367,7 +394,8 @@ public struct AgentNotificationReconciler: Sendable {
                 ))
             }
             session.phase = .idle
-            session.rootStopped = true
+            session.markStopped()
+            session.settledByPane = false
             session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
             session.sequence = max(session.sequence, event.sequence)
             storeSession(session, for: sessionKey, indexKey: boundaryKey)
@@ -451,6 +479,7 @@ public struct AgentNotificationReconciler: Sendable {
             session.pendingCompletion = nil
         }
         let previousPhase = session.phase
+        let wasOver = session.turnOver
         switch draft.kind {
         case .messagePublished, .attentionResolved, .idleObserved:
             return .init(.observation, invalidatedCorrelationKeys: invalidated)
@@ -466,6 +495,7 @@ public struct AgentNotificationReconciler: Sendable {
             }
         case .turnStarted:
             session.rootStopped = false
+            session.workedSinceStop = false
             if let key = context?.eventIdentity { session.starts.insert(key) }
             if incomingTurn != nil || context?.eventIdentity != nil || session.phase != .running {
                 session.turn = incomingTurn ?? context?.eventIdentity ?? draft.eventId
@@ -474,6 +504,13 @@ public struct AgentNotificationReconciler: Sendable {
             session.phase = .running
             session.ended = false
         case .turnCompleted:
+            if !draft.pendingWork {
+                // A pane settlement after the agent's own Stop does not make
+                // that finished turn provisional again.
+                let paneSettlement = draft.nativeEvent == AgentJournalEventDraft.paneIdleSettlementNativeEvent
+                session.settledByPane = paneSettlement && (!session.rootStopped || session.settledByPane)
+                session.workedSinceStop = false
+            }
             session.rootStopped = !draft.pendingWork
             if !draft.pendingWork, !session.children.isEmpty, context?.notification != nil {
                 session.pendingCompletion = event
@@ -494,10 +531,20 @@ public struct AgentNotificationReconciler: Sendable {
             if previousPhase != .needsInput { session.attentionEpoch = event.sequence }
             session.phase = .needsInput
         case .errorReported:
+            session.overWhenErrored = wasOver
             session.phase = .error
         case .sessionEnded:
             session.ended = true
         case .stateChanged:
+            if draft.declaredPhase == .running, session.rootStopped,
+               draft.nativeEvent?.caseInsensitiveCompare("PreToolUse") == .orderedSame,
+               draft.occurredAtMs > session.occurredAtMs
+                || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence) {
+                // A tool starting after the Stop, even in the stopped turn,
+                // which the phase below keeps settled for notifications. A
+                // tool result can be the stopped turn's own, received late.
+                session.workedSinceStop = true
+            }
             if draft.declaredPhase == .running {
                 let isNewTurn = incomingTurn != nil
                     && incomingTurn != session.nativeTurn
@@ -521,10 +568,16 @@ public struct AgentNotificationReconciler: Sendable {
             }
             if let phase = draft.declaredPhase {
                 session.phase = phase == .running && !session.attentionIdentities.isEmpty ? .needsInput : phase
+                if phase == .idle {
+                    session.settledByPane = false
+                    session.workedSinceStop = false
+                }
+                if phase == .error { session.overWhenErrored = wasOver }
             }
         case .childSpawned:
             if let child = context?.requestIdentity, !session.finishedChildren.contains(child) {
                 session.children.insert(child)
+                if session.rootStopped { session.workedSinceStop = true }
                 if session.phase == .idle || session.phase == .unknown { session.phase = .running }
             }
         case .childCompleted, .childFailed:
@@ -565,6 +618,17 @@ public struct AgentNotificationReconciler: Sendable {
         }
         storeSession(session, for: sessionKey, indexKey: boundaryKey)
         return .init(.accepted, identity: identity, invalidatedCorrelationKeys: invalidated)
+    }
+
+    /// Whether the agent ended the event's session turn and nothing has run
+    /// since, as of the events applied so far. Auto-resume reads it around
+    /// `apply` so it shares this fold's turn state instead of keeping its own.
+    /// - Parameter event: An event for the session; only its identity is read.
+    /// - Returns: `false` for an unknown session or one still working.
+    public func turnIsOver(for event: AgentJournalEvent) -> Bool {
+        guard let sessionID = event.draft.sessionId,
+              let session = sessions[Self.key([event.draft.source, sessionID])] else { return false }
+        return session.turnOver
     }
 
     /// Projects the reconciled phase back into the shared lifecycle fold.

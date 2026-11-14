@@ -278,7 +278,7 @@ extension Workspace {
                 sessionId: sessionID,
                 workspaceId: id.uuidString,
                 surfaceId: panelId.uuidString,
-                nativeEvent: "program_status_idle"
+                nativeEvent: AgentJournalEventDraft.paneIdleSettlementNativeEvent
             )
         }
         if let draft, draft.validationProblem() == nil {

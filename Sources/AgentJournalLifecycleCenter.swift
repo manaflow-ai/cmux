@@ -96,6 +96,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                     Self.canonicalized(event, aliases: eventAliases),
                     state: state
                 ) else { return false }
+                // Read before `apply`: an error report changes the phase.
+                let turnOverBefore = notifications.turnIsOver(for: canonical)
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
@@ -113,7 +115,14 @@ final class AgentJournalLifecycleCenter: Sendable {
                 // Live events only: the startup replay folds history through
                 // its own path, so restoring a session never types `continue`.
                 if decision.disposition != .stale {
-                    await MainActor.run { AgentAutoResumeCoordinator.shared.observe(canonical.draft) }
+                    let turnOverAfter = notifications.turnIsOver(for: canonical)
+                    await MainActor.run {
+                        AgentAutoResumeCoordinator.shared.observe(
+                            canonical.draft,
+                            turnOverBefore: turnOverBefore,
+                            turnOverAfter: turnOverAfter
+                        )
+                    }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)
