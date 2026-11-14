@@ -49,18 +49,30 @@ import Testing
         #expect(rows(sizing) == 20)
     }
 
-    /// The settled stack top is a position on the page. A dock change after it
-    /// (the composer or key row coming in) moves the resting top above it, and
-    /// a TUI started then claimed rows below the composer: vim opened with the
-    /// keyboard down and its first rows clipped under the toolbar (kbtui demo,
-    /// stack top 790 pt kept while resting was 708 pt: 45 rows in a 40-row area).
-    @Test func aTUINeverGetsMoreRowsThanTheKeyboardDownLayout() {
+    /// The keyboard's lift is kept as a distance. A dock or page change after
+    /// it moves the resting top, and the rows follow: a kept page position
+    /// gave a TUI rows under the composer (vim opened with its first rows
+    /// clipped) or above it (a band of black).
+    @Test func theRowsFollowTheRestingTopAfterTheKeyboardSettled() {
         var sizing = TerminalTUISizing()
-        // Settled while the dock sat lower (no composer yet): not "up" then.
-        sizing.keyboardSettled(stackTop: 790, restingStackTop: 800, isTUI: false)
         sizing.tuiStarted()
-        // The dock grew: resting is now 676; 790 is below it.
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
+        #expect(rows(sizing) == 20)
+        // The dock grew by 76 pt (the composer came in): the keyboard still
+        // lifts the stack 276 pt, so (600 - 276 - 62) / 16.4 = 15 rows.
+        #expect(sizing.rows(restingStackTop: 600, chromeTop: top, cellHeight: cell) == 15)
+        // The page grew by 100 pt: (776 - 276 - 62) / 16.4 = 26 rows, not the old position's 20.
+        #expect(sizing.rows(restingStackTop: 776, chromeTop: top, cellHeight: cell) == 26)
+    }
+
+    /// With the keyboard down a TUI gets exactly the resting rows, wherever
+    /// the resting top moves.
+    @Test func aTUIWithTheKeyboardDownGetsTheRestingRowsWhereverTheDockMoves() {
+        var sizing = TerminalTUISizing()
+        sizing.keyboardSettled(stackTop: 800, restingStackTop: 800, isTUI: false)
+        sizing.tuiStarted()
         #expect(rows(sizing) == 37)
+        #expect(sizing.rows(restingStackTop: 800, chromeTop: top, cellHeight: cell) == 45)
     }
 }
 
