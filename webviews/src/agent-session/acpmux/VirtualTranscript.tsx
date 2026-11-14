@@ -48,8 +48,10 @@ import {
   opensBackgroundTurn,
   restRoom,
   rowFrameKey,
+  rowPropsWindow,
   SINCE_DIVIDER,
 } from "./model";
+import { RowFrameCache } from "./conversation/rowFrameCache";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
@@ -774,6 +776,176 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
   }
   return ids.length > 0 ? ids.join(" ") : undefined;
 };
+
+/// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
+/// page of older history: read when the frames are drawn, so the render reads no ref itself.
+type RowFrameSources = {
+  entering: { readonly current: ReadonlySet<string> };
+  loadFade: LoadFadeWindow;
+  older: OlderRowFade;
+};
+
+/// What `drawRowFrames` draws the mounted rows' frames from: one object a transcript render hands it.
+type RowFramesView = {
+  rows: readonly AcpmuxRow[];
+  mountedRanges: readonly { first: number; last: number }[];
+  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  frameKey: string;
+  registry: NativeRegistry;
+  setSize: number;
+  rowWidth: number;
+  expanded: Folds;
+  observer: ResizeObserver | undefined;
+  queueDrawn: QueueDrawn;
+  sentPromptIds: ReadonlySet<string>;
+  /// Rows may enter (`RowFrameSources.entering`): not while a session switch loads.
+  enters: boolean;
+  onEntered: (id: string) => void;
+  /// Rows may fade in as the chat loads (`RowFrameSources.loadFade`): not while a session switch loads.
+  loadFades: boolean;
+  onLoadFaded: (id: string) => void;
+  onOlderShown: (id: string) => void;
+  activeRowId: string | undefined;
+  selectedRows: ReadonlySet<number>;
+  tabStopId: string | undefined;
+  finalFooter: string | undefined;
+  onFocus: (id: string) => void;
+  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  onToggleActivity: (id: string) => void;
+  onOpenDiff: OpenDiff | undefined;
+  streams: boolean | undefined;
+  sessionId: string | undefined;
+  githubRepository: string | undefined;
+  rowRepositories: ((index: number) => string | undefined) | undefined;
+  scopeAt: (index: number) => ReferenceScope | undefined;
+};
+
+/// Each mounted row's frame, its props worked out again only when its rows or inputs changed
+/// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
+/// every other frame on the element `cache` kept, whatever the rows in view.
+function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
+  const { rows, geometry, setSize } = view;
+  const entering = view.enters ? sources.entering.current : undefined;
+  const loadFade = view.loadFades ? sources.loadFade : undefined;
+  const older = sources.older;
+  cache.begin([
+    view.frameKey,
+    view.registry,
+    view.rowWidth,
+    view.observer,
+    view.queueDrawn,
+    view.onEntered,
+    view.onLoadFaded,
+    view.onOlderShown,
+    view.onFocus,
+    view.onRowKeyDown,
+    view.onToggleActivity,
+    view.onOpenDiff,
+    view.streams,
+    view.sessionId,
+  ]);
+  const rowFrames: React.ReactElement[] = [];
+  for (const { first, last } of view.mountedRanges)
+    for (let absoluteIndex = first; absoluteIndex < last && absoluteIndex < rows.length; absoluteIndex += 1) {
+      const row = rows[absoluteIndex]!;
+      const isExpanded = row.foldOpen ?? view.expanded.has(row.id);
+      const frameId = rowFrameKey(row);
+      const inputs = cache.scratch;
+      inputs.index = absoluteIndex;
+      inputs.top = geometry.topAt(absoluteIndex);
+      inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
+      inputs.setSize = setSize;
+      inputs.expanded = isExpanded;
+      inputs.active = view.activeRowId === row.id;
+      inputs.selected = view.selectedRows.has(absoluteIndex);
+      inputs.tabStop = view.tabStopId === row.id;
+      inputs.finalFooter = row.id === view.finalFooter;
+      inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
+      inputs.enter = entering?.has(frameId) ?? false;
+      inputs.loadFade = loadFade?.fades(row.id) ?? false;
+      inputs.older = older?.has(row.id) ? older : undefined;
+      inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
+      inputs.scope = view.scopeAt(absoluteIndex);
+      // An open Worked-for row names every row under it (`disclosureControls`): drawn each time.
+      const opensDisclosure = row.kind === WORKED && isExpanded;
+      // Kept by frame id: the session's `frameKey` is in what every frame shares (`begin`).
+      const keptFrame = opensDisclosure ? undefined : cache.take(frameId, rows);
+      if (keptFrame) {
+        rowFrames.push(keptFrame);
+        continue;
+      }
+      const next = nextDrawnRow(rows, absoluteIndex);
+      const prev = prevDrawnRow(rows, absoluteIndex);
+      const kind = rowKind(row);
+      const Component = view.registry[kind] ?? NoticeRow;
+      const controls = opensDisclosure ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+      const stepHere = isStepAt(rows, absoluteIndex);
+      const element = (
+        <RowFrame
+          // Session-list metadata can arrive after cached rows paint. It must not change their keys
+          // (nor a new chat taking its session: `frameSession`); reply bodies fence their own identity
+          // and timestamp.
+          key={`${view.frameKey}:${frameId}`}
+          row={row}
+          kind={kind}
+          joinsPrevious={(stepHere && isStepAt(rows, absoluteIndex - 1)) || isLiveStep(row, prev)}
+          joinsNext={stepHere && isStepAt(rows, absoluteIndex + 1)}
+          opensTurn={opensBackgroundTurn(row, prev)}
+          beforeFooter={isBeforeFooter(row, next)}
+          beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+          replyActions={keepsReplyRoom(row, next)}
+          status={statusEdge(row, next, prev)}
+          lastFooter={isLastFooter(row, next)}
+          finalFooter={inputs.finalFooter}
+          continuationFooter={isContinuationFooter(row, next)}
+          lastTurn={row.lastTurn === true}
+          index={absoluteIndex}
+          setSize={setSize}
+          top={inputs.top}
+          gapBelow={inputs.gapBelow}
+          rowWidth={view.rowWidth}
+          expanded={isExpanded}
+          observer={view.observer}
+          queueDrawn={view.queueDrawn}
+          sendThinking={inputs.sendThinking}
+          enter={inputs.enter}
+          onEntered={view.onEntered}
+          loadFade={inputs.loadFade}
+          onLoadFaded={view.onLoadFaded}
+          older={inputs.older as OlderRowFade | undefined}
+          onOlderShown={view.onOlderShown}
+          active={inputs.active}
+          selected={inputs.selected}
+          tabStop={inputs.tabStop}
+          onFocus={view.onFocus}
+          onRowKeyDown={view.onRowKeyDown}
+          contentType={Component}
+          controls={controls}
+          onToggleActivity={view.onToggleActivity}
+          onOpenDiff={view.onOpenDiff}
+          githubRepository={inputs.repository}
+          referenceScope={inputs.scope as ReferenceScope | undefined}
+        >
+          <RowContent
+            Component={Component}
+            liveTools={view.streams}
+            row={row}
+            replyActions={hasReplyActions(row, next)}
+            sessionId={view.sessionId}
+            onToggleActivity={view.onToggleActivity}
+            onOpenDiff={view.onOpenDiff}
+            expanded={isExpanded}
+            controls={controls}
+            githubRepository={inputs.repository}
+          />
+        </RowFrame>
+      );
+      const span = rowPropsWindow(rows, absoluteIndex);
+      rowFrames.push(cache.put(frameId, rows, span.first, span.last, element));
+    }
+  cache.end();
+  return rowFrames;
+}
 
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
 /// (each row's `top` adds it), so the transcript ends this far past their total height.
@@ -2412,10 +2584,11 @@ function TranscriptView({
   const rowsChange = useRef<RowsChange | undefined>(undefined);
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
-  const olderRows = useRef<OlderRowFade | undefined>(undefined);
-  olderRows.current ??= new OlderRowFade(() => ref.current);
+  const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
+  /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
+  const [rowFrameCache] = useState(() => new RowFrameCache());
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
-  if (sessionChanged) olderRows.current.clear();
+  if (sessionChanged) olderRows.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   const olderDragPending = useRef(false);
@@ -2432,10 +2605,15 @@ function TranscriptView({
   const roomPaidFrom = useRef<number | undefined>(undefined);
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
-  const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
-  loadFade.current ??= new LoadFadeWindow();
-  if (sessionChanged) loadFade.current.clear();
-  loadFade.current.phase(loading);
+  const [loadFade] = useState(() => new LoadFadeWindow());
+  if (sessionChanged) loadFade.clear();
+  loadFade.phase(loading);
+  /// What the row frames read their entrance and fades from (`drawRowFrames`): the entering ref is read there.
+  const [rowFrameSources] = useState<RowFrameSources>(() => ({
+    entering: enteringRows,
+    loadFade,
+    older: olderRows,
+  }));
   // The tick the reader opened this chat (a click into it, a restart's first load): what it held
   // before is history and never enters; only what happened after it does (openBreakpoint.ts).
   // One per open of a chat: the page's record of it is read here and written only on commit.
@@ -2484,7 +2662,7 @@ function TranscriptView({
     // gesture, history is part of that motion and must draw settled so its first frame is complete.
     // Only new arrivals need this snapshot; a gesture ending must not reanimate an existing row.
     const readerIsMoving = readerScroll.read();
-    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
+    const loadArrival = loadFade.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
@@ -2501,9 +2679,9 @@ function TranscriptView({
       if (redrawn) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
-        if (olderLate) olderRows.current.add(row.id);
-        else if (loadArrival) loadFade.current.arrive(row.id);
-      } else if (loadArrival) loadFade.current.arrive(row.id);
+        if (olderLate) olderRows.add(row.id);
+        else if (loadArrival) loadFade.arrive(row.id);
+      } else if (loadArrival) loadFade.arrive(row.id);
       // History the chat held before the reader opened it (the read behind the first slice, a
       // reconnect's replay) is not live: it draws in place (Leo, 2026-11-12: "you don't bother
       // trying to replay the animations").
@@ -2540,9 +2718,9 @@ function TranscriptView({
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
-  const onLoadFaded = useCallback((id: string) => loadFade.current?.shown(id), []);
-  const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
-  useEffect(() => () => olderRows.current?.disconnect(), []);
+  const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
+  const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
+  useEffect(() => () => olderRows.disconnect(), [olderRows]);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight, actions, status) => {
       // A flowing drag's rows are at a width they were not placed at: nothing is read until it holds.
@@ -5440,6 +5618,9 @@ function TranscriptView({
     if (fromLatest) {
       wheelGlide.current?.stop();
       stopScroll(node);
+      // A send ends Jump to latest's hold here too (stopJump does it scrolled up): the placement pass
+      // clears it only when the send's rows land on its chase branch, not on a ride, fold or resize.
+      chaseHeld.current = false;
     } else stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockRoomRef.current;
@@ -6537,6 +6718,41 @@ function TranscriptView({
     foot: height - topInset - (restingDock.current.space || dockSpace),
     live: height - topInset - dockSpace,
   };
+  // Each mounted row's frame, its props worked out again only for rows whose rows or inputs changed
+  // (`drawRowFrames`): a streamed token redoes the live row's alone.
+  const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
+    rows,
+    mountedRanges,
+    geometry: layout.geometry,
+    frameKey,
+    registry,
+    setSize: canLoadOlder ? -1 : rows.length,
+    rowWidth: scaledRowWidth,
+    expanded,
+    observer,
+    queueDrawn,
+    sentPromptIds: sentPromptIdsForRender,
+    // A session switch is a load, not a live arrival. The reset effect runs after this render, so
+    // gate it here as well to avoid a reused row id animating once.
+    enters: !sessionChanged || tookSession,
+    onEntered,
+    loadFades: !sessionChanged,
+    onLoadFaded,
+    onOlderShown,
+    activeRowId: effectiveActiveRowId,
+    selectedRows,
+    tabStopId,
+    finalFooter,
+    onFocus: rowFocus,
+    onRowKeyDown: handleRowKeyDown,
+    onToggleActivity: toggleRow,
+    onOpenDiff,
+    streams,
+    sessionId,
+    githubRepository,
+    rowRepositories,
+    scopeAt,
+  });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -6651,87 +6867,7 @@ function TranscriptView({
                 onPointerOver={(event) => pointAt(event.target)}
                 onPointerLeave={() => pointAt(null)}
               >
-                {mountedRanges.flatMap(({ first, last }) =>
-                  rows.slice(first, last).map((row, index) => {
-                    const absoluteIndex = first + index;
-                    const next = nextDrawnRow(rows, absoluteIndex);
-                    const actions = hasReplyActions(row, next);
-                    const kind = rowKind(row);
-                    const Component = registry[kind] ?? NoticeRow;
-                    const isExpanded = row.foldOpen ?? expanded.has(row.id);
-                    const controls =
-                      row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-                    return (
-                      <RowFrame
-                        // Session-list metadata can arrive after cached rows paint. It must not
-                        // change their keys (nor a new chat taking its session: `frameSession`);
-                        // reply bodies fence their own identity and timestamp.
-                        key={`${frameKey}:${rowFrameKey(row)}`}
-                        row={row}
-                        kind={kind}
-                        joinsPrevious={
-                          (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
-                          isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
-                        }
-                        joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
-                        opensTurn={opensBackgroundTurn(row, prevDrawnRow(rows, absoluteIndex))}
-                        beforeFooter={isBeforeFooter(row, next)}
-                        beforeIndicator={
-                          next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
-                        }
-                        replyActions={keepsReplyRoom(row, next)}
-                        status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
-                        lastFooter={isLastFooter(row, next)}
-                        finalFooter={row.id === finalFooter}
-                        continuationFooter={isContinuationFooter(row, next)}
-                        lastTurn={row.lastTurn === true}
-                        index={absoluteIndex}
-                        setSize={canLoadOlder ? -1 : rows.length}
-                        top={layout.geometry.topAt(absoluteIndex)}
-                        gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
-                        rowWidth={scaledRowWidth}
-                        expanded={isExpanded}
-                        observer={observer}
-                        queueDrawn={queueDrawn}
-                        sendThinking={
-                          row.kind === THINKING && row.verbKey !== undefined && sentPromptIdsForRender.has(row.verbKey)
-                        }
-                        // A session switch is a load, not a live arrival. The reset effect runs after
-                        // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={(!sessionChanged || tookSession) && enteringRows.current.has(rowFrameKey(row))}
-                        onEntered={onEntered}
-                        loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
-                        onLoadFaded={onLoadFaded}
-                        older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
-                        onOlderShown={onOlderShown}
-                        active={effectiveActiveRowId === row.id}
-                        selected={selectedRows.has(absoluteIndex)}
-                        tabStop={tabStopId === row.id}
-                        onFocus={rowFocus}
-                        onRowKeyDown={handleRowKeyDown}
-                        contentType={Component}
-                        controls={controls}
-                        onToggleActivity={toggleRow}
-                        onOpenDiff={onOpenDiff}
-                        githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
-                        referenceScope={scopeAt(absoluteIndex)}
-                      >
-                        <RowContent
-                          Component={Component}
-                          liveTools={streams}
-                          row={row}
-                          replyActions={actions}
-                          sessionId={sessionId}
-                          onToggleActivity={toggleRow}
-                          onOpenDiff={onOpenDiff}
-                          expanded={isExpanded}
-                          controls={controls}
-                          githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
-                        />
-                      </RowFrame>
-                    );
-                  }),
-                )}
+                {rowFrames}
               </div>
             </div>
           </TranscriptContext>

@@ -182,6 +182,11 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// The app is leaving for the background or coming back with its claim
+    /// kept: a claimed size is reported again now, so the Mac's size lease
+    /// runs from this moment (its 45 s match the phone's background grace).
+    /// Sessions without a Mac ignore it.
+    func renewSizeClaim()
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -226,6 +231,8 @@ extension TerminalSession {
     public func setOutputPaused(_ paused: Bool) {}
 
     public func setClaimsSize(_ claims: Bool) {}
+
+    public func renewSizeClaim() {}
 
     public func noteInteraction() {}
 

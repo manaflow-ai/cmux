@@ -149,6 +149,57 @@ import Testing
         #expect(condition())
     }
 
+    /// Back after the 45 s background grace: the release and the claim go
+    /// out together on the return, and the Mac's own grid (its lease ended
+    /// while the phone was suspended) arrives after the claim. It is held
+    /// like a hidden page's, and the claim's answer supersedes it.
+    @Test func theMacsGridArrivingJustAfterTheClaimIsNeverShown() {
+        let (session, box) = shownAtPhoneGrid()
+        session.setClaimsSize(false)
+        session.setClaimsSize(true)
+        session.handle(grid("resized", 120, 40, Self.wide))
+        #expect(!box.events.contains(.hostGrid(columns: 120, rows: 40)), "the page took the Mac's grid while its claim was on the way")
+        session.handle(grid("resized", 50, 20, Self.narrow))
+        #expect(!box.events.contains(.output(Self.wide)))
+        #expect(box.events.last == .output(Self.narrow))
+    }
+
+    /// Past the claim's wait, a grid the Mac sets is shown as it comes (the
+    /// window of a claim's answer is bounded).
+    @Test func aGridAfterTheClaimsWaitIsShown() async throws {
+        let (session, box) = shownAtPhoneGrid()
+        session.reclaimWait = .milliseconds(20)
+        session.setClaimsSize(false)
+        session.setClaimsSize(true)
+        try await Task.sleep(for: .milliseconds(60))
+        session.handle(grid("resized", 120, 40, Self.wide))
+        #expect(box.events.last == .output(Self.wide))
+    }
+
+    /// Held after a claim and never answered (the Mac's policy keeps its
+    /// grid): shown after the wait.
+    @Test func aGridHeldAfterTheClaimShowsAfterTheWait() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7, clientInfo: ["device_kind": "iphone"]) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        defer { session.stop() }
+        session.reclaimWait = .milliseconds(20)
+        let box = Box()
+        session.resize(columns: 50, rows: 20)
+        session.start { box.events.append($0) }
+        try await waitUntil { session.isAttached }
+        session.handle(grid("vt-state", 50, 20, Data("screen".utf8)))
+        session.setClaimsSize(false)
+        session.setClaimsSize(true)
+        box.events.removeAll()
+        session.handle(grid("resized", 120, 40, Self.wide))
+        #expect(!box.events.contains(.output(Self.wide)))
+        try await waitUntil { box.events.contains(.output(Self.wide)) }
+    }
+
     @Test func aPageThatIsShownNeverHoldsTheMacsGrid() {
         let (session, box) = shownAtPhoneGrid()
         // Another device sets a wider grid while this page is on screen:
