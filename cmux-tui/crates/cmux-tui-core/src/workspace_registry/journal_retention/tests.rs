@@ -87,6 +87,25 @@ fn registry(sealed_minutes_ago: impl Fn(u64) -> u64) -> WorkspaceRegistry {
     registry
 }
 
+/// One more checkpoint, at `source`.
+fn checkpoint(registry: &WorkspaceRegistry, source: u64) {
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO journal_checkpoints(
+               checkpoint_id, source_sequence, reducer_version, state_json,
+               content_refs_json, sha256, created_at_ms
+             ) VALUES(?1, ?2, 1, '{}', '[]', ?3, 0)",
+            params![
+                format!("checkpoint_{source}"),
+                i64::try_from(source).unwrap(),
+                digest("checkpoint", source),
+            ],
+        )
+        .unwrap();
+}
+
 fn reducer_at(registry: &WorkspaceRegistry, reducer: &str, version: u32, cursor: u64) {
     registry.connection.finish_journal_reducer_rebuild(reducer, version, cursor, "{}").unwrap();
 }
@@ -263,6 +282,15 @@ fn an_ingress_receipt_stays_for_the_hour_after_its_record() {
 fn the_floor_stops_at_the_history_cursor() {
     let registry = registry(|_| OLD);
     reducer_at(&registry, AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION, 3_000);
+    assert_eq!(floor(&registry), FLOOR_AT_3000);
+}
+
+/// The oldest kept checkpoint far behind the head, each other reader at the
+/// head: a restore from that checkpoint reads each record after it.
+#[test]
+fn the_floor_stops_at_the_oldest_checkpoint() {
+    let registry = registry(|_| OLD);
+    checkpoint(&registry, 3_000);
     assert_eq!(floor(&registry), FLOOR_AT_3000);
 }
 

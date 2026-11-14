@@ -131,6 +131,8 @@ impl RetentionReadAhead {
     pub(crate) fn read_hold_rows(&self, segment: &PrunedSegment) -> anyhow::Result<()> {
         let end = i64::try_from(segment.end)?;
         let mut left = RETENTION_ROWS_PER_HOLD;
+        #[cfg(test)]
+        let mut seen = 0u64; // the tests' seam: the rows that this read's statements counted
         for (_, read) in HOLD_ROW_READS {
             if left == 0 {
                 break;
@@ -140,12 +142,14 @@ impl RetentionReadAhead {
                 .prepare_cached(read)?
                 .query_row(params![end, i64::try_from(left)?], |row| row.get(0))?;
             left = left.saturating_sub(u64::try_from(rows)?);
+            #[cfg(test)]
+            {
+                seen += u64::try_from(rows)?;
+            }
         }
         self.ended()?;
         #[cfg(test)]
-        super::retention_step_for_test(super::RetentionStep::ReadBeforeHold {
-            rows: RETENTION_ROWS_PER_HOLD - left,
-        });
+        super::retention_step_for_test(super::RetentionStep::ReadBeforeHold { rows: seen });
         Ok(())
     }
 
