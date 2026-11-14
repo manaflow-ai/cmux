@@ -1058,6 +1058,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
 
+      - name: Validate every upload-artifact step sets retention-days
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_upload_artifact_requires_retention.py
+
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
