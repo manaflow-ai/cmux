@@ -980,7 +980,6 @@
         "deleteAcknowledge": "أفهم أن حسابي وبياناته سيُحذفان نهائيًا.",
         "deleteConfirm": "حذف الحساب",
         "deleteError": "تعذّر حذف الحساب. حاول مرة أخرى.",
-        "deleteErrorSignedOut": "انتهت جلستك. سجّل الدخول مرة أخرى، ثم احذف حسابك.",
         "deleteErrorPending": "يجري حذف حسابك بالفعل. حاول مرة أخرى بعد قليل.",
         "deleteErrorRetryable": "تعذّر إكمال حذف الحساب. تحقّق من اتصالك وحاول مرة أخرى.",
         "deleteAppStoreTitle": "سيستمر تجديد اشتراكك في App Store",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useStackApp, useUser } from "@hexclave/next";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -15,20 +15,18 @@ import {
   settingsButtonClass,
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
-import { settingsAccountDeletionQuery, settingsOverviewQuery } from "@/dashboard-app/queries/settings";
+import { settingsAccountDeletionQuery } from "@/dashboard-app/queries/settings";
 import { AppStoreSubscriptionWarning } from "./app-store-subscription-warning";
 
 const DELETE_ERROR_MESSAGE = {
-  signed_out: "deleteErrorSignedOut",
   pending: "deleteErrorPending",
   retryable: "deleteErrorRetryable",
-} as const satisfies Record<Exclude<AccountDeletionFailure, "failed">, string>;
+} as const satisfies Record<Exclude<AccountDeletionFailure, "failed" | "signed_out">, string>;
 
 /** `/dashboard/settings/account`: billing link, sign out, delete account. */
 export function AccountActions() {
   const t = useTranslations("dashboard.settings.account");
   const app = useStackApp();
-  const { project } = useSuspenseQuery(settingsOverviewQuery).data;
   // Signed-out visitors go to sign-in.
   useUser({ or: "redirect" });
   const locale = useLocale();
@@ -60,39 +58,51 @@ export function AccountActions() {
         </button>
         <InlineError message={signOutState.error} />
       </SettingsSection>
-      {project.clientUserDeletionEnabled ? (
-        <SettingsSection tone="danger" title={t("deleteTitle")} description={t("deleteDescription")}>
-          <button type="button" onClick={() => setConfirmingDelete(true)} className={settingsButtonClass("danger", "sm")}>
-            {t("delete")}
-          </button>
-          <ConfirmDialog
-            open={confirmingDelete}
-            onOpenChange={setConfirmingDelete}
-            title={t("deleteConfirmTitle")}
-            description={t("deleteConfirmBody")}
-            acknowledgement={t("deleteAcknowledge")}
-            confirmLabel={t("deleteConfirm")}
-            errorMessage={t("deleteError")}
-            confirmDisabled={deletionCheck.isFetching}
-            describeError={(error) =>
-              error instanceof AccountDeletionRequestError && error.reason !== "failed"
-                ? t(DELETE_ERROR_MESSAGE[error.reason])
-                : null}
-            onConfirm={async () => {
-              // The cmux deletion route, as on iPhone: it runs the cmux cleanup
-              // and the App Store unlink, then deletes the sign-in account.
+      {/* Deletion runs on the server (DELETE /api/account), so the sign-in
+          project's client-deletion setting no longer gates it. */}
+      <SettingsSection tone="danger" title={t("deleteTitle")} description={t("deleteDescription")}>
+        <button type="button" onClick={() => setConfirmingDelete(true)} className={settingsButtonClass("danger", "sm")}>
+          {t("delete")}
+        </button>
+        <ConfirmDialog
+          open={confirmingDelete}
+          onOpenChange={setConfirmingDelete}
+          title={t("deleteConfirmTitle")}
+          description={t("deleteConfirmBody")}
+          acknowledgement={t("deleteAcknowledge")}
+          confirmLabel={t("deleteConfirm")}
+          errorMessage={t("deleteError")}
+          confirmDisabled={deletionCheck.isFetching}
+          describeError={(error) =>
+            error instanceof AccountDeletionRequestError && (error.reason === "pending" || error.reason === "retryable")
+              ? t(DELETE_ERROR_MESSAGE[error.reason])
+              : null}
+          onConfirm={async () => {
+            // The cmux deletion route, as on iPhone: it runs the cmux cleanup
+            // and the App Store unlink, then deletes the sign-in account.
+            // Then leave the way sign-out does. Ending the local session
+            // of a deleted user may fail, which is fine.
+            const leave = () => signOutOfDashboard({ signOut: () => app.signOut().catch(() => undefined) }, locale);
+            try {
               await deleteAccountThroughCmux(app);
-              // The account is gone; leave the way sign-out does. Ending the
-              // local session of a deleted user may fail, which is fine.
-              await signOutOfDashboard({ signOut: () => app.signOut().catch(() => undefined) }, locale);
-            }}
-          >
-            {deletionCheck.data?.appStoreSubscriptionRenews ? (
-              <AppStoreSubscriptionWarning manageUrl={deletionCheck.data.manageSubscriptionsUrl} />
-            ) : null}
-          </ConfirmDialog>
-        </SettingsSection>
-      ) : null}
+            } catch (error) {
+              // The server no longer knows this session: most often an
+              // earlier attempt whose connection dropped already deleted
+              // the account. Nothing more can be done from this session.
+              if (error instanceof AccountDeletionRequestError && error.reason === "signed_out") {
+                await leave();
+                return;
+              }
+              throw error;
+            }
+            await leave();
+          }}
+        >
+          {deletionCheck.data?.appStoreSubscriptionRenews ? (
+            <AppStoreSubscriptionWarning manageUrl={deletionCheck.data.manageSubscriptionsUrl} />
+          ) : null}
+        </ConfirmDialog>
+      </SettingsSection>
     </SettingsStack>
   );
 }

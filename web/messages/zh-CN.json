@@ -980,7 +980,6 @@
         "deleteAcknowledge": "我了解我的账户及其数据将被永久删除。",
         "deleteConfirm": "删除账户",
         "deleteError": "无法删除账户，请重试。",
-        "deleteErrorSignedOut": "你的会话已结束。请重新登录，然后删除账户。",
         "deleteErrorPending": "你的账户正在删除中。请稍后再试。",
         "deleteErrorRetryable": "无法完成账户删除。请检查网络连接后重试。",
         "deleteAppStoreTitle": "你的 App Store 订阅将继续续订",

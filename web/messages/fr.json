@@ -980,7 +980,6 @@
         "deleteAcknowledge": "Je comprends que mon compte et ses données seront définitivement supprimés.",
         "deleteConfirm": "Supprimer le compte",
         "deleteError": "Impossible de supprimer le compte. Réessayez.",
-        "deleteErrorSignedOut": "Votre session a expiré. Reconnectez-vous, puis supprimez votre compte.",
         "deleteErrorPending": "Votre compte est déjà en cours de suppression. Réessayez dans un instant.",
         "deleteErrorRetryable": "La suppression du compte n'a pas pu aboutir. Vérifiez votre connexion et réessayez.",
         "deleteAppStoreTitle": "Votre abonnement App Store continuera de se renouveler",

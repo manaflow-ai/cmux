@@ -980,7 +980,6 @@
         "deleteAcknowledge": "Entendo que minha conta e seus dados serão excluídos permanentemente.",
         "deleteConfirm": "Excluir conta",
         "deleteError": "Não foi possível excluir a conta. Tente novamente.",
-        "deleteErrorSignedOut": "Sua sessão terminou. Entre novamente e depois exclua sua conta.",
         "deleteErrorPending": "Sua conta já está sendo excluída. Tente novamente em instantes.",
         "deleteErrorRetryable": "Não foi possível concluir a exclusão da conta. Verifique sua conexão e tente novamente.",
         "deleteAppStoreTitle": "Sua assinatura da App Store continuará sendo renovada",

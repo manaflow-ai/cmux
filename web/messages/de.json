@@ -980,7 +980,6 @@
         "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
         "deleteConfirm": "Konto löschen",
         "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut.",
-        "deleteErrorSignedOut": "Deine Sitzung ist abgelaufen. Melde dich erneut an und lösche dann dein Konto.",
         "deleteErrorPending": "Dein Konto wird bereits gelöscht. Versuche es gleich noch einmal.",
         "deleteErrorRetryable": "Das Konto konnte nicht vollständig gelöscht werden. Prüfe deine Verbindung und versuche es erneut.",
         "deleteAppStoreTitle": "Dein App Store-Abo verlängert sich weiter",

@@ -980,7 +980,6 @@
         "deleteAcknowledge": "我了解我的帳號及其資料將被永久刪除。",
         "deleteConfirm": "刪除帳號",
         "deleteError": "無法刪除帳號，請再試一次。",
-        "deleteErrorSignedOut": "你的工作階段已結束。請重新登入，然後刪除帳號。",
         "deleteErrorPending": "你的帳號正在刪除中。請稍後再試。",
         "deleteErrorRetryable": "無法完成帳號刪除。請檢查網路連線後再試一次。",
         "deleteAppStoreTitle": "你的 App Store 訂閱將繼續續訂",

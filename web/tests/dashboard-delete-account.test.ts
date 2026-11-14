@@ -58,6 +58,9 @@ describe("dashboard account deletion", () => {
       .toBe("retryable");
     expect(await failure(deleteAccountThroughCmux(session(), fetching(409, { error: "account_delete_push_delivery_in_progress" }).fetch)))
       .toBe("retryable");
+    // The route's usual partial failure: work done so far is kept and a retry continues it.
+    expect(await failure(deleteAccountThroughCmux(session(), fetching(500, { error: "account_delete_retryable", retryable: true, destroyedVms: 1 }).fetch)))
+      .toBe("retryable");
     expect(await failure(deleteAccountThroughCmux(session(), fetching(500, { error: "account_delete_failed" }).fetch))).toBe("failed");
     const offline = async () => { throw new TypeError("Failed to fetch"); };
     expect(await failure(deleteAccountThroughCmux(session(), offline))).toBe("retryable");

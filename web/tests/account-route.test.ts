@@ -2581,6 +2581,8 @@ describe("account deletion route", () => {
     await deleteAccountThroughCmux(browserSession, async (url, init) =>
       await DELETE(new Request(new URL(url, "https://cmux.test"), init)));
 
+    // The browser's session tokens are what the route authenticated with.
+    expect(getUser).toHaveBeenCalledWith({ tokenStore: { accessToken: "access-token", refreshToken: "refresh-token" } });
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
     const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);

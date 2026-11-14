@@ -980,7 +980,6 @@
         "deleteAcknowledge": "Jeg forstår at kontoen min og dataene i den slettes permanent.",
         "deleteConfirm": "Slett konto",
         "deleteError": "Kunne ikke slette kontoen. Prøv igjen.",
-        "deleteErrorSignedOut": "Økten din er avsluttet. Logg inn igjen, og slett deretter kontoen.",
         "deleteErrorPending": "Kontoen din blir allerede slettet. Prøv igjen om et øyeblikk.",
         "deleteErrorRetryable": "Slettingen av kontoen kunne ikke fullføres. Sjekk tilkoblingen og prøv igjen.",
         "deleteAppStoreTitle": "App Store-abonnementet ditt fortsetter å fornyes",
