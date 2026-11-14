@@ -39,7 +39,7 @@ public enum WebLinkPlace: Equatable, Sendable {
         case (0, _), (10, _), (127, _): true
         case (169, 254), (192, 168): true
         case (172, 16...31): true
-        case (100, 64...127): true // CGNAT, Tailscale's 100.x addresses
+        case (100, 64...127): true // CGNAT, a tailnet's 100.x addresses
         default: false
         }
     }
@@ -48,7 +48,7 @@ public enum WebLinkPlace: Equatable, Sendable {
         let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         if h == "::1" || h == "::" { return true }
         if h.hasPrefix("::ffff:"), let v4 = ipv4(String(h.dropFirst(7))) { return isLocal(v4) }
-        // fc00::/7 (unique local, Tailscale's fd7a:), fe80::/10 (link local).
+        // fc00::/7 (unique local, tailnets too), fe80::/10 (link local).
         return h.hasPrefix("fc") || h.hasPrefix("fd") || h.hasPrefix("fe8") || h.hasPrefix("fe9")
             || h.hasPrefix("fea") || h.hasPrefix("feb")
     }
