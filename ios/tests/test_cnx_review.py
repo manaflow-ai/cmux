@@ -349,15 +349,17 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
             args = (Path(temp) / 'args').read_text().split()
             self.assertIn('STEP=0123456789abcdef01234567', r.stdout)
         self.assertEqual(args[:9], ['run', '--class', 'simulator', '--script', 'scripts/ci/cmux-next-ios-sim.sh', '--ref', SHA,
-                                    '--arg', 'handoff'])
-        self.assertIn(f'tag={TAG}', args)
+                                    '--arg', 'shots'])
+        self.assertIn(f'handoff={TAG}', args)
         self.assertIn(f'cnx-ios-handoff-{TAG}-{SHA[:12]}', args)
         self.assertEqual(args[-2:], ['--target-worker', 'aws-m4pro-3'])
 
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
                            (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
-                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase')):
+                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase'),
+                           # The fleet controller's form of the same step.
+                           (['shots', 'handoff=Bad_Tag'], 'handoff tag= wants lowercase')):
             with self.subTest(args=args):
                 r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
                                    env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)

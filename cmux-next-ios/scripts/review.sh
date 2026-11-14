@@ -4,6 +4,7 @@
 # iPhone signed in and paired with the same-tag cmux NEXT Mac build, and proves it.
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
+#       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
 #
 # In order (each phone's failure is its own blocker; the others go on):
 #  1. Fleet, at the pushed HEAD: the tagged Mac dev build (`cmux-ci build cmux`, then
@@ -41,12 +42,12 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,42p' "$0"; }
+usage() { sed -n '2,43p' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEAM=7WLXT3NR37
-TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER=""
+TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
 
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$REPO_ROOT/scripts/lib/mobile-attach.sh"
@@ -116,17 +117,18 @@ fleet_submit_mac() {
     fi
   fi
   local out
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG")" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
+  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE")" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
 }
 
-# The iPhone app's simulator step, in the background; the same --key re-attaches to it.
+# The iPhone app's simulator step, in the background; the same --key re-attaches to it. It is
+# `handoff tag=<tag>`, sent as `shots handoff=<tag>` until the fleet controller lists handoff.
 fleet_start_sim() {
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
-    --arg handoff --arg "tag=$SLUG" --artifact artifacts/ios-sim/evidence.zip
+    --arg shots --arg "handoff=$SLUG" --artifact artifacts/ios-sim/evidence.zip
     --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
@@ -382,6 +384,7 @@ main() {
       --tag) TAG="${2:-}"; shift 2 ;;
       --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
+      --workspace) WORKSPACE="${2:-}"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "review.sh: unknown argument $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -395,6 +398,9 @@ main() {
   fi
   cd "$REPO_ROOT"
   SHA="$(git rev-parse HEAD)"
+  # The Mac build's stream (cmux-ci build --workspace): the branch's PR, else this task's own name.
+  [[ -n "$WORKSPACE" ]] || WORKSPACE="$(gh pr view --json url --jq .url 2>/dev/null || true)"
+  [[ -n "$WORKSPACE" ]] || WORKSPACE="cmux-next-ios-review/$SLUG"
   [[ -z "$(git status --porcelain --ignore-submodules=untracked)" ]] || die "commit every change first: the fleet builds the pushed HEAD"
   head_pushed || die "push HEAD ($SHA) first: the fleet builds the pushed commit"
 

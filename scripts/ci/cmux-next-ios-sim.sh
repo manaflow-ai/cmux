@@ -84,7 +84,7 @@
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
-#   handoff tag=TAG
+#   handoff tag=TAG   (through the fleet controller: shots handoff=TAG, the same step)
 #           the end-of-task build of the cmux-next iPhone app for one task tag
 #           (cmux-next-ios/scripts/review.sh runs it): the Demo configuration
 #           (optimized, DEBUG developer surface, so automated dev sign-in
@@ -116,6 +116,13 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
+# handoff through the fleet controller's shots form: the controller's MODE list (hq
+# build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
+# shots takes name=WORDS scenes, so `shots handoff=TAG` (exactly that one scene) is handoff tag=TAG.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
+  set -- handoff "tag=${2#handoff=}"
+  mode=handoff
+fi
 case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline|listperf|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, chief-live-perf, chief-live-perf-baseline, listperf or handoff, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
