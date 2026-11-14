@@ -41,18 +41,40 @@ jobs:
 
       - name: Build the Windows host
         working-directory: cmux-tui/crates/cmux-rd-host
-        run: cargo build --locked --no-default-features --features bench
+        run: cargo build --release --locked --no-default-features --features bench
 
       - name: Capture and encode a real desktop sample
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
           $ErrorActionPreference = 'Stop'
-          $json = cargo run --locked --no-default-features --features bench -- windows-selftest --frames 60 --codec openh264
+          $json = & .\target\release\cmux-rd.exe windows-selftest --frames 60 --codec openh264
+          if ($LASTEXITCODE -ne 0) { throw "Windows capture selftest exited $LASTEXITCODE" }
           $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
           $result = $json | ConvertFrom-Json
           if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
           if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+          $motion = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1",
+            '-IntervalMs', '16', '-FullScreen'
+          ) -PassThru
+          try {
+            foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
+              foreach ($trial in 1..2) {
+                $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
+                  --width $size[0] --height $size[1] --duration-s 10 --codec openh264
+                if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
+                $result = $json | ConvertFrom-Json
+                if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
+                  throw 'Loopback did not prove a decoded frame in the viewer'
+                }
+                Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
+                Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
+              }
+            }
+          } finally {
+            if ($motion -and -not $motion.HasExited) { Stop-Process -Id $motion.Id }
+          }
 
   live-windows-host:
     name: Windows live host (tailnet)

@@ -230,3 +230,30 @@ it only on the owner's grant for service `desktop`. Only then does the server co
 - UDP datagrams are accepted only from the viewer's exact socket (address and port named
   in the hello); a viewer behind NAT must use the stream carrier. Viewers send feedback at
   least once per second on both carriers; three silent seconds end the session.
+
+### Windows loopback performance proof
+
+The Windows selftest workflow builds with `--release --no-default-features --features bench`
+and runs two trials at each physical desktop resolution, 1920×1080 and 3840×2160:
+
+```powershell
+.\target\release\cmux-rd.exe windows-selftest --loopback 1 --width 1920 --height 1080 --duration-s 10 --codec openh264
+```
+
+Run `.github/scripts/cmux-rd-motion.ps1 -IntervalMs 16 -FullScreen` in a separate
+owned process to keep the desktop changing. The benchmark temporarily sets the
+desktop resolution and restores it on exit; unsupported modes fail explicitly.
+It uses the production GDI capture, encoder, media engine, stream framing and
+feedback path over TCP loopback. The receiver reassembles and decodes the stream,
+presents it in a visible GDI window and checks its center pixel with `GetPixel`.
+At least two distinct presented colors are required. No tailnet or credentials
+are needed. This measures a local Windows viewer, not a Mac or iOS viewer.
+
+JSON reports `first_frame_ms` from connection start to the first presented pixel,
+`fps` over the steady interval after a one-second warmup, and nearest-rank
+`p50`/`p95` milliseconds for capture (including copy and change detection),
+conversion, encoding, decoding, and presentation (including RGB conversion and
+readback). Stage distributions include startup; sample vectors cap at 8192.
+Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
+viewer each have a deadline. Keep this harness and motion source unchanged
+when comparing before/after optimization results.

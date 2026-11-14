@@ -1,3 +1,5 @@
+param([int]$IntervalMs = 200, [switch]$FullScreen)
+
 # Keep the hosted Windows desktop changing so the live proof exercises the
 # host's changed-frame path instead of measuring an intentionally idle screen.
 Add-Type -AssemblyName System.Windows.Forms
@@ -12,9 +14,13 @@ $form.Size = New-Object System.Drawing.Size(640, 360)
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.Text = 'cmux-rd live proof'
+if ($FullScreen) {
+    $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+    $form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+}
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 200
+$timer.Interval = $IntervalMs
 $script:colorIndex = 0
 $colors = @(
     [System.Drawing.Color]::FromArgb(32, 96, 160)

@@ -31,6 +31,22 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
+#[cfg(feature = "bench")]
+mod loopback;
+
+#[derive(Default, serde::Serialize)]
+struct HostMetrics {
+    capture_ms: Vec<f64>,
+    convert_ms: Vec<f64>,
+    encode_ms: Vec<f64>,
+}
+
+fn sample(samples: &mut Vec<f64>, start: Instant) {
+    if samples.len() < 8192 {
+        samples.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
 /// A bounded GDI capture used by the service fallback and the Windows runner.
 /// The bitmap is top-down BGRA, matching `cmux_encode::bgrx_rect_to_i420`.
 struct GdiCapture {
@@ -257,6 +273,10 @@ fn dxgi_desktop_duplication_probe() -> bool {
 /// the service's preflight: it exercises a real desktop frame, the BGRX to
 /// I420 conversion, and Annex-B output through the production encoder trait.
 pub fn selftest(opts: &Opts) -> Res<()> {
+    #[cfg(feature = "bench")]
+    if opts.flag("loopback") {
+        return loopback::run(opts);
+    }
     let frames: usize = opts.num_or("frames", 60)?;
     let requested = match (opts.get("width"), opts.get("height")) {
         (Some(w), Some(h)) => Some((
@@ -561,7 +581,7 @@ fn hid_to_scancode(usage: u32) -> Option<u16> {
     Some(code)
 }
 
-fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
+fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
     stream.set_nodelay(true)?;
     let (ty, payload) = read_blocking_frame(&mut stream)?;
     if ty != FRAME_CONTROL {
@@ -572,11 +592,11 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
     };
     if service != cmux_rd_proto::SERVICE_DESKTOP {
         write_control(&mut stream, &Control::Refused { reason: "UnsupportedService".into() })?;
-        return Ok(());
+        return Ok(HostMetrics::default());
     }
     if max_datagram < 512 {
         write_control(&mut stream, &Control::Refused { reason: "DatagramTooSmall".into() })?;
-        return Ok(());
+        return Ok(HostMetrics::default());
     }
     let (ty, payload) = read_blocking_frame(&mut stream)?;
     if ty != FRAME_CONTROL
@@ -623,7 +643,16 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
         opts.num_or("kbps", 8_000)?,
         opts.num_or("threads", 2)?,
     )?;
-    session.run(&mut stream)
+    if opts.flag("loopback") {
+        let duration = opts.num_or("duration-s", 10u64)?;
+        if !(2..=30).contains(&duration) {
+            return Err("loopback requires --duration-s 2..30".into());
+        }
+        session.metrics = Some(HostMetrics::default());
+        session.deadline = Some(Instant::now() + Duration::from_secs(duration + 10));
+    }
+    session.run(&mut stream)?;
+    Ok(session.metrics.unwrap_or_default())
 }
 
 struct WindowsSession {
@@ -637,6 +666,8 @@ struct WindowsSession {
     width: u32,
     height: u32,
     interval: Duration,
+    metrics: Option<HostMetrics>,
+    deadline: Option<Instant>,
 }
 
 impl WindowsSession {
@@ -674,6 +705,8 @@ impl WindowsSession {
             width,
             height,
             interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
+            metrics: None,
+            deadline: None,
         })
     }
 
@@ -691,6 +724,9 @@ impl WindowsSession {
         let mut input = Vec::new();
         let mut next = Instant::now();
         loop {
+            if self.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err("Windows loopback host exceeded its deadline".into());
+            }
             loop {
                 let Some((ty, payload)) = read_frame(stream, &mut input)? else {
                     return Ok(());
@@ -720,6 +756,7 @@ impl WindowsSession {
             }
             let now = Instant::now();
             if now >= next {
+                let capture_started = self.metrics.as_ref().map(|_| Instant::now());
                 let now_us = now_ns() / 1000;
                 let pixels = self.capture.capture()?.to_vec();
                 let mut fingerprint = DefaultHasher::new();
@@ -728,6 +765,9 @@ impl WindowsSession {
                 let changed =
                     self.last_frame_fingerprint.map_or(true, |previous| previous != fingerprint);
                 self.last_frame_fingerprint = Some(fingerprint);
+                if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
+                    sample(&mut metrics.capture_ms, start);
+                }
                 if changed {
                     if let Some(req) = self.engine.damage(
                         0,
@@ -751,6 +791,7 @@ impl WindowsSession {
         req: &cmux_rd_engine::EncodeRequest,
         pixels: &[u8],
     ) -> Res<()> {
+        let conversion_started = self.metrics.as_ref().map(|_| Instant::now());
         bgrx_rect_to_i420(
             pixels,
             &mut self.picture,
@@ -760,9 +801,16 @@ impl WindowsSession {
             self.height as usize,
             2,
         );
+        if let (Some(metrics), Some(start)) = (&mut self.metrics, conversion_started) {
+            sample(&mut metrics.convert_ms, start);
+        }
         let mut au = Vec::new();
+        let encode_started = self.metrics.as_ref().map(|_| Instant::now());
         let idr =
             self.encoder.encode(&self.picture, req.force_idr, now_ns() as i64 / 1000, &mut au)?;
+        if let (Some(metrics), Some(start)) = (&mut self.metrics, encode_started) {
+            sample(&mut metrics.encode_ms, start);
+        }
         let out = self
             .engine
             .encoded(
