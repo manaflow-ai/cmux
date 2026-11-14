@@ -37,5 +37,47 @@ import Testing
         #expect(first.map(Self.isNotSent) == false, "the draft came back at once: \(String(describing: first))")
     }
 
+    /// A held prompt that waits past the window comes back to the composer with why, as
+    /// `AcpmuxSessionSource` returns a prompt held past its window.
+    @Test func aHeldPromptPastTheWindowComesBackWithWhy() async throws {
+        let source = pending()
+        source.holdWindow = .seconds(3600)
+        var events = source.events().makeAsyncIterator()
+        source.send(prompt("hello", id: "p1"))
+        let sentAt = try #require(source.held.first?.at)
+        source.expire(sentAt: sentAt)
+        let first = await events.next()
+        guard case .promptNotSent(let text, _, let promptID, let reason)? = first else {
+            Issue.record("expected the prompt back, got \(String(describing: first))")
+            return
+        }
+        #expect(text == "hello" && promptID == "p1")
+        #expect(reason.hasPrefix("Not sent: Studio was unreachable"))
+        #expect(source.held.isEmpty)
+    }
+
+    /// The chat's next source gets the held prompts, in order and with their send times, and
+    /// the loading source no longer returns them.
+    @Test func theNextSourceGetsTheHeldPromptsInOrder() async throws {
+        let source = pending()
+        source.holdWindow = .seconds(3600)
+        var events = source.events().makeAsyncIterator()
+        source.send(prompt("one", id: "p1"))
+        source.send(prompt("two", id: "p2"))
+        let sentAt = try #require(source.held.first?.at)
+        let taken = source.takeHeld()
+        #expect(taken.map(\.intent) == [prompt("one", id: "p1"), prompt("two", id: "p2")])
+        #expect(taken.first?.at == sentAt)
+        source.expire(sentAt: sentAt)
+        source.send(.cancel)
+        let first = await events.next()
+        #expect(first.map(Self.isNotSent) == false, "a handed-over prompt came back: \(String(describing: first))")
+
+        // A loading source that takes them over keeps their age (one window in all).
+        let next = pending()
+        next.holdWindow = .seconds(3600)
+        for (intent, at) in taken { next.hold(intent, since: at) }
+        #expect(next.held.map(\.at) == taken.map(\.at))
+    }
 }
 #endif
