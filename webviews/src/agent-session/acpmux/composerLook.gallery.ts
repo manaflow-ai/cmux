@@ -8,13 +8,12 @@
 // compared to our claude code version", then "we already have a good version"); Codex's keeps its
 // folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
 // (gallery-only CSS over the shipped one), the replaced in-box row among them.
-import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
+import { minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
-import type { TaskGoal } from "./goal";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
