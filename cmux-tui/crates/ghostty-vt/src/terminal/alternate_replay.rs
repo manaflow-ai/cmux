@@ -28,7 +28,9 @@ impl Terminal {
             let Some(mut text) = self.plain_text_bounded(max_bytes)? else {
                 return Ok(None);
             };
-            append_omitted_line_feeds(&mut text, self);
+            if !append_omitted_line_feeds(&mut text, self, max_bytes) {
+                return Ok(None);
+            }
             if text.len() > max_bytes {
                 return Ok(None);
             }
@@ -38,7 +40,9 @@ impl Terminal {
             return Err(Error::InvalidValue);
         }
         let mut active = self.plain_text_bounded(max_bytes)?.ok_or(Error::OutOfSpace)?;
-        append_omitted_line_feeds(&mut active, self);
+        if !append_omitted_line_feeds(&mut active, self, max_bytes) {
+            return Ok(None);
+        }
         let leave: &[u8] = if self.mode(1049, false) {
             b"\x1b[?1049l"
         } else if self.mode(1047, false) {
@@ -53,7 +57,9 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_vt_write(copy.raw(), leave.as_ptr(), leave.len()) };
         let mut primary = self.with_replay_grid(Some(&copy), |term| {
             let mut primary = term.plain_text_bounded(max_bytes)?.ok_or(Error::OutOfSpace)?;
-            append_omitted_line_feeds(&mut primary, term);
+            if !append_omitted_line_feeds(&mut primary, term, max_bytes) {
+                return Err(Error::OutOfSpace);
+            }
             Ok::<_, Error>(primary)
         })?;
         let separator =
@@ -134,12 +140,16 @@ impl Terminal {
     }
 }
 
-fn append_omitted_line_feeds(text: &mut String, terminal: &Terminal) {
+fn append_omitted_line_feeds(text: &mut String, terminal: &Terminal, max_bytes: usize) -> bool {
     let Some((_, cursor_row)) = terminal.cursor_position() else {
-        return;
+        return true;
     };
-    let cursor_row = u64::from(terminal.scrollback_rows()).saturating_add(u64::from(cursor_row));
-    let lines = text.split('\n').count() as u64;
+    let cursor_row = terminal.scrollback_rows().saturating_add(usize::from(cursor_row));
+    let lines = text.split('\n').count();
     let missing = cursor_row.saturating_add(1).saturating_sub(lines);
-    text.extend(std::iter::repeat_n('\n', usize::try_from(missing).unwrap_or(usize::MAX)));
+    if missing > max_bytes.saturating_sub(text.len()) {
+        return false;
+    }
+    text.extend(std::iter::repeat_n('\n', missing));
+    true
 }
