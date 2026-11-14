@@ -169,25 +169,11 @@ on:
           - app-token
 
 concurrency:
-  # Each lane has its own group and a newer run replaces only a pending one; an in-flight
-  # nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every
-  # main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled
-  # and manual cache seeds use different groups, so a tick never cancels a manual refresh.
-  # A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest
-  # pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only
-  # the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the
-  # one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next
-  # runs (dispatches) stay run-scoped, except the loop's own retry of a failed run (nightly_next_loop_retry),
-  # which takes the push group's pending place like a push; the release/feed writers keep their own groups below.
-  # A loop run holds the group through publish and the GitHub release (the next run's decide reads its body
-  # and tag), then dispatch-published-in sends the deltas, notes, reel and PR comments to a run-scoped run
-  # (nightly_next_post_publish). Holding the group through that whole tail made the newest head wait about
-  # 79 min per cycle: 172 of 198 push runs were replaced while pending in 26 h (2026-11-07).
-  # A publishing nightly-next push builds only (decide's pipeline): its dispatch-nightly-next-sign hands the
-  # unsigned app to a sign run (nightly_next_sign_stage) in nightly-build-nightly-next-sign, so build N+1 runs
-  # while N signs and the publish period is the slower stage, not the whole run. That group works like the push
-  # group: one sign run at a time, and a newer dispatch replaces only a pending one, so the newest build signs next.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # One group per lane; a newer run replaces only a pending one, never a started nightly. nightly-next's loop
+  # runs share the push slot: the workflow-level push group with the one job off, nightly-next-one's own group
+  # (nightly-next-one-push) with it on, so the tail after the feed holds nothing. Sign stages share the sign group.
+  # Why: docs/ci/nightly-workflow-notes.md#note-19
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && vars.NIGHTLY_NEXT_ONE_JOB != 'on' && 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -7113,9 +7099,9 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     environment: ${{ needs.decide.outputs.environment }}
-    # Never cancelled; the push group runs one nightly-next at a time.
+    # The push slot, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19
     concurrency:
-      group: ${{ format('nightly-next-one-{0}', github.run_id) }}
+      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || format('nightly-next-one-{0}', github.run_id) }}
       cancel-in-progress: false
     # cmux15's signer label, a literal (one-mini mode too): no variable picks where signing secrets go.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}
@@ -7144,6 +7130,7 @@ jobs:
       behind: ${{ steps.source.outputs.behind }}
       behind_hours: ${{ steps.source.outputs.behind_hours }}
       downloads: ${{ steps.notes.outputs.downloads }}
+      published_sha: ${{ steps.notes.outputs.published_sha }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
     env:
@@ -7477,6 +7464,21 @@ jobs:
       - name: Wipe this job's credentials and temp files
         if: always()
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
+
+  # nightly-next-one's end asks main's tick at once. Why: docs/ci/nightly-workflow-notes.md#note-19
+  wake-nightly-next-tick:
+    needs: [decide, nightly-next-one]
+    if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && needs.nightly-next-one.result != 'skipped'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Ask main's nightly-next tick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
   # that release.yml also writes for stable releases

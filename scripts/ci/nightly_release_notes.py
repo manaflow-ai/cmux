@@ -270,14 +270,18 @@ def main() -> int:
     parser.add_argument("--appcasts", type=Path, required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--feeds", nargs="+", default=list(ALL_FEEDS), help="the appcasts this track publishes")
+    parser.add_argument("--base", default="", help="the previous published commit, from the live feed; the release "
+                        "body's cmux-published-sha marker when empty (a run's tail writes it after the feed)")
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
+    if args.base and not re.fullmatch(r"[0-9a-f]{40}", args.base):
+        raise ValueError("Expected --base to be a full published SHA")
     github = GitHub(args.repo)
     base = None
     try:
         release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-        base = published_sha(release.get("body") or "")
+        base = args.base or published_sha(release.get("body") or "")
         if base is None:
             print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
         prs = collect_prs(github, base, args.head, args.branch) if base else []

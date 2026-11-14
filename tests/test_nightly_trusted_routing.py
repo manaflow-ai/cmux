@@ -681,7 +681,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         group = DOC["concurrency"]["group"]
         self.assertIn(
             "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
-            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && "
+            "vars.NIGHTLY_NEXT_ONE_JOB != 'on' && 'push' || "
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,

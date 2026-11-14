@@ -50,6 +50,17 @@ SHARED_NIGHTLY_GROUPS = {
 }
 
 
+# The nightly-next push slot with the one job on (docs/ci/nightly-workflow-notes.md#note-19): the
+# workflow-level push group moved to the one job, with the same rule. A newer loop run replaces only a pending
+# one, and main's tick promotes nothing while one is pending (run_holds_group), so none is ever replaced; other
+# runs' nightly-next-one stays run-scoped. tests/test_nightly_next_push_slot_at_build.py evaluates it.
+PUSH_SLOT_JOBS = {
+    "nightly-next-one": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
+                        "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                        "format('nightly-next-one-{0}', github.run_id) }}",
+}
+
+
 # A group scoped to its run with nothing conditional: a fixed prefix and github.run_id, so no branch of
 # an expression can fall back to a shared name (the old warm slot named github.run_id only in its fallback).
 RUN_SCOPED = re.compile(
@@ -85,7 +96,7 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # sign stage (nightly_next_sign_stage) takes the sign group, which works like the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
                     r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_loop_retry != ''\) && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
+                    r"inputs\.nightly_next_loop_retry != ''\) && vars\.NIGHTLY_NEXT_ONE_JOB != 'on' && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
                     r"inputs\.nightly_next_sign_stage != '' && 'sign' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
     assert "nightly_next_post_publish" not in top, top
@@ -98,6 +109,8 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
         if isinstance(concurrency, dict):
             assert concurrency.get("cancel-in-progress") is not True, name
         if RUN_SCOPED.fullmatch(group):
+            continue
+        if name in PUSH_SLOT_JOBS and group == PUSH_SLOT_JOBS[name]:
             continue
         allowed = SHARED_NIGHTLY_GROUPS.get(name)
         assert allowed and group.startswith(allowed), (
