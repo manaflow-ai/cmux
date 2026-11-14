@@ -584,6 +584,7 @@ enum TerminalTarget {
 
 /// How long a send waits for the terminal's Claude Code to register its session after
 /// `acpmux resume-here` started it (it registers within a second or two of its start).
+// timeout: a terminal Claude Code registers within a second or two of its start; past 10 s the send answers bridge.no_inbox, which the person can retry.
 const REGISTER_WAIT: Duration = Duration::from_secs(10);
 
 /// The harness the terminal `driver` runs, by its process: the Claude Code session registered
