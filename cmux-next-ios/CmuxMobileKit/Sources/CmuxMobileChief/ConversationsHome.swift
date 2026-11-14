@@ -337,7 +337,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .padding(.top, 80)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(CmuxMobileBackdrop.listRow)
+                        .listRowBackground(theme.colors.bg.color)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("home.note.problem")
                 } else {
