@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43563766031",
+  "recorded_at": "2026-11-14T06:05:23Z",
+  "reason": "cmux-tui 87fd1d6c1e82 changes the image's cmux-tui (pinned c59d29d61851)",
+  "dry_run": false,
+  "cmux_tui": "87fd1d6c1e829a7a74e7d5789971e32998dd0a05",
+  "fixes": [
+    {
+      "sha": "87fd1d6c1e829a7a74e7d5789971e32998dd0a05",
+      "mergedAt": "2026-11-13T21:32:08-08:00",
+      "subject": "Agent chat: a reloading page is never killed mid-boot; a failing attachment preview is its file chip (#40937)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:05:23Z",
+    "snapshot_id": "sh-424399d44d7240b3b8b51670b362caae",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43563766031): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "51f9843a5c391ed857e5d1ba250c2e1ddfdd3793",
+    "image": "cloud-native-auto-87fd1d6c-43563766031-1",
+    "revision": "ci-43563766031-1",
+    "at": "2026-11-14T06:05:23Z"
+  },
+  "rolled_back": false
+}
