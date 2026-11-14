@@ -68,6 +68,13 @@ final class TerminalThemeGalleryModel {
     /// The managed block's theme before the first pick (`nil`: no block).
     private struct Snapshot {
         let managedThemeValue: String?
+        /// Whether picks keep a light/dark pair, decided at the first pick the
+        /// way the `cmux themes` picker fixes its target when it opens, so
+        /// previewing past the other side's theme does not drop the pair.
+        var keepsPair: Bool
+        /// The theme value the gallery wrote last. When the block holds
+        /// anything else, it changed elsewhere and `keepsPair` is decided again.
+        var writtenThemeValue: String
     }
 
     @ObservationIgnored private let context: TerminalThemeGalleryContext
@@ -82,8 +89,8 @@ final class TerminalThemeGalleryModel {
     private(set) var writeFailed = false
     var query = ""
     /// The appearance whose theme the terminal shows now. Orders the cards
-    /// (its appearance first) and picks the highlighted card when the config
-    /// still holds a light/dark pair written elsewhere.
+    /// (its appearance first), picks the highlighted card, and is the side a
+    /// pick replaces when the config holds a light/dark pair.
     private(set) var slotInUse: Slot
 
     init(
@@ -124,8 +131,8 @@ final class TerminalThemeGalleryModel {
     }
 
     /// Follows an app appearance change while Settings is open, so the
-    /// highlighted card and the group order track the theme on screen when
-    /// the config still holds a light/dark pair.
+    /// highlighted card, the group order and the side a pick replaces track
+    /// the theme on screen when the config holds a light/dark pair.
     func appearanceDidChange(prefersDark: Bool) {
         let slot: Slot = prefersDark ? .dark : .light
         guard slot != slotInUse else { return }
@@ -154,12 +161,16 @@ final class TerminalThemeGalleryModel {
         selection = currentPair()
     }
 
-    /// Uses `name` for both appearances and live-previews it.
+    /// Uses `name` for the appearance in use and live-previews it.
     ///
-    /// The gallery owns one theme, so the highlighted card is always the
-    /// theme the terminal shows. Writing only one side of a light/dark pair
-    /// let a pick land on the appearance not in use and look like it did
-    /// nothing; pairs stay available through `cmux themes set --light/--dark`.
+    /// A pick always replaces the theme the terminal shows, so the highlighted
+    /// card is the theme on screen. When the config holds a light/dark pair at
+    /// the first pick, that pick and later ones change only the side in use and
+    /// keep the other side, so the terminal still switches with the app
+    /// appearance; this is the target the `cmux themes` picker chooses by
+    /// default. With one theme for both appearances, or none yet, a pick sets
+    /// both sides, since Ghostty needs both sides of a light/dark `theme` value.
+    /// A theme change made elsewhere between picks decides this again.
     func select(_ name: String) {
         let current: CmuxTerminalThemePair
         let managedValue: String?
@@ -171,9 +182,22 @@ final class TerminalThemeGalleryModel {
             return
         }
         selection = current
+        let keepsPair: Bool
+        if let snapshot, snapshot.writtenThemeValue == managedValue {
+            keepsPair = snapshot.keepsPair
+        } else {
+            keepsPair = Self.holdsPair(current)
+        }
         var next = current
-        next.light = name
-        next.dark = name
+        if keepsPair, current.light != nil, current.dark != nil {
+            switch slotInUse {
+            case .light: next.light = name
+            case .dark: next.dark = name
+            }
+        } else {
+            next.light = name
+            next.dark = name
+        }
         guard next != current,
               let rawValue = block.encodedThemeValue(light: next.light, dark: next.dark) else {
             return
@@ -185,7 +209,10 @@ final class TerminalThemeGalleryModel {
             return
         }
         if snapshot == nil {
-            snapshot = Snapshot(managedThemeValue: managedValue)
+            snapshot = Snapshot(managedThemeValue: managedValue, keepsPair: keepsPair, writtenThemeValue: rawValue)
+        } else {
+            snapshot?.keepsPair = keepsPair
+            snapshot?.writtenThemeValue = rawValue
         }
         selection = next
         hasPendingChange = true
@@ -208,6 +235,13 @@ final class TerminalThemeGalleryModel {
         hasPendingChange = false
         writeFailed = false
         reload(.final)
+    }
+
+    /// Whether `pair` names a different theme for each appearance, compared
+    /// case-insensitively like the `cmux themes` picker.
+    private static func holdsPair(_ pair: CmuxTerminalThemePair) -> Bool {
+        guard let light = pair.light, let dark = pair.dark else { return false }
+        return light.caseInsensitiveCompare(dark) != .orderedSame
     }
 
     /// The effective theme: the managed block when present, otherwise
