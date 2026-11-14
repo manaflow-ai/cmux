@@ -82,6 +82,21 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Print OIDC subject (no secret)
+        shell: pwsh
+        env:
+          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $audience = [Uri]::EscapeDataString($env:OIDC_AUDIENCE)
+          $uri = "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience"
+          $response = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri $uri
+          $segment = $response.value.Split('.')[1].Replace('-', '+').Replace('_', '/')
+          $segment = $segment.PadRight($segment.Length + (4 - $segment.Length % 4) % 4, '=')
+          $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($segment)) | ConvertFrom-Json
+          Write-Output "OIDC sub: $($claims.sub)"
+          Write-Output "OIDC aud: $($claims.aud)"
+
       - name: Join the CI tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
@@ -144,6 +159,32 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Print OIDC subject (no secret)
+        env:
+          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          query = urllib.parse.urlencode({"audience": os.environ["OIDC_AUDIENCE"]})
+          url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&" + query
+          request = urllib.request.Request(
+              url,
+              headers={"Authorization": f"Bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"},
+          )
+          token = json.load(urllib.request.urlopen(request))["value"]
+          segment = token.split(".")[1]
+          segment += "=" * (-len(segment) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(segment))
+          print(f"OIDC sub: {claims.get('sub')}")
+          print(f"OIDC aud: {claims.get('aud')}")
+          PY
 
       - name: Preserve an existing runner tailnet identity
         id: tailnet
