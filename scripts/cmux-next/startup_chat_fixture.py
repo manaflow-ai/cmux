@@ -76,6 +76,13 @@ class ChatFixture:
         except RuntimeError:
             # Preserve the owning page's reason before the isolated app exits.
             # These are reads only: an uncertain create must never be replayed.
+            daemon_log = self.roots[tag] / "acpmux/daemon.log"
+            if daemon_log.is_file():
+                with daemon_log.open("rb") as log:
+                    log.seek(0, 2)
+                    log.seek(max(0, log.tell() - 16000))
+                    print("startup fixture daemon log: " + log.read().decode(errors="replace"),
+                          file=sys.stderr, flush=True)
             for action, params in (("chat_state", {}), ("acp_log", {"limit": 20}),
                                    ("query", {"selector": ".acpmux-trust-ask"})):
                 try:
