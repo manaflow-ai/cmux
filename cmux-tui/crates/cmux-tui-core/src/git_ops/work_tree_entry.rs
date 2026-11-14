@@ -7,11 +7,12 @@
 //! opened through its parent's descriptor and refuses a link (`O_NOFOLLOW`),
 //! and the entry is looked at and opened through its folder's descriptor.
 //!
-//! The top folder is reached the same way. git gives its path with real
-//! folders only, so the walk starts at the root of the file system and takes
-//! each folder of that path through its parent: a link at the top folder or
-//! above it gives no work tree. The top folder is opened one time and held,
-//! and each entry is of that held folder.
+//! The top folder is reached the same way. A caller gives its path with real
+//! folders only (git's own answer, or a path that the daemon made real), so
+//! the walk starts at the root of the file system and takes each folder of
+//! that path through its parent: a link at the top folder or above it gives
+//! no work tree. The top folder is opened one time and held, and each entry
+//! is of that held folder.
 //!
 //! A system that is not Unix has no call that reads a name through an open
 //! folder. There the top folder is found by its path at each entry, and each
@@ -174,7 +175,7 @@ mod through_folders {
 
     impl Tree {
         /// The work tree at `root`, the path of its top folder from the root
-        /// of the file system, as git gives it: a list of names of real
+        /// of the file system, as its caller gives it: a list of names of real
         /// folders. Each folder of the path is opened through its parent and
         /// refuses a link, and the top folder stays open. A name that is no
         /// folder is no work tree, and no open waits for the other end of a
@@ -456,7 +457,7 @@ mod tests {
         std::os::unix::fs::symlink("real", top.join("link")).unwrap();
         std::os::unix::fs::symlink("real/root", top.join("root-link")).unwrap();
 
-        // The path of a top folder, as git gives it, has real folders only.
+        // The path of a top folder, as a caller gives it, has real folders only.
         let mut tree = Tree::open(&root).unwrap();
         assert_eq!(text(&mut tree, "file").as_deref(), Some("inside"));
         // A link is no folder of that path, at the top folder and above it.
