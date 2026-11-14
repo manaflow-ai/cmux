@@ -200,6 +200,11 @@ public protocol TerminalSession: AnyObject {
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
     /// scrolls there; the session decides. Others ignore it.
     func loadOlderHistory()
+    /// Before the first attach: the screen will put a reader back on a row
+    /// `rows` rows above the end (a tab back from the warm set,
+    /// ``TerminalScrollPlace``), so a session that attaches with the latest
+    /// screen first asks for at least that much history at once. Others ignore it.
+    func requestHistoryRows(_ rows: Int)
 }
 
 extension TerminalSession {
@@ -227,6 +232,8 @@ extension TerminalSession {
     public func clearHistory() async throws {}
 
     public func loadOlderHistory() {}
+
+    public func requestHistoryRows(_ rows: Int) {}
 
     public var hostGridOwnerName: String? { nil }
 }
