@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43628577267",
+  "recorded_at": "2026-11-14T18:58:43Z",
+  "reason": "cmux-tui b93853a46a58 changes the image's cmux-tui (pinned 041117de15b9)",
+  "dry_run": false,
+  "cmux_tui": "b93853a46a586162afe1e2ec6009fed8116e1b1e",
+  "fixes": [
+    {
+      "sha": "b93853a46a586162afe1e2ec6009fed8116e1b1e",
+      "mergedAt": "2026-11-14T10:26:26-08:00",
+      "subject": "cmux-codecs: RESULTS.md, the codec rows and their verdicts (#43179)"
+    },
+    {
+      "sha": "7923aab5bb86b9696e0807c23c9d033128a9dc47",
+      "mergedAt": "2026-11-14T10:25:38-08:00",
+      "subject": "Extensions add slash commands and mentions to the agent chat composer (cmux.composer.command/1, cmux.composer.mention/1) (#43032)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T18:58:43Z",
+    "snapshot_id": "sh-f81b506b2ca6439eae5582a9ba984f89",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43628577267): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "95dedcc8fe6334a56deb4b1cd43cc96096910eee",
+    "image": "cloud-native-auto-b93853a4-43628577267-1",
+    "revision": "ci-43628577267-1",
+    "at": "2026-11-14T18:58:43Z"
+  },
+  "rolled_back": false
+}
