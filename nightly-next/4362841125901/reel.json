@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4362841125901",
+  "notes": "notes/4362841125901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43197,
+      "title": "cmux-next-ios energy bench: hidden-terminals-4, four warm terminal tabs streaming behind the workspaces list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43184,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-e0e97740eed60b4703dec412222376e8ec5c00b5",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43190,
+      "title": "perf-idle-ab: the worker's pinned bun stays first on PATH",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43000,
+      "title": "Themes as files, part 2: cmux theme export, set, reset, check and schema",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43179,
+      "title": "cmux-codecs: RESULTS.md, the codec rows and their verdicts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43032,
+      "title": "Extensions add slash commands and mentions to the agent chat composer (cmux.composer.command/1, cmux.composer.mention/1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43163,
+      "title": "acpmux-client: chat subs end over the bound, on a surface not granted and at fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43188,
+      "title": "perf cron: a bisect step older than the plan checkout's depth stays in the state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43186,
+      "title": "fresh-home launch: the build gets its own TMPDIR, and warm launches from the same HOME",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43138,
+      "title": "Agent chat: a keystroke no longer redraws the model picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40413,
+      "title": "ios reliability matrix: a crashed test binary passes nothing it did not report",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43111,
+      "title": "iOS: one Chat | Terminal control swaps a Claude Code or Codex tab in place",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
