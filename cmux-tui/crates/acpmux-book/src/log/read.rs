@@ -207,19 +207,17 @@ impl Log {
         let mut span: Option<Span> = None;
         while id != 0 && id >= lower && id <= upper && budget.rows != 0 && looked < WALK_ENTRIES {
             looked = looked.saturating_add(1);
-            if let Some((visible, jump)) = self.fold_step(id, up, folds)? {
-                if !visible {
-                    let next = jump.unwrap_or_else(|| {
-                        if up { id.saturating_add(1) } else { id.saturating_sub(1) }
-                    });
-                    edge = Some(if up {
-                        next.saturating_sub(1).min(upper)
-                    } else {
-                        next.saturating_add(1).max(lower)
-                    });
-                    id = next;
-                    continue;
-                }
+            if let Some((false, jump)) = self.fold_step(id, up, folds)? {
+                let next = jump.unwrap_or_else(|| {
+                    if up { id.saturating_add(1) } else { id.saturating_sub(1) }
+                });
+                edge = Some(if up {
+                    next.saturating_sub(1).min(upper)
+                } else {
+                    next.saturating_add(1).max(lower)
+                });
+                id = next;
+                continue;
             }
             self.stats.walk_entries = self.stats.walk_entries.saturating_add(1);
             if let Some(entry) = self.entry(id) {
@@ -268,8 +266,8 @@ impl Log {
         if folds.open.contains(&fold.group) || row_id == fold.group {
             return Ok(Some((true, None)));
         }
-        if !folds.ranges.contains_key(&fold.group) {
-            folds.ranges.insert(fold.group, self.fold_out_ranges(fold.group)?);
+        if let std::collections::btree_map::Entry::Vacant(entry) = folds.ranges.entry(fold.group) {
+            entry.insert(self.fold_out_ranges(fold.group)?);
         }
         let ranges = folds.ranges.get(&fold.group).map(Vec::as_slice).unwrap_or(&[]);
         let visible = ranges.iter().any(|(first, last)| (*first..=*last).contains(&row_id));
@@ -327,11 +325,11 @@ impl Log {
             return Ok(id);
         }
         let ranges = self.fold_out_ranges(fold.group)?;
-        Ok(ranges
-            .iter()
-            .any(|(first, last)| (*first..=*last).contains(&id))
-            .then_some(id)
-            .unwrap_or(fold.group))
+        Ok(if ranges.iter().any(|(first, last)| (*first..=*last).contains(&id)) {
+            id
+        } else {
+            fold.group
+        })
     }
 
     fn read_row_bytes(&mut self, row: &RowRef) -> Result<Option<Vec<u8>>, Error> {
@@ -380,9 +378,11 @@ impl Log {
 
     fn window_of(&self, rows: Vec<RowRef>, lo: u64, hi: u64) -> Window {
         Window {
+            // Hidden gaps are accounted for in the flags, never emitted as a cursor:
+            // an ask at a hidden row is normalized to its group and would repeat this page.
+            lo: rows.first().map_or(lo, |row| row.row_id),
+            hi: rows.last().map_or(hi, |row| row.row_id),
             rows,
-            lo,
-            hi,
             has_before: self.min_row != 0 && lo > self.min_row,
             has_after: hi < self.max_row,
             refused: Vec::new(),
@@ -564,7 +564,7 @@ impl Log {
         let mut opened = open_folds.to_vec();
         opened.push(group);
         let mut fold_read = FoldRead::new(folds, &opened);
-        let _ = self.walk(
+        let edge = self.walk(
             start,
             up,
             &mut budget,
@@ -575,11 +575,14 @@ impl Log {
         if !up {
             rows.reverse();
         }
+        let (lo, hi) =
+            if up { (start, edge.unwrap_or(start)) } else { (edge.unwrap_or(start), start) };
+        let nonempty = fold.group < fold.last;
         let mut result = Window {
-            lo: rows.first().map_or(fold.group.saturating_add(1), |row| row.row_id),
-            hi: rows.last().map_or(fold.last, |row| row.row_id),
-            has_before: rows.first().is_some_and(|row| row.row_id > fold.group.saturating_add(1)),
-            has_after: rows.last().is_some_and(|row| row.row_id < fold.last),
+            lo: rows.first().map_or(lo, |row| row.row_id),
+            hi: rows.last().map_or(hi, |row| row.row_id),
+            has_before: nonempty && lo > fold.group.saturating_add(1),
+            has_after: nonempty && hi < fold.last,
             rows,
             refused: Vec::new(),
         };

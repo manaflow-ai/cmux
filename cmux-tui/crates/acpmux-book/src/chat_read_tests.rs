@@ -210,3 +210,33 @@ fn truncated_resume_record_names_a_stop_instead_of_a_clean_end() {
     assert_eq!(result.cursor, 2);
     assert!(result.stopped_on_refusal);
 }
+
+#[test]
+fn closed_fold_pagination_never_uses_a_hidden_gap_as_its_cursor() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[2,3],[5,6]]}}"#).unwrap();
+    for id in 2..=10 {
+        log.append_settled(id, 1, RawRange::NONE, b"{}").unwrap();
+    }
+    let mut folds = Folds::open(&home.path().join("folds.idx"), 0).unwrap();
+    folds.append(1, 10).unwrap();
+    let bytes = 2 * (RECORD_OVERHEAD + 2);
+    let first = log.read_page(Edge::After(1), bytes, None, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&first.rows), [2, 3]);
+    assert_eq!(first.hi, 3);
+    assert!(first.has_after);
+    let second = log.read_page(Edge::After(first.hi), bytes, None, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&second.rows), [5, 6]);
+    assert!(!second.has_after);
+    let back = log.read_page(Edge::Before(11), bytes, None, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&back.rows), [5, 6]);
+    assert_eq!(back.lo, 5);
+    let back = log.read_page(Edge::Before(back.lo), bytes, None, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&back.rows), [2, 3]);
+    assert_eq!(back.lo, 2);
+    let before = log.read_page(Edge::Before(2), bytes, Some(1), Some(&folds), &[]).unwrap();
+    assert!(before.rows.is_empty() && !before.has_before && before.has_after);
+    let after = log.read_page(Edge::After(10), bytes, Some(1), Some(&folds), &[]).unwrap();
+    assert!(after.rows.is_empty() && after.has_before && !after.has_after);
+}
