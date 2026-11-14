@@ -27,6 +27,10 @@ struct CmuxMobileApp: App {
         // setting (mock data, a scripted demo, relay only) an earlier Debug
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
+        #else
+        // A UI test's `-cmuxMobile.setupComplete NO` starts setup; setup's
+        // own last page must still be able to finish it.
+        DeveloperOptions.seedLaunchArguments()
         #endif
         let auth = CmuxMobileAuthModel.live(
             environment: ProcessInfo.processInfo.environment,

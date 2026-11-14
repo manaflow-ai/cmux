@@ -91,6 +91,28 @@ public enum DeveloperOptions {
         #endif
     }
 
+    /// Keys a launch argument starts, never holds: the app writes them itself
+    /// (setup's last page sets `cmuxMobile.setupComplete`).
+    public static let launchSeededKeys = ["cmuxMobile.setupComplete"]
+
+    /// Moves `launchSeededKeys` out of the argument domain into the app's own
+    /// defaults. A launch argument (`-cmuxMobile.setupComplete NO`, how UI
+    /// tests open first-run setup) sits in the argument domain, which every
+    /// read sees ahead of the app's writes, so setup's Continue saved
+    /// "complete" and kept reading NO: the space choice never left the
+    /// screen (App Review gate, 2026-11-11). Called once at launch, before
+    /// anything reads the keys.
+    public static func seedLaunchArguments(into defaults: UserDefaults = .standard) {
+        var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        let keys = launchSeededKeys.filter { arguments[$0] != nil }
+        guard !keys.isEmpty else { return }
+        // `bool(forKey:)` reads the argument's "YES"/"NO" string as a Bool.
+        let values = keys.map { (key: $0, value: defaults.bool(forKey: $0)) }
+        for key in keys { arguments.removeValue(forKey: key) }
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        for (key, value) in values { defaults.set(value, forKey: key) }
+    }
+
     #if DEBUG
     /// Mock content (sample Feed, mock agent chats, mock Chief, mock
     /// terminals) is allowed only when the developer asked for it: Mock data
