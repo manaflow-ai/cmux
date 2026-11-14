@@ -7,6 +7,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
+#[cfg(test)]
+mod replay_tests;
+
 #[derive(Default)]
 struct Held {
     bytes: AtomicUsize,

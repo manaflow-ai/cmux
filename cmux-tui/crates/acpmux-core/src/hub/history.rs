@@ -100,6 +100,8 @@ pub(super) struct HistorySnapshot {
     first: u64,
     used: usize,
     #[cfg(test)]
+    reserved_bytes: usize,
+    #[cfg(test)]
     raw_copies: Arc<AtomicUsize>,
     #[cfg(test)]
     raw_copy_permit: Arc<AtomicBool>,
@@ -116,6 +118,8 @@ impl HistorySnapshot {
             len: 0,
             first,
             used: 0,
+            #[cfg(test)]
+            reserved_bytes: 0,
             #[cfg(test)]
             raw_copies: _history.raw_copies.clone(),
             #[cfg(test)]
@@ -285,6 +289,8 @@ impl History {
             entries.push(Entry { start, ..*entry });
         }
         let used = bytes.len();
+        #[cfg(test)]
+        let reserved_bytes = bytes.capacity();
         HistorySnapshot {
             bytes: bytes.into_boxed_slice(),
             entries: entries.into_boxed_slice(),
@@ -292,6 +298,8 @@ impl History {
             len: count,
             first,
             used,
+            #[cfg(test)]
+            reserved_bytes,
             #[cfg(test)]
             raw_copies: self.raw_copies.clone(),
             #[cfg(test)]
@@ -779,6 +787,21 @@ pub(super) fn decode(bytes: Vec<u8>) -> serde_json::Result<Vec<ListItem>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_reserves_only_the_requested_suffix_across_wraps() {
+        let mut history = History::with_capacity(4096);
+        for seq in 1..300 {
+            history.append(&gone(seq)).unwrap();
+        }
+        let last = history.last_seq().unwrap();
+        for cursor in history.first - 1..=last {
+            let snapshot = history.snapshot_after(cursor);
+            let expected = history.after(cursor, last).unwrap();
+            assert_eq!(snapshot.bytes.as_ref(), expected);
+            assert_eq!(snapshot.reserved_bytes, expected.len(), "cursor {cursor}");
+        }
+    }
 
     fn gone(seq: u64) -> ListItem {
         ListItem::Gone { seq, origin: "remote".into(), chat_id: format!("id-{seq}") }
