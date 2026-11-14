@@ -67,6 +67,8 @@ Registering a missed export in `generated_outputs.py` is ownership repair when i
 path already exists on the base. `generated_files_guard.py` checks that distinction;
 new export paths and widened patterns still fail. Its regression tests cover both cases
 (guard run `43580150976` misclassified the existing catalog dump as a new committed file).
+The PR-size generated-output list must carry the same export set; `test_ci_pr_size.py`
+checks every tracked registered output against it (run `43581204521` caught the missing dump).
 
 ## The pin check on the tip
 
