@@ -68,18 +68,26 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// edge, `ConcentricCorners`), at most half the fill's shorter side. A rounded rect,
     /// not Chrome's circle; the default 16 pt close button in a 24 pt, 8 pt pill is
     /// Helium's 4 pt (`TabCloseButton` `kCornerRadius`).
-    /// The x's hover and pressed fill corner.
-    public var closeCornerRadius: CGFloat {
-        let pill = CGRect(x: 0, y: 0, width: 4 * tabHeight, height: tabHeight)
-        let side = closeButtonSize
-        return nestedCornerRadius(CGRect(x: 0, y: (tabHeight - side) / 2, width: side, height: side), in: pill)
-    }
+    /// The x's hover and pressed fill corner: Helium's 4 pt on its 14 pt square (tab_close_button.cc's own
+    /// `RoundRectHighlightPathGenerator` radius, not nested in the pill), the same share of the square at every
+    /// density, in half points.
+    public var closeCornerRadius: CGFloat { (closeButtonSize * 4 / 14 * 2).rounded() / 2 }
 
-    /// The side of the x's ink box.
+    /// The side of the x's ink box (``closeGlyphSize``): the stroke's round caps reach to it, so the path's ends sit
+    /// inside it (``closeGlyphPathInset``).
     public var closeGlyphInk: CGFloat { closeGlyphSize }
 
-    /// Where a click or hover counts as on the x drawn at `drawn`.
-    public func closeHitRect(_ drawn: CGRect) -> CGRect { drawn.insetBy(dx: -2, dy: -2) }
+    /// The x's stroke: Helium's 1.5 pt on its 8 pt ink at Default, the same share of the ink at every density.
+    public var closeGlyphLineWidth: CGFloat { closeGlyphSize * 1.5 / 8 }
+
+    /// How far inside the ink box the x's two lines end, so their round caps meet the box's corners.
+    public var closeGlyphPathInset: CGFloat { closeGlyphLineWidth / 2 * 0.5.squareRoot() }
+
+    /// Where a click or hover counts as on the x drawn at `drawn`: at least Apple's 20 x 20 pt target around it
+    /// (Lawrence 2026-10-20), as the 16 pt square with 2 pt of slack was before the x took Helium's 14.
+    public func closeHitRect(_ drawn: CGRect) -> CGRect {
+        drawn.insetBy(dx: -max(2, (20 - drawn.width) / 2), dy: -max(2, (20 - drawn.height) / 2))
+    }
 
     public func nestedCornerRadius(_ rect: CGRect, in pill: CGRect) -> CGFloat {
         let corners = Metrics.corners

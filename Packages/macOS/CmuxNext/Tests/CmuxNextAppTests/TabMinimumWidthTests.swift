@@ -65,7 +65,8 @@ import Testing
         defer { harness.window.closeAfterTest() }
         let m = harness.strip.metrics
         let cell = try #require(harness.strip.cells[TabID("tab3")])
-        #expect(abs(cell.frame.width - m.minInactiveTabWidth) < 0.5, "tab3 is \(cell.frame.width) wide")
+        // Helium's shares are half points (Compact's x is 4.5 pt from the tab's end); the slot is laid out on whole points.
+        #expect(abs(cell.frame.width - m.minInactiveTabWidth) <= 0.5, "tab3 is \(cell.frame.width) wide")
         cell.isHovered = true
         #expect(cell.visibility.showsIcon && cell.visibility.showsClose, "\(cell.visibility)")
         let close = try #require(cell.closeButtonRect, "a hovered tab at the minimum has no x")
@@ -74,10 +75,10 @@ import Testing
                           width: cell.iconLayer.bounds.width, height: cell.frame.height)
         #expect(cell.iconLayer.opacity == 1)
         #expect(icon.minX >= pill.minX && icon.width == m.iconSize, "favicon \(icon) in pill \(pill)")
-        // The x's click target is the drawn button plus 2 pt a side (TabStripView.isInCloseButton): 20 pt.
-        let target = close.insetBy(dx: -2, dy: -2)
+        // The x's click target (TabStripView.isInCloseButton): the drawn button grown to at least 20 pt.
+        let target = m.closeHitRect(close)
         #expect(target.width >= 20, "close target \(target.width) pt, under Apple's 20 pt macOS minimum")
-        #expect(target.maxX <= pill.maxX + 0.01, "close target \(target) leaves the pill \(pill)")
+        #expect(target.maxX <= cell.bounds.maxX + 0.01, "close target \(target) leaves its tab's slot \(cell.bounds)")
         #expect(target.minX >= icon.maxX - 0.01, "close target \(target) covers the favicon \(icon)")
     }
 

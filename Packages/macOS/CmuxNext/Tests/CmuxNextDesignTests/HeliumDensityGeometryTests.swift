@@ -48,15 +48,18 @@ import Testing
         }
     }
 
-    /// One gap above the pills and under them (the omnibar's top), as Helium's 3 pt at Default: the strip is the
-    /// pill plus that gap, with the pane padding above it.
+    /// One gap above the pills and under them (the omnibar's top), as Helium's 3 pt at Default, with or without the
+    /// pane padding above the strip (the flush corner has none).
     @Test(arguments: cases)
     func oneGapAboveAndBelowThePills(_ expected: Expected) {
         withDensity(expected.preset) {
             let chrome = PaneChromeMetrics.current
             #expect(Metrics.stripTopOutset + chrome.pillTop(scale: 2) == expected.gap, "above the pill")
             #expect(chrome.tabGap(scale: 2) == expected.gap, "under the pill")
-            #expect(chrome.resolvedStripHeight(scale: 2) == expected.row + expected.gap, "strip \(chrome.resolvedStripHeight(scale: 2))")
+            // The strip holds the gap above the pill less the pane padding over it (none under the flush corner), the pill and
+            // the gap under it.
+            #expect(chrome.resolvedStripHeight(scale: 2) == expected.row + 2 * expected.gap - Metrics.stripTopOutset,
+                    "strip \(chrome.resolvedStripHeight(scale: 2))")
             // The top chrome a browser pane draws above its page: gap, pill, gap, omnibar, gap. Helium's is 65 pt.
             let total = Metrics.stripTopOutset + chrome.resolvedStripHeight(scale: 2) + expected.row + chrome.tabGap(scale: 2)
             #expect(total == 3 * expected.gap + 2 * expected.row, "top chrome \(total)")
