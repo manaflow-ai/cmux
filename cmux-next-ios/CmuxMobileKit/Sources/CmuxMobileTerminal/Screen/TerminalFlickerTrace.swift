@@ -253,11 +253,16 @@ final class TerminalFlickerTrace: NSObject {
             // Following, the last row stays on the composer every frame: at
             // most the one row a stream writes ahead of the follow scroll
             // (`gapoff`: frames past that; `gapmax`: the largest distance).
-            let gap = abs(value - reference)
+            // The last row as drawn: the document's end, or the surface's
+            // bottom when the newest rows are not presented yet.
+            let drawnGap = now.stackTop - min(now.contentBottom, now.surfaceBottom)
+            let drawnRest = drawnGapRest ?? drawnGap
+            drawnGapRest = drawnRest
+            let gap = abs(drawnGap - drawnRest)
             largestGap = max(largestGap, gap)
             if gap > now.cellHeight + 1 {
                 count("gapoff")
-                if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:gap%.1f", t, now.demo, value - reference)) }
+                if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:gap%.1f", t, now.demo, drawnGap - drawnRest)) }
             }
         }
         if !now.isTUI, now.cellHeight > 0 {
@@ -370,6 +375,7 @@ final class TerminalFlickerTrace: NSObject {
     private var largestBand: CGFloat = 0
     private var largestClip: CGFloat = 0
     private var largestGap: CGFloat = 0
+    private var drawnGapRest: CGFloat?
     private var offLog: [String] = []
 
     private func summary(demo: String) -> String {
