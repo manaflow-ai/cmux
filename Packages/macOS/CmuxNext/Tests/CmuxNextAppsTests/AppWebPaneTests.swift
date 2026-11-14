@@ -2,9 +2,11 @@ import AppKit
 @testable import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
+import WebKit
 
 /// An extension's web pane (`render: web`): its calls go only through the daemon's scoped page
 /// bridge (`apps-page-call`), the daemon's refusals reach the page as errors, and a save of the
@@ -48,10 +50,10 @@ struct AppWebPaneTests {
         "implements": ["cmux.pane/1": ["web": "web/index.html", "symbol": "globe"]],
     ]
 
-    private static func record(package: URL?) -> AppRecord? {
+    private static func record(package: URL?, entry: String = "index.html") -> AppRecord? {
         var json: [String: AppJSON] = [
             "id": "local/web-pane", "installed": true, "manifest": manifest,
-            "web_pages": [["interface": "cmux.pane/1", "root": "web", "entry": "index.html", "symbol": "globe"]],
+            "web_pages": [["interface": "cmux.pane/1", "root": "web", "entry": .string(entry), "symbol": "globe"]],
         ]
         if let package { json["bundle_dir"] = .string(package.path) }
         return AppRecord(json: .object(json))
@@ -150,6 +152,56 @@ struct AppWebPaneTests {
         #expect(views.webPageReloads("tab-1") == 1)
         views.close("tab-1")
         #expect(views.webPage("tab-1") == nil)
+    }
+
+    /// A package with `web/<entry>` in a fresh temporary folder.
+    private static func package(entry: String) throws -> URL {
+        let package = FileManager.default.temporaryDirectory.appendingPathComponent("web-pane-\(UUID().uuidString)", isDirectory: true)
+        let file = package.appendingPathComponent("web").appendingPathComponent(entry)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("<!doctype html><p>hi</p>".utf8).write(to: file)
+        return package
+    }
+
+    /// An extension's page never leaves its origin. A link it activates to another origin is
+    /// cancelled and opened nowhere: routed through LinkRouter, its URL would carry what the page
+    /// put in it (workspace data in a query) past the page bridge, the grant and egress checks.
+    /// Base red: the host had no navigation hook, so the link went to `.openExternal` (LinkRouter).
+    @Test func anExternalLinkFromTheExtensionPageIsRefused() async throws {
+        let package = try Self.package(entry: "index.html")
+        defer { try? FileManager.default.removeItem(at: package) }
+        let views = AppPaneViews(client: AppsClient(transport: Transport()))
+        _ = views.makeView(try #require(Self.record(package: package)), key: "tab-1")
+        let page = try #require(views.webPage("tab-1"))
+        defer { views.close("tab-1") }
+        // Whatever would go to LinkRouter goes here instead (``PageWebView/onOpenExternal``).
+        var opened: [URL] = []
+        page.onOpenExternal = { opened.append($0) }
+        let webView = WKWebView()
+
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: page.descriptor.url())) == .allow)
+        let leak = try #require(URL(string: "https://attacker.example/collect?workspaces=secret"))
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: leak, type: .linkActivated)) == .cancel)
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: leak, type: .formSubmitted)) == .cancel)
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: leak)) == .cancel)
+        let mail = try #require(URL(string: "mailto:someone@example.com?body=secret"))
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: mail, type: .linkActivated)) == .cancel)
+        let other = try #require(URL(string: "cmux-page://local.other/"))
+        #expect(await page.webView(webView, decidePolicyFor: FakeNavigationAction(url: other, type: .linkActivated)) == .cancel)
+        #expect(opened.isEmpty, "a link left the extension page: \(opened)")
+    }
+
+    /// The daemon's entry may be nested in the root (`ui/index.html`, valid per the manifest): the
+    /// page loads that file at its own path. Base red: the entry fell back to `index.html`.
+    @Test func aNestedEntryIsThePagesDocument() throws {
+        let package = try Self.package(entry: "ui/index.html")
+        defer { try? FileManager.default.removeItem(at: package) }
+        let views = AppPaneViews(client: AppsClient(transport: Transport()))
+        _ = views.makeView(try #require(Self.record(package: package, entry: "ui/index.html")), key: "tab-1")
+        let page = try #require(views.webPage("tab-1"))
+        defer { views.close("tab-1") }
+        #expect(page.descriptor.entry == "ui/index.html")
+        #expect(page.descriptor.url().absoluteString == "cmux-page://local.web-pane/ui/index.html")
     }
 
     @Test func aLocalReloadEventNamesItsApp() {

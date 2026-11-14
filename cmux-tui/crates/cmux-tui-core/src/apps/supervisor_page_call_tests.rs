@@ -15,7 +15,8 @@ fn write_web_app(state: &Path) {
         "manifestVersion": 2, "id": WEB_APP, "name": "Web", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "web": { "root": "web" } },
         "implements": { "cmux.pane/1": { "web": "web/index.html", "title": "Web", "symbol": "globe" } },
-        "scopes": { "workspace:read": "List your workspaces." }, "files": ["web/"]
+        "scopes": { "workspace:read": "List your workspaces.", "agent_chat:read": "List your agent chats." },
+        "files": ["web/"]
     });
     std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
 }
@@ -153,7 +154,7 @@ fn malformed_messages_and_apps_without_a_page_are_refused() {
 }
 
 /// An op the Mac app owns goes to its provider; with none connected the page
-/// is told at once.
+/// is told at once (`provider.unavailable`, retryable), past the grant check.
 #[test]
 fn a_provider_op_without_a_provider_is_answered_at_once() {
     let f = web_fixture();
@@ -161,7 +162,11 @@ fn a_provider_op_without_a_provider_is_answered_at_once() {
     f.set("grant-chat", WEB_APP, Origin::User, |o| {
         o.grant = Some(("agent_chat:read".into(), true));
     })
-    .ok();
+    .unwrap();
     let answer = page_call(&f, "p1", json!({ "id": "c5", "op": "agent_chat.list" })).unwrap();
     assert_eq!(answer["ok"], false, "{answer}");
+    assert_eq!(answer["error"]["code"], "provider.unavailable", "{answer}");
+    assert_eq!(answer["error"]["retryable"], true, "{answer}");
+    assert_eq!(answer["error"]["details"]["family"], "agent_chat", "{answer}");
+    assert!(f.router.calls.lock().unwrap().is_empty(), "a provider op never reached the router");
 }
