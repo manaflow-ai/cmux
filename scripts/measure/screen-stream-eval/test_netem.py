@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('relay', Path(__file__).with_name('netem.py'))
@@ -23,6 +24,32 @@ def udp():
 
 
 class RelayTests(unittest.TestCase):
+    def test_idle_tcp_survives_connect_deadline(self):
+        # Real sockets, with a shortened connect deadline to keep this regression
+        # quick. An idle control connection must survive beyond that deadline.
+        connect = socket.create_connection
+        def short_connect(address, timeout):
+            return connect(address, timeout=0.1)
+        viewer, client = socket.socketpair()
+        with socket.socket() as host, viewer, client:
+            host.bind(('127.0.0.1', 0))
+            host.listen(1)
+            host.settimeout(2)
+            viewer.settimeout(2)
+            with mock.patch.object(relay.socket, 'create_connection', side_effect=short_connect):
+                relay.tcp_session(client, host.getsockname(), 0)
+            with host.accept()[0] as upstream:
+                upstream.settimeout(2)
+                upstream.sendall(b'ready')
+                self.assertEqual(viewer.recv(1024), b'ready')
+                # Deliberately idle for longer than the setup deadline, then
+                # require data to cross the existing session in both directions.
+                threading.Event().wait(0.3)
+                upstream.sendall(b'after idle')
+                self.assertEqual(viewer.recv(1024), b'after idle')
+                viewer.sendall(b'feedback')
+                self.assertEqual(upstream.recv(1024), b'feedback')
+
     def exercise(self, loss):
         with udp() as host, udp() as viewer, udp() as middle:
             middle.settimeout(None)

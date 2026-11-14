@@ -8,7 +8,7 @@ work=$(mktemp -d)
 finish() {
   [[ ! -f "$work/bench-after.rs" ]] || cp "$work/bench-after.rs" "$crate/src/bench.rs"
   if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
-    for file in metrics-before.log hello-before.log cleanup-before.log; do
+    for file in metrics-before.log hello-before.log cleanup-before.log tcp-before.log; do
       [[ ! -f "$work/$file" ]] || cp "$work/$file" "$FAST_CHECKS_OUT/$file"
     done
   fi
@@ -17,6 +17,14 @@ trap finish EXIT
 # Broker snapshots contain the requested tree, not its complete history.
 # Fetch the exact old commit used by both counterexamples explicitly.
 git fetch --no-tags --depth=1 origin 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7
+cp "$eval_dir/test_netem.py" "$work/test_netem.py"
+git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:scripts/measure/screen-stream-eval/netem.py >"$work/netem.py"
+if python3 "$work/test_netem.py" RelayTests.test_idle_tcp_survives_connect_deadline >"$work/tcp-before.log" 2>&1; then
+  echo 'FAIL: original idle TCP relay unexpectedly passed' >&2
+  exit 1
+fi
+cat "$work/tcp-before.log"
+python3 "$eval_dir/test_netem.py" RelayTests.test_idle_tcp_survives_connect_deadline
 cp "$eval_dir/test_rd_metrics.py" "$work/test_rd_metrics.py"
 git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:scripts/measure/screen-stream-eval/rd-metrics.py >"$work/rd-metrics.py"
 if CMUX_RD_METRICS_LEGACY=1 python3 "$work/test_rd_metrics.py" >"$work/metrics-before.log" 2>&1; then
