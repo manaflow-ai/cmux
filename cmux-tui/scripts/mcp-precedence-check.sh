@@ -162,6 +162,8 @@ if [ -n "$CMUX" ]; then
   sock=$D/d.sock
   "$NODE" -e 'require("net").createServer(()=>{}).listen(process.argv[1])' "$sock" &
   listener=$!
+  # The listener ends with the script, however it ends.
+  trap 'kill "$listener" 2>/dev/null' EXIT
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -S "$sock" ] && break; perl -e 'select(undef,undef,undef,0.2)'; done
   settings=$D/home/.config/cmux/cmux-next-dev.json
   mkdir -p "$(dirname "$settings")"; echo '{"agents": {"cmuxMcp": "on"}}' > "$settings"
@@ -177,15 +179,16 @@ if [ -n "$CMUX" ]; then
   # Codex: the shim asks Codex itself for the cmux entry (`mcp get`), then
   # places its server. A fake `codex` first on PATH records the launch's
   # arguments and hands `mcp get` to the real one.
-  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = mcp ] && exec %s "$@"; done\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' \
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = mcp ] && exec %q "$@"; done\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %q\n' \
     "$CODEX" "$D/codex-args" > "$D/bin/codex"
   chmod +x "$D/bin/codex"
   user_plain() { printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" > "$CODEX_HOME/config.toml"; }
   # shim_case NAME FOLDER LOADED VERIFY_ARGS -- SHIM_ARGS: run the shim in
   # FOLDER with SHIM_ARGS; Codex itself (mcp get in the effective folder with
-  # VERIFY_ARGS) must report a layer's cwd when LOADED=yes, none when no; the
-  # shim must then place its server as cmux_terminal with cmux off (loaded) or
-  # as cmux (not); the agent's own server never gets the layer's cwd.
+  # VERIFY_ARGS) must report a layer's cwd when LOADED=yes, none when no. The
+  # shim's server is always cmux_terminal; it turns the person's cmux entry
+  # off whenever Codex reports it (another cmux's, on), never when Codex has
+  # no answer.
   shim_case() {
     local name=$1 at=$2 loaded=$3; shift 3
     # Empty arrays are expanded as ${a[@]+"${a[@]}"}: macOS's bash 3.2 calls
@@ -209,11 +212,11 @@ settings = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-c"]
 names = {s.split(".")[1] for s in settings if s.startswith("mcp_servers.") and ".command=" in s}
 off = "mcp_servers.cmux.enabled=false" in settings
 if reported == "":
-    # Codex refused its config (no answer): the shim's safe choice.
+    # Codex refused its config (no answer): nothing is turned off.
     want = ({"cmux_terminal"}, False)
 else:
     assert (reported != "None") == loaded, f"Codex reported cwd={reported}, expected loaded={loaded}"
-    want = ({"cmux_terminal"}, True) if loaded else ({"cmux"}, False)
+    want = ({"cmux_terminal"}, True)
 assert (names, off) == want, f"shim placed {names} off={off}, want {want}"
 PY
     local said=${reported:-no answer: $(cd "$effective" && "$CODEX" ${verify[@]+"${verify[@]}"} mcp get cmux --json 2>&1 >/dev/null | grep -v '^$' | tail -1 | cut -c1-90)}
@@ -260,7 +263,6 @@ assert os.path.realpath(own["transport"]["command"]) == os.path.realpath(sys.arg
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
   check "codex shim: the agent's cmux server is this build's, with none of the project layer's settings" $?
-  kill "$listener" 2>/dev/null
 fi
 echo "scratch: $D"
 exit $failed

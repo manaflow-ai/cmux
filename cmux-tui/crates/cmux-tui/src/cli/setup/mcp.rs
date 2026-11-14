@@ -134,6 +134,7 @@ impl Client {
                             .flatten()
                             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                             .collect(),
+                        cwd: server.get("cwd").and_then(Value::as_str).map(str::to_owned),
                         unread: unread_json(server),
                     })
                     .collect())
@@ -171,6 +172,7 @@ impl Client {
                             .flatten()
                             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                             .collect(),
+                        cwd: server.get("cwd").and_then(toml::Value::as_str).map(str::to_owned),
                         unread: unread_toml(server),
                     })
                     .collect())
@@ -228,6 +230,8 @@ struct Entry {
     args: Vec<String>,
     /// Its `env` (string values only).
     env: Vec<(String, String)>,
+    /// Its `cwd`, when it has one (Codex; also counted in [`Entry::unread`]).
+    cwd: Option<String>,
     /// What setup did not read into the fields above, so could not put back:
     /// another field (Codex `cwd`, `env_vars`, `startup_timeout_sec`,
     /// `enabled_tools`), an `env` value or `args` item that is no string.
@@ -300,9 +304,16 @@ impl Entry {
             Some(command) => on_path(path, command).is_some(),
             None => false,
         };
+        // A relative script is looked up in the entry's `cwd`; without one,
+        // where it runs is unknown, and an entry is never replaced on doubt.
         let script_there = match self.command.as_deref().and_then(|c| cmux_serve(c, &self.args)) {
             Some(CmuxServe::Path(program)) if Some(program) != self.command.as_deref() => {
-                Path::new(program).is_file()
+                let script = Path::new(program);
+                match (script.is_absolute(), self.cwd.as_deref()) {
+                    (true, _) => script.is_file(),
+                    (false, Some(cwd)) => Path::new(cwd).join(script).is_file(),
+                    (false, None) => true,
+                }
             }
             _ => true,
         };

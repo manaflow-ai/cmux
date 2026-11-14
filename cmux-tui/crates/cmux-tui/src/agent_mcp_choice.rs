@@ -25,38 +25,20 @@ pub(crate) fn claude_mcp_config(
 }
 
 /// Codex `-c` overrides for this launch; none until the person said yes to
-/// cmux's tools in their agents.
+/// cmux's tools in their agents. `existing` is the `cmux` entry Codex
+/// reported; `getenv` reads the pane's environment.
 pub(crate) fn codex_settings(
     choice: AgentsCmuxMcp,
     executable: &Path,
     socket: &Path,
     existing: &crate::agent_computer_use::CodexEntry,
-) -> Vec<OsString> {
-    if !choice.injects() {
-        return Vec::new();
-    }
-    crate::agent_computer_use::codex_settings(executable, socket, existing).unwrap_or_default()
-}
-
-/// [`codex_settings`] with the environment `getenv` and no `cmux` entry in
-/// Codex (tests: never the machine's own Codex).
-#[cfg(test)]
-fn codex_settings_with(
-    choice: AgentsCmuxMcp,
-    executable: &Path,
-    socket: &Path,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<OsString> {
     if !choice.injects() {
         return Vec::new();
     }
-    crate::agent_computer_use::codex_settings_with(
-        executable,
-        socket,
-        getenv,
-        &crate::agent_computer_use::CodexEntry::Absent,
-    )
-    .unwrap_or_default()
+    crate::agent_computer_use::codex_settings(executable, socket, existing, getenv)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -65,6 +47,9 @@ mod tests {
 
     const EXE: &str = "/A/cmux";
     const SOCKET: &str = "/tmp/s.sock";
+
+    const ABSENT: crate::agent_computer_use::CodexEntry =
+        crate::agent_computer_use::CodexEntry::Absent;
 
     /// An environment with nothing set.
     fn no_env(_: &str) -> Option<OsString> {
@@ -85,7 +70,8 @@ mod tests {
             let unset = choice(text);
             assert_eq!(claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
             assert!(
-                codex_settings_with(unset, Path::new(EXE), Path::new(SOCKET), &no_env).is_empty(),
+                codex_settings(unset, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env)
+                    .is_empty(),
                 "{text}"
             );
         }
@@ -99,10 +85,10 @@ mod tests {
         let servers = value["mcpServers"].as_object().unwrap();
         assert_eq!(servers.len(), 1, "{value}");
         assert!(servers.contains_key(crate::agent_computer_use::SERVER), "{value}");
-        // No HOME and no CODEX_HOME: the machine's own Codex config is never read.
-        let codex = codex_settings_with(on, Path::new(EXE), Path::new(SOCKET), &no_env);
+        // An empty pane environment: nothing of this machine is read.
+        let codex = codex_settings(on, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env);
         assert!(!codex.is_empty());
-        let prefix = format!("mcp_servers.{}.", crate::agent_computer_use::SERVER);
+        let prefix = format!("mcp_servers.{}.", crate::agent_computer_use::CODEX_TERMINAL_SERVER);
         assert!(codex.iter().all(|s| s.to_str().unwrap().starts_with(&prefix)), "{codex:?}");
     }
 
@@ -112,7 +98,7 @@ mod tests {
             let off = choice(text);
             assert_eq!(claude_mcp_config(off, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
             assert!(
-                codex_settings_with(off, Path::new(EXE), Path::new(SOCKET), &no_env).is_empty(),
+                codex_settings(off, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env).is_empty(),
                 "{text}"
             );
         }

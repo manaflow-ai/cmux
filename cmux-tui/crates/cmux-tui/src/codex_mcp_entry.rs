@@ -31,10 +31,15 @@ const NO_SERVER: &str = "No MCP server named";
 /// `codex mcp get` takes them, and the folder `-C`/`--cd` names.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ConfigArgs {
-    /// `-c VALUE`, `--enable VALUE` and `--profile VALUE`, in order.
+    /// `-c VALUE`, `--enable VALUE`, `--disable VALUE` and `--profile VALUE`,
+    /// in order.
     pub args: Vec<OsString>,
     /// `-C DIR` / `--cd DIR`, as given (relative to the launch folder).
     pub cd: Option<PathBuf>,
+    /// A config argument this could not read (not UTF-8 where an option name
+    /// is expected, or a `-C` folder that is not): Codex is not asked, the
+    /// answer is unknown.
+    pub unreadable: bool,
 }
 
 /// The value of option `long` (or its `short` letter) when `arg` is one: the
@@ -59,36 +64,59 @@ fn option_value<'a>(arg: &'a str, short: Option<char>, long: &str) -> Option<Opt
     Some(Some(rest.strip_prefix('=').unwrap_or(rest)))
 }
 
+/// The options that change which config Codex loads: (short letter, long
+/// name, the flag `codex mcp get` takes it as; `None` is `-C`/`--cd`).
+const CONFIG_OPTIONS: [(Option<char>, &str, Option<&str>); 5] = [
+    (Some('c'), "config", Some("-c")),
+    (None, "enable", Some("--enable")),
+    (None, "disable", Some("--disable")),
+    (Some('p'), "profile", Some("--profile")),
+    (Some('C'), "cd", None),
+];
+
 /// The config-affecting arguments in Codex's argument list `args` (until
-/// `--`): `-c`/`--config`, `--enable`, `-p`/`--profile` and `-C`/`--cd`, in
-/// every form clap accepts.
+/// `--`): `-c`/`--config`, `--enable`, `--disable`, `-p`/`--profile` and
+/// `-C`/`--cd`, in every form clap accepts. A value is passed on as given; an
+/// option of these written with bytes that are not UTF-8, or a `-C` folder
+/// that is not, makes the arguments [`ConfigArgs::unreadable`].
 pub(crate) fn config_args(args: &[OsString]) -> ConfigArgs {
     let mut found = ConfigArgs::default();
-    let mut args = args.iter().map(|arg| arg.to_str());
-    while let Some(arg) = args.next() {
-        let Some(arg) = arg else { continue };
+    let mut args = args.iter();
+    while let Some(raw) = args.next() {
+        let Some(arg) = raw.to_str() else {
+            let bytes = raw.as_encoded_bytes();
+            let ours = [
+                &b"-c"[..],
+                b"-p",
+                b"-C",
+                b"--config",
+                b"--profile",
+                b"--cd",
+                b"--enable",
+                b"--disable",
+            ];
+            if ours.iter().any(|prefix| bytes.starts_with(prefix)) {
+                found.unreadable = true;
+            }
+            continue;
+        };
         if arg == "--" {
             break;
         }
-        for (short, long, as_flag) in [
-            (Some('c'), "config", Some("-c")),
-            (None, "enable", Some("--enable")),
-            (Some('p'), "profile", Some("--profile")),
-            (Some('C'), "cd", None),
-        ] {
+        for (short, long, as_flag) in CONFIG_OPTIONS {
             let Some(value) = option_value(arg, short, long) else { continue };
             let value = match value {
-                Some(value) => Some(value.to_owned()),
-                None => args.next().flatten().map(str::to_owned),
+                Some(value) => Some(OsString::from(value)),
+                None => args.next().cloned(),
             };
-            if let Some(value) = value {
-                match as_flag {
-                    Some(flag) => {
-                        found.args.push(OsString::from(flag));
-                        found.args.push(OsString::from(value));
-                    }
-                    None => found.cd = Some(PathBuf::from(value)),
+            let Some(value) = value else { break };
+            match as_flag {
+                Some(flag) => {
+                    found.args.push(OsString::from(flag));
+                    found.args.push(value);
                 }
+                None if value.to_str().is_none() => found.unreadable = true,
+                None => found.cd = Some(PathBuf::from(value)),
             }
             break;
         }
@@ -106,8 +134,14 @@ pub(crate) fn resolve(
     config: &ConfigArgs,
     timeout: Duration,
 ) -> CodexEntry {
+    use std::os::unix::process::CommandExt as _;
+    if config.unreadable {
+        return CodexEntry::Unknown;
+    }
     let folder = config.cd.as_ref().map_or_else(|| cwd.to_path_buf(), |cd| cwd.join(cd));
+    // Its own process group, so a timeout ends Codex and anything it started.
     let child = Command::new(codex)
+        .process_group(0)
         .args(&config.args)
         .args(["mcp", "get", SERVER, "--json"])
         .current_dir(&folder)
@@ -137,6 +171,11 @@ pub(crate) fn resolve(
         let _ = sender.send((out, err));
     });
     let Ok((out, err)) = receiver.recv_timeout(timeout) else {
+        if let Ok(group) = i32::try_from(child.id()) {
+            // SAFETY: `kill` takes no pointers; `-group` names the process
+            // group this child leads (`process_group(0)` above).
+            unsafe { libc::kill(-group, libc::SIGKILL) };
+        }
         let _ = child.kill();
         let _ = child.wait();
         return CodexEntry::Unknown;
@@ -187,17 +226,29 @@ mod tests {
             "-cc=3",
             "--enable",
             "f",
+            "--disable=g",
             "-C",
             "../x",
             "exec",
             "hi",
         ]));
-        assert_eq!(strings(&found.args), ["-c", "a=1", "-c", "b=2", "-c", "c=3", "--enable", "f"]);
+        assert_eq!(
+            strings(&found.args),
+            ["-c", "a=1", "-c", "b=2", "-c", "c=3", "--enable", "f", "--disable", "g"]
+        );
         assert_eq!(found.cd, Some(PathBuf::from("../x")));
         assert_eq!(config_args(&os(&["--cd=/w"])).cd, Some(PathBuf::from("/w")));
         assert_eq!(config_args(&os(&["-C/w"])).cd, Some(PathBuf::from("/w")));
         let after = config_args(&os(&["--", "-p", "x", "-C", "y"]));
         assert_eq!(after, ConfigArgs::default());
+        // A folder or an option that is not UTF-8: unreadable, never guessed.
+        use std::os::unix::ffi::OsStringExt as _;
+        let odd = OsString::from_vec(b"/w\xff".to_vec());
+        assert!(config_args(&[OsString::from("-C"), odd.clone()]).unreadable);
+        assert!(config_args(&[OsString::from_vec(b"-C/w\xff".to_vec())]).unreadable);
+        let value = config_args(&[OsString::from("-c"), odd.clone()]);
+        assert!(!value.unreadable, "a -c value is passed on as given");
+        assert_eq!(value.args, [OsString::from("-c"), odd]);
         // Other options and prompts are not config.
         assert_eq!(config_args(&os(&["--model", "o3", "fix -p bug"])), ConfigArgs::default());
     }
@@ -250,5 +301,26 @@ mod tests {
         assert_eq!(ask(&codex, Duration::from_millis(300)), CodexEntry::Unknown);
         assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
         assert_eq!(ask(&root.join("missing"), TIMEOUT), CodexEntry::Unknown);
+        // A timeout ends Codex's whole process group, children included.
+        let pid_file = root.join("grandchild");
+        let codex =
+            fake_codex(&root, &format!("sleep 30 & echo $! > '{}'; wait", pid_file.display()));
+        assert_eq!(ask(&codex, Duration::from_millis(500)), CodexEntry::Unknown);
+        let pid: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+        // SAFETY: signal 0 only asks whether the process exists. The killed
+        // grandchild is reaped by init, so give it a moment to be gone.
+        let alive = || unsafe { libc::kill(pid, 0) } == 0;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while alive() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive(), "the grandchild outlived the timeout");
+        // An unreadable `-C` is never guessed: Codex is not asked.
+        use std::os::unix::ffi::OsStringExt as _;
+        let unreadable = config_args(&[OsString::from("-C"), OsString::from_vec(b"\xff".to_vec())]);
+        let codex = fake_codex(&root, &format!("echo '{entry}'"));
+        std::fs::remove_file(root.join("seen")).unwrap();
+        assert_eq!(resolve(&codex, &path, &work, &unreadable, TIMEOUT), CodexEntry::Unknown);
+        assert!(!root.join("seen").exists(), "Codex was asked");
     }
 }

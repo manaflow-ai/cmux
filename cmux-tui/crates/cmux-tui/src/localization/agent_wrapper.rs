@@ -13,12 +13,12 @@ pub(super) const ENGLISH: AgentWrapperMessages = AgentWrapperMessages {
     hooks_unavailable: "cmux: starting the agent without cmux status updates",
     agent_not_found: "cmux: the agent executable was not found",
     agent_start_failed: "cmux: the agent could not be started",
-    codex_mcp_unknown: "cmux: Codex did not say which cmux tools it already has, so cmux adds its own as cmux_terminal",
+    codex_mcp_unknown: "cmux: Codex did not say which cmux tools it already has, so any it has stay on beside this cmux's own",
 };
 
 pub(super) const JAPANESE: AgentWrapperMessages = AgentWrapperMessages {
     hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
     agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
     agent_start_failed: "cmux: エージェントを起動できませんでした",
-    codex_mcp_unknown: "cmux: Codex に設定済みの cmux ツールを確認できなかったため、cmux のツールを cmux_terminal として追加します",
+    codex_mcp_unknown: "cmux: Codex に設定済みの cmux ツールを確認できなかったため、設定済みのものもこの cmux のツールと並べてそのまま使います",
 };

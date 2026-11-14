@@ -27,17 +27,21 @@
 //!   person's yes to cmux's tools, this build's server takes that name for
 //!   the launch. Outside cmux terminals, and with the answer off, the
 //!   person's server is untouched.
-//! - Codex: `-c mcp_servers.cmux.…` merges key by key into the `cmux` entry
-//!   Codex builds from its config layers: the shim's `command`, `args` and
-//!   `env` keys win, but every other key of that entry stays (`cwd`,
-//!   `startup_timeout_sec`, `enabled_tools`, other `env` keys). The shim asks
-//!   Codex for that entry before each launch (codex_mcp_entry.rs: `codex mcp
-//!   get cmux --json` with the launch's folder and config arguments) and keeps
-//!   the name `cmux` only when Codex has none, or has cmux's own with nothing
-//!   that would merge; otherwise its server is [`CODEX_TERMINAL_SERVER`], and
-//!   a reported entry that is another cmux's is turned off for the launch
-//!   (`enabled=false`), so the agent never gets two cmux servers. A server of
-//!   the person's own that is only named `cmux` stays on.
+//! - Codex: `-c mcp_servers.<name>.…` merges key by key into an entry of
+//!   that name its config layers make, and `codex mcp get --json` does not
+//!   print every field such an entry can carry. So the shim never shares a
+//!   key with a config entry: its server is always [`CODEX_TERMINAL_SERVER`]
+//!   (nothing in cmux depends on the Codex server's name: the bg hook and the
+//!   `mcp__cmux__*` names are Claude Code's, and `cmux.` in `cmux_exec` is the
+//!   script's own namespace). It asks Codex for the `cmux` entry before each
+//!   launch (codex_mcp_entry.rs: `codex mcp get cmux --json` with the
+//!   launch's folder and config arguments) only to turn that entry off for the
+//!   launch (`enabled=false`) when it is another cmux's server and on, so the
+//!   agent never gets two cmux servers. A server of the person's own that is
+//!   only named `cmux` stays on, and so does an entry Codex could not report.
+//!   An untrusted project's `cmux` entry that Codex loads only after its
+//!   trust prompt is not reported before the launch: it can start beside this
+//!   build's server, as a second cmux server for that session.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -131,8 +135,8 @@ fn process_env(name: &str) -> Option<OsString> {
     std::env::var_os(name)
 }
 
-/// The name Codex gets this build's server under when the person's own
-/// `cmux` entry would merge settings into it (module docs).
+/// The name Codex gets this build's server under, always: no config entry
+/// shares it, so nothing merges into it (module docs).
 pub(crate) const CODEX_TERMINAL_SERVER: &str = "cmux_terminal";
 
 /// The person's own `cmux` entry as Codex itself resolves it for a launch
@@ -145,18 +149,48 @@ pub(crate) enum CodexEntry {
     /// The entry, as `codex mcp get --json` prints it.
     Found(serde_json::Value),
     /// Codex could not say (no answer in time, an error, output it could not
-    /// read): treated as an entry that would merge, of unknown origin.
+    /// read): nothing is turned off.
     Unknown,
 }
 
-/// Codex `-c` overrides that add the server (TOML values), placed by what
-/// Codex reported (`existing`).
+/// Codex `-c` overrides that add this build's server as
+/// [`CODEX_TERMINAL_SERVER`] (TOML values), and turn the reported `cmux`
+/// entry off when it is another cmux's server that is on ([`disables_cmux`]).
+/// `getenv` reads the pane's environment.
 pub(crate) fn codex_settings(
     executable: &Path,
     socket: &Path,
     existing: &CodexEntry,
+    getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Option<Vec<OsString>> {
-    codex_settings_with(executable, socket, &process_env, existing)
+    let env = env(executable, socket, getenv)?;
+    let name = CODEX_TERMINAL_SERVER;
+    let command = toml::Value::String(executable.to_str()?.to_owned());
+    let args = toml::Value::Array(
+        args(getenv).into_iter().map(|a| toml::Value::String(a.to_owned())).collect(),
+    );
+    let table = env
+        .iter()
+        .map(|(k, v)| format!("{k}={}", toml::Value::String(v.clone())))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut settings = vec![
+        OsString::from(format!("mcp_servers.{name}.command={command}")),
+        OsString::from(format!("mcp_servers.{name}.args={args}")),
+        OsString::from(format!("mcp_servers.{name}.env={{{table}}}")),
+    ];
+    if disables_cmux(existing) {
+        settings.push(OsString::from(format!("mcp_servers.{SERVER}.enabled=false")));
+    }
+    Some(settings)
+}
+
+/// Whether the `cmux` entry Codex reported is turned off for the launch: only
+/// another cmux's server ([`cmux_serve`]) that is on. Never a server of the
+/// person's own, never an entry Codex did not report.
+fn disables_cmux(existing: &CodexEntry) -> bool {
+    matches!(existing, CodexEntry::Found(entry)
+        if serves_cmux(entry) && entry["enabled"].as_bool() == Some(true))
 }
 
 /// What an MCP server entry runs when it runs cmux's server (`cmux mcp
@@ -226,6 +260,16 @@ pub(crate) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
     if CLI_NAMES.contains(&program.as_str()) {
         return serves(args).then_some(CmuxServe::Path(command));
     }
+    // `bun x PKG` is bunx, `bun run SCRIPT` runs a script like `bun SCRIPT`.
+    let (program, args) = match (program.as_str(), args.first().map(String::as_str)) {
+        ("bun", Some("x")) => ("bunx".to_owned(), &args[1..]),
+        ("bun", Some("run")) => ("bun".to_owned(), &args[1..]),
+        ("uv", Some("tool")) if args.get(1).is_some_and(|a| a == "run") => {
+            ("uvx".to_owned(), &args[2..])
+        }
+        ("npm", Some("exec" | "x")) => ("npx".to_owned(), &args[1..]),
+        _ => (program, args),
+    };
     // A JavaScript runtime and its script, after the runtime's own options.
     if matches!(program.as_str(), "node" | "nodejs" | "bun") {
         let rest = after_options(
@@ -304,41 +348,6 @@ pub(crate) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
     (names_cmux_package(package) && serves(rest)).then_some(CmuxServe::Published)
 }
 
-/// Whether nothing of the entry Codex reported would stay on this build's
-/// server if it went under the same name: Codex merges `-c
-/// mcp_servers.cmux.*` key by key, and the shim sets only `command`, `args`
-/// and the `env` keys `env_keys`. So the entry must be on, run stdio, and have
-/// no other field set (a `cwd`, a timeout, tool lists, `env_vars`, an `env`
-/// key the shim does not set, or a field this check does not know).
-fn nothing_merges(entry: &serde_json::Value, env_keys: &[&str]) -> bool {
-    use serde_json::Value;
-    let unset = |value: &Value| match value {
-        Value::Null => true,
-        Value::Array(items) => items.is_empty(),
-        Value::Object(fields) => fields.is_empty(),
-        _ => false,
-    };
-    let Some(fields) = entry.as_object() else { return false };
-    fields.iter().all(|(key, value)| match key.as_str() {
-        "name" | "disabled_reason" => true,
-        "enabled" => value.as_bool() == Some(true),
-        "transport" => value.as_object().is_some_and(|transport| {
-            transport.iter().all(|(key, value)| match key.as_str() {
-                "type" => value.as_str() == Some("stdio"),
-                "command" | "args" => true,
-                "env" => {
-                    unset(value)
-                        || value.as_object().is_some_and(|env| {
-                            env.keys().all(|key| env_keys.contains(&key.as_str()))
-                        })
-                }
-                _ => unset(value),
-            })
-        }),
-        _ => unset(value),
-    })
-}
-
 /// Whether the entry Codex reported runs cmux's server ([`cmux_serve`]).
 fn serves_cmux(entry: &serde_json::Value) -> bool {
     let transport = &entry["transport"];
@@ -350,60 +359,6 @@ fn serves_cmux(entry: &serde_json::Value) -> bool {
         .filter_map(|arg| arg.as_str().map(str::to_owned))
         .collect();
     cmux_serve(command, &args).is_some()
-}
-
-/// The name this build's server goes under in Codex, and whether the
-/// person's `cmux` entry is turned off for this launch, decided only from
-/// what Codex reported (`existing`):
-/// - no entry: `cmux`;
-/// - cmux's own entry that would merge nothing into this build's server:
-///   `cmux`;
-/// - otherwise [`CODEX_TERMINAL_SERVER`], turning the reported entry off when
-///   it is cmux's own (never a server of the person's own, never one Codex
-///   did not report).
-fn codex_placement(existing: &CodexEntry, env_keys: &[&str]) -> (&'static str, bool) {
-    match existing {
-        CodexEntry::Absent => (SERVER, false),
-        CodexEntry::Unknown => (CODEX_TERMINAL_SERVER, false),
-        CodexEntry::Found(entry) => {
-            let cmux = serves_cmux(entry);
-            if cmux && nothing_merges(entry, env_keys) {
-                (SERVER, false)
-            } else {
-                (CODEX_TERMINAL_SERVER, cmux)
-            }
-        }
-    }
-}
-
-/// [`codex_settings`] with the environment `getenv` (tests).
-pub(crate) fn codex_settings_with(
-    executable: &Path,
-    socket: &Path,
-    getenv: &dyn Fn(&str) -> Option<OsString>,
-    existing: &CodexEntry,
-) -> Option<Vec<OsString>> {
-    let env = env(executable, socket, getenv)?;
-    let env_keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
-    let (name, disable) = codex_placement(existing, &env_keys);
-    let command = toml::Value::String(executable.to_str()?.to_owned());
-    let args = toml::Value::Array(
-        args(getenv).into_iter().map(|a| toml::Value::String(a.to_owned())).collect(),
-    );
-    let table = env
-        .iter()
-        .map(|(k, v)| format!("{k}={}", toml::Value::String(v.clone())))
-        .collect::<Vec<_>>()
-        .join(",");
-    let mut settings = vec![
-        OsString::from(format!("mcp_servers.{name}.command={command}")),
-        OsString::from(format!("mcp_servers.{name}.args={args}")),
-        OsString::from(format!("mcp_servers.{name}.env={{{table}}}")),
-    ];
-    if disable {
-        settings.push(OsString::from(format!("mcp_servers.{SERVER}.enabled=false")));
-    }
-    Some(settings)
 }
 
 /// Claude Code's `--mcp-config` value (inline JSON) that adds the server.
@@ -467,11 +422,11 @@ mod tests {
 
     #[test]
     fn codex_gets_one_cmux_server_with_computer_use_behind_it() {
-        let settings = codex_settings_with(
+        let settings = codex_settings(
             Path::new("/A pp/cmux"),
             Path::new("/tmp/s \"q\".sock"),
-            &pane,
             &CodexEntry::Absent,
+            &pane,
         )
         .unwrap();
         assert_eq!(settings.len(), 3);
@@ -481,8 +436,8 @@ mod tests {
             assert!(!text.contains(COMPUTER_USE_SERVER) || text.contains(".env="), "{text}");
             let parsed: toml::Table = toml::from_str(text).unwrap();
             let servers = parsed["mcp_servers"].as_table().unwrap();
-            assert_eq!(servers.keys().collect::<Vec<_>>(), [SERVER], "{text}");
-            for (k, v) in servers[SERVER].as_table().unwrap() {
+            assert_eq!(servers.keys().collect::<Vec<_>>(), [CODEX_TERMINAL_SERVER], "{text}");
+            for (k, v) in servers[CODEX_TERMINAL_SERVER].as_table().unwrap() {
                 merged.insert(k.clone(), v.clone());
             }
         }
@@ -533,7 +488,7 @@ mod tests {
     /// The `-c` flags for a launch where Codex reported `existing`.
     fn placed(existing: CodexEntry) -> toml::Table {
         servers(
-            &codex_settings_with(Path::new("/A/cmux"), Path::new("/tmp/s.sock"), &pane, &existing)
+            &codex_settings(Path::new("/A/cmux"), Path::new("/tmp/s.sock"), &existing, &pane)
                 .unwrap(),
         )
     }
@@ -558,47 +513,35 @@ mod tests {
         CodexEntry::Found(value)
     }
 
-    /// The name and the turn-off come only from what Codex reported, never
-    /// from reading its config files (they drifted from Codex: worktrees,
-    /// `-C`, profiles, per-folder trust).
+    /// This build's server is always `cmux_terminal` in Codex, sharing no key
+    /// with a config entry, so nothing merges into it; the reported `cmux`
+    /// entry is turned off only when it is another cmux's server and on.
     #[test]
-    fn codex_placement_follows_only_what_codex_reported() {
+    fn codex_gets_cmux_terminal_and_turns_off_only_another_cmuxs_entry() {
         let names = |servers: &toml::Table| servers.keys().cloned().collect::<Vec<_>>();
         let off = |servers: &toml::Table| {
             servers.get(SERVER).and_then(|s| s.get("enabled")).and_then(toml::Value::as_bool)
         };
-        // No entry; another cmux's entry that merges nothing.
-        assert_eq!(names(&placed(CodexEntry::Absent)), [SERVER]);
-        let plain = placed(entry("/Applications/cmux.app/Contents/Resources/bin/cmux", json!({})));
-        assert_eq!((names(&plain), off(&plain)), (vec![SERVER.to_owned()], None));
-        let own_env =
-            placed(entry("/opt/cmux", json!({"transport.env": {"CMUX_TUI_SOCKET": "/old"}})));
-        assert_eq!(names(&own_env), [SERVER], "an env key the shim sets is overwritten");
-        // Another cmux's entry with anything that would stay: renamed, that entry off.
-        for extra in [
-            json!({"transport.cwd": "/w"}),
-            json!({"startup_timeout_sec": 7.0}),
-            json!({"enabled_tools": ["a"]}),
-            json!({"disabled_tools": ["b"]}),
-            json!({"transport.env": {"CMUX_TAG": "x"}}),
-            json!({"transport.env_vars": ["TOKEN"]}),
-            json!({"enabled": false}),
-            json!({"some_new_field": 1}),
+        for existing in [
+            CodexEntry::Absent,
+            CodexEntry::Unknown,
+            entry("/usr/bin/my-tool", json!({})),
+            entry("/opt/cmux", json!({"enabled": false})),
         ] {
-            let merged = placed(entry("/opt/cmux", extra.clone()));
-            assert_eq!(
-                merged[CODEX_TERMINAL_SERVER]["command"].as_str(),
-                Some("/A/cmux"),
-                "{extra}"
-            );
-            assert_eq!(off(&merged), Some(false), "{extra}");
-            assert_eq!(merged[SERVER].as_table().unwrap().len(), 1, "only `enabled`: {merged}");
+            let placed = placed(existing.clone());
+            assert_eq!(names(&placed), [CODEX_TERMINAL_SERVER], "{existing:?}");
+            assert_eq!(off(&placed), None, "nothing turned off: {existing:?}");
         }
-        // A server of the person's own named cmux: kept on, ours renamed.
-        let own = placed(entry("/usr/bin/my-tool", json!({})));
-        assert_eq!(names(&own), [CODEX_TERMINAL_SERVER]);
-        // Codex could not say: renamed, nothing turned off.
-        assert_eq!(names(&placed(CodexEntry::Unknown)), [CODEX_TERMINAL_SERVER]);
+        for existing in [
+            entry("/Applications/cmux.app/Contents/Resources/bin/cmux", json!({})),
+            entry("/opt/cmux", json!({"transport.cwd": "/w", "startup_timeout_sec": 7.0})),
+            entry("npx", json!({"transport.args": ["-y", "cmux", "mcp", "serve"]})),
+        ] {
+            let placed = placed(existing.clone());
+            assert_eq!(placed[CODEX_TERMINAL_SERVER]["command"].as_str(), Some("/A/cmux"));
+            assert_eq!(off(&placed), Some(false), "{existing:?}");
+            assert_eq!(placed[SERVER].as_table().unwrap().len(), 1, "only `enabled`: {placed}");
+        }
     }
 
     /// cmux's server is recognised however an entry runs it: the CLI, a
@@ -649,6 +592,25 @@ mod tests {
         );
         assert_eq!(of("/A/cmux-next", &["mcp", "serve"]), path("/A/cmux-next"));
         assert_eq!(of("/A/cmux-tui", &["mcp", "serve"]), path("/A/cmux-tui"));
+        // The runners' long forms.
+        assert_eq!(of("uv", &["tool", "run", "cmux", "mcp", "serve"]), published);
+        assert_eq!(
+            of("uv", &["tool", "run", "--python", "3.12", "cmux", "mcp", "serve"]),
+            published
+        );
+        assert_eq!(of("npm", &["exec", "cmux", "mcp", "serve"]), published);
+        assert_eq!(of("npm", &["exec", "--", "cmux", "mcp", "serve"]), published);
+        assert_eq!(
+            of("npm", &["exec", "--package", "cmux@1", "--", "cmux", "mcp", "serve"]),
+            published
+        );
+        assert_eq!(of("bun", &["x", "cmux", "mcp", "serve"]), published);
+        assert_eq!(of("bun", &["run", "/n/cmux.js", "mcp", "serve"]), path("/n/cmux.js"));
+        assert_eq!(
+            of("uv", &["run", "cmux", "mcp", "serve"]),
+            None,
+            "uv run is a project's script"
+        );
         for (command, args) in [
             ("/A/cmux", &["serve"][..]),
             ("/usr/bin/my-tool", &["mcp", "serve"]),
