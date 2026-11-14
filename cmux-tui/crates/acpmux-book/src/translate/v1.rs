@@ -260,6 +260,12 @@ fn mux(
             state.end_turn(end, &msg.status, out);
         }
         "message_superseded" => state.supersede(&msg.old_message_id, out),
+        _ if super::cards::record(
+            state,
+            kind,
+            super::cards::At { raw: line.raw, line: super::RawLine { place, span } },
+            out,
+        )? => {}
         _ => match kinds::find(kinds::MUX, kind).map(|known| known.draw) {
             Some(kinds::Draw::Row(spec)) => {
                 let mut row = state.drawn(&spec, line.raw, out)?;

@@ -6,6 +6,9 @@ mod asks_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod bench;
 mod blocks;
+mod cards;
+#[cfg(test)]
+mod cards_tests;
 mod checkpoint;
 pub use checkpoint::Saved;
 mod claude;
@@ -25,10 +28,11 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 9 writes what a user row says of its prompt and its sender, the ask rows and their
-/// decisions, and a turn end a prompt sent now went on under (decisions 231, 235, 236); an older
-/// book rebuilds from raw.
-pub const VERSION: u32 = 9;
+/// Version 10 writes the card rows, patched by their later records (decisions 253, 254); version
+/// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
+/// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
+/// version rebuilds from raw.
+pub const VERSION: u32 = 10;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
@@ -361,6 +365,17 @@ pub struct State {
     /// Decisions that named no open ask: one the bound settled, or one this book never saw asked.
     #[serde(skip)]
     unplaced_decisions: u64,
+    /// The cards open now, oldest first (`cards.rs`, decision 254).
+    cards: Vec<cards::Card>,
+    /// Card records whose card is not among the keys: each wrote a notice row of its own.
+    #[serde(skip)]
+    orphan_records: u64,
+    /// Card records their one-record parser refuses: no row.
+    #[serde(skip)]
+    refused_records: u64,
+    /// Cards a cap or the byte budget let go, and offers past a card's list.
+    #[serde(skip)]
+    evicted_cards: u64,
 }
 /// A turn-end notice that says `continued`, held whole: a patch replaces a settled row's body, so
 /// taking the mark back sends the notice again without it. Its fields are capped (the error at
@@ -498,6 +513,12 @@ pub struct Counters {
     pub forced_asks: u64,
     /// Decisions that named no open ask.
     pub unplaced_decisions: u64,
+    /// Card records whose card had left the keys or never opened; each is a notice row.
+    pub orphan_records: u64,
+    /// Card records their one-record parser refuses.
+    pub refused_records: u64,
+    /// Cards let go past a cap or the byte budget.
+    pub evicted_cards: u64,
 }
 impl State {
     /// Whether raw is currently inside a turn, independent of its open body rows.
@@ -512,6 +533,9 @@ impl State {
             unplaced_claims: self.unplaced_claims,
             forced_asks: self.forced_asks,
             unplaced_decisions: self.unplaced_decisions,
+            orphan_records: self.orphan_records,
+            refused_records: self.refused_records,
+            evicted_cards: self.evicted_cards,
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
