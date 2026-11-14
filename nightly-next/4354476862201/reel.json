@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4354476862201",
+  "notes": "notes/4354476862201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42772,
+      "title": "media tours: terminal-chat-swap seeds a chat a capture can open; the last swap is the key, read frame by frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42770,
+      "title": "debug.tab_switch times a tab a reveal shows (Toggle Terminal and Chat's swap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42734,
+      "title": "feat(sidebar): add Rust workspace row layout reducer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42768,
+      "title": "test(agent-pane): pin wheel glide fixture clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42771,
+      "title": "test(terminal): measure first prompt through 50 shell opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42663,
+      "title": "agent service v2: serve folders windows and pages (5f part two)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42694,
+      "title": "cmux-tui: after a start the session is stated again in parts, not by the first create",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42746,
+      "title": "cmux NEXT dialogs: the destructive button is white on red",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42693,
+      "title": "cmux-next iOS: each terminal takes the Ghostty theme of the Mac it runs on, live",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42766,
+      "title": "Agent Board: agentBoard.show in the action catalog (step A)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
