@@ -75,6 +75,9 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import thread_wakes  # noqa: E402  (per-thread wakeups and names, --attribute-trace)
+
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
 try:
@@ -266,6 +269,7 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
         if os.path.exists(path):
             os.remove(path)
     threads = [line.strip() for line in text.splitlines() if re.match(r"^\s{4}\d+ Thread_\d+", line)]
+    by_tid = thread_wakes.sample_threads(text)
     top, in_top = [], False
     for line in text.splitlines():
         if line.startswith("Sort by top of stack"):
@@ -277,7 +281,7 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
                     break
                 continue
             top.append(line.strip())
-    return {"threads": threads[:60], "top_of_stack": top[:40]}
+    return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid}
 
 
 class Attribution:
@@ -286,8 +290,9 @@ class Attribution:
     reset at the start; its main run loop's timers at the end) and live pages (`debug.cef_pages`);
     after it, a short stack `sample` of both."""
 
-    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu")):
+    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu"), trace_s: int = 0):
         self.app, self.app_pid, self.bundle, self.kinds = app, app_pid, bundle, kinds
+        self.trace_s = trace_s
         self.before: dict = {}
         self.started = 0.0
 
@@ -310,7 +315,25 @@ class Attribution:
         timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
         pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
         stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
-        return {"window_s": round(seconds, 1), "threads": threads,
+        # Each thread named: its pthread name, else its sample header or first frames (by thread id).
+        for key, rows in threads.items():
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            for row in rows:
+                row["label"] = thread_wakes.label(row["name"], sampled.get(row["thread"]))
+        # --attribute-trace: per-thread wakeups from a System Trace after the window (so it is not in
+        # the rusage window), each thread named the same way.
+        wakes = {}
+        for pid, kind in (pids.items() if self.trace_s > 0 else ()):
+            key = f"{kind}:{pid}"
+            got = thread_wakes.record(pid, self.trace_s)
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            if got.get("error"):
+                wakes[key] = {"error": got["error"]}
+                continue
+            wakes[key] = thread_wakes.summarize(got, sampled)
+        for stack in stacks.values():
+            stack.pop("by_tid", None)
+        return {"thread_wakes": wakes,"window_s": round(seconds, 1), "threads": threads,
                 "ledger": [{k: e.get(k) for k in ("owner", "reason", "count")} for e in ledger[:25]],
                 "frame_clients": wakeups.get("active_frame_clients"),
                 "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
@@ -324,8 +347,18 @@ def print_attribution(label: str, found: dict):
     print(f"PERF-ATTR {label} window_s={window}")
     for key, rows in found["threads"].items():
         for row in rows:
-            print(f"PERF-ATTR {label} thread {key} name={row['name']!r} cpu_ms_per_s={row['cpu_ms_per_s']}"
+            print(f"PERF-ATTR {label} thread {key} tid={row['thread']} name={row.get('label', row['name'])!r} "
+                  f"cpu_ms_per_s={row['cpu_ms_per_s']}"
                   f"{' new' if row['new'] else ''}")
+    for key, got in (found.get("thread_wakes") or {}).items():
+        if got.get("error"):
+            print(f"PERF-ATTR {label} wakes {key} error={got['error']!r}")
+            continue
+        print(f"PERF-ATTR {label} wakes {key} window_s={got['seconds']} total_wakes_per_s={got['total_wakes_per_s']}")
+        for row in got["threads"][:25]:
+            print(f"PERF-ATTR {label} wakes {key} tid={row['thread']} name={row['label']!r} "
+                  f"wakes_per_s={row['wakes_per_s']} runs_per_s={row['runs_per_s']} cpu_ms_per_s={row['cpu_ms_per_s']}"
+                  f" frames={' > '.join(row['frames'])!r}")
     for entry in found["ledger"]:
         print(f"PERF-ATTR {label} ledger owner={entry['owner']} reason={entry['reason']!r} "
               f"per_s={round((entry['count'] or 0) / window, 2)}")
@@ -1038,6 +1071,9 @@ def main():
                              "PERF-ATTR lines")
     parser.add_argument("--attribute-kinds", default="app,cef-gpu",
                         help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
+    parser.add_argument("--attribute-trace", type=int, default=0, metavar="SECONDS",
+                        help="--attribute: also record SECONDS of System Trace per attributed process after each "
+                             "window, and print each thread's wakeups per second with its name (thread_wakes.py)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1073,7 +1109,7 @@ def main():
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         kinds = tuple(kind for kind in args.attribute_kinds.split(",") if kind)
-        attribution = Attribution(app, app_pid, bundle, kinds) if args.attribute and args.measure > 0 else None
+        attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
