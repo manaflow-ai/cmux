@@ -106,9 +106,10 @@ extension CEFDeferredFocusTests {
         defer { leavingPage.closeAfterTest() }
         // The window of the page that shows. Both pages fill the same area. A hosted page's window is out of the
         // cmux window while the page is detached. The fork's stand-in below is a model of the fork's order: it puts
-        // the window in from a run-loop observer in the pass after the attach call, before the after-commit observer
-        // of that pass, which ends the hold. A grant at the attach call, or in that next pass before its commit, finds
-        // no window to make key.
+        // the window in from a run-loop observer in the pass after the attach call, right after that pass's Core
+        // Animation commit (before-waiting, order 2,000,000) and before the after-commit observer that ends the hold
+        // (order max). A grant at the attach call, or in that next pass before the stand-in's observer, finds no window
+        // to make key.
         let showingPage = NSWindow(contentRect: leavingPage.frame, styleMask: .borderless, backing: .buffered, defer: true)
         showingPage.setFrame(leavingPage.frame, display: false)
         defer { showingPage.closeAfterTest() }
@@ -116,7 +117,9 @@ extension CEFDeferredFocusTests {
         _ = try hostedPage(of: leavingHost, browser: 43) { _ in }
         let hosting = try hostedPage(of: showingHost, browser: 44) { detached in
             log.items.append(detached ? "detach" : "attach")
-            if !detached { MainRunLoopObserver.once(activities: .beforeWaiting) { window.addChildWindow(showingPage, ordered: .above) } }
+            if !detached {
+                MainRunLoopObserver.once(activities: .beforeWaiting, order: 2_000_001) { window.addChildWindow(showingPage, ordered: .above) }
+            }
         }
         // The second workspace hides: the first one shows.
         workspaces[1].isHidden = true
