@@ -34,6 +34,21 @@ struct CLIError: Error, CustomStringConvertible {
     /// The v2 method whose response carried this error, so an uncaught
     /// `method_not_found` can name it (``CLIVersionSkew``).
     let v2Method: String?
+    /// The page's open JavaScript dialog from a `dialog_pending` error's data.
+    let browserDialog: BrowserDialog?
+
+    /// A page's JavaScript dialog as a browser command reports it.
+    struct BrowserDialog: Equatable {
+        let type: String
+        let message: String
+
+        init?(_ value: Any?) {
+            guard let dialog = value as? [String: Any],
+                  let type = dialog["type"] as? String else { return nil }
+            self.type = type
+            self.message = (dialog["message"] as? String) ?? ""
+        }
+    }
 
     init(
         message: String,
@@ -44,7 +59,8 @@ struct CLIError: Error, CustomStringConvertible {
         vmBackendCode: String? = nil,
         vmBackendHTTPStatus: Int? = nil,
         socketFailureKind: SocketFailureKind? = nil,
-        v2Method: String? = nil
+        v2Method: String? = nil,
+        browserDialog: BrowserDialog? = nil
     ) {
         self.message = message
         self.exitCode = exitCode
@@ -55,6 +71,23 @@ struct CLIError: Error, CustomStringConvertible {
         self.vmBackendHTTPStatus = vmBackendHTTPStatus
         self.socketFailureKind = socketFailureKind
         self.v2Method = v2Method
+        self.browserDialog = browserDialog
+    }
+
+    /// This error with `line` added below its message.
+    func appendingLine(_ line: String) -> CLIError {
+        CLIError(
+            message: "\(message)\n\(line)",
+            exitCode: exitCode,
+            v2Code: v2Code,
+            isStructuredProtocolResponse: isStructuredProtocolResponse,
+            v2Retryable: v2Retryable,
+            vmBackendCode: vmBackendCode,
+            vmBackendHTTPStatus: vmBackendHTTPStatus,
+            socketFailureKind: socketFailureKind,
+            v2Method: v2Method,
+            browserDialog: browserDialog
+        )
     }
 
     var description: String { message }
