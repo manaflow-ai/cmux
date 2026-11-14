@@ -159,7 +159,14 @@ import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import {
+  isCompletedPlumbingTool,
+  isMuseTodoCall,
+  isPlanToolCall,
+  isPlumbingCall,
+  showsNothing,
+  withAwaitingCall,
+} from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -9712,16 +9719,26 @@ export class AcpmuxDirectClient {
       const terminal = ["completed", "failed", "stopped"].includes(String(update.status));
       const carriesResult =
         update.content !== undefined || update.rawOutput !== undefined || (terminal && update.error);
-      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update) && !carriesResult) return;
-      if (!knownRow && !isPlumbingCall(update)) this.endAssistantSegment();
+      const callUnseen = !knownRow && event.kind === "tool_call_update" && showsNothing(update);
+      if (callUnseen && !carriesResult) return;
+      // That held result draws and counts as nothing (`awaitingCall`, hiddenTools.ts) until its
+      // call's page joins it, as the whole record draws a hidden call's result: no row, and no
+      // cut in the reply around it.
+      if (!knownRow && !callUnseen && !isPlumbingCall(update)) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = this.holdEdit(
+      const merged = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
+      const awaiting =
+        itemIndex < 0 ? callUnseen : items[itemIndex].tool?.awaitingCall === true && showsNothing(update);
+      const item: AcpmuxActivity =
+        merged.tool && (merged.tool.awaitingCall === true) !== awaiting
+          ? { ...merged, tool: withAwaitingCall(merged.tool, awaiting) }
+          : merged;
       const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;
       // Streaming output alone leaves the summary unchanged; metadata is visible immediately.
       const summaryChanged = (
@@ -14653,6 +14670,17 @@ export class AcpmuxDirectClient {
   /// Older pages read ahead of the reader (`readOlderAhead`), by the `beforeSeq` each was asked with, for
   /// the chat, visit, held history and paging epoch they were read in (`olderKey`).
   private olderAhead?: { key: string; pages: Map<number, Promise<any>> };
+  /// The records an older page read but did not land (`fetchOlder` keeps whole turns, so the end
+  /// of a turn further back waits): `before` is the oldest seq read, `from` the held records' first
+  /// seq they end at. The next ask reads on from `before` and lands them with its page, so no read
+  /// asks again for records already read (and read-ahead chains from `before`).
+  private olderCarry?: { key: string; before: number; from: number; events: EventRecord[] };
+  /// The carried records for this chat's next older read, while they still end where the held ones
+  /// begin; otherwise none.
+  private olderCarryFor(sessionId: string, pagingEpoch: number) {
+    const carry = this.olderCarry;
+    return carry?.key === this.olderKey(sessionId, pagingEpoch) && carry.from === this.firstSeq ? carry : undefined;
+  }
   private olderKey(sessionId: string, pagingEpoch: number): string {
     return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
   }
@@ -14689,7 +14717,8 @@ export class AcpmuxDirectClient {
     const pages = new Map<number, Promise<any>>();
     const ahead = { key, pages };
     this.olderAhead = ahead;
-    let before = this.firstSeq;
+    // Past the records already read and carried (`olderCarry`), where the next ask reads.
+    let before = this.olderCarryFor(sessionId, pagingEpoch)?.before ?? this.firstSeq;
     void (async () => {
       for (let read = 0; read < OLDER_AHEAD_PAGES; read++) {
         if (this.olderAhead !== ahead || !this.canPageOlder(pagingEpoch)) return;
@@ -14807,7 +14836,13 @@ export class AcpmuxDirectClient {
     // older records behind a whole-turn scan. Records before the oldest older turn start finish a
     // turn further back and remain for the next bounded ask; on the final page there is no next
     // ask, so its prefix stays too (native adoption history can begin before its first prompt).
-    const publish = (older: EventRecord[], pageMore: boolean) => {
+    // What the last ask read but left for this one (`olderCarry`): it lands with this ask's page.
+    const key = this.olderKey(sessionId, pagingEpoch);
+    let carried = this.olderCarryFor(sessionId, pagingEpoch);
+    const publish = (read: EventRecord[], pageMore: boolean) => {
+      const older = carried ? [...read, ...carried.events] : read;
+      carried = undefined;
+      this.olderCarry = undefined;
       // The open landed inside the turn on screen: the page holding its prompt makes it whole, and
       // the rest of a longer turn above it waits for the next ask (the user, 2026-11-03: a reply
       // starting mid-sentence under its prompt, and nothing above).
@@ -14819,6 +14854,9 @@ export class AcpmuxDirectClient {
       if (start < 0 && pageMore && cutOpener !== undefined) start = older.findIndex((event) => event.seq >= cutOpener);
       const page = start > 0 ? older.slice(start) : older;
       if (page.length === 0) return;
+      // The records left above the page were read: the next ask reads on past them, not again.
+      if (start > 0)
+        this.olderCarry = { key, before: older[0]!.seq, from: page[0]!.seq, events: older.slice(0, start) };
       // The held records start inside a turn, and this page brings that turn's start: refold it whole
       // once, so it draws as reading the whole record does. Pages inside the turn before it fold
       // incrementally (`foldOlder`), so a long turn costs one refold, not one per page.
@@ -14847,7 +14885,7 @@ export class AcpmuxDirectClient {
       this.emit("history");
     };
     let more = true;
-    let before = this.firstSeq;
+    let before = carried?.before ?? this.firstSeq;
     let windowed = false;
     let foundThrough = through === undefined;
     // A rail jump far back reads the window down to its target at once (`readWindow`) and lands it.
@@ -15267,7 +15305,7 @@ export class AcpmuxDirectClient {
             return {
               ...entry,
               tool: {
-                ...entry.tool,
+                ...withAwaitingCall(entry.tool, false),
                 title: entry.tool.title === callId ? pageTool.title : entry.tool.title,
                 kind: entry.tool.kind ?? pageTool.kind,
                 inputSummary: entry.tool.inputSummary ?? pageTool.inputSummary,
