@@ -74,6 +74,15 @@ IOS_SOURCE_DIRS = (
     "Packages/iOS/CmuxConversation/Sources",
 )
 LOCALIZABLE_GLOB = "cmux-next-ios/CmuxMobileKit/Sources/*/Resources/Localizable.xcstrings"
+# The purpose-string check reads every Swift file the app links, not only the
+# folders above: the kit's local packages (Packages/iOS/*, Packages/Shared/*)
+# and theirs, found from the `.package(path:)` lines of each Package.swift and
+# the `packages:` paths in project.yml. A privacy API that moved into a shared
+# package (the microphone in CmuxChiefVoiceCore, the camera in CmuxScreenKit,
+# dictation in CmuxMobileSupport) is still the app's prompt.
+LINKED_PACKAGE_ROOTS = ("cmux-next-ios/CmuxMobileKit",)
+PACKAGE_PATH_RE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
+PROJECT_PACKAGE_PATH_RE = re.compile(r"^\s{4}path:\s*(\.\./Packages/\S+|CmuxMobileKit)\s*$", re.M)
 # The NEXT app's App Store review package (metadata, screenshots, reviewer
 # notes) and the rejection history live beside the app.
 REVIEW_DIR = "cmux-next-ios/AppStoreReview"
@@ -155,9 +164,40 @@ class Lint:
 
     # ------------------------------------------------------------------ files
 
-    def swift_files(self) -> Iterable[Path]:
-        for rel in IOS_SOURCE_DIRS:
-            base = self.root / rel
+    def linked_package_dirs(self) -> list[Path]:
+        """Every local Swift package the app links, transitively."""
+        roots = [self.root / rel for rel in LINKED_PACKAGE_ROOTS]
+        project = self.root / PROJECT_YML
+        if project.is_file():
+            for rel in PROJECT_PACKAGE_PATH_RE.findall(project.read_text(errors="ignore")):
+                roots.append((self.root / APP_DIR / rel).resolve())
+        seen: list[Path] = []
+        queue = [r.resolve() for r in roots]
+        while queue:
+            pkg = queue.pop(0)
+            if pkg in seen or not (pkg / "Package.swift").is_file():
+                continue
+            seen.append(pkg)
+            text = (pkg / "Package.swift").read_text(errors="ignore")
+            for rel in PACKAGE_PATH_RE.findall(text):
+                queue.append((pkg / rel).resolve())
+        return seen
+
+    def linked_texts(self) -> dict[Path, str]:
+        """The app's own folders plus every linked package's Sources."""
+        out = dict(self.texts())
+        dirs = [pkg / "Sources" for pkg in self.linked_package_dirs()]
+        for path in self.swift_files(dirs):
+            if path not in out:
+                try:
+                    out[path] = path.read_text(errors="ignore")
+                except OSError:
+                    continue
+        return out
+
+    def swift_files(self, dirs: Iterable[Path] | None = None) -> Iterable[Path]:
+        bases = list(dirs) if dirs is not None else [self.root / rel for rel in IOS_SOURCE_DIRS]
+        for base in bases:
             if not base.is_dir():
                 continue
             for path in base.rglob("*.swift"):
@@ -461,25 +501,29 @@ class Lint:
             "NSContactsUsageDescription": (r"CNContactStore", "contacts"),
             "NSCalendarsUsageDescription": (r"EKEventStore", "calendars"),
             "NSBluetoothAlwaysUsageDescription": (r"CBCentralManager|CBPeripheralManager", "Bluetooth"),
-            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication", "Face ID"),
+            "NSFaceIDUsageDescription": (r"LAContext|evaluatePolicy\(\.deviceOwnerAuthentication|\.biometry(Any|CurrentSet)\b|kSecAccessControlBiometry", "Face ID"),
             "NSUserTrackingUsageDescription": (r"ATTrackingManager", "tracking"),
             "NSLocalNetworkUsageDescription": (r"NWBrowser|NWListener|NetServiceBrowser|_udp|Bonjour", "local network"),
         }
-        joined = "\n".join(self.texts().values())
+        linked = self.linked_texts()
+        joined = "\n".join(linked.values())
         for key, (pattern, label) in usage.items():
             uses = re.search(pattern, joined) is not None
             value = plist.get(key)
             if uses and not value:
                 self.add("privacy.purpose-string", "5.1.1", "blocker",
                          f"the app uses the {label} API but {key} is missing", where)
-            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?) (access|permission)\b.*", value)):
+            elif value and (len(value) < 25 or re.fullmatch(r"(?i).*\b(needs?|requires?|wants?) (to )?(access|permission|use)\b.*", value)
+                            or re.fullmatch(r"(?i)\s*(this app|the app|cmux) (uses|accesses|would like)\b.*", value)):
                 self.add("privacy.purpose-string-vague", "5.1.1", "warning",
                          f"{key} is too generic for App Review: {value!r}", where)
-        # NSBonjourServices names the services a browser looks for; the app's
-        # local-network use is a direct dial to the Mac's address, no browsing.
-        browses = re.search(r"NWBrowser|NetServiceBrowser", joined) is not None
-        if browses and "NSLocalNetworkUsageDescription" in plist and not plist.get("NSBonjourServices"):
-            self.add("privacy.bonjour", "5.1.1", "warning", "local network purpose string without NSBonjourServices", where)
+        # NSBonjourServices lists the service types the app browses or
+        # advertises; dialing a LAN address (or a localhost NWListener) needs
+        # only the purpose string, so the key is asked for only when Bonjour is.
+        bonjour = re.search(r"NWBrowser|NetServiceBrowser|NetService\(|NWListener\.Service|\.bonjour(WithTXTRecord)?\(", joined)
+        if bonjour and not plist.get("NSBonjourServices"):
+            self.add("privacy.bonjour", "5.1.1", "blocker",
+                     "the app browses or advertises Bonjour services but NSBonjourServices is missing", where)
         if "ITSAppUsesNonExemptEncryption" not in plist:
             self.add("export.encryption", "2.1", "warning", "ITSAppUsesNonExemptEncryption is not declared", where)
         ats = plist.get("NSAppTransportSecurity") or {}

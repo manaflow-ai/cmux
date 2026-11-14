@@ -326,7 +326,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
@@ -357,7 +357,7 @@ final class HomeHostView: NSView {
         let reveal = services.launchReveal
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
-            await binding.opened()
+            await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
             // A Home released before its page came (deinit cancels this) must not
             // reveal the Home that replaced it, which waits for its own page.
             guard let self, !Task.isCancelled else { return }

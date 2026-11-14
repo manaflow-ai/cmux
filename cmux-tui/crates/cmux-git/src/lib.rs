@@ -17,6 +17,7 @@ pub mod harness_head;
 pub mod head;
 #[cfg(unix)]
 pub mod native_hook;
+mod own_work_tree;
 pub mod parse;
 pub mod refs;
 mod repository;
@@ -28,6 +29,7 @@ pub mod sync_barrier;
 pub mod worktree_root;
 pub mod write_run;
 
+pub use own_work_tree::two_folders;
 pub use repository::{OpenError, Repository, filter_overrides, main_root};
 
 /// The output limit for a run whose result is a line or a few names.
