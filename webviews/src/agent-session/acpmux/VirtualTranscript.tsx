@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_PROMPT, rowMark, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_COMPOSER_GAP, transcriptGap } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -44,6 +44,7 @@ import {
   isLiveLine,
   isContinuationFooter,
   isLineRow,
+  gridMark,
   isLiveStep,
   opensBackgroundTurn,
   restRoom,
@@ -6607,7 +6608,13 @@ function TranscriptView({
                         opensTurn={opensBackgroundTurn(row, prevDrawnRow(rows, absoluteIndex))}
                         beforeFooter={isBeforeFooter(row, next)}
                         beforeIndicator={
-                          next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
+                          // The prompt's action row centres in the gap the layout leaves under it: the
+                          // block gap (24) over a live indicator or the live line just sent, the turn gap
+                          // (32) over "Working for", which is that turn's header (model.ts gridMark), not
+                          // an indicator (https://github.com/manaflow-ai/cmux/issues/42444).
+                          next !== undefined &&
+                          rowMark(row) === MARK_PROMPT &&
+                          transcriptGap(MARK_PROMPT, gridMark(next, row)) === TRANSCRIPT_BLOCK_GAP
                         }
                         replyActions={keepsReplyRoom(row, next)}
                         status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
