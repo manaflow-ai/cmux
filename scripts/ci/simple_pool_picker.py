@@ -181,6 +181,11 @@ class Pool:
     # Counts of queued jobs by declared priority band. Running jobs remain in
     # ``running`` and are never candidates for preemption.
     queued_bands: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # A Blacksmith label the snapshot shows dead (blacksmith_dead()): stalled too, and ranked below a label that
+    # is merely busy. Cloud chat proof run 42899558899 (2026-11-10) went to the dead 12 vCPU label, 0 running and
+    # 8 queued for 252 minutes, because the 6 vCPU label was stalled by the queue rule too (30 queued, 13
+    # running) and the all-stalled fallback then ranked by load alone.
+    dead: bool = False
 
     @property
     def available(self) -> int:
@@ -323,7 +328,9 @@ def _pick_blacksmith(state: State) -> Choice:
     # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first. This
     # comes before the reservation filter so that, with every moving label held, a run queues on a held moving
     # label rather than on a dead one.
-    eligible = [pool for pool in eligible if not pool.stalled] or eligible
+    # With every label stalled, a busy label that is still starting jobs comes before a dead one.
+    eligible = ([pool for pool in eligible if not pool.stalled] or [pool for pool in eligible if not pool.dead]
+                or eligible)
     # A label holding queued release, nightly or app FFI release work is never the overflow either: the
     # least-loaded choice below used to ignore the reservation. Only when every moving label is held does a run
     # queue on one, as it would on any full label.
@@ -346,7 +353,7 @@ def _pool(item: Pool | Mapping[str, Any]) -> Pool:
                 int(item.get("queued", 0)), None if item.get("free") is None else int(item["free"]),
                 int(item.get("reserved", 0)), str(item.get("xcode_app", "")), bool(item.get("stalled", False)),
                 {str(key): max(0, int(value)) for key, value in queued_bands.items()
-                 if str(key) in PRIORITY_RANK})
+                 if str(key) in PRIORITY_RANK}, bool(item.get("dead", False)))
 
 
 class LiveState:
@@ -496,7 +503,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
                       "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)
-                      or label in gone}
+                      or label in gone, "dead": label in gone}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "",

@@ -276,6 +276,28 @@ class BlacksmithStallTests(unittest.TestCase):
             dataclasses.replace(item, stalled=True) for item in state.blacksmith))
         self.assertTrue(picker.pick(every).label.startswith("blacksmith-"))
 
+    def test_with_both_macos_26_labels_stalled_a_busy_one_beats_a_dead_one(self):
+        """2026-11-10 snapshot: 12 vCPU dead (8 queued for 252 min, none running, no start) and 6 vCPU stalled by
+        the queue rule while it ran 13 and kept starting jobs. Ranking every stalled label by load alone took the
+        dead one (8/5 under 43/10), and Cloud chat proof run 42899558899 sat there for over 90 minutes."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+        started = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "truncated": False,
+                "pools": {large: {"queued": 8, "running": 0, "oldest_queued_minutes": 252},
+                          small: {"queued": 30, "running": 13, "oldest_queued_minutes": 74}},
+                "label_started": {small: started}}
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[large].stalled and by_label[large].dead)
+        self.assertTrue(by_label[small].stalled)
+        self.assertFalse(by_label[small].dead)
+        macos_26 = dataclasses.replace(state, blacksmith=(by_label[large], by_label[small]))
+        self.assertEqual(picker.pick(macos_26).label, small)
+        # A serialized state keeps the mark.
+        self.assertTrue(picker._pool(dataclasses.asdict(by_label[large])).dead)
+
 
 class LiveRunnerReadTests(unittest.TestCase):
     """The organization has hundreds of runners; the minis are not on the first page."""
