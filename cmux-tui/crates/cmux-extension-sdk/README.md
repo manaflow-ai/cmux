@@ -22,7 +22,8 @@ npm install cmux-extension-sdk        # or: bun add cmux-extension-sdk
 ```
 
 Until the package is on npm, point at a cmux checkout:
-`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`.
+`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`. `cmux ext dev` needs neither:
+with no copy in the folder, it builds against the SDK built into the CLI.
 
 `cmux-app.json`: what the extension is, the places it fills, and the scopes it asks for.
 
