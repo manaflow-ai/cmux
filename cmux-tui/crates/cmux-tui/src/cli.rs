@@ -135,7 +135,7 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
-pub(crate) use auth_token::{AppToken, app_token};
+pub(crate) use auth_token::app_token;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
