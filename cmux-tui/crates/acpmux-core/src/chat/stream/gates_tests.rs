@@ -479,7 +479,8 @@ fn resume_sample(rt: &Runtime, side: &mut Resumer) -> u64 {
             assert_ne!(
                 frame.kind,
                 FrameKind::Window,
-                "a resume of {MISSED_TURNS} turns got a window"
+                "a resume of {MISSED_TURNS} turns from {cursor} (edition {edition}) got a window: {}",
+                String::from_utf8_lossy(frame.payload().get(..400).unwrap_or(frame.payload()))
             );
             assert_ne!(
                 frame.kind,
@@ -1095,7 +1096,8 @@ fn stopped_worker(case: &str) -> Value {
     let stdout = String::from_utf8(output.stdout).unwrap();
     print!("{stdout}");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let line = stdout.lines().find_map(|line| line.strip_prefix(STOPPED_LINE)).unwrap();
+    // The harness prints the test's name on the same line, before the result.
+    let line = stdout.lines().find_map(|line| line.split_once(STOPPED_LINE)).unwrap().1;
     serde_json::from_str(line).unwrap()
 }
 
