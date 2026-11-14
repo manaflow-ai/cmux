@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cmux-next-mobile-native",
+  // Lawrencechen2002@gmail.com's Account. Never deploy to f6dc2896a972b2d492ec89b1548b74db.
+  "account_id": "0c1675e0def6de1ab3a50a4e17dc5656",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+
+  "durable_objects": {
+    "bindings": [{ "name": "SIGNAL_ROOM", "class_name": "SignalRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SignalRoom"] }],
+
+  // TODO(email): no Email Sending domain is onboarded on this account yet.
+  // Onboard one (`wrangler email sending enable <domain>` and its DNS records),
+  // set EMAIL_FROM to an address on it, then uncomment this binding. Until then
+  // /v1/auth/email/start returns 503 email_unavailable for non-test addresses.
+  // "send_email": [{ "name": "SEND_EMAIL" }],
+
+  "vars": {
+    "APPLE_AUDIENCE": "dev.cmux.next.native",
+    "EMAIL_FROM": "cmux <no-reply@cmux.dev>",
+    "TEST_EMAIL_DOMAIN": "test.cmux.dev",
+    // Exact addresses (comma separated) that sign in with TEST_LOGIN_CODE. Other
+    // @test.cmux.dev addresses get 503 email_unavailable. smoke-native is used
+    // only by scripts/smoke.ts, which deletes that account at the end of a run.
+    "TEST_LOGIN_EMAILS": "aziz-native@test.cmux.dev,smoke-native@test.cmux.dev"
+  }
+  // Secrets (wrangler secret put): JWT_SECRET, TEST_LOGIN_CODE, DATABASE_HOST,
+  // DATABASE_USERNAME, DATABASE_PASSWORD, and optionally TURN_KEY_ID, TURN_KEY_API_TOKEN.
+}
