@@ -143,17 +143,40 @@ fn parts(path: &Path) -> Vec<&str> {
 }
 
 /// Whether `path` is in a package runner's disposable cache, gone after the
-/// run or the next cleanup: npx (`_npx`), uvx (`archive-v0`), `pipx run`
-/// (`pipx/.cache`), bunx (`bunx-…`) or `pnpm dlx` (`pnpm/dlx`).
+/// run or the next cleanup: npx (`_npx`), uvx (`archive-v0`), bunx
+/// (`bunx-…`), `pnpm dlx` (`pnpm/dlx`), or `pipx run`'s environments
+/// (`PIPX_VENV_CACHEDIR`; by default `~/.cache/pipx` on Linux and
+/// `~/Library/Caches/pipx` on macOS since pipx 1.3, `~/.local/pipx/.cache`
+/// before: checked live with pipx 1.18.16 on Linux and 1.11.1 on macOS).
 pub(super) fn temporary_cache(path: &Path) -> bool {
+    temporary_cache_with(path, &|key| std::env::var_os(key))
+}
+
+fn temporary_cache_with(path: &Path, getenv: &dyn Fn(&str) -> Option<OsString>) -> bool {
     let parts = parts(path);
-    parts.iter().any(|part| *part == "_npx" || *part == "archive-v0" || part.starts_with("bunx-"))
-        || parts.windows(2).any(|pair| pair == ["pipx", ".cache"] || pair == ["pnpm", "dlx"])
+    if parts
+        .iter()
+        .any(|part| *part == "_npx" || *part == "archive-v0" || part.starts_with("bunx-"))
+    {
+        return true;
+    }
+    if parts.windows(2).any(|pair| {
+        matches!(
+            pair,
+            ["pipx", ".cache"] | [".cache", "pipx"] | ["Caches", "pipx"] | ["pnpm", "dlx"]
+        )
+    }) {
+        return true;
+    }
+    getenv("PIPX_VENV_CACHEDIR")
+        .filter(|dir| !dir.is_empty())
+        .is_some_and(|dir| path.starts_with(&dir) || path.starts_with(resolved(Path::new(&dir))))
 }
 
 /// Whether `path`, outside any app bundle, is where a shipped release
 /// installs cmux's CLI for good: npm's platform package
-/// (`node_modules/cmux-tui-<platform>/bin/cmux-tui`,
+/// (`node_modules/cmux-tui-<platform>/bin/cmux-tui`) or its launcher
+/// (`node_modules/cmux/bin/cmux.js`,
 /// cmux-tui/dist/npm/cmux/bin/cmux.js) or the PyPI wheel
 /// (`site-packages/cmux_tui/bin/cmux-tui`, or Debian's and Ubuntu's
 /// `dist-packages`; cmux-tui/dist/scripts/package_pypi.py), never a package
@@ -170,9 +193,27 @@ fn known_install(path: &Path) -> bool {
         return false;
     };
     *bin == "bin"
-        && ((*package_parent == "node_modules" && package.starts_with("cmux-tui-"))
+        && ((*package_parent == "node_modules"
+            && (package.starts_with("cmux-tui-") || *package == "cmux"))
             || (matches!(*package_parent, "site-packages" | "dist-packages")
                 && *package == "cmux_tui"))
+}
+
+/// Whether `path` is the console script a PyPI install of cmux puts on PATH
+/// (`<prefix>/bin/cmux`, cmux-tui/dist/scripts/package_pypi.py): a Python
+/// script that starts the wheel's `cmux_tui` binary. npm's launcher is a link
+/// into `node_modules/cmux/bin/cmux.js`, which [`known_install`] knows once
+/// the link is followed.
+fn pypi_launcher(path: &Path) -> bool {
+    use std::io::Read as _;
+    let mut head = [0u8; 4096];
+    let Ok(read) = std::fs::File::open(path).and_then(|mut file| file.read(&mut head)) else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&head[..read]);
+    text.starts_with("#!")
+        && text.lines().next().is_some_and(|line| line.contains("python"))
+        && text.contains("cmux_tui")
 }
 
 /// Why the cmux at `command` is a development build, or `None`. A cmux app
@@ -194,7 +235,7 @@ pub(super) fn dev_build(command: &Path) -> Option<String> {
         if temporary_cache(&command) {
             return Some("it runs from a temporary cache".to_owned());
         }
-        return (!known_install(&command))
+        return (!known_install(&command) && !pypi_launcher(&command))
             .then(|| "it runs from outside any installed cmux".to_owned());
     };
     let Some(identity) = AppIdentity::from_bundle(Some(&command)) else {
@@ -263,6 +304,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let base = || vec![("HOME", home.display().to_string())];
+        // `pip install cmux`'s console script on PATH.
+        let pypi = dir.path().join("pyenv/bin/cmux");
+        std::fs::create_dir_all(pypi.parent().unwrap()).unwrap();
+        std::fs::write(
+            &pypi,
+            "#!/pyenv/bin/python3\nimport sys\nfrom cmux_tui import main\nsys.exit(main())\n",
+        )
+        .unwrap();
         let shipped = [
             bundle(dir.path(), "cmux", "com.cmuxterm.app", None),
             bundle(dir.path(), "cmux NIGHTLY", "com.cmuxterm.app.nightly", None),
@@ -278,6 +327,8 @@ mod tests {
             dir.path().join("lib/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
             dir.path().join("venv/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui"),
             dir.path().join("usr/lib/python3/dist-packages/cmux_tui/bin/cmux-tui"),
+            dir.path().join("lib/node_modules/cmux/bin/cmux.js"),
+            pypi,
         ];
         for exe in &shipped {
             assert_eq!(writer(exe, env(base())), Writer::Global, "{exe:?}");
@@ -327,6 +378,12 @@ mod tests {
             dir.path().join(
                 "home/Library/Caches/pnpm/dlx/x/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui",
             ),
+            // `pipx run` (pipx 1.3+): Linux's and macOS's cache folders.
+            dir.path()
+                .join("home/.cache/pipx/0f3e/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui"),
+            dir.path().join(
+                "home/Library/Caches/pipx/0f3e/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui",
+            ),
         ];
         for exe in &temporary {
             let Writer::Terminals(why) = writer(exe, env(base())) else { panic!("{exe:?}") };
@@ -375,6 +432,18 @@ mod tests {
             );
             assert_eq!(dev_build(&exe), None, "{id}");
         }
+    }
+
+    /// `PIPX_VENV_CACHEDIR` names where `pipx run` keeps its environments.
+    #[test]
+    fn pipx_venv_cachedir_is_a_temporary_cache() {
+        let exe =
+            Path::new("/srv/pipx-runs/0f3e/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui");
+        let none = |_: &str| None;
+        assert!(!temporary_cache_with(exe, &none));
+        let set =
+            |key: &str| (key == "PIPX_VENV_CACHEDIR").then(|| OsString::from("/srv/pipx-runs"));
+        assert!(temporary_cache_with(exe, &set));
     }
 
     /// The settings file an entry names is the shared one by its path or a

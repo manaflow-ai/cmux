@@ -91,10 +91,18 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     }
     // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
     // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
+    // Which of Codex's config layers this launch loads: the folder it starts
+    // in (project layers) and the profile its arguments name.
+    let cwd = std::env::current_dir().ok();
+    let launch_layers = crate::agent_computer_use::CodexLaunch {
+        cwd: cwd.as_deref(),
+        profile: crate::agent_computer_use::codex_profile(args),
+    };
     for setting in crate::agent_mcp_choice::codex_settings(
         cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
         &executable,
         &socket,
+        launch_layers,
     ) {
         launch.push(OsString::from("-c"));
         launch.push(setting);

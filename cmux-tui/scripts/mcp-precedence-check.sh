@@ -12,20 +12,25 @@
 #
 # Without --cmux it checks the agents' own rules with two fake servers, `user`
 # (the config entry) and `shim` (what the shim passes):
-#   1. Claude Code: a --mcp-config server replaces a same-named user-scope
-#      entry whole (only `shim` starts).
+#   1. Claude Code: a --mcp-config server replaces a same-named entry of the
+#      user, project (.mcp.json) and local scopes whole (only `shim` starts).
 #   2. Codex: -c mcp_servers.cmux.* merges into the config.toml entry key by
 #      key (the entry's cwd, timeouts and other env keys stay).
 #   3. Codex: a server under its own name with the entry turned off
 #      (-c mcp_servers.cmux.enabled=false) gets none of the entry's settings.
+#   4. Codex: which layers merge into mcp_servers.cmux: a trusted project's
+#      .codex/config.toml (root to launch folder; not when untrusted, not above
+#      the git root) and $CODEX_HOME/NAME.config.toml with --profile NAME.
 # With --cmux PATH (a cmux build's bundled CLI) it also runs that build's real
-# `claude` and `codex` shims and checks what each agent gets.
+# `claude` and `codex` shims (the codex one from a trusted project with a
+# .codex layer, and with --profile) and checks what each agent gets.
+# JSON is read from stdout only: Codex may warn on stderr.
 # Prints PASS or FAIL per check and exits 1 on any FAIL.
 set -u
 CMUX=""
 [ "${1:-}" = --cmux ] && CMUX=$2
-here=$(cd "$(dirname "$0")" && pwd)
-D=$(mktemp -d /tmp/mcp-precedence.XXXXXX)
+# The real folder (/tmp is /private/tmp on macOS): project paths are matched as Codex resolves them.
+D=$(cd "$(mktemp -d /tmp/mcp-precedence.XXXXXX)" && pwd -P)
 NODE=$(command -v node) || { echo "node is not on PATH"; exit 2; }
 CLAUDE=$(command -v claude) || { echo "claude is not on PATH"; exit 2; }
 CODEX=$(command -v codex) || { echo "codex is not on PATH"; exit 2; }
@@ -83,17 +88,31 @@ printf '{"mcpServers":{"cmux":%s}}' "$(json_srv user "$L")" > "$CLAUDE_CONFIG_DI
 claude_session "$CLAUDE" --mcp-config "$(printf '{"mcpServers":{"cmux":%s}}' "$(json_srv shim "$L")")"
 grep -qx "started shim" "$L" && ! grep -qx "started user" "$L"
 check "claude: --mcp-config's cmux replaces the user-scope cmux ($(tr '\n' ' ' < "$L"))" $?
+echo '{}' > "$CLAUDE_CONFIG_DIR/.claude.json"
+printf '{"enableAllProjectMcpServers":true}\n' > "$CLAUDE_CONFIG_DIR/settings.json"
+printf '{"mcpServers":{"cmux":%s}}' "$(json_srv project "$L")" > "$D/work/.mcp.json"
+: > "$L"; claude_session "$CLAUDE"; base=$(tr '\n' ' ' < "$L")
+: > "$L"; claude_session "$CLAUDE" --mcp-config "$(printf '{"mcpServers":{"cmux":%s}}' "$(json_srv shim "$L")")"
+[ "$base" = "started project " ] && grep -qx "started shim" "$L" && ! grep -qx "started project" "$L"
+check "claude: --mcp-config's cmux replaces the project-scope (.mcp.json) cmux (alone: $base)" $?
+rm "$D/work/.mcp.json"
+"$CLAUDE" mcp add --scope local cmux -- "$NODE" "$F" local "$L" >/dev/null 2>&1
+: > "$L"; claude_session "$CLAUDE"; base=$(tr '\n' ' ' < "$L")
+: > "$L"; claude_session "$CLAUDE" --mcp-config "$(printf '{"mcpServers":{"cmux":%s}}' "$(json_srv shim "$L")")"
+[ "$base" = "started local " ] && grep -qx "started shim" "$L" && ! grep -qx "started local" "$L"
+check "claude: --mcp-config's cmux replaces the local-scope cmux (alone: $base)" $?
+echo '{}' > "$CLAUDE_CONFIG_DIR/.claude.json"
 
 # 2. Codex: same name merges
 user_toml /opt/other/cmux
 merged=$("$CODEX" -c "mcp_servers.cmux.command=\"$NODE\"" -c 'mcp_servers.cmux.args=["shim"]' \
-  -c 'mcp_servers.cmux.env={A="1"}' mcp list --json 2>&1)
+  -c 'mcp_servers.cmux.env={A="1"}' mcp list --json 2>/dev/null)
 echo "$merged" | tr -d ' \n' | grep -q '"cwd":"/user-cwd"' && echo "$merged" | grep -q USER_ONLY
 check "codex: -c mcp_servers.cmux.* keeps the config entry's cwd and env keys" $?
 
 # 3. Codex: own name, entry off
 separate=$("$CODEX" -c 'mcp_servers.cmux.enabled=false' -c "mcp_servers.cmux_terminal.command=\"$NODE\"" \
-  -c 'mcp_servers.cmux_terminal.args=["shim"]' mcp list --json 2>&1)
+  -c 'mcp_servers.cmux_terminal.args=["shim"]' mcp list --json 2>/dev/null)
 echo "$separate" | python3 -c '
 import json, sys
 servers = {s["name"]: s for s in json.load(sys.stdin)}
@@ -102,6 +121,25 @@ assert own["enabled"] and own["transport"]["cwd"] is None and not own["transport
 assert not user["enabled"], user
 '
 check "codex: cmux_terminal gets none of the entry's settings; the entry is off" $?
+
+# 4. Codex layers
+codex_cwd() { # the merged cmux entry's cwd for a launch in $1 (args after)
+  local at=$1; shift
+  (cd "$at" && "$CODEX" "$@" mcp list --json 2>/dev/null) | python3 -c '
+import json, sys
+print({s["name"]: s for s in json.load(sys.stdin)}["cmux"]["transport"]["cwd"])'
+}
+P=$D/proj; mkdir -p "$P/sub" "$P/.codex" "$D/.codex"; git -C "$P" init -q
+printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
+printf '[mcp_servers.cmux]\ncwd = "/above-cwd"\n' > "$D/.codex/config.toml"
+printf '[mcp_servers.cmux]\ncwd = "/profile-cwd"\n' > "$CODEX_HOME/work.config.toml"
+printf '[mcp_servers.cmux]\ncommand = "/opt/cmux"\nargs = ["mcp", "serve"]\n' > "$CODEX_HOME/config.toml"
+untrusted=$(codex_cwd "$P/sub")
+printf '[projects."%s"]\ntrust_level = "trusted"\n[projects."%s"]\ntrust_level = "trusted"\n' "$P" "$D" >> "$CODEX_HOME/config.toml"
+trusted=$(codex_cwd "$P/sub"); profile=$(codex_cwd "$D/work" --profile work)
+[ "$untrusted" = None ] && [ "$trusted" = /project-cwd ] && [ "$profile" = /profile-cwd ]
+check "codex: a trusted project's layer (not above its root) and --profile's file merge (untrusted=$untrusted trusted=$trusted profile=$profile)" $?
+rm -rf "$D/.codex" "$CODEX_HOME/work.config.toml"
 
 if [ -n "$CMUX" ]; then
   # 4. The build's real shims. A listening socket stands in for the daemon's.
@@ -123,10 +161,12 @@ if [ -n "$CMUX" ]; then
   # Codex: what the shim passes, read back through the real codex.
   printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$D/codex-args" > "$D/bin/codex"
   chmod +x "$D/bin/codex"
-  user_toml "$CMUX"
-  env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1
+  # The person's user entry is another cmux's, plain: only the trusted
+  # project's layer (cwd) would merge into the shim's server.
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n[projects."%s"]\ntrust_level = "trusted"\n' "$CMUX" "$P" > "$CODEX_HOME/config.toml"
+  (cd "$P/sub" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
-  "$CODEX" "${overrides[@]}" mcp list --json 2>&1 | python3 -c '
+  (cd "$P/sub" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
 import json, sys
 servers = {s["name"]: s for s in json.load(sys.stdin)}
 own = servers.get("cmux_terminal")
@@ -135,7 +175,21 @@ assert "USER_ONLY" not in (own["transport"]["env"] or {}), own
 assert own["transport"]["command"] == sys.argv[1], own
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
-  check "codex shim: the agent's cmux server is this build's, with none of the entry's settings" $?
+  check "codex shim: from a trusted project with a .codex layer, the agent's cmux server is this build's, with none of the layer's settings" $?
+  # --profile NAME: the profile file's settings, too.
+  rm -rf "$P/.codex"
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" > "$CODEX_HOME/config.toml"
+  printf '[mcp_servers.cmux]\ncwd = "/profile-cwd"\n' > "$CODEX_HOME/work.config.toml"
+  env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper --profile work >/dev/null 2>&1
+  overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
+  "$CODEX" --profile work "${overrides[@]}" mcp list --json 2>/dev/null | python3 -c '
+import json, sys
+servers = {s["name"]: s for s in json.load(sys.stdin)}
+own = servers.get("cmux_terminal")
+assert own and own["transport"]["cwd"] is None and own["transport"]["command"] == sys.argv[1], servers
+assert not servers["cmux"]["enabled"], servers["cmux"]
+' "$CMUX"
+  check "codex shim: with --profile, the agent's cmux server has none of the profile file's settings" $?
   kill "$listener" 2>/dev/null
 fi
 echo "scratch: $D"

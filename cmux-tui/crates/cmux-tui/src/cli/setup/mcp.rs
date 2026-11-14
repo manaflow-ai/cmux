@@ -284,9 +284,9 @@ fn unread_toml(server: &toml::Value) -> Vec<String> {
 impl Entry {
     /// Whether it runs `cmux mcp serve`, from any cmux build's CLI.
     fn serves_cmux(&self) -> bool {
-        let program = self.command.as_deref().map(Path::new).and_then(Path::file_name);
-        program.and_then(OsStr::to_str).is_some_and(|name| name.starts_with("cmux"))
-            && self.args.iter().map(String::as_str).take(2).eq(["mcp", "serve"])
+        self.command.as_deref().is_some_and(|command| {
+            crate::agent_computer_use::cmux_serve(command, &self.args).is_some()
+        })
     }
 
     /// Whether its command is still there to run.
@@ -343,11 +343,18 @@ impl Entry {
         Some(Restore { line: client.line(&client.add(command, &self.args, &env)), hidden })
     }
 
-    /// Whether a shipped build wrote it, by its command: a command that is no
-    /// DEV build's ([`dev_build`]; a bare name on PATH counts as shipped),
-    /// whatever settings file its `env` names.
+    /// Whether a shipped build wrote it, by what it runs, whatever settings
+    /// file its `env` names: the cmux CLI or launcher script it runs is no DEV
+    /// build's ([`dev_build`]; a bare name on PATH counts as shipped), or a
+    /// package runner fetches a published cmux.
     fn shipped(&self) -> bool {
-        self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
+        use crate::agent_computer_use::{CmuxServe, cmux_serve};
+        let Some(command) = self.command.as_deref() else { return true };
+        match cmux_serve(command, &self.args) {
+            Some(CmuxServe::Published) => true,
+            Some(CmuxServe::Path(program)) => dev_build(Path::new(program)).is_none(),
+            None => dev_build(Path::new(command)).is_none(),
+        }
     }
 
     /// Whether the settings file its `env` names is there, a leading `~`
@@ -878,9 +885,11 @@ fn this_cli() -> Result<String, Refusal> {
 }
 
 /// What setup does for `client`, and the entry that decided it. A harness
-/// that is not installed is the person's only when it was named. The entry
-/// named `cmux` is a shipped build's only while it names no settings file and
-/// its command is no DEV build's; otherwise it is replaced.
+/// that is not installed is the person's only when it was named. A cmux
+/// entry is kept when it still runs, every settings file it names is there,
+/// and (for the one named `cmux`) what it runs is no DEV build's
+/// ([`Entry::shipped`], whatever settings file it names). A `cmux` entry that
+/// fails that is replaced, unless it holds what setup cannot put back.
 fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entry>) {
     if on_path(path, client.id()).is_none() {
         if !named {

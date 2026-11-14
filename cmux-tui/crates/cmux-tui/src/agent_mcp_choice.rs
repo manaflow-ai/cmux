@@ -30,11 +30,33 @@ pub(crate) fn codex_settings(
     choice: AgentsCmuxMcp,
     executable: &Path,
     socket: &Path,
+    launch: crate::agent_computer_use::CodexLaunch<'_>,
 ) -> Vec<OsString> {
     if !choice.injects() {
         return Vec::new();
     }
-    crate::agent_computer_use::codex_settings(executable, socket).unwrap_or_default()
+    crate::agent_computer_use::codex_settings(executable, socket, launch).unwrap_or_default()
+}
+
+/// [`codex_settings`] with the environment `getenv` (tests: never the
+/// machine's own `~/.codex`).
+#[cfg(test)]
+fn codex_settings_with(
+    choice: AgentsCmuxMcp,
+    executable: &Path,
+    socket: &Path,
+    getenv: &dyn Fn(&str) -> Option<OsString>,
+) -> Vec<OsString> {
+    if !choice.injects() {
+        return Vec::new();
+    }
+    crate::agent_computer_use::codex_settings_with(
+        executable,
+        socket,
+        getenv,
+        crate::agent_computer_use::CodexLaunch::default(),
+    )
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -43,6 +65,11 @@ mod tests {
 
     const EXE: &str = "/A/cmux";
     const SOCKET: &str = "/tmp/s.sock";
+
+    /// An environment with nothing set.
+    fn no_env(_: &str) -> Option<OsString> {
+        None
+    }
 
     fn choice(text: &str) -> AgentsCmuxMcp {
         AgentsCmuxMcp::from_config_text(text)
@@ -57,7 +84,10 @@ mod tests {
         {
             let unset = choice(text);
             assert_eq!(claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
-            assert!(codex_settings(unset, Path::new(EXE), Path::new(SOCKET)).is_empty(), "{text}");
+            assert!(
+                codex_settings_with(unset, Path::new(EXE), Path::new(SOCKET), &no_env).is_empty(),
+                "{text}"
+            );
         }
     }
 
@@ -69,7 +99,8 @@ mod tests {
         let servers = value["mcpServers"].as_object().unwrap();
         assert_eq!(servers.len(), 1, "{value}");
         assert!(servers.contains_key(crate::agent_computer_use::SERVER), "{value}");
-        let codex = codex_settings(on, Path::new(EXE), Path::new(SOCKET));
+        // No HOME and no CODEX_HOME: the machine's own Codex config is never read.
+        let codex = codex_settings_with(on, Path::new(EXE), Path::new(SOCKET), &no_env);
         assert!(!codex.is_empty());
         let prefix = format!("mcp_servers.{}.", crate::agent_computer_use::SERVER);
         assert!(codex.iter().all(|s| s.to_str().unwrap().starts_with(&prefix)), "{codex:?}");
@@ -80,7 +111,10 @@ mod tests {
         for text in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents.cmuxMcp": "off"}"#] {
             let off = choice(text);
             assert_eq!(claude_mcp_config(off, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
-            assert!(codex_settings(off, Path::new(EXE), Path::new(SOCKET)).is_empty(), "{text}");
+            assert!(
+                codex_settings_with(off, Path::new(EXE), Path::new(SOCKET), &no_env).is_empty(),
+                "{text}"
+            );
         }
     }
 }

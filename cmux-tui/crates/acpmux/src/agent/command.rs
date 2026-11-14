@@ -691,24 +691,36 @@ mod tests {
     }
 
     /// [`a_local_agent_keeps_the_apps_settings_file`]'s check, in a process
-    /// started with the variable; outside one it has nothing to check.
+    /// started with the variable; outside one it has nothing to check. The
+    /// agent is a real process (`/usr/bin/env`) started from the launch acpmux
+    /// builds, and its own printed environment is read.
     #[test]
     fn a_local_agent_keeps_the_apps_settings_file_child() {
         if std::env::var_os("ACPMUX_TEST_SETTINGS_FILE_CHILD").is_none() {
             return;
         }
         let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["/usr/bin/true"]
+            "argv": ["/usr/bin/env"]
         }))
         .unwrap();
-        let command =
+        let mut command =
             harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        command.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        let output = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            // Spawned inside the runtime: tokio registers the pipes with its reactor.
+            .block_on(async move { command.output().await })
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
         let key = crate::user_settings::CONFIG_OVERRIDE;
-        let env = command_env(&command);
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let value = printed.lines().find_map(|line| line.strip_prefix(&format!("{key}=")));
         assert_eq!(
-            env.iter().find(|(name, _)| name == key).map(|(_, value)| value.as_str()),
+            value,
             Some("/Users/someone/.config/cmux/cmux-next-cu-fresh.json"),
-            "the agent's environment lacks the app's settings file"
+            "the agent's environment lacks the app's settings file: {printed}"
         );
     }
 
