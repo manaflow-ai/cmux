@@ -2656,6 +2656,34 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     assert route("scripts/ci/test_execution_registry.py") is None
 
 
+def test_every_github_file_is_placed_by_the_helper_walk() -> None:
+    # #40880 added .github/single-host-fallbacks.json, whose prose names
+    # owned_pool_rescue.py. The helper walk could not place a data file, so
+    # that helper routed to every area and the route test above went red on
+    # the base branch, after the file had landed (#41268). Every tracked file
+    # under .github/ that git can search must be one the walk places, so the
+    # pull request that adds the next data file fails here instead.
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", ".github"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    assert tracked, "git ls-files found nothing under .github/"
+    searchable = module.searchable_files(ROOT, ".github")
+    assert searchable is not None, "git grep could not search .github/"
+    unplaced = sorted(
+        path for path in tracked
+        if path in searchable and module.referrer_role(path) is None
+    )
+    assert not unplaced, (
+        "The CI helper walk (ci_helper_areas in scripts/ci/detect_ci_change_areas.py) "
+        "cannot place these files, so any helper they name routes to every area:\n  "
+        + "\n  ".join(unplaced)
+        + "\nIf nothing executes what the file names (a table a script reads, a template, "
+        "prose), add it to _NON_RUNNING_FILES there. If it runs commands, make it a script "
+        "(.py, .sh, ...) or move it under .github/workflows/ or .github/actions/."
+    )
+
+
 def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
