@@ -334,17 +334,6 @@ pub(crate) fn legacy_hook_session_id(terminal_id: &str, sequence: u64) -> String
     format!("legacy:{terminal_id}:{sequence}")
 }
 
-/// When the hook helper observed a hook event (`normalized.observed_at_ms`,
-/// a decimal string stamped at invocation). Journal order says when an event
-/// arrived; this says when the agent emitted it, which is the only evidence
-/// that separates a late event of an ended incarnation from an event of a
-/// resumed incarnation that reuses the same session id. Events from older
-/// helpers and direct reports carry no stamp.
-pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
-    let value = payload.get("normalized")?.get("observed_at_ms")?;
-    decimal_string_u64(value)
-}
-
 /// Per-terminal hook session fence: the agent session that owns the
 /// terminal's hook state, the last journal sequence applied for it, whether
 /// that session ended, and when its latest incarnation ended. The hook
@@ -365,6 +354,12 @@ pub(crate) struct HookFence {
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
+    /// The latest hook stamp among the applied events of `session_id`, for
+    /// [`crate::agent_hooks::hook_event_is_reordered`]. It resets when another
+    /// session takes the terminal, and it is stored with the hook state, so
+    /// the order holds across a session restart.
+    #[serde(default)]
+    pub(crate) order: crate::agent_hooks::HookOrderStamp,
 }
 
 pub(crate) enum JournalHookTransition {
@@ -400,7 +395,7 @@ impl HookFence {
     /// Decide one journal hook event. `explicit_session_id` is the adapter's
     /// native session id; a session-less event continues the live legacy
     /// generation or starts a new one keyed by its sequence.
-    /// `observed_at_ms` is [`hook_observed_at_ms`] of the event.
+    /// `observed_at_ms` is [`crate::agent_hooks::hook_observed_at_ms`] of the event.
     pub(crate) fn journal_transition(
         current: Option<&Self>,
         terminal_id: &str,
@@ -483,22 +478,34 @@ impl HookFence {
         }
     }
 
+    /// The latest hook stamp of `session_id`, for
+    /// [`crate::agent_hooks::hook_event_is_reordered`]; `None` when another
+    /// session holds the fence.
+    pub(crate) fn last_order<'a>(
+        current: Option<&'a Self>,
+        session_id: &str,
+    ) -> Option<&'a crate::agent_hooks::HookOrderStamp> {
+        current.filter(|fence| fence.session_id == session_id).map(|fence| &fence.order)
+    }
+
     /// The fence after applying an event of `session_id` at `sequence`. The
     /// incarnation boundary carries over while the session keeps the
     /// terminal, moves to the observed end when the event ends it, and resets
     /// when another session takes the terminal.
+    ///
+    /// `stamp` is the event's hook stamp; its wall clock is the observed end.
     pub(crate) fn next(
         current: Option<&Self>,
         session_id: String,
         sequence: u64,
         ended: bool,
-        observed_at_ms: Option<u64>,
+        stamp: &crate::agent_hooks::HookOrderStamp,
     ) -> Self {
-        let carried = current
-            .filter(|fence| fence.session_id == session_id)
-            .and_then(|fence| fence.ended_at_ms);
-        let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        Self { session_id, sequence, ended, ended_at_ms }
+        let same = current.filter(|fence| fence.session_id == session_id);
+        let carried = same.and_then(|fence| fence.ended_at_ms);
+        let ended_at_ms = if ended { stamp.observed_at_ms.or(carried) } else { carried };
+        let order = stamp.applied_over(same.map(|fence| &fence.order));
+        Self { session_id, sequence, ended, ended_at_ms, order }
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -803,8 +810,13 @@ impl AgentRoster {
                     Err(_) => return Vec::new(),
                     Ok(DirectHookTransition::Continue) => {}
                     Ok(DirectHookTransition::Restart(session_id)) => {
-                        let restarted =
-                            HookFence::next(Some(fence), session_id, fence.sequence, false, None);
+                        let restarted = HookFence::next(
+                            Some(fence),
+                            session_id,
+                            fence.sequence,
+                            false,
+                            &crate::agent_hooks::HookOrderStamp::default(),
+                        );
                         self.hook_fences.insert(terminal_id.to_string(), restarted);
                     }
                 }
@@ -832,7 +844,7 @@ impl AgentRoster {
             // keeps the existing entry, exactly like the projector.
             let explicit_session_id =
                 event.normalized("agent_session_id").filter(|session_id| !session_id.is_empty());
-            let observed_at_ms = hook_observed_at_ms(event.payload);
+            let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(event.payload);
             let current = self.hook_fences.get(terminal_id);
             let JournalHookTransition::Apply(session_id) = HookFence::journal_transition(
                 current,
@@ -844,12 +856,20 @@ impl AgentRoster {
             ) else {
                 return Vec::new();
             };
+            let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
+            if crate::agent_hooks::hook_event_is_reordered(
+                event.kind,
+                &stamp,
+                HookFence::last_order(current, &session_id),
+            ) {
+                return Vec::new();
+            }
             let next = HookFence::next(
                 current,
                 session_id,
                 event.sequence,
                 state == AgentState::Done,
-                observed_at_ms,
+                &stamp,
             );
             // Another agent session took the terminal, an ended one came
             // back, or a new process started (`claude --resume` reuses the
@@ -891,10 +911,16 @@ impl AgentRoster {
         let mut screen_ended_hook_row = false;
         match source {
             AgentSource::Hook => {
-                if let Some(existing) = self.entries.get(terminal_id)
-                    && existing.agent_source() == AgentSource::Hook
-                    && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
-                {
+                // Hook order is decided above, with the session fence the
+                // projector shares (`crate::agent_hooks::hook_event_is_reordered`
+                // with `HookFence::last_order`). Do not add a second
+                // order check here: one keyed by another session id would
+                // let the roster and the agent rows disagree.
+                let stale_hook_report = self.entries.get(terminal_id).is_some_and(|existing| {
+                    existing.agent_source() == AgentSource::Hook
+                        && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
+                });
+                if stale_hook_report {
                     return Vec::new();
                 }
             }
@@ -1038,7 +1064,10 @@ impl AgentRoster {
                         session_id.clone(),
                         event.sequence.max(fence.sequence),
                         true,
-                        Some(updated_at_ms),
+                        &crate::agent_hooks::HookOrderStamp {
+                            observed_at_ms: Some(updated_at_ms),
+                            ..Default::default()
+                        },
                     ),
                 );
                 self.entries.remove(terminal_id);
@@ -1406,7 +1435,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 2,
+                ended: false,
+                ended_at_ms: None,
+                order: crate::agent_hooks::HookOrderStamp::default()
+            }
         );
 
         roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
@@ -1439,7 +1474,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 1,
+                ended: false,
+                ended_at_ms: None,
+                order: crate::agent_hooks::HookOrderStamp::default()
+            }
         );
         let completed = session_payload("old");
         assert!(
@@ -1465,7 +1506,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "a".into(),
+                sequence: 4,
+                ended: false,
+                ended_at_ms: None,
+                order: crate::agent_hooks::HookOrderStamp::default()
+            }
         );
     }
 
@@ -2293,5 +2340,29 @@ mod tests {
         .to_string();
 
         assert!(AgentRoster::restore(&snapshot).is_none());
+    }
+
+    #[test]
+    fn hook_seq_an_old_roster_snapshot_still_restores() {
+        // A roster saved before the monotonic order: the fence kept the wall
+        // clock (`observed_at_ms`) and had no `order`.
+        let snapshot = json!({
+            "entries": {},
+            "hook_fences": {
+                "term_a": {
+                    "session_id": "order-1",
+                    "sequence": 4,
+                    "ended": false,
+                    "ended_at_ms": null,
+                    "observed_at_ms": 2_000
+                }
+            }
+        })
+        .to_string();
+        let roster = AgentRoster::restore(&snapshot).expect("an old roster snapshot restores");
+        let fence = &roster.hook_fences["term_a"];
+        assert_eq!((fence.session_id.as_str(), fence.sequence), ("order-1", 4));
+        // No monotonic stamp: the session's next event applies in journal order.
+        assert!(fence.order.is_empty());
     }
 }

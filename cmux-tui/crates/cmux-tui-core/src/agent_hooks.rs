@@ -207,54 +207,22 @@ pub fn agent_hook_journal_ingress(
     })
 }
 
-/// Stamp when the hook helper observed `ingress` (now, wall clock) as
-/// `normalized.observed_at_ms`. The hook session fence uses it to tell a late
-/// event of an ended incarnation from an event of a resumed session that
-/// reuses the same id. Call it once, where the agent invoked the hook.
+/// Stamp when the hook helper observed `ingress` (now): the wall clock as
+/// `normalized.observed_at_ms`, and this machine's monotonic clock as
+/// `normalized.boot_id` / `normalized.monotonic_ns`. The hook session fence
+/// uses the wall clock to tell a late event of an ended incarnation from an
+/// event of a resumed session that reuses the same id; the hook order uses
+/// the monotonic clock ([`hook_event_is_reordered`]). Call it once, where the
+/// agent invoked the hook.
 pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
+    if let Some(clock) = hook_monotonic_now() {
+        stamp_agent_hook_monotonic(ingress, &clock);
+    }
     if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         && let Ok(now_ms) = u64::try_from(now.as_millis())
     {
         stamp_agent_hook_observed_at(ingress, now_ms);
     }
-}
-
-pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
-    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
-        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
-    }
-}
-
-/// Build the core-owned lifecycle event for an unexpectedly exited userland
-/// plugin. The reducer uses the plugin subject to retire all entries owned by
-/// that producer in one deterministic fold.
-pub(crate) fn journal_plugin_exit_journal_ingress(
-    plugin_id: &str,
-    generation: u64,
-) -> anyhow::Result<JournalIngress> {
-    validate_agent_source(plugin_id)?;
-    Ok(JournalIngress {
-        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
-        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
-        kind: "agent.plugin.exited".into(),
-        schema_version: 1,
-        occurred_at_ms: None,
-        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
-        sensitivity: Some(JournalSensitivity::Sensitive),
-        payload: json!({
-            "format": AGENT_HOOK_FORMAT,
-            "adapter": {"id": "cmux", "version": 1},
-            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
-            "normalized": {
-                "plugin_id": plugin_id,
-                "plugin_generation": generation.to_string(),
-                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
-            },
-            "native": {},
-        }),
-        causation_id: None,
-        correlation_id: None,
-    })
 }
 
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
@@ -327,6 +295,235 @@ fn apply_patch_first_path(patch: &str) -> Option<&str> {
             .find_map(|header| line.strip_prefix(header))
             .map(str::trim)
     })
+}
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// When the hook that sent the event with `payload` started
+/// (`normalized.observed_at_ms`), if it said.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("observed_at_ms"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse().ok())
+}
+
+/// The longest boot id a hook event may carry, in bytes. Linux and macOS boot
+/// ids are 36-character UUIDs; a longer one (from a remote hook) is dropped,
+/// so the event has no monotonic stamp and applies in journal order.
+pub(crate) const HOOK_BOOT_ID_MAX_BYTES: usize = 64;
+
+/// The order key of one hook event, as its hook stamped it: the monotonic
+/// clock of the machine that ran the hook (`boot_id`, `monotonic_ns`). One
+/// agent session runs on one machine, so its events compare on that
+/// machine's clock. The wall clock (`observed_at_ms`) is kept for the record
+/// only; it does not order events.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct HookOrderStamp {
+    /// The boot of the machine whose monotonic clock `monotonic_ns` reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) boot_id: Option<String>,
+    /// Nanoseconds since that boot when the hook started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) monotonic_ns: Option<u64>,
+    /// Milliseconds since the epoch when the hook started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) observed_at_ms: Option<u64>,
+}
+
+impl HookOrderStamp {
+    /// The stamp of the hook event with `payload`.
+    pub(crate) fn of(payload: &Value) -> Self {
+        let normalized = payload.get("normalized");
+        let text = |key: &str| normalized.and_then(|value| value.get(key)).and_then(Value::as_str);
+        Self {
+            boot_id: text("boot_id")
+                .filter(|boot| !boot.is_empty() && boot.len() <= HOOK_BOOT_ID_MAX_BYTES)
+                .map(str::to_owned),
+            monotonic_ns: text("monotonic_ns").and_then(|value| value.parse().ok()),
+            observed_at_ms: hook_observed_at_ms(payload),
+        }
+    }
+
+    fn monotonic(&self) -> Option<(&str, u64)> {
+        Some((self.boot_id.as_deref()?, self.monotonic_ns?))
+    }
+
+    /// Whether the stamp holds nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The latest stamp of the session after an event stamped `self` applied
+    /// over `last`: on one boot the later monotonic stamp, on a new boot the
+    /// event's; and the later wall clock.
+    pub(crate) fn applied_over(&self, last: Option<&Self>) -> Self {
+        let Some(last) = last else { return self.clone() };
+        let (boot_id, monotonic_ns) = match (self.monotonic(), last.monotonic()) {
+            (Some((boot, now)), Some((last_boot, then))) if boot == last_boot => {
+                (Some(boot.to_owned()), Some(now.max(then)))
+            }
+            (Some((boot, now)), _) => (Some(boot.to_owned()), Some(now)),
+            (None, _) => (last.boot_id.clone(), last.monotonic_ns),
+        };
+        Self { boot_id, monotonic_ns, observed_at_ms: self.observed_at_ms.max(last.observed_at_ms) }
+    }
+}
+
+/// Whether a hook event of kind `kind` stamped `stamp` came after a
+/// later-stamped event of the same session (`last`, the latest stamp among
+/// its applied events), so it must not set the agent's state. The journal
+/// keeps it either way. The agent projection and the roster both ask this,
+/// so they agree.
+///
+/// On one boot of one machine the monotonic clock decides: a strictly
+/// earlier stamp is a reorder, however far apart. An equal stamp is not: the
+/// journal order decides. An event of another boot (a resume after a reboot)
+/// applies, whatever its clock reads. Without a monotonic stamp on both sides
+/// (an older hook helper, or a platform with no boot id) the event applies in
+/// journal order: the wall clock can step, so it decides nothing.
+///
+/// Never skipped: the session's start and end, and an event that opens a
+/// dialog (a permission, a question, a plan review): parallel subagents of
+/// one session can each open one, and it stays open until answered. An
+/// error report is a state like any other: a late one does not replace a
+/// newer state.
+pub(crate) fn hook_event_is_reordered(
+    kind: &str,
+    stamp: &HookOrderStamp,
+    last: Option<&HookOrderStamp>,
+) -> bool {
+    if matches!(
+        kind,
+        "agent.session.started"
+            | "agent.session.ended"
+            | "agent.approval.requested"
+            | "agent.question.requested"
+            | "agent.plan_review.requested"
+    ) {
+        return false;
+    }
+    let Some(last) = last else { return false };
+    match (stamp.monotonic(), last.monotonic()) {
+        (Some((boot, now)), Some((last_boot, then))) => boot == last_boot && now < then,
+        _ => false,
+    }
+}
+
+/// Records in `ingress` when the hook that saw the event started
+/// (`normalized.observed_at_ms`, ms since the epoch), for the record. The
+/// daemon orders one agent's events by the monotonic stamp
+/// ([`stamp_agent_hook_monotonic`]), never by this time.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
+}
+
+/// Records in `ingress` the monotonic clock reading `now` that
+/// [`hook_monotonic_now`] took when the hook started (`normalized.boot_id`,
+/// `normalized.monotonic_ns`). The daemon orders one agent session's events
+/// by it: it never steps back, and one session runs on one machine.
+pub fn stamp_agent_hook_monotonic(ingress: &mut JournalIngress, now: &(String, u64)) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("boot_id".into(), Value::String(now.0.clone()));
+        normalized.insert("monotonic_ns".into(), Value::String(now.1.to_string()));
+    }
+}
+
+/// This machine's monotonic clock now: its boot id and nanoseconds since
+/// that boot. `None` where the platform gives no boot id; those events
+/// apply in journal order.
+pub fn hook_monotonic_now() -> Option<(String, u64)> {
+    let boot_id = machine_boot_id()?;
+    monotonic_now_ns().map(|now| (boot_id, now))
+}
+
+/// `CLOCK_MONOTONIC`: one system-wide clock per boot. On macOS it is
+/// `mach_continuous_time` (it counts while the machine sleeps; not
+/// `CLOCK_UPTIME_RAW`, which stops). On Linux it stops during suspend but
+/// never steps back within one boot. Either way it only orders events of one
+/// boot, and the boot id tells boots apart.
+#[cfg(unix)]
+fn monotonic_now_ns() -> Option<u64> {
+    // SAFETY: a zeroed `timespec` is a valid value of this plain C struct.
+    let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+    // SAFETY: `clock_gettime` writes one `timespec` through a valid pointer.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) } != 0 {
+        return None;
+    }
+    let seconds = u64::try_from(now.tv_sec).ok()?;
+    let nanos = u64::try_from(now.tv_nsec).ok()?;
+    seconds.checked_mul(1_000_000_000)?.checked_add(nanos)
+}
+
+#[cfg(not(unix))]
+fn monotonic_now_ns() -> Option<u64> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn machine_boot_id() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
+    Some(text.trim().to_owned()).filter(|boot| !boot.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn machine_boot_id() -> Option<String> {
+    let mut buffer = [0_u8; 64];
+    let mut length = buffer.len();
+    // SAFETY: `sysctlbyname` writes at most `length` bytes into `buffer`
+    // and stores the length it wrote; the name is a NUL-terminated literal.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"kern.bootsessionuuid".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let text = std::str::from_utf8(buffer.get(..length)?).ok()?;
+    Some(text.trim_end_matches('\0').trim().to_owned()).filter(|boot| !boot.is_empty())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn machine_boot_id() -> Option<String> {
+    None
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
