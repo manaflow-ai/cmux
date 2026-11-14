@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43601990915",
+  "recorded_at": "2026-11-14T14:00:30Z",
+  "reason": "cmux-tui 676bbfe2e5fe changes the image's cmux-tui (pinned ead26e752c9b)",
+  "dry_run": false,
+  "cmux_tui": "676bbfe2e5fe282a500c9ed042ecdf1f3c501af1",
+  "fixes": [
+    {
+      "sha": "676bbfe2e5fe282a500c9ed042ecdf1f3c501af1",
+      "mergedAt": "2026-11-14T05:32:29-08:00",
+      "subject": "cmux ext dev builds SDK extensions with no install (#43034)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T14:00:30Z",
+    "snapshot_id": "sh-9a9be81e7fa34ccdbc342294f9109120",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43601990915): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "08f4857193a76137ad09dc3a86c7180ed9b4d52c",
+    "image": "cloud-native-auto-676bbfe2-43601990915-1",
+    "revision": "ci-43601990915-1",
+    "at": "2026-11-14T14:00:30Z"
+  },
+  "rolled_back": false
+}
