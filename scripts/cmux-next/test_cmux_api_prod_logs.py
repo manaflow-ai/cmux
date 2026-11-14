@@ -2,10 +2,12 @@
 """cmux-api-prod-logs publishes default-deny: tenant text, serialized objects and unlisted msgs never reach the
 public row; ids print only hashed (python3 scripts/cmux-next/test_cmux_api_prod_logs.py)."""
 import importlib.util
+import io
 import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 _spec = importlib.util.spec_from_file_location(
     "cmux_api_prod_logs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmux-api-prod-logs.py"))
@@ -127,16 +129,16 @@ class DefaultDenyTests(unittest.TestCase):
     def test_the_kept_count_is_boolean_and_needles_never_read_raw_event_text(self):
         secret = event({"msg": "the merger closes friday", "team": TEAM}, url="https://api.cmux.dev/v1/home/url")
         listed = event({"msg": "team selection unreachable", "team": TEAM}, url="https://api.cmux.dev/v1/auth/token")
-        head, rows = logs.publish([secret, secret, listed], ["merger closes"])
+        head, rows = logs.publish([secret, secret, listed], ["merger closes"], account=TEAM)
         self.assertIs(head["kept_any"], False)
         self.assertNotIn("kept", head)
         self.assertNotIn("printed", head)
         self.assertEqual(rows, [])
-        head, rows = logs.publish([secret, secret, listed], [TEAM])
+        head, rows = logs.publish([secret, secret, listed], [TEAM], account=TEAM)
         self.assertIs(head["kept_any"], True)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["log"]["team"], logs.tag(TEAM))
-        head, rows = logs.publish([secret, listed], ["/auth/"])
+        head, rows = logs.publish([secret, listed], ["/auth/"], account=TEAM)
         self.assertIs(head["kept_any"], True)
         self.assertEqual([r["path"] for r in rows], ["/v1/auth/token"])
         self.assertNotIn(TEAM, json.dumps([head, rows]))
@@ -166,6 +168,198 @@ class DefaultDenyTests(unittest.TestCase):
         self.assertNotIn("hunter2", text)
         self.assertEqual(outcome("lowercase_token_not_in_enum")[0], "other")
         self.assertEqual(outcome({"password": "hunter2"})[0], "other")
+
+
+class AccountIsolationTests(unittest.TestCase):
+    def test_a_foreign_team_with_the_target_in_its_url_is_not_published(self):
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"},
+                        url="https://api.cmux.dev/v1/auth/" + TEAM)
+        # The original public API accepts no identity scope and leaks this row via its URL hash.
+        head, rows = logs.publish([foreign], [TEAM])
+        self.assertEqual(rows, [])
+        self.assertEqual(head["events_in_window"], 0)
+
+    def test_scope_is_checked_before_counts_and_projection(self):
+        good = event({"msg": "team selection unreachable", "team": TEAM})
+        bad = event({"msg": "private text", "team": "team_foreign"})
+        conflict = event({"msg": "team selection unreachable", "team": TEAM, "account": "team_foreign"})
+        missing = event({"msg": "team selection unreachable"})
+        head, rows = logs.publish([good, bad, conflict, missing], ["team selection unreachable"], account=TEAM)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(head["events_in_window"], 1)
+        self.assertNotIn("logs_dropped_unlisted", head)
+        self.assertEqual(rows[0]["log"]["team"], logs.tag(TEAM))
+
+    def test_foreign_url_match_is_rejected_with_an_explicit_account(self):
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"},
+                        url="https://api.cmux.dev/v1/auth/" + TEAM)
+        head, rows = logs.publish([foreign], [TEAM], account=TEAM)
+        self.assertEqual(rows, [])
+        self.assertEqual(head["events_in_window"], 0)
+
+    def test_conflicting_parsed_sources_and_invalid_identities_fail_closed(self):
+        for value in (None, [], 42, TEAM + "-suffix"):
+            with self.subTest(value=value):
+                candidate = event({"msg": "team selection unreachable", "team": value})
+                self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
+        candidate = event({"msg": "team selection unreachable", "team": TEAM})
+        candidate["source"] = {"msg": "team selection unreachable", "team": "team_foreign"}
+        self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
+
+    def test_account_field_and_refining_needles_keep_only_the_scoped_row(self):
+        own = event({"msg": "team selection unreachable", "account": TEAM},
+                    url="https://api.cmux.dev/v1/auth/token")
+        other = event({"msg": "team selection unreachable", "account": "team_other"},
+                      url="https://api.cmux.dev/v1/auth/token")
+        head, rows = logs.publish([own, other], ["/auth/"], account=TEAM)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(head["events_in_window"], 1)
+
+    def test_duplicate_serialized_identity_fails_closed(self):
+        candidate = event('{"msg":"team selection unreachable","team":"team_foreign","team":"' + TEAM + '"}')
+        self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
+
+    def test_main_reads_account_from_event_and_filters_before_output(self):
+        own = event({"msg": "team selection unreachable", "team": TEAM})
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"})
+        response = {"result": {"events": {"events": [own, foreign]}}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({"inputs": {"account": TEAM, "needles": "team selection unreachable"}}, f)
+            f.flush()
+            args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles-from-event", f.name]
+            output = io.StringIO()
+            with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                    patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                    patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response) as query, \
+                    patch.object(logs, "private_destination", return_value="fixture-hq-token"), \
+                    patch.object(logs, "private_upload", return_value="private-pointer") as upload:
+                self.assertEqual(logs.main(), 0)
+            query.assert_called_once()
+            text = output.getvalue()
+            header, rows = upload.call_args.args[1:]
+            self.assertEqual(header["events_in_window"], 1)
+            self.assertEqual(rows[0]["log"]["team"], logs.tag(TEAM))
+            self.assertEqual(json.loads(text), {"row_count": 1, "pointer": "private-pointer"})
+            self.assertNotIn(logs.tag("team_foreign"), text)
+            self.assertNotIn(TEAM, text)
+            self.assertNotIn("fixture-token", text)
+
+    def test_main_without_account_refuses_before_query(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles", TEAM]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "exact team/account id is required"):
+                logs.main()
+        query.assert_not_called()
+
+
+    def test_push_event_never_queries_even_with_scope_and_search(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", TEAM]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "push"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "only workflow_dispatch"):
+                logs.main()
+        query.assert_not_called()
+
+    def test_empty_needles_refuse_before_query_or_publishing(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", " , "]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "at least one search term"):
+                logs.main()
+        query.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "at least one search term"):
+            logs.publish([event({"msg": "team selection unreachable", "team": TEAM})], [], account=TEAM)
+
+
+class PrivateOutputTests(unittest.TestCase):
+    def test_everything_matching_still_prints_only_count_and_private_pointer(self):
+        rows = [event({"msg": "team selection unreachable", "team": TEAM, "code": "forbidden"})]
+        response = {"result": {"events": {"events": rows}}}
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", "team selection"]
+        output = io.StringIO()
+        pointer = "https://github.com/manaflow-ai/cmuxterm-hq/issues/123"
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response), \
+                patch.object(logs, "private_destination", return_value="fixture-hq-token", create=True), \
+                patch.object(logs, "private_upload", return_value=pointer, create=True) as upload:
+            self.assertEqual(logs.main(), 0)
+        text = output.getvalue()
+        self.assertNotIn("team selection unreachable", text)
+        self.assertNotIn("forbidden", text)
+        self.assertNotIn(logs.tag(TEAM), text)
+        self.assertEqual(json.loads(text), {"row_count": 1, "pointer": pointer})
+        self.assertEqual(len(upload.call_args.args[2]), 1)
+
+    def test_destination_privacy_is_verified_before_any_query(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", "team selection"]
+        for repo in ({"private": False, "full_name": logs.HQ_REPO},
+                     {"private": True, "full_name": "someone/else"}, {}, None):
+            with self.subTest(repo=repo), \
+                    patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch", "HQ_GH_TOKEN": "fixture-hq-token"}), \
+                    patch.object(logs.sys, "argv", args), patch.object(logs, "hq_request", return_value=repo) as request, \
+                    patch.object(logs, "query") as query:
+                with self.assertRaisesRegex(SystemExit, "expected private repository"):
+                    logs.main()
+                request.assert_called_once_with("fixture-hq-token", "GET")
+                query.assert_not_called()
+
+    def test_missing_private_credential_never_queries(self):
+        with patch.dict(logs.os.environ, {"HQ_GH_TOKEN": ""}), patch.object(logs, "hq_request") as request:
+            with self.assertRaisesRegex(SystemExit, "credential unavailable"):
+                logs.private_destination()
+            request.assert_not_called()
+
+    def test_successful_private_identity_check_returns_only_the_token(self):
+        with patch.dict(logs.os.environ, {"HQ_GH_TOKEN": "fixture-hq-token"}), \
+                patch.object(logs, "hq_request", return_value={"private": True, "full_name": logs.HQ_REPO}):
+            self.assertEqual(logs.private_destination(), "fixture-hq-token")
+
+    def test_private_issue_parts_preserve_all_rows_without_printing(self):
+        rows = [{"log": {"msg": "team selection unreachable", "team": logs.tag(TEAM)}, "i": i} for i in range(6)]
+        writes = []
+
+        def request(token, method, suffix, data):
+            self.assertEqual((token, method), ("fixture-hq-token", "POST"))
+            writes.append((suffix, data))
+            return {"number": 123} if suffix == "/issues" else {"id": 456}
+
+        output = io.StringIO()
+        with patch.object(logs, "hq_request", side_effect=request), patch.object(logs, "PRIVATE_PART_CHARS", 140), \
+                patch.object(logs.sys, "stdout", output):
+            pointer = logs.private_upload("fixture-hq-token", {"count": 6}, rows)
+        self.assertEqual(pointer, "https://github.com/manaflow-ai/cmuxterm-hq/issues/123")
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(writes[0][0], "/issues")
+        self.assertTrue(all(path == "/issues/123/comments" for path, _ in writes[1:]))
+        recovered = []
+        for _, data in writes:
+            payload = data["body"].split("```jsonl\n", 1)[1].split("```", 1)[0]
+            self.assertLessEqual(len(payload), 140)
+            recovered.extend(json.loads(line) for line in payload.splitlines())
+        self.assertEqual(recovered, [{"header": {"count": 6}}, *rows])
+
+    def test_partial_upload_without_comment_receipt_never_succeeds(self):
+        rows = [{"log": {"msg": "team selection unreachable", "team": logs.tag(TEAM)}, "i": i} for i in range(6)]
+        with patch.object(logs, "hq_request", side_effect=[{"number": 123}, {}]) as request, \
+                patch.object(logs, "PRIVATE_PART_CHARS", 140):
+            with self.assertRaisesRegex(SystemExit, "comment receipt"):
+                logs.private_upload("fixture-hq-token", {"count": 6}, rows)
+        self.assertEqual(request.call_count, 2)
+
+    def test_failed_private_upload_has_no_public_fallback(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", "team selection"]
+        response = {"result": {"events": {"events": [event({"msg": "team selection unreachable", "team": TEAM})]}}}
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response), \
+                patch.object(logs, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs, "private_upload", side_effect=SystemExit("private store refused")):
+            with self.assertRaisesRegex(SystemExit, "private store refused"):
+                logs.main()
+        self.assertEqual(output.getvalue(), "")
 
 
 if __name__ == "__main__":

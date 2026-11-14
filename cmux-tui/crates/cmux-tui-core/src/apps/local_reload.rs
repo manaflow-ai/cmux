@@ -137,6 +137,8 @@ impl Supervisor {
                 outs.extend(self.grant_new_customize_reads_locked(&mut inner));
             }
             for app in &changed {
+                // A save is a fix: a paused app runs again.
+                outs.extend(self.resume_locked(&mut inner, app, "saved"));
                 outs.extend(self.regrant_locked(&mut inner, app));
             }
             for app in &removed {

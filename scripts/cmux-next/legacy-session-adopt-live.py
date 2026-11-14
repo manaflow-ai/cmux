@@ -33,6 +33,7 @@ import os
 import plistlib
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -233,7 +234,10 @@ class App:
                 client.close()
             self.process.wait(timeout=45)
         except subprocess.TimeoutExpired:
-            self.process.kill()  # the pid this script started, only
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)  # the app this script started, and its group
+            except (ProcessLookupError, PermissionError):
+                pass
             self.process.wait(timeout=15)
         finally:
             os.close(self.read_fd)

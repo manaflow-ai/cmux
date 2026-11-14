@@ -55,6 +55,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
+pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
 use std::fmt;

@@ -101,9 +101,15 @@ extension SidebarListViewComponents {
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+                // The header's own action at press time: a reused header may now head another kind of machine.
+                view.screenButton.onPress = { [weak self, weak view] in
+                    guard let intent = view?.screenAction else { return }
+                    self?.model.send(intent)
+                }
             } else {
                 view.allowsAdd = false
                 view.onAdd = nil
+                view.screenButton.onPress = nil
             }
         default:
             break

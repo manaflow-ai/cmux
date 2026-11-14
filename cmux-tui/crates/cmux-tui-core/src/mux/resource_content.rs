@@ -18,7 +18,9 @@ use crate::workspace_registry::{
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
+pub(crate) use projection_crosscheck::JournalCheck;
 use published_screens::PublishedScreens;
+pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
 pub(crate) use scoped_projection::WorkspaceRows;
 #[cfg(all(test, unix))]
 pub(crate) use scoped_projection::without_crosscheck;

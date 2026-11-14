@@ -1,55 +1,8 @@
-use super::{FolderKey, RowKey, SortKey, Summary, SummaryIndex};
-use serde::{Deserialize, Serialize};
+use super::{SortKey, Summary, SummaryIndex};
 use std::io;
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ListFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-    /// Select descendants rooted at this row key; `cold` chooses the snapshot part.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub family: Option<RowKey>,
-    /// Select one origin/folder; `cold` chooses the snapshot part.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folder: Option<FolderKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub forks: Option<RowKey>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cold: bool,
-}
-
-impl ListFilter {
-    pub fn family(root: RowKey) -> Self {
-        Self { family: Some(root), ..Self::default() }
-    }
-
-    pub fn folder(folder: FolderKey) -> Self {
-        Self { folder: Some(folder), ..Self::default() }
-    }
-
-    pub fn forks(root: RowKey) -> Self {
-        Self { forks: Some(root), ..Self::default() }
-    }
-
-    pub(super) fn matches(&self, summary: &Summary) -> bool {
-        self.workspace.as_ref().is_none_or(|value| summary.workspace.as_ref() == Some(value))
-            && self.origin.as_ref().is_none_or(|value| &summary.origin == value)
-            && self.state.as_ref().is_none_or(|value| &summary.state == value)
-            && self
-                .folder
-                .as_ref()
-                .is_none_or(|value| FolderKey::of(summary).as_ref() == Some(value))
-            && self
-                .forks
-                .as_ref()
-                .is_none_or(|value| summary.fork_of.as_ref().is_some_and(|fork| &fork.key == value))
-    }
-}
+pub use acpmux_list_types::ListFilter;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadSide {
@@ -102,6 +55,32 @@ impl SummaryIndex {
             view.by_id.remove(&anchor.row);
         }
         view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
+    }
+
+    /// A bounded page over the live rows of origin `local` only. Every row,
+    /// flag and continuation key comes from that set, so a page for a peer
+    /// never names a row of another origin, and a run of remote rows costs
+    /// nothing to skip. An anchor of another origin is refused.
+    pub fn read_local_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+    ) -> io::Result<IndexPage> {
+        if anchor.is_some_and(|anchor| anchor.row.origin.as_ref() != "local") {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "anchor is not a local row"));
+        }
+        let mut view = self.clone();
+        view.ordered = self.local_live.clone();
+        view.disk = None;
+        if let Some(anchor) = anchor
+            && !view.local_live.contains_key(anchor)
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, None)
     }
 
     /// One bounded part: a hot table range or a physical snapshot piece.

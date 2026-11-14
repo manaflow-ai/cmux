@@ -61,12 +61,12 @@ import Testing
     @Test func paneToolbarButtonsAreNamedAndIdentified() {
         let toolbar = PaneToolbarView(frame: .zero)
         toolbar.show([PaneToolbarItem(id: "pane.splitRight", title: "Split Right", symbol: "rectangle.split.2x1", shortcut: nil)],
-                     more: true, lit: false)
+                     zoomed: true)
         let host = window(toolbar, size: NSSize(width: 120, height: 32))
         defer { host.close() }
         expectClean(toolbar, "pane toolbar")
         let ids = audit.identifiers(under: toolbar)
-        #expect(ids.contains("cmux.pane.more"), "\(ids.sorted())")
+        #expect(ids.contains("cmux.pane.exitZoom"), "\(ids.sorted())")
         #expect(ids.contains("cmux.pane.toolbar.pane.splitRight"), "\(ids.sorted())")
     }
 
