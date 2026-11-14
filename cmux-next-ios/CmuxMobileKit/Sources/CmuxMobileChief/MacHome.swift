@@ -302,9 +302,8 @@ public enum HomeListNote: Equatable, Sendable {
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
 /// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
-/// paradigms"). With rows on screen the list stays exactly as normal and the toolbar's Mac
-/// button carries the status (its badge; "Studio · Offline · last known" and Retry in its menu);
-/// with none, Home shows Workspaces' empty state for that Mac.
+/// paradigms"). With rows on screen the list stays exactly as normal under Workspaces' connection
+/// toast ("Offline" and Retry); with none, Home shows Workspaces' empty state for that Mac.
 public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// The Mac is offline (its presence says so): nothing to dial.
@@ -327,9 +326,9 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     }
 
     public let kind: Kind
-    /// A retry runs: Retry shows its spinner and the Mac menu says "Updating…".
+    /// A retry runs: Retry shows its spinner and the toast says it reconnects.
     public let isRetrying: Bool
-    /// What the Mac menu says after the Mac's name (Workspaces' words).
+    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
     public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
@@ -364,10 +363,10 @@ public struct HomeConnectionStatus: Equatable, Sendable {
             Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
                   message: String(localized: "Open cmux on it to see its conversations."), canRetry: false)
         case .unreachable:
-            Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Can't connect to \(mac)"),
+            Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Can't connect to \(mac)"),
                   message: String(localized: "\(macAtStart) is online, but this iPhone can't reach it."), canRetry: true)
         case .failed:
-            Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Couldn't load conversations"),
+            Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Couldn't load conversations"),
                   message: String(localized: "\(macAtStart) didn't answer. It tries again on its own."), canRetry: true)
         case .connecting:
             nil

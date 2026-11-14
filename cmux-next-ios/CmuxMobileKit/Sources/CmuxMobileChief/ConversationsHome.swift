@@ -101,6 +101,19 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
+    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    private var homeBanner: ConnectionBannerState? {
+        guard let status = connectionStatus, keptRowsShow else { return nil }
+        let mac = macTag ?? String(localized: "your Mac")
+        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        switch status.kind {
+        case .macOffline: return .macOffline(mac, identity: homeMacID)
+        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .failed: return .refreshFailed(identity: homeMacID)
+        case .connecting: return .connecting(to: mac, identity: homeMacID)
+        }
+    }
+
     /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
     private func showsProblemEmptyState(searching: Bool) -> Bool {
         connectionStatus != nil && !keptRowsShow && !searching && !unreadOnly
@@ -409,11 +422,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .onChange(of: connectionStatus == nil) { _, live in
             if live { autoRetriedFor = nil }
         }
+        // Kept rows while the Mac is not live: Workspaces' connection toast over them (the user,
+        // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
+        // swipe hides it. With nothing kept, the empty state says it instead.
+        .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
-            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying else { return }
-            AccessibilityNotification.Announcement(keptRowsShow ? status.detail : status.empty?.title ?? status.detail).post()
+            // (The toast over kept rows announces itself.)
+            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying, !keptRowsShow,
+                  let title = status.empty?.title else { return }
+            AccessibilityNotification.Announcement(title).post()
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)
@@ -427,9 +446,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // The Mac button also says when Home's Mac is not live (its badge), with Retry
-                // inside: the list itself stays exactly as normal (the user, 2026-11-13).
-                if macs.count > 1 || connectionStatus != nil { macMenu }
+                if macs.count > 1 { macMenu }
                 // The Mac's Unread toggle: all or unread only, the filled glyph while on.
                 Button {
                     theme.haptics.selection()
@@ -623,40 +640,22 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let entries = macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
                                                           linkStatus: store.macLinkStatus, live: store.tracksMacData,
                                                           now: MinuteClock.shared.now))
-        let status = connectionStatus
-        let statusLine = status.map { "\(macTag ?? String(localized: "Your Mac")) · \($0.detail)" }
         return Menu {
-            if let status, let statusLine {
-                Section(statusLine) {
-                    if status.empty?.canRetry != false {
-                        Button {
-                            Task { await retryHome() }
-                        } label: {
-                            Label(status.isRetrying ? String(localized: "Updating…") : String(localized: "Retry"),
-                                  systemImage: "arrow.clockwise")
-                        }
-                        .disabled(status.isRetrying)
-                        .accessibilityIdentifier("home.mac.retry")
+            Section("Show Home of") {
+                ForEach(entries) { mac in
+                    Toggle(isOn: chosen(mac.id)) {
+                        Text(mac.title)
+                        Text(mac.detail)
+                        Image(systemName: "desktopcomputer")
                     }
-                }
-            }
-            if macs.count > 1 {
-                Section("Show Home of") {
-                    ForEach(entries) { mac in
-                        Toggle(isOn: chosen(mac.id)) {
-                            Text(mac.title)
-                            Text(mac.detail)
-                            Image(systemName: "desktopcomputer")
-                        }
-                        .accessibilityIdentifier("home.mac.\(mac.id)")
-                    }
+                    .accessibilityIdentifier("home.mac.\(mac.id)")
                 }
             }
         } label: {
-            Label("Mac", systemImage: status == nil ? "desktopcomputer" : "desktopcomputer.trianglebadge.exclamationmark")
+            Label("Mac", systemImage: "desktopcomputer")
         }
         .accessibilityIdentifier("home.mac")
-        .accessibilityValue([homeMacID.flatMap { labels.macName($0) }, status?.detail].compactMap(\.self).joined(separator: ", "))
+        .accessibilityValue(homeMacID.flatMap { labels.macName($0) } ?? "")
     }
 
     private func chosen(_ id: String) -> Binding<Bool> {

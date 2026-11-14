@@ -1,9 +1,8 @@
 import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
-/// tab does, without covering anything: kept rows show exactly as normal, and the toolbar's Mac
-/// button carries the status ("<Mac> · Offline · last known" or "· Couldn't refresh · last known"
-/// and Retry in its menu); with nothing kept, Workspaces' empty state for that Mac shows
+/// tab does: kept rows show exactly as normal under Workspaces' connection toast ("Offline" or
+/// "Couldn't refresh", with Retry), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
 /// ("Can't connect to …" with Retry, or "… is offline"). A kept row opens the conversation
 /// under its own "Not connected" bar, never a full-screen error.
 final class HomeMacDisconnectedUITests: XCTestCase {
@@ -50,9 +49,9 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         // Back on Home: the Mac button says it, with Retry; the rows stay after it.
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
-        try openMacMenu(app, saying: "Offline · last known")
-        attach(app, "1b-home-offline-mac-menu")
-        app.buttons["home.mac.retry"].tap()
+        try expectToast(app, saying: "Offline", above: row)
+        attach(app, "1b-home-offline-toast")
+        app.buttons["Retry"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
     }
 
@@ -62,8 +61,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home.row.stress-5"].waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
         XCTAssertFalse(app.descendants(matching: .any)["home.note.problem"].exists, "no card over the kept rows")
         attach(app, "3-home-failed-kept-rows")
-        try openMacMenu(app, saying: "Couldn't refresh · last known")
-        attach(app, "3b-home-failed-mac-menu")
+        try expectToast(app, saying: "Couldn't refresh", above: app.buttons["home.row.stress-5"])
     }
 
     @MainActor
@@ -85,16 +83,14 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         attach(app, "5-home-asleep-empty")
     }
 
-    /// The Mac button carries the status: its value names it, its menu says it with Retry.
+    /// Workspaces' connection toast: its words and Retry, above the rows (never over them).
     @MainActor
-    private func openMacMenu(_ app: XCUIApplication, saying detail: String) throws {
-        let mac = app.buttons["home.mac"]
-        XCTAssertTrue(mac.waitForExistence(timeout: 10), "the Mac button\n\(app.debugDescription)")
-        XCTAssertTrue((mac.value as? String ?? "").contains(detail), "the Mac button's value: \(String(describing: mac.value))")
-        mac.tap()
-        let header = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "· \(detail)")).firstMatch
-        XCTAssertTrue(header.waitForExistence(timeout: 10), "the menu's status\n\(app.debugDescription)")
-        XCTAssertTrue(app.buttons["home.mac.retry"].exists, "Retry in the menu\n\(app.debugDescription)")
+    private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
+        let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
+        let retry = app.buttons["Retry"].firstMatch
+        XCTAssertTrue(retry.exists, "Retry on the toast\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(toast.frame.maxY, row.frame.minY, "the toast covers no row")
     }
 
     @MainActor

@@ -16,6 +16,7 @@ import Testing
         #expect(empty.title == "Can't connect to Studio")
         #expect(empty.message == "Studio is online, but this iPhone can't reach it.")
         #expect(empty.canRetry)
+        #expect(empty.symbol == "desktopcomputer.trianglebadge.exclamationmark")
     }
 
     @Test func anOfflineMacHasNothingToDial() throws {
