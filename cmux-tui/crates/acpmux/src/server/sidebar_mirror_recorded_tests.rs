@@ -195,16 +195,13 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     fx.edit("parent", |meta| {
         meta.tags.insert("archived".into(), archived);
     });
-    let step = rec
-        .step("parent-archived", |changes| {
-            any_names(changes, "parent") && any_names(changes, "child")
-        })
-        .await;
-    let child = step.changes.iter().rev().find(|change| names(change, "child")).unwrap();
-    assert!(
-        rows(child).iter().all(|row| row.get("spawnedBy").is_none()),
-        "a parent archived while its child runs: the child is given with no spawnedBy: {child}"
-    );
+    // The parent leaves the live view; the mirror holds it only for its child, and such a parent
+    // is not handed to the caller (the design doc, "The list's clients" 2). What the sidebar
+    // gets is its child again, now with no `spawnedBy`.
+    let unlisted = |change: &Value| {
+        names(change, "child") && rows(change).iter().all(|row| row.get("spawnedBy").is_none())
+    };
+    rec.step("parent-archived", |changes| changes.iter().any(unlisted)).await;
     // The tee's fan-out to the child, as after a parent's mark.
     fx.publish("child");
     rec.step("child-after-parent", |_| true).await;
