@@ -530,6 +530,8 @@ impl HubRowSide {
             drain_marks(&v1, &v2, &state, &mut expiries);
         }
         eventually(|| v2.hub.snapshot().len() == closed + book_rows).await;
+        // The setup submitted every book row; a round counts only its own.
+        state.remote_submits.store(0, Ordering::Relaxed);
         Self { v1, v2, state, expiries, sessions, writer, _scope: scope }
     }
 
@@ -570,8 +572,6 @@ impl HubRowSide {
 async fn hub_row_submit_gate() {
     let mut small_side = HubRowSide::new(1, 0).await;
     let mut god_side = HubRowSide::new(2_048, 11_000).await;
-    small_side.state.remote_submits.store(0, Ordering::Relaxed);
-    god_side.state.remote_submits.store(0, Ordering::Relaxed);
     let (mut small, mut god) = (Vec::with_capacity(5), Vec::with_capacity(5));
     // The two sides alternate their rounds: a slow minute of the host lands on both.
     for round in 0..5_u64 {
