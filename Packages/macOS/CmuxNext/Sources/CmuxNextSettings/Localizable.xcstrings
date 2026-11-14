@@ -220660,6 +220660,399 @@
           }
         }
       }
+    },
+    "settings.tabs.newTabApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplikacija nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App til ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App für neuen Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App du nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App della nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのアプリ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 앱"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplikacja nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App da nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приложение новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอปแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme Uygulaması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосунок нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ứng dụng Tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页 App"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁 App"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabApp.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة ترسم صفحة علامة التبويب الجديدة كاملة، بمعرّفها، مثل \"local/showcase-newtab\". إذا لم يُضبط، يرسم cmux صفحته الخاصة. إذا كانت الإضافة مفقودة أو مخفية أو فشلت، يرسم cmux صفحته الخاصة. لا تستخدمها صفحة علامة التبويب الجديدة الأصلية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proširenje koje crta cijelu stranicu nove kartice, po svom ID-u, npr. \"local/showcase-newtab\". Bez vrijednosti cmux crta svoju stranicu. Ako proširenje nedostaje, skriveno je ili ne uspije, cmux crta svoju stranicu. Izvorna stranica nove kartice ga ne koristi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En udvidelse, der tegner hele siden Ny fane, angivet med sit id, fx \"local/showcase-newtab\". Uden værdi tegner cmux sin egen side. Mangler udvidelsen, er den skjult, eller fejler den, tegner cmux sin egen side. Den indbyggede side Ny fane bruger den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Erweiterung, die die ganze Seite „Neuer Tab“ zeichnet, angegeben mit ihrer ID, etwa \"local/showcase-newtab\". Ohne Wert zeichnet cmux seine eigene Seite. Fehlt die Erweiterung, ist sie ausgeblendet oder schlägt sie fehl, zeichnet cmux seine eigene Seite. Die native Seite „Neuer Tab“ verwendet sie nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una extensión que dibuja toda la página Nueva pestaña, indicada por su id, como \"local/showcase-newtab\". Sin valor, cmux dibuja su propia página. Si la extensión falta, está oculta o falla, cmux dibuja su propia página. La página Nueva pestaña nativa no la usa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une extension qui dessine toute la page Nouvel onglet, désignée par son identifiant, par exemple \"local/showcase-newtab\". Sans valeur, cmux dessine sa propre page. Si l’extension est absente, masquée ou échoue, cmux dessine sa propre page. La page Nouvel onglet native ne l’utilise pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un'estensione che disegna l'intera pagina Nuova scheda, indicata dal suo id, ad esempio \"local/showcase-newtab\". Se non è impostata, cmux disegna la propria pagina. Se l'estensione manca, è nascosta o non funziona, cmux disegna la propria pagina. La pagina Nuova scheda nativa non la usa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのページ全体を描く拡張機能を ID で指定します（例: \"local/showcase-newtab\"）。未設定のときは cmux 自身のページを描きます。拡張機能がない、非表示、または失敗したときも cmux 自身のページを描きます。ネイティブの新規タブページでは使われません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្នែកបន្ថែមដែលគូរទំព័រផ្ទាំងថ្មីទាំងមូល តាម ID របស់វា ដូចជា \"local/showcase-newtab\"។ ពេលមិនកំណត់ cmux គូរទំព័ររបស់ខ្លួន។ ប្រសិនបើផ្នែកបន្ថែមបាត់ ត្រូវបានលាក់ ឬបរាជ័យ cmux គូរទំព័ររបស់ខ្លួន។ ទំព័រផ្ទាំងថ្មីដើមមិនប្រើវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 페이지 전체를 그리는 확장 프로그램을 ID로 지정합니다(예: \"local/showcase-newtab\"). 설정하지 않으면 cmux가 자체 페이지를 그립니다. 확장 프로그램이 없거나 숨겨져 있거나 실패하면 cmux가 자체 페이지를 그립니다. 기본 새 탭 페이지에서는 사용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En utvidelse som tegner hele siden Ny fane, angitt med ID-en sin, for eksempel \"local/showcase-newtab\". Uten verdi tegner cmux sin egen side. Mangler utvidelsen, er den skjult eller feiler den, tegner cmux sin egen side. Den innebygde siden Ny fane bruker den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozszerzenie, które rysuje całą stronę nowej karty, wskazane przez swój identyfikator, np. \"local/showcase-newtab\". Bez wartości cmux rysuje własną stronę. Gdy rozszerzenia brakuje, jest ukryte lub zawodzi, cmux rysuje własną stronę. Natywna strona nowej karty go nie używa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma extensão que desenha toda a página Nova aba, indicada pelo seu id, como \"local/showcase-newtab\". Sem valor, o cmux desenha a própria página. Se a extensão estiver ausente, oculta ou falhar, o cmux desenha a própria página. A página Nova aba nativa não a usa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расширение, которое рисует всю страницу новой вкладки, по его ID, например \"local/showcase-newtab\". Если не задано, cmux рисует свою страницу. Если расширения нет, оно скрыто или завершается с ошибкой, cmux рисует свою страницу. Встроенная страница новой вкладки его не использует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนขยายที่วาดหน้าแท็บใหม่ทั้งหน้า ระบุด้วย ID เช่น \"local/showcase-newtab\" หากไม่ได้ตั้งค่า cmux จะวาดหน้าของตัวเอง หากส่วนขยายหายไป ถูกซ่อน หรือทำงานล้มเหลว cmux จะวาดหน้าของตัวเอง หน้าแท็บใหม่แบบเนทีฟไม่ใช้ค่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme sayfasının tamamını çizen uzantı, kimliğiyle, örneğin \"local/showcase-newtab\". Ayarlanmazsa cmux kendi sayfasını çizer. Uzantı yoksa, gizliyse veya başarısız olursa cmux kendi sayfasını çizer. Yerel Yeni Sekme sayfası bunu kullanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розширення, яке малює всю сторінку нової вкладки, за його ID, наприклад \"local/showcase-newtab\". Якщо не задано, cmux малює власну сторінку. Якщо розширення немає, воно приховане або дає збій, cmux малює власну сторінку. Вбудована сторінка нової вкладки його не використовує."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tiện ích mở rộng vẽ toàn bộ trang Tab mới, theo id của nó, ví dụ \"local/showcase-newtab\". Khi chưa đặt, cmux vẽ trang của chính nó. Nếu tiện ích bị thiếu, bị ẩn hoặc lỗi, cmux vẽ trang của chính nó. Trang Tab mới gốc không dùng nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 ID 指定一个扩展来绘制整个新标签页页面，例如 \"local/showcase-newtab\"。未设置时，cmux 绘制自己的页面。扩展缺失、已隐藏或失败时，cmux 绘制自己的页面。原生新标签页页面不使用它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 ID 指定一個擴充功能來繪製整個新分頁頁面，例如 \"local/showcase-newtab\"。未設定時，cmux 會繪製自己的頁面。擴充功能不存在、已隱藏或失敗時，cmux 會繪製自己的頁面。原生新分頁頁面不會使用它。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabApp.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة علامة تبويب جديدة من إضافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica nove kartice iz proširenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En udvidelses side Ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite „Neuer Tab“ einer Erweiterung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An extension's New Tab page"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página Nueva pestaña de una extensión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page Nouvel onglet d’une extension"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina Nuova scheda di un'estensione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能の新規タブページ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រផ្ទាំងថ្មីរបស់ផ្នែកបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램의 새 탭 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En utvidelses side for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona nowej karty z rozszerzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página Nova aba de uma extensão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница новой вкладки из расширения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าแท็บใหม่จากส่วนขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir uzantının Yeni Sekme sayfası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка нової вкладки з розширення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang Tab mới của một tiện ích mở rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扩展的新标签页页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擴充功能的新分頁頁面"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

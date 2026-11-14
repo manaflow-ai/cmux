@@ -80,6 +80,7 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { NewTabAppPage } from "./newtab/NewTabAppPage";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -4577,6 +4578,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
+  // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit whose app page could not show draws cmux's own.
+  const [newTabAppGone, setNewTabAppGone] = useState<number>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -10895,6 +10898,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
+  // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
+  const newTabApp =
+    showNewTab && !newTab.history && newTab.app && newTabAppGone !== newTabGeneration ? newTab.app : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -13205,7 +13211,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen && showNewTab && !newTab.history && (
+          {!harnessesOpen && showNewTab && !newTab.history && !newTabApp && (
             // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
             // composer's look), then on every layout but Minimal the page's other styles
             // (newtab/PageDots.tsx); a pick shows in place at once.
@@ -13217,7 +13223,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           )}
           {showNewTab && folderAskView}
-          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          {newTabApp && !harnessesOpen ? (
+            <NewTabAppPage
+              key={`${newTabGeneration}:${newTabApp}`}
+              app={newTabApp}
+              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
+              onUnavailable={() => setNewTabAppGone(newTabGeneration)}
+              inputToken={newTab?.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+            />
+          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>

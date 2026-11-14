@@ -113,3 +113,28 @@ fn the_builder_makes_the_example_extensions_manifest() {
         report.issues
     );
 }
+
+/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
+#[test]
+fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
+    let manifest = Manifest::new("local/launcher", "Launcher", "0.1.0", "A calm New Tab page.")
+        .new_tab("renderNewTab", "Launcher", "house")
+        .scope(
+            "actions:run",
+            "Open a chat, a terminal or a browser tab when you click its button.",
+        );
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    assert_eq!(json["implements"]["cmux.newtab/1"]["export"], "renderNewTab");
+    assert_eq!(json["activation"], serde_json::json!(["onInterface:cmux.newtab/1"]));
+    let index = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("typescript/src/index.ts"),
+    )
+    .expect("index.ts");
+    assert!(
+        index.contains("export function newTab("),
+        "the TypeScript package names the place too"
+    );
+}

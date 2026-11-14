@@ -57,6 +57,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
     /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
     public var template: String?
+    /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
+    /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
+    public var app: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.

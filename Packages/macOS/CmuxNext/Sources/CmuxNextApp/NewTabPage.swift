@@ -130,7 +130,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
@@ -143,7 +143,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
     }
 
@@ -256,6 +256,13 @@ extension PaneController {
 
 extension AgentPaneNewTab {
     /// The page with Integrate a harness off when it was dismissed for good.
+    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    func showingApp(_ app: String?) -> AgentPaneNewTab {
+        var page = self
+        page.app = app
+        return page
+    }
+
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil

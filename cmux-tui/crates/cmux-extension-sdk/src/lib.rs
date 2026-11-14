@@ -164,6 +164,12 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
+    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
+    pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.newtab/1", export, title, symbol, None)
+    }
+
     /// Asks for `scope`; `why` is what the consent card shows the person.
     pub fn scope(mut self, scope: &str, why: &str) -> Self {
         self.insert_in("scopes", scope, json!(why));

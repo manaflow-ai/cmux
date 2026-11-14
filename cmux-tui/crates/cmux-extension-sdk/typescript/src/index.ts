@@ -73,6 +73,22 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
   return render
 }
 
+/** Context a New Tab page render gets: the folder the new tab starts in, when it has one. */
+export type NewTabContext = { surface: "newTab"; cwd?: string }
+
+/**
+ * A whole New Tab page (`cmux.newtab/1`): the scene is the page's body, in place of cmux's own page.
+ * It shows only once the person picks the extension (`cmux settings set tabs.newTabApp <id>`); when
+ * it is hidden, disabled or its render fails, cmux draws its own page. Open the tab the person asks
+ * for with `cmux.actions.run` from a click (scope `actions:run`).
+ *
+ *     // cmux-app.json: "implements": { "cmux.newtab/1": { "export": "renderNewTab", "title": "Launcher" } }
+ *     export const renderNewTab = newTab(() => VStack([Text("Good morning")]))
+ */
+export function newTab(render: (context: NewTabContext) => View): (context: NewTabContext) => View {
+  return render
+}
+
 /** A command (a catalog op the extension declares in catalog.json): runs from the palette, the CLI or another extension. */
 export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
   return run

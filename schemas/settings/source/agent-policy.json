@@ -98,7 +98,8 @@
       "agent": "settable",
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
-        "tabs.nativeNewTabPage"
+        "tabs.nativeNewTabPage",
+        "tabs.newTabApp"
       ]
     },
     {

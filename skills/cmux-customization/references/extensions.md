@@ -87,6 +87,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
+| A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |

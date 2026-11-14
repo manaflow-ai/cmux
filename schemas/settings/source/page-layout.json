@@ -208,7 +208,7 @@
           "symbol": "plus.square",
           "groups": [
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
+              "tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]}
           ]
         }

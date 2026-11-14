@@ -9,7 +9,7 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | | TypeScript (`typescript/`, package `cmux-extension-sdk`) | Rust (this crate, `cmux-extension-sdk`) |
 | --- | --- | --- |
 | For | the extension's own code, which cmux runs in its sandbox | tools, tests and servers around an extension |
-| Gives | places (`section`, `pane`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
+| Gives | places (`section`, `pane`, `newTab`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
 a sidebar section and a pane, built only against this SDK.
@@ -68,6 +68,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | Name | What it is |
 | --- | --- |
 | `section(render)`, `pane(render)` | A sidebar section (`cmux.section/1`) and a pane (`cmux.pane/1`). Export the result under the manifest's `export` name. |
+| `newTab(render)` | A whole New Tab page (`cmux.newtab/1`): the scene is the page body. It shows only once the person runs `cmux settings set tabs.newTabApp <your id>`; unset, or when the extension is hidden, disabled or fails, cmux draws its own page. Render gets `{ surface: "newTab", cwd? }`. Draws on the web New Tab page, not the native one (`tabs.nativeNewTabPage`). |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
@@ -96,6 +97,7 @@ use cmux_extension_sdk::{Manifest, Region, check_package, is_valid};
 
 let manifest = Manifest::new("local/my-ext", "My extension", "0.1.0", "My workspaces, live.")
     .section("renderSection", "Mine", "sparkles", Region::Top)
+    .new_tab("renderNewTab", "Mine", "house")   // a whole New Tab page, once picked
     .listen("workspace.changed")?          // asks for workspace:read
     .listen("agent_chat.changed")?;        // asks for agent_chat:read
 assert!(is_valid(&manifest.validate()));
