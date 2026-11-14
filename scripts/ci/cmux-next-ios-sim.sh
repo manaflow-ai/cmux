@@ -499,7 +499,8 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 
 # --- listperf: the base app -------------------------------------------------
 base_app=""
-if [[ ( "$mode" == listperf || "$mode" == energy || "$mode" == clips ) && -n "$listperf_base" ]]; then
+# build_base_app: the app at $listperf_base in $base_src, as base_app; exits on a failure.
+build_base_app() {
   t0=$SECONDS
   # A fleet step's checkout has no origin: the base comes the way the step's own commit
   # does (glaeda's mirror, the host reference, else GitHub by URL; cmux#31442).
@@ -511,14 +512,14 @@ if [[ ( "$mode" == listperf || "$mode" == energy || "$mode" == clips ) && -n "$l
     git cat-file -e "$listperf_base:$f" 2>/dev/null ||
       { echo "error: base $listperf_base has no $f (graft the rig onto the base first)" >&2; exit 2; }
   done
-  git worktree add --quiet --detach "$base_src" "$listperf_base"
+  git worktree add --quiet --detach "$base_src" "$listperf_base" || exit 1
   base_ffi="$("${ffi_cache[@]}" key "$base_src" "$work/ffi-inputs-base.json" 2>>"$ffi_log")" || base_ffi=""
   if [[ -n "$ffi_key" && "$base_ffi" == "$ffi_key" ]]; then
     # The same FFI inputs as the head: its build.
-    mkdir -p "$base_src/$(dirname "$ffi_xcf")" "$base_src/$(dirname "$ffi_swift")"
-    rm -rf "${base_src:?}/$ffi_xcf"
-    cp -R "$ffi_xcf" "$base_src/$ffi_xcf"
-    cp "$ffi_swift" "$base_src/$ffi_swift"
+    { mkdir -p "$base_src/$(dirname "$ffi_xcf")" "$base_src/$(dirname "$ffi_swift")" &&
+      rm -rf "${base_src:?}/$ffi_xcf" &&
+      cp -R "$ffi_xcf" "$base_src/$ffi_xcf" &&
+      cp "$ffi_swift" "$base_src/$ffi_swift"; } || exit 1
     base_ffi_how="the head's (same inputs)"
   else
     (cd "$base_src" && JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$work/ffi-base.log" 2>&1 || {
@@ -538,9 +539,22 @@ if [[ ( "$mode" == listperf || "$mode" == energy || "$mode" == clips ) && -n "$l
   grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-base.log" | sort -u | head -40 || true
   [[ $status -eq 0 ]] || { tail -40 "$work/build-base.log"; exit 1; }
   base_app="$work/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
-  base_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$base_app/Info.plist")"
+  base_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$base_app/Info.plist")" || exit 1
   [[ "$base_bundle" == "$bundle_id" ]] || { echo "error: base bundle $base_bundle is not the head's $bundle_id" >&2; exit 1; }
   note "- base build: $((SECONDS - t0)) s at $listperf_base (FFI: $base_ffi_how)"
+}
+base_src=""
+if [[ ( "$mode" == listperf || "$mode" == energy ) && -n "$listperf_base" ]]; then
+  build_base_app
+elif [[ "$mode" == clips && -n "$listperf_base" ]]; then
+  # A clip's before is its own: a base that does not fetch or build leaves the after to record.
+  base_src="$work/base-src"  # set here, so the EXIT trap removes a worktree the subshell made
+  if ( build_base_app ) >"$work/base-app.log" 2>&1; then
+    base_app="$work/dd-base/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
+  else
+    tail -40 "$work/base-app.log" || true
+    note "- before: no app at $listperf_base: $(tail -n 1 "$work/base-app.log")"
+  fi
 fi
 
 # --- Simulator --------------------------------------------------------------
@@ -822,6 +836,11 @@ if [[ "$mode" == clips ]]; then
   for role in "${clip_roles[@]}"; do
     side_app="$app"
     [[ "$role" == after ]] || side_app="$base_app"
+    if [[ -z "$side_app" ]]; then
+      clip_status=1
+      note "- $role: no clip: no app at ${listperf_base:-its commit} (see above)"
+      continue
+    fi
     if python3 -I scripts/cmux-next/media/whats-new-clips.py record-iphone "$clip_id" --simctl-set "$sims" \
         --udid "$udid" --bundle-id "$bundle_id" --app "$side_app" --out "$out/whats-new-clips/$role" \
         >"$work/clip-$role.log" 2>&1; then

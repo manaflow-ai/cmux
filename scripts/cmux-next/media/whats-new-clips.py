@@ -618,7 +618,7 @@ def record_iphone(clip_id: str, simctl: list[str], udid: str, bundle_id: str, ap
     import time
     clock = clock or time.monotonic
     sleep = sleep or time.sleep
-    ready = ready or (lambda stream, timeout: bool(select.select([stream], [], [], timeout)[0]))
+    ready = ready or (lambda fd, timeout: bool(select.select([fd], [], [], timeout)[0]))
     spec = load_spec(clip_id)
     if not is_iphone(spec):
         raise ClipError(f"{clip_id} is not an iPhone spec (\"app\": \"iphone\")")
@@ -634,18 +634,21 @@ def record_iphone(clip_id: str, simctl: list[str], udid: str, bundle_id: str, ap
     call([*simctl, "ui", udid, "appearance", spec.get("appearance", "dark")], **quiet)
     video = folder / "capture.mp4"
     recorder = popen([*simctl, "io", udid, "recordVideo", "--codec", "h264", "--force", str(video)],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     manifest: dict[str, Any] = {"title": clip_id, "app": "iphone", "steps": []}
     try:
         deadline = clock() + RECORD_START_TIMEOUT
-        started = False
-        while not started and clock() < deadline:
-            if not ready(recorder.stderr, max(0.0, deadline - clock())):
+        # Raw reads of the pipe's fd: a buffered readline() takes every line one write held, returns the
+        # first, and keeps "Recording started" in its buffer, where select() never sees it.
+        fd, said = recorder.stderr.fileno(), b""
+        while b"Recording started" not in said and clock() < deadline:
+            if not ready(fd, max(0.0, deadline - clock())):
                 break
-            line = recorder.stderr.readline()
-            if not line:
+            chunk = os.read(fd, 4096)
+            if not chunk:
                 break
-            started = "Recording started" in line
+            said += chunk
+        started = b"Recording started" in said
         if not started:
             raise ClipError("simctl io recordVideo did not start")
         t0 = clock()

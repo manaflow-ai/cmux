@@ -950,6 +950,7 @@ class FeatWorkflowTests(unittest.TestCase):
     WRITER_JOBS = {
         ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py",
                                                   "whats-new-clips": "scripts/cmux-next/media/whats-new-clips.py"},
+        ".github/workflows/cmux-next-iphone-clips.yml": {"publish": "scripts/cmux-next/media/whats-new-clips.py"},
         ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
         ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
     }

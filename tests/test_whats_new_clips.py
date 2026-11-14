@@ -456,6 +456,15 @@ IPHONE_SPEC = {
 }
 
 
+def said_pipe(data: bytes):
+    """A pipe's read end that holds DATA and then ends, as a recorder's stderr."""
+    import os
+    read, write = os.pipe()
+    os.write(write, data)
+    os.close(write)
+    return os.fdopen(read, "rb")
+
+
 class IPhoneClipTests(unittest.TestCase):
     """An `"app": "iphone"` spec: planned without a Mac tour, recorded by a fleet simulator step
     (cmux-next-ios-sim.sh clips, record-iphone), rendered by publish-auto like a tour."""
@@ -563,7 +572,7 @@ class IPhoneClipTests(unittest.TestCase):
         class Recorder:
             def __init__(self, argv, **kw):
                 calls.append(("popen", argv))
-                self.stderr = io.StringIO("Recording started\n")
+                self.stderr = said_pipe(b"Recording started\n")
                 self.video = Path(argv[-1])
 
             def send_signal(self, sig):
@@ -617,10 +626,33 @@ class IPhoneClipTests(unittest.TestCase):
             self.assertEqual(cut[0][cut[0].index("-t") + 1], "3.250")
             self.assertEqual(cut[0][cut[0].index("-i") + 1], str(folder / "capture.mp4"))
 
+    def test_record_iphone_sees_the_start_line_behind_another_line_of_the_same_write(self):
+        """simctl can write a diagnostic and "Recording started" in one write: a buffered readline() took both,
+        returned the first, and select() then waited out the whole timeout on an empty pipe."""
+        import signal, subprocess
+
+        class Recorder(subprocess.Popen):
+            def __init__(self, argv, **kw):
+                self.video = Path(argv[-1])
+                super().__init__([sys.executable, "-c", "import os, time; os.write(2, b'note: using the default codec\\nRecording started\\n'); time.sleep(30)"], **kw)
+
+            def send_signal(self, sig):
+                self.video.write_bytes(b"mp4")
+                super().send_signal(signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "specs").mkdir()
+            Path(tmp, "specs/phone.json").write_text(json.dumps(IPHONE_SPEC))
+            with mock.patch.object(clips, "SPECS", Path(tmp, "specs")), mock.patch.object(clips, "RECORD_START_TIMEOUT", 3):
+                manifest = clips.record_iphone("phone", ["simctl"], "U", "b", Path("/a.app"), Path(tmp, "out"),
+                                               popen=Recorder, call=lambda argv, **kw: mock.Mock(returncode=0),
+                                               sleep=lambda s: None)
+            self.assertEqual(manifest["video"], "capture.mp4")
+            self.assertNotIn("error", manifest)
+
     def test_record_iphone_gives_up_when_the_recorder_never_starts(self):
         class Recorder:
             def __init__(self, argv, **kw):
-                self.stderr = io.StringIO("")
+                self.stderr = said_pipe(b"")
 
             def send_signal(self, sig):
                 pass
@@ -665,7 +697,9 @@ class IPhoneSimStepTests(unittest.TestCase):
         self.assertIn("whats-new-clips.py record-iphone", block)
         self.assertIn('[[ "$role" == after ]] || side_app="$base_app"', block)
         self.assertIn("zip -qr whats-new-clips.zip whats-new-clips", block)
-        self.assertIn('"$mode" == clips ) && -n "$listperf_base"', text)
+        # A before whose app does not build leaves the after to record: the base builds in a subshell.
+        self.assertIn('if ( build_base_app ) >"$work/base-app.log" 2>&1; then', text)
+        self.assertIn('if [[ -z "$side_app" ]]; then', block)
 
 
 class WorkflowTests(unittest.TestCase):
