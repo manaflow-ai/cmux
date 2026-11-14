@@ -215,7 +215,7 @@ fn plan(
     workspaces: &BTreeMap<String, Workspace>,
     problems: &mut Vec<Problem>,
 ) -> (Vec<String>, Vec<String>, Vec<String>, BTreeMap<String, String>, BTreeMap<String, i64>) {
-    let input = &input[..input.len().min(MAX_ENTRIES)];
+    let input = input.get(..input.len().min(MAX_ENTRIES)).unwrap_or_default();
     let mut section_for_workspace = BTreeMap::new();
     // `None` marks an ambiguous display name. Exact group ids are kept in a
     // separate set, so an id still wins when it happens to equal another
@@ -310,13 +310,14 @@ fn plan(
     // boundaries intact while allowing a user order to rank known sections.
     let mut section_order = Vec::with_capacity(input.len());
     let mut start = 0;
-    while start < input.len() {
-        let region = input[start].region.as_str();
-        let mut end = start + 1;
-        while end < input.len() && input[end].region == region {
-            end += 1;
+    while let Some(first) = input.get(start) {
+        let region = first.region.as_str();
+        let mut end = start.saturating_add(1);
+        while input.get(end).is_some_and(|section| section.region == region) {
+            end = end.saturating_add(1);
         }
-        let mut chunk = input[start..end].iter().collect::<Vec<_>>();
+        let Some(region_sections) = input.get(start..end) else { break };
+        let mut chunk = region_sections.iter().collect::<Vec<_>>();
         chunk.sort_by_key(|section| {
             order
                 .iter()
