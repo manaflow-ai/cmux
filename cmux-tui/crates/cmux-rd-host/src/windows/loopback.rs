@@ -210,8 +210,10 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         let result = measure(&mut stream, &viewer, connected, width, height, duration);
         // Closing our socket releases the host on every error; its own deadline is a second bound.
         drop(stream);
-        let metrics = host.join().map_err(|_| "Windows loopback host thread panicked")??;
+        let host_result = host.join().map_err(|_| "Windows loopback host thread panicked");
+        // A reset caused by cleanup must not hide the original decoder/readback failure.
         let mut report = result?;
+        let metrics = host_result??;
         report["capture_ms"] = distribution(&metrics.capture_ms);
         report["convert_ms"] = distribution(&metrics.convert_ms);
         report["encode_ms"] = distribution(&metrics.encode_ms);
@@ -261,7 +263,10 @@ fn measure(
     let mut stop_sent = false;
     let mut last_present = connected;
     while Instant::now() < deadline {
-        let (kind, payload) = read_blocking_frame(stream)?;
+        let (kind, payload) = read_blocking_frame(stream).map_err(|error| {
+            format!("Windows loopback receive: welcomed={welcomed}, presented_frames={frames}, encoded_bytes={bytes}, first_frame_ms={:?}: {error}",
+                first.map(|at: Instant| at.duration_since(connected).as_secs_f64() * 1000.0))
+        })?;
         if kind == FRAME_CONTROL {
             match serde_json::from_slice::<Control>(&payload)? {
                 Control::Welcome { width: w, height: h, .. } => {
