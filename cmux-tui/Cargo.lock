@@ -1864,10 +1864,15 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

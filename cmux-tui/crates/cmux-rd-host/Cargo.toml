@@ -29,6 +29,11 @@ serde_json = "1"
 cmux-encode = { path = "../cmux-encode" }
 # The secure link of device hub sessions (`cmux-rd serve`).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
+cmux-wg = { path = "../cmux-wg" }
+getrandom = "0.3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = "1"
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 
@@ -57,3 +62,6 @@ bench = ["dep:openh264", "cmux-encode/openh264-source"]
 opt-level = 3
 debug = 1
 lto = "thin"
+
+[patch.crates-io]
+smoltcp = { path = "../../vendor/smoltcp" }

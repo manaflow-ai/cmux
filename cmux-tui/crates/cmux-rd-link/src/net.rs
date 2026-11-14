@@ -27,9 +27,29 @@ use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Media may not wait in the rd-link handoff longer than cmux-wg's media
+/// scheduler budget. Control and handshake records use the command queue and
+/// are never aged by this limit.
+const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+
+struct QueuedMedia {
+    queued_at: Instant,
+    datagram: Vec<u8>,
+}
+
+impl QueuedMedia {
+    fn take_payload_if_fresh(self, now: Instant) -> Option<Vec<u8>> {
+        (!self.stale_at(now)).then_some(self.datagram)
+    }
+    fn stale_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
+    }
+}
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -164,6 +184,7 @@ enum Command {
     Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
+    ControlBarrier(mpsc::Sender<()>),
     Close,
 }
 
@@ -171,10 +192,45 @@ enum Command {
 pub struct Net {
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
-    command_wake: Pipe,
+    command_wake: Arc<Pipe>,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media: mpsc::SyncSender<QueuedMedia>,
+}
+
+/// A send-only handle for a running link. The owner remains the sole reader of
+/// `Net::events`; the owner must outlive every handle.
+#[derive(Clone)]
+pub struct NetSender {
+    commands: mpsc::Sender<Command>,
+    command_wake: Arc<Pipe>,
+    media: mpsc::SyncSender<QueuedMedia>,
+}
+
+impl NetSender {
+    pub fn send_datagram(&self, datagram: Vec<u8>) {
+        // Handshake/control traffic is not media: preserve it on the reliable
+        // command queue, where the media age budget cannot discard it.
+        self.command(Command::Datagram(datagram));
+    }
+    pub fn send_media(&self, datagram: Vec<u8>) {
+        // Best-effort media: keep the overlay from building an unbounded outer
+        // queue, and timestamp before the bounded handoff so a stalled driver
+        // cannot deliver stale frames after cmux-wg's 50 ms budget.
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram };
+        if self.media.try_send(queued).is_ok() {
+            self.command_wake.wake();
+        }
+    }
+    pub fn send_control(&self, record: Vec<u8>) {
+        self.command(Command::Control(record));
+    }
+    fn command(&self, command: Command) {
+        if self.commands.send(command).is_ok() {
+            self.command_wake.wake();
+        }
+    }
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -271,9 +327,12 @@ impl Net {
         endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
-        let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
+        let (media_tx, media_rx) = mpsc::sync_channel(256);
+        let command_wake = Arc::new(Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            media: media_rx,
+            barriers: Vec::new(),
             socket,
             endpoint,
             commands: command_rx,
@@ -330,6 +389,7 @@ impl Net {
             event_wake,
             thread: Some(thread),
             local_addr,
+            media: media_tx,
         })
     }
 
@@ -384,6 +444,22 @@ impl Net {
         self.command(Command::Control(record));
     }
 
+    pub fn sender(&self) -> NetSender {
+        NetSender {
+            commands: self.commands.clone(),
+            command_wake: Arc::clone(&self.command_wake),
+            media: self.media.clone(),
+        }
+    }
+
+    /// Completes once the peer has acknowledged all reliable controls queued
+    /// before this call. Closing/failure drops the receiver without success.
+    pub fn control_barrier(&self) -> mpsc::Receiver<()> {
+        let (tx, rx) = mpsc::channel();
+        self.command(Command::ControlBarrier(tx));
+        rx
+    }
+
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
@@ -436,6 +512,8 @@ struct StunQuery {
 }
 
 struct Driver {
+    media: mpsc::Receiver<QueuedMedia>,
+    barriers: Vec<mpsc::Sender<()>>,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
@@ -680,6 +758,11 @@ impl Driver {
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
+            if self.endpoint.link().controls_acknowledged() {
+                for barrier in self.barriers.drain(..) {
+                    let _ = barrier.send(());
+                }
+            }
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
@@ -708,6 +791,7 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::ControlBarrier(reply) => self.barriers.push(reply),
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
@@ -724,6 +808,17 @@ impl Driver {
                             }
                         }
                         return Ok(());
+                    }
+                }
+            }
+            for _ in 0..256 {
+                let Ok(queued) = self.media.try_recv() else { break };
+                if self.endpoint.link().is_established() {
+                    let Some(datagram) = queued.take_payload_if_fresh(Instant::now()) else {
+                        continue;
+                    };
+                    for transmit in self.endpoint.send_datagram(&datagram)? {
+                        self.send(transmit.route, &transmit.packet, now);
                     }
                 }
             }
@@ -768,5 +863,19 @@ impl Driver {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod media_queue_tests {
+    use super::*;
+
+    #[test]
+    fn stalled_rd_media_handoff_expires_without_aging_control() {
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram: vec![1] };
+        let at = queued.queued_at;
+        assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
+        let queued = QueuedMedia { queued_at: at, datagram: vec![2] };
+        assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
     }
 }
