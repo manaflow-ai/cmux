@@ -75,6 +75,28 @@ struct MacScreenViewerControlsTests {
         pane.close()
     }
 
+    @Test func accessAndQualityChoicesKeepTheSameLayoutBreakpoints() async throws {
+        let view = pane(scope: .view)
+        let control = pane(scope: .full)
+        defer { view.close(); control.close() }
+        let toolbar = view.view.chrome.toolbar
+        let qualityButton = try button("macScreen.quality", in: view)
+        let expanded = toolbar.expandedWidth
+        #expect(control.view.chrome.toolbar.expandedWidth == expanded)
+        for width in [expanded - 1, expanded + 1, 320] {
+            let height = toolbar.height(for: width)
+            #expect(control.view.chrome.toolbar.height(for: width) == height)
+            for quality in ScreenQuality.allCases {
+                view.model.session?.preferences.quality = quality
+                let title = MacScreenToolbarView.qualityTitle(quality)
+                for _ in 0..<200 where qualityButton.attributedTitle.string != title { await Task.yield() }
+                #expect(qualityButton.attributedTitle.string == title)
+                #expect(toolbar.expandedWidth == expanded)
+                #expect(toolbar.height(for: width) == height)
+            }
+        }
+    }
+
     /// The same production renderer in three arrangements, each in light and dark.
     /// These are layout fixtures, not evidence of an authenticated live connection.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))

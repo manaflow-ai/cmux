@@ -32,6 +32,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var statsSlot = false
     private var hintSlot = false
     private var controlsShown = false
+    private var accessIsViewOnly: Bool?
+    private var reportedHeight: CGFloat?
+    private var isFullScreen: Bool?
 
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
@@ -73,6 +76,21 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     override var isFlipped: Bool { true }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateFullScreenControl()
+    }
+
+    private func updateFullScreenControl() {
+        let expanded = window?.styleMask.contains(.fullScreen) == true
+        guard isFullScreen != expanded else { return }
+        isFullScreen = expanded
+        let title = expanded ? L.t("macScreen.toolbar.exitFullScreen", "Exit Full Screen") : L.t("macScreen.toolbar.fullScreen", "Full Screen")
+        fullScreen.setAccessibilityLabel(title)
+        fullScreen.themedToolTip = title
+        fullScreen.image = NSImage(systemSymbolName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", accessibilityDescription: title)
+    }
+
     override func colorsChanged() {
         layer?.backgroundColor = colors.chrome.cgColor
         line.isHidden = !colors.borders
@@ -87,7 +105,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
             Task { @MainActor [weak self] in self?.track() }
         }
         needsLayout = true
-        superview?.needsLayout = true
+        let height = height(for: bounds.width)
+        if reportedHeight != height {
+            reportedHeight = height
+            superview?.needsLayout = true
+        }
     }
 
     private func apply() {
@@ -101,9 +123,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
             stats.stringValue = session.preferences.showStats ? Self.statsLine(session) : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
         }
         let viewOnly = model.viewOnly
-        access.retitle(viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control"))
-        access.image = NSImage(systemSymbolName: viewOnly ? "eye" : "cursorarrow", accessibilityDescription: nil)
-        access.ink = viewOnly ? \.attention : \.secondary
+        if accessIsViewOnly != viewOnly {
+            accessIsViewOnly = viewOnly
+            access.retitle(viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control"))
+            access.image = NSImage(systemSymbolName: viewOnly ? "eye" : "cursorarrow", accessibilityDescription: nil)
+            access.ink = viewOnly ? \.attention : \.secondary
+        }
         hintSlot = model.capturesKeyboard && live
         controlsShown = session != nil && model.showsStreamControls
         access.isHidden = !controlsShown
@@ -296,7 +321,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         var rows = 1
         var used: CGFloat = 0
         for control in controls {
-            let size = min(available, ceil(control.fittingSize.width))
+            let size = min(available, controlWidth(control))
             if used > 0 && used + size > available { rows += 1; used = 0 }
             used += size + Metrics.space2
         }
@@ -307,9 +332,23 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let controls = [access, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
         return controls.filter { $0 !== displayButton || model.displays.count > 1 }
             .reduce((Metrics.space6 * 2) * 8) { total, control in
-                let width = control === quality ? quality.attributedTitle.size().width + Metrics.space6 : control.fittingSize.width
-                return total + width + Metrics.space2
+                total + controlWidth(control) + Metrics.space2
             }
+    }
+
+    /// Reserve each menu's longest localized choice so choosing access or quality never moves
+    /// the responsive breakpoint. Icon allowances are fixed even when the access glyph changes.
+    private func controlWidth(_ control: NSView) -> CGFloat {
+        let titles: [String]
+        if control === access {
+            titles = [L.t("macScreen.scope.view", "View Only"), L.t("macScreen.scope.full", "Full Control")]
+        } else if control === quality {
+            titles = ScreenQuality.allCases.map(Self.qualityTitle)
+        } else {
+            return ceil(control.fittingSize.width)
+        }
+        let textWidth = titles.map { NSAttributedString(string: $0, attributes: [.font: MacScreenType.body]).size().width }.max() ?? 0
+        return ceil(textWidth + Metrics.space6 + Metrics.space2)
     }
 
     private func arrangedControls(for width: CGFloat) -> [NSView] {
@@ -323,6 +362,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     override func layout() {
         super.layout()
+        // Native full-screen transitions resize the window and lay out its contents.
+        updateFullScreenControl()
         let gap = Metrics.space2
         let padding = Metrics.space3
         let rowHeight = max((Metrics.space6 * 2), access.fittingSize.height + gap)
@@ -331,7 +372,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         line.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
         quality.themedToolTip = model.session.map { Self.qualityTitle($0.preferences.quality) }
         let controls = arrangedControls(for: bounds.width)
-        let widths = controls.map { ceil($0.fittingSize.width) }
+        let widths = controls.map(controlWidth)
         let controlsWidth = widths.reduce(0, +) + gap * CGFloat(max(0, controls.count - 1))
         let headerRight = stacked ? bounds.width - padding : bounds.width - padding - controlsWidth - gap
         var x = padding
