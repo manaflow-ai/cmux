@@ -304,6 +304,7 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/machine_enroll": { params: unknown; result: unknown };
   "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
+  "_acpmux/machine_signed_in": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.detach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.rekey": { params: unknown; result: unknown };
@@ -670,6 +671,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.detach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.rekey", kind: "request", acp: false, typed: false },

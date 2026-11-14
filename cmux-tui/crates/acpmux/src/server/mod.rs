@@ -2321,6 +2321,7 @@ mod prompt_coach;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
+mod sign_in_follow;
 pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;

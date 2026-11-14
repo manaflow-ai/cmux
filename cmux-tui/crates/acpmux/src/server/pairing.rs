@@ -252,6 +252,7 @@ pub(super) async fn dispatch(
             | method::MUX_PAIR_REDEEM
             | method::MUX_MACHINE_ENROLL
             | method::MUX_MACHINE_LEAVE_IF_AUTO
+            | method::MUX_MACHINE_SIGNED_IN
     ) {
         return None;
     }
@@ -279,6 +280,7 @@ pub(super) async fn dispatch(
         method::MUX_MACHINE_LEAVE_IF_AUTO => {
             super::machine_enroll::leave_if_auto(hub, conn, params).await
         }
+        method::MUX_MACHINE_SIGNED_IN => super::sign_in_follow::signed_in(hub, conn, params).await,
         _ => issue(hub, conn, params),
     })
 }
