@@ -1,7 +1,8 @@
 // Draws a chat's snapshot (shared.ts) in the document's first frames, before the bundle runs: the
 // page's first classic script calls this (boot.ts). The copy lives in a shadow root, so none of the
-// page's own code and selectors find it, under the copy's sheet (`pane-copy.css`: the page's rules
-// rewritten for the shadow tree at build time); the live page's root is clear under it until the swap
+// page's own code and selectors find it, under the page's own `pane.css` and `pane-copy.css` (its
+// `html`, `body` and `:root` rules rewritten for the shadow tree at build time); the live page's root is
+// clear under it until the swap
 // (live.ts). The copy takes no input: clicks, scrolls and focus go through it to the live page, and
 // typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
 // with no snapshot.
@@ -120,11 +121,11 @@ export type PaintEvents = {
 /// Draws `snapshot` over `doc`'s live root; true when it will. Nothing when there is none, when it was
 /// written for another viewport, look or theme, or when the engine lacks what the copy needs.
 ///
-/// The copy's rules are a file beside the page's sheet (its link's `data-copy`), linked in its shadow
-/// root: each chat page of the renderer used to parse a constructed copy of the whole page sheet (and
-/// keep the sheet's text in its `<style>`), about 7 MB a chat page in Chromium's own accounting
-/// (bench/chat-pages-memory.bench.ts, CSS=inline). A link finishes in a later task even when the sheet
-/// is parsed already, so the copy is laid out hidden and shows once it loaded, before the next frame.
+/// The copy links the page's own sheet in its shadow root, and beside it the page's root rules
+/// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
+/// a constructed copy of the whole page sheet (bench/chat-pages-memory.bench.ts, CSS=inline), where the
+/// links reuse the renderer's one parse. A link finishes in a later task even when the sheet is parsed
+/// already, so the copy is laid out hidden and shows once both loaded, before the next frame.
 export function paintSnapshot(
   doc: Document,
   snapshot: ChatSnapshot | null | undefined,
@@ -151,11 +152,15 @@ export function paintSnapshot(
     "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;visibility:hidden";
   const shadow = host.attachShadow({ mode: "open" });
   const sheets = snapshot.sheets.map((text) => sheetOf(view, text)).filter((s): s is CSSStyleSheet => !!s);
-  // The shadow root's own sheets cascade before its adopted ones: the page's rules, then the copy's
-  // other sheets, then the still rule, as the page had them.
-  const link = doc.createElement("link");
-  link.rel = "stylesheet";
-  link.href = new URL(copySheet, (pageSheet as HTMLLinkElement).href).href;
+  // The shadow root's own sheets cascade before its adopted ones: the page's rules (with its root
+  // rules rewritten), then the copy's other sheets, then the still rule, as the page had them.
+  const pageHref = (pageSheet as HTMLLinkElement).href;
+  const links = [pageHref, new URL(copySheet, pageHref).href].map((href) => {
+    const link = doc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    return link;
+  });
   shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
@@ -169,15 +174,17 @@ export function paintSnapshot(
   inertCopy(body);
   adoptShadowSheets(body, sheets);
   html.appendChild(body);
-  shadow.append(link, html);
+  shadow.append(...links, html);
   const globals = view as unknown as Record<string, unknown>;
-  link.addEventListener("error", () => {
+  let loading = links.length;
+  const failed = () => {
+    if (!host.isConnected) return;
     host.remove();
     globals[SNAPSHOT_MISS_GLOBAL] = "the copy's sheet did not load";
-  });
-  link.addEventListener("load", () => {
-    // Gone already: the live page took over, or a press ended it (live.ts).
-    if (!host.isConnected) return;
+  };
+  const loaded = () => {
+    // Gone already: the live page took over, a press ended it (live.ts), or a sheet failed.
+    if (--loading > 0 || !host.isConnected) return;
     if (events.wanted && !events.wanted()) {
       host.remove();
       globals[SNAPSHOT_MISS_GLOBAL] = "late: the page drew the chat first";
@@ -191,7 +198,11 @@ export function paintSnapshot(
     globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
     view.performance.mark?.("cmux-chat:snapshot-paint");
     events.shown?.();
-  });
+  };
+  for (const link of links) {
+    link.addEventListener("load", loaded, { once: true });
+    link.addEventListener("error", failed, { once: true });
+  }
   doc.body.appendChild(host);
   return true;
 }

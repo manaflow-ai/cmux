@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the React agent pane (webviews/src/agent-session/acpmux) into the page
 # that CmuxNextAgentPane ships as a module resource: index.html (markup),
-# pane.css (the styles; pane-copy.css, the same rules for the chat's drawn
+# pane.css (the styles; pane-copy.css, its root rules for the chat's drawn
 # copy), pane.js (the app), chunks/ (code it loads when used) and locales/
 # (strings and the loader that picks them). The page runs no inline script
 # (CSP script-src 'self'), so markup an agent gets rendered cannot run
@@ -127,8 +127,8 @@ bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
 CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 perl -pe 's/[ \t]+$//' "$WORK/styles.css" > "$WORK/pane.css"
-# The chat's drawn copy draws in a shadow root under the same rules, `html`, `body` and `:root` naming
-# its stand-ins (chatSnapshot/shared.ts shadowSelector): a file too, so it is parsed once a renderer.
+# The chat's drawn copy draws in a shadow root under pane.css too, plus its `html`, `body` and `:root`
+# rules rewritten for the copy's stand-ins (chatSnapshot/shared.ts shadowSelector), a small file.
 bun scripts/agent-pane/snapshotCss.mjs "$WORK/pane.css" "$WORK/pane-copy.css"
 # Each sheet is linked by its content (`?h=`): the page host lets Chromium keep an answer so named
 # (cmux_page_path.h IsContentHashedQuery), and Blink gives every page that links it the one parse.

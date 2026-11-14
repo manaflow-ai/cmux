@@ -77,7 +77,8 @@ describe.skipIf(!built)("agent pane page", () => {
 
   // Each chat page of the renderer parsed its own copy of a 1.9 MB <style> and kept its text, and its
   // drawn copy parsed it once more: about 7 MB a chat page (bench/chat-pages-memory.bench.ts CSS=inline).
-  // A linked file is parsed once a renderer and shared by every page that links it.
+  // A linked file is parsed once a renderer and shared by every page that links it. The copy's own sheet
+  // carries only the page's root rules, so it stays small (the size budget).
   test("links its sheet and the copy's, inlining neither", () => {
     const html = fs.readFileSync(page, "utf8");
     expect(html).not.toMatch(/<style\b/);
@@ -92,7 +93,9 @@ describe.skipIf(!built)("agent pane page", () => {
       `<link rel="stylesheet" id="cmux-pane-styles" href="pane.css?h=${hash("pane.css")}" data-copy="pane-copy.css?h=${hash("pane-copy.css")}" />`,
     );
     const css = fs.readFileSync(sheet, "utf8");
-    expect(fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8")).toBe(snapshotCss(css));
+    const copy = fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8");
+    expect(copy).toBe(snapshotCss(css));
+    expect(copy.length).toBeLessThan(css.length / 10);
   });
 
   // A sheet's own @import never loads in the page: mid-stylesheet the browser drops it (the page's
