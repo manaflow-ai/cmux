@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -198,6 +198,10 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   if (( ${#locale_paks[@]} > 0 )); then
     /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" --strings "$cef_dir/include/cef_pack_strings.h" ${locale_paks[@]+"${locale_paks[@]}"}
   fi
+  # Chromium recreates this precomputed GPU shader cache under its profile on
+  # first use. It is architecture- and driver-specific, so shipping it costs
+  # 0.9 MiB without removing any runtime capability.
+  rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.

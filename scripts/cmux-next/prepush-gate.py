@@ -112,8 +112,10 @@ seven). Git objects only, no cargo.
 Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
 in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
 scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
-caller, or gives a listed one a caller without `--update` is refused; it runs only when the push changes a header,
-the baseline, the checker or a Swift line naming a cmux_/acpmux_ function. The fast gates' --advisory pass warns.
+caller, or gives a listed one a caller without `--update` is refused; an export the app's pinned library
+(Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
+header, the baseline, the checker or a Swift line naming a cmux_/acpmux_ function: a push that only moves the pin
+(the re-pin bot's, or one by hand) is not judged. The fast gates' --advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -1806,7 +1808,12 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
     names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
     Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
     Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
-    something, and subtracts what the base already had."""
+    something, and subtracts what the base already had.
+
+    A push that only moves the app's FFI pin (app-ffi-pin.json) is not judged, though a re-pin can turn an export
+    the old pin lacked into drift: that export was step A's, its caller is step B's, and the re-pin (the bot's, or
+    one by hand) cannot add it. The full check names it from the re-pin on. A push that moves the pin and also
+    changes one of the paths above is judged as any other."""
     script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
