@@ -1,7 +1,7 @@
 //! Row 3b's gate (`benches/v2/mod.rs`): the god chat caught up from nothing over the v1 source.
 //! Run: `cargo test --profile gate -p acpmux --lib v2_pr03b_ -- --ignored --nocapture`.
 //!
-//! Small runs first, then god, in one process. Each writes its chat's log through v1's store,
+//! One small catch-up nobody measures runs first, then small, then god, in one process. Each writes its chat's log through v1's store,
 //! returns free pages (`malloc_trim(0)`), takes its baseline, and catches the book up through the
 //! actor. Every stretch of [`STRETCH`] chunks (the same length at both sizes) starts with the
 //! kernel's high-water mark reset, and the peak is the largest rise over the baseline any stretch
@@ -140,6 +140,9 @@ fn worker(case: &str) -> CatchUp {
 #[test]
 #[ignore = "release gate: the god chat caught up from nothing over the v1 source"]
 fn v2_pr03b_catchup_peak_rss() {
+    // One catch-up nobody measures pays the process's one-time costs (the allocator's arenas,
+    // the first actor thread, the store's first open) before either side, so neither pays them.
+    let _ = worker("small");
     let small = worker("small");
     let god = worker("god");
     eprintln!("v2.pr03b.catchup_peak_rss small={small:?}");

@@ -764,7 +764,9 @@ pub(super) async fn relay(
         std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
-    let from = crate::cli::send_relay::RelaySender::new(from, sub);
+    // parse_item already validated the explicit class; aliases use the canonical wire value.
+    let class = target.item.class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
+    let from = crate::cli::send_relay::RelayMetadata::new(from, sub, class);
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {

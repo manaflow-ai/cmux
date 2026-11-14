@@ -732,6 +732,15 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
+                "cmux.chat.widget/1" => {
+                    match entry.pointer("/options/tools").and_then(Value::as_array) {
+                        Some(tools) if !tools.is_empty() => format!(
+                            "the agent chat, under tool calls named {}",
+                            tools.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        ),
+                        _ => "the agent chat, for widget parts that name this extension".into(),
+                    }
+                }
                 other => other.to_string(),
             };
             json!({ "interface": interface, "where": place, "shown": shown })
