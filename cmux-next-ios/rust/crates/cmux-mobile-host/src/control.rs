@@ -308,7 +308,8 @@ pub enum Inbound {
         items: Vec<crate::needs_you::Request>,
     },
     /// The app's theme and wallpaper, the whole state (`appearance.rs`).
-    Appearance(crate::appearance::FromApp),
+    /// Boxed: the theme, wallpaper and look make it several times any other line.
+    Appearance(Box<crate::appearance::FromApp>),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -560,7 +561,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
                 // Read off this loop: a wallpaper read never holds a token or a device line.
                 Some(Inbound::Appearance(appearance)) => {
-                    tokio::spawn(crate::appearance::set(appearance));
+                    tokio::spawn(crate::appearance::set(*appearance));
                 }
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
