@@ -478,6 +478,9 @@ impl PeerState {
     }
 }
 
+/// How long a link stays down before its automatic retries park on an hourly schedule.
+pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
+
 /// The link's history, in wall-clock milliseconds (`store::now_ms`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
@@ -551,8 +554,7 @@ impl Link {
     /// still runs immediately; an explicit reconnect replaces the instance and also runs
     /// immediately. Existing rows and dead-link request refusal are independent of this delay.
     pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
-        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
-        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS) {
             // Small positive jitter keeps many retired hosts from retrying in lockstep.
             Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
         } else {
@@ -566,6 +568,21 @@ impl Link {
         self.next_retry_at = (delay >= Duration::from_secs(3_600))
             .then(|| now.saturating_add(delay.as_millis() as u64));
         delay
+    }
+
+    /// Down a day or more without a successful handshake: automatic retries are hourly
+    /// (`parked` on the wire), and a list shows it as gone quiet rather than failing.
+    pub fn parked(&self, now: u64) -> bool {
+        !self.is_ready()
+            && self.down_since.is_some_and(|at| now.saturating_sub(at) >= PARK_AFTER_MS)
+    }
+
+    /// A parked peer's saved wait when this daemon starts, reported as `retry_at`
+    /// (`nextRetryAt`) like every later wait, so a list can say when it is tried next.
+    pub fn park_at_start(&mut self, now: u64) -> Option<Duration> {
+        let wait = self.parked_retry_wait(now)?;
+        self.retry_at = Some(now.saturating_add(wait.as_millis() as u64));
+        Some(wait)
     }
 
     pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
