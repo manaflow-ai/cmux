@@ -700,7 +700,9 @@ class NoclobberSweep(unittest.TestCase):
         the scratch folder while the process ran on, and its write came after the verdict. The reaper waits until
         bash's process group is empty, and nothing of the run is left."""
         roots = self.own_runs()
-        text = "{ x=0; while ((x < 150000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0"
+        # A builtin delay with no compound command: the vendored leaves_group() reads a loop's closing `done` as a
+        # command it cannot resolve and fails closed, so a while loop here would be skipped, never waited for.
+        text = "{ printf '%s' {1..600000} > /dev/null; : > /tmp/late.$$; } & exit 0"
         with mock.patch.object(shell_tree, "REAPER", self.no_subreaper_reaper()):
             self.assertIs(shell_tree.bash_writes(text, timeout=30), True)
         self.assertEqual(left(roots), [], "processes of the run outlived it")
