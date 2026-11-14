@@ -82,6 +82,10 @@ pub enum BodyField {
     Request,
     /// An ask's decision's outcome, raw.
     Outcome,
+    /// A card's records: each listed line's `msg`, in order (decision 254).
+    Records,
+    /// A card's field read again from one logged line: its body key, from the kind table.
+    Card(&'static str),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodySource {
@@ -93,6 +97,26 @@ pub enum BodySource {
         place: u64,
         span: u64,
     },
+    /// A card's records, read again from the raw log at each write: a JSON array of each
+    /// line's `msg`, in order. A line that no longer reads is left out, and the row says how
+    /// many it lacks (`lacks`). The actor resolves this source.
+    Records(Vec<RawLine>),
+    /// One value of one logged line, `msg.<key>`, read again at each write; a string is cut at
+    /// `cap` bytes on a character with [`cut`], as the translator cut it when it first read the
+    /// line (and counted the cut then). `key` and `cap` come from the kind table, never from a
+    /// record. Left out, and counted in `lacks`, when the line no longer reads.
+    RawField {
+        place: u64,
+        span: u64,
+        key: &'static str,
+        cap: usize,
+    },
+}
+/// A logged line by its place and span, as the actor reads it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawLine {
+    pub place: u64,
+    pub span: u64,
 }
 
 /// A durable queue mutation. Add is an idempotent upsert: a repeated queued line does
@@ -206,8 +230,9 @@ fn fields_bytes(row: &OwnedRow) -> usize {
 fn json_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
 }
-/// At most `cap` bytes of `value`, cut on a character.
-fn cut(value: &str, cap: usize) -> &str {
+/// At most `cap` bytes of `value`, cut on a character. The actor cuts a card's raw fields with
+/// it too, so a field reads the same at every write.
+pub fn cut(value: &str, cap: usize) -> &str {
     let mut end = value.len().min(cap);
     while !value.is_char_boundary(end) {
         end = end.saturating_sub(1);
