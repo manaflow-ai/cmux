@@ -325,7 +325,7 @@ public actor InstallAuthClient {
             (status, data) = try await transport.post(path, json: body, bearer: bearer,
                                                       headers: Self.headers(clientVersion: clientVersion))
         } catch {
-            throw InstallAuthError.transport
+            throw InstallAuthError.transport(path: path, urlErrorCode: (error as? URLError)?.code.rawValue)
         }
         guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw status == 200 ? InstallAuthError.malformedReply : InstallAuthError.refused("http_\(status)")
