@@ -62,7 +62,6 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
   type Strip = {
     strip: number;
     viewport: number;
-    chain: string;
     chips: Chip[];
     play: string | undefined;
     error: string | undefined;
@@ -108,37 +107,39 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
       });
       const report = (window as Window & { cmuxGalleryPlayReport?: { status: string; error?: string } })
         .cmuxGalleryPlayReport;
-      const chain: string[] = [];
-      for (let node: Element | null = document.querySelector(".acpmux-composer-strip"); node; node = node.parentElement)
-        chain.push(
-          `${node.tagName.toLowerCase()}.${[...node.classList].slice(0, 2).join(".")}=${Math.round(node.getBoundingClientRect().width)}(max:${getComputedStyle(node).maxWidth})`,
-        );
       const viewport = window.innerWidth;
       return {
         strip: document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect().width,
         chips,
         viewport,
-        chain: chain.join(" < "),
         play: report?.status,
         error: report?.error,
       };
     });
-    console.log(`ccc ${variant} @${width}: viewport ${strip.viewport} strip ${strip.strip} play ${strip.play}`);
-    for (const part of strip.chain.split(" < ")) console.log(`ccc chain ${variant} @${width}: ${part}`);
-    for (const chip of strip.chips)
-      console.log(
-        `ccc chip ${variant} @${width}: ${chip.kind} w=${Math.round(chip.width)} label=${chip.labelShown} cut=${chip.cut}`,
-      );
+    // One short line per stage (lane-gh ci cuts long lines): the strip's width and each chip's.
+    console.log(
+      `ccc ${variant} @${width}: viewport ${strip.viewport} strip ${Math.round(strip.strip)} play ${strip.play} | ${strip.chips
+        .map(
+          (chip) => `${chip.kind} ${Math.round(chip.width)}${chip.labelShown ? "" : " icon"}${chip.cut ? " CUT" : ""}`,
+        )
+        .join(", ")}`,
+    );
     return { page, strip };
   };
 
   const environment = (strip: Strip) => strip.chips.find((chip) => chip.kind === "cloud-environment")!;
 
-  for (const variant of ["personal-default", "team-bypass", "removed-team"]) {
-    for (const width of [1100, 760])
-      test(`${variant}: at ${width} px every chip shows whole, the Environment chip with its name`, async () => {
-        const { page, strip } = await open(variant, width);
+  // The width variants (`<state>-full|760|400`) leave the pane at their width; the stage opens at it,
+  // so their plays never resize and what is measured is the strip as it rests there.
+  for (const state of ["personal-default", "team-bypass", "removed-team"]) {
+    for (const [label, width] of [
+      ["full", 1100],
+      ["760", 760],
+    ] as const)
+      test(`${state} at ${width} px: every chip shows whole, the Environment chip with its name`, async () => {
+        const { page, strip } = await open(`${state}-${label}`, width);
         try {
+          expect(strip.error).toBeUndefined();
           expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
           expect(environment(strip).labelShown).toBe(true);
         } finally {
@@ -146,9 +147,10 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
         }
       });
 
-    test(`${variant}: at 400 px the Environment chip is its icon alone, named in its tooltip, and nothing else cuts`, async () => {
-      const { page, strip } = await open(variant, 400);
+    test(`${state} at 400 px: the Environment chip is its icon alone, named in its tooltip, and nothing else cuts`, async () => {
+      const { page, strip } = await open(`${state}-400`, 400);
       try {
+        expect(strip.error).toBeUndefined();
         expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
         const chip = environment(strip);
         expect(chip.labelShown).toBe(false);
