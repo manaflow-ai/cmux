@@ -3,7 +3,9 @@ NEXT iOS app (cmux-next-ios), and the real history names detectors that exist.""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import plistlib
@@ -697,7 +699,15 @@ elif mode in ("429", "429-after-walk"):
     if mode == "429-after-walk":
         open("step-01-launch.png", "wb").write(b"png")
     result = dict(base, subtype="error_during_execution", is_error=True, api_error_status=429, duration_api_ms=812,
-                  total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
+                  api_error_type="rate_limit_error", total_cost_usd=0, result="API Error: 429",
+                  usage={"input_tokens": 0, "output_tokens": 0})
+elif mode == "weekly":
+    # The CLI's own result in gate run 43637095919 (job 132576237860), trimmed.
+    result = dict(base, subtype="success", is_error=True, duration_api_ms=0, stop_reason="stop_sequence",
+                  total_cost_usd=0, terminal_reason="api_error", api_error_status=429,
+                  api_error_type="rate_limit_error", api_error_origin="first_party", api_error="usage_limit_reached",
+                  result="You've hit your weekly limit \\u00b7 resets Nov 18 at 3am (UTC)",
+                  usage={"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0})
 elif mode == "crash":
     # Real API work, then a failure whose free text names a rate limit:
     # text never classifies, only the result's fields do.
@@ -817,8 +827,39 @@ class AgentReviewerPassTests(unittest.TestCase):
         os.environ["APP_REVIEW_AGENT_RETRY_BACKOFF_S"] = "0"
         if setup:
             (self.root / "none.md").write_text(setup)
-        code, findings = self.run_pass("scripted")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code, findings = self.run_pass("scripted")
+        self.stderr = stderr.getvalue()
         return code, findings, len(calls.read_text().splitlines()) if calls.exists() else 0
+
+    def marker(self) -> dict | None:
+        """The one `::error::agent.api-unavailable {json}` line the pass printed, parsed, or None."""
+        lines = [line for line in self.stderr.splitlines() if line.startswith("::error::")]
+        found = [line for line in lines if line.startswith("::error::agent.api-unavailable {")]
+        if not found:
+            return None
+        self.assertEqual(lines, found, "the marker is the pass's only error line, so a classifier can trust it alone")
+        return json.loads(found[0].removeprefix("::error::agent.api-unavailable "))
+
+    def test_a_weekly_limit_ends_red_at_once_with_the_reset_time(self):
+        # Gate run 43637095919 (job 132576237860): the account's weekly limit,
+        # which a 60 s retry cannot clear, so the pass does not wait for one.
+        code, findings, calls = self.run_scripted("weekly", "verdict")
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 1)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.api-unavailable", "blocker")])
+        message = findings[0]["message"]
+        self.assertTrue(message.startswith("agent pass: API unavailable (rate limited)"), message)
+        for part in ("weekly limit", "resets Nov 18 at 3am (UTC)", "api_error=usage_limit_reached", "duration_api_ms=0"):
+            self.assertIn(part, message)
+        marker = self.marker()
+        self.assertIsNotNone(marker, self.stderr)
+        self.assertEqual({k: marker.get(k) for k in ("duration_api_ms", "input_tokens", "api_error", "limit", "resets",
+                                                     "attempts")},
+                         {"duration_api_ms": 0, "input_tokens": 0, "api_error": "usage_limit_reached",
+                          "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1})
+        self.assertEqual(findings[0]["api"], marker)
 
     def test_a_rate_limited_agent_retries_once_then_ends_red_as_api_unavailable(self) -> None:
         # Gate run 43621274696 (job 132527403700): the CLI came back in about
@@ -831,6 +872,9 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertTrue(findings[0]["message"].startswith("agent pass: API unavailable (rate limited)"), findings)
         self.assertIn("duration_api_ms=0", findings[0]["message"])
         self.assertIn("input_tokens=0", findings[0]["message"])
+        marker = self.marker()
+        self.assertIsNotNone(marker, self.stderr)
+        self.assertEqual((marker["duration_api_ms"], marker["input_tokens"], marker["attempts"]), (0, 0, 2))
 
     def test_a_429_then_a_real_verdict_passes_on_the_retry(self) -> None:
         code, findings, calls = self.run_scripted("429", "verdict")
@@ -865,6 +909,7 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual([f["rule"] for f in findings], ["agent.no-verdict"])
         self.assertNotIn("API unavailable", findings[0]["message"])
+        self.assertIsNone(self.marker())
 
     def test_the_report_blocks_on_an_api_unavailable_pass_as_on_no_verdict(self) -> None:
         verdicts = {}
