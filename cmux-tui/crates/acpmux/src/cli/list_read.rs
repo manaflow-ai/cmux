@@ -83,9 +83,9 @@ pub(crate) struct Form<'f> {
     pub(crate) view: ListView,
     /// False for a row whose summary shows the form drops it, on a field the summary holds
     /// whole. Never judged on tags or on a cut text.
-    pub(crate) may_keep: &'f dyn Fn(&Summary) -> bool,
+    pub(crate) may_keep: &'f (dyn Fn(&Summary) -> bool + Sync),
     /// The form's filters on the fetched row, today's code (`ls`'s `keeps`).
-    pub(crate) keeps: &'f dyn Fn(&Value) -> bool,
+    pub(crate) keeps: &'f (dyn Fn(&Value) -> bool + Sync),
     /// `--since`: a row updated before this is left out, and as the view is newest first, the
     /// walk ends at the first such summary.
     pub(crate) cutoff: Option<u64>,
@@ -103,8 +103,8 @@ pub(crate) struct Want<'f> {
     pub(crate) rows: usize,
     /// Whether the v1 read's daemon lists the row: from its summary when it decides it whole,
     /// else `None` and the fetched row is asked ([`Want::lists_row`]).
-    pub(crate) lists: &'f dyn Fn(&Summary) -> Option<bool>,
-    pub(crate) lists_row: &'f dyn Fn(&Value) -> bool,
+    pub(crate) lists: &'f (dyn Fn(&Summary) -> Option<bool> + Sync),
+    pub(crate) lists_row: &'f (dyn Fn(&Value) -> bool + Sync),
 }
 
 /// What a read gives, as `ls_pages::read` does: the kept rows in v1's order, and with `--limit`
@@ -139,7 +139,7 @@ pub(crate) fn pending(summary: &Summary) -> bool {
 
 /// Whether the summary's chat is closed: the one thing its `state` decides.
 pub(crate) fn closed(summary: &Summary) -> bool {
-    !acpmux_list_types::is_live_state(&summary.state)
+    summary.state == "closed"
 }
 
 /// The summary as the row `select::name_matches` reads (its name, id, peer and qualified id),
@@ -340,7 +340,7 @@ impl Source {
                 None => unsure.push(row_key(&summary)),
             }
         }
-        if self.lists_any(&client, unsure, want, form.with_tools).await? {
+        if lists_any(&client, unsure, want, form.with_tools).await? {
             return Ok(Fetched { rows: kept, next: Some(Value::String(cursor)) });
         }
         while let Some(page) = reading.next().await? {
@@ -354,26 +354,11 @@ impl Source {
                     None => unsure.push(row_key(&summary)),
                 }
             }
-            if self.lists_any(&client, unsure, want, form.with_tools).await? {
+            if lists_any(&client, unsure, want, form.with_tools).await? {
                 return Ok(Fetched { rows: kept, next: Some(Value::String(cursor)) });
             }
         }
         Ok(Fetched { rows: kept, next: Some(Value::Null) })
-    }
-
-    /// Whether the v1 list holds any of the rows `keys` name, read from the fetched rows.
-    async fn lists_any(
-        &self,
-        client: &Client,
-        keys: Vec<String>,
-        want: &Want<'_>,
-        with_tools: bool,
-    ) -> Result<bool> {
-        if keys.is_empty() {
-            return Ok(false);
-        }
-        let rows = fetch(client, keys, with_tools, false).await?;
-        Ok(rows.iter().any(|row| (want.lists_row)(row)))
     }
 
     /// Every row of `view` whose summary `may_keep` passes, fetched, in v1's order: what a
@@ -381,7 +366,7 @@ impl Source {
     pub(crate) async fn rows(
         &mut self,
         view: ListView,
-        may_keep: &dyn Fn(&Summary) -> bool,
+        may_keep: &(dyn Fn(&Summary) -> bool + Sync),
     ) -> Result<Vec<Value>> {
         let form = Form {
             view,
@@ -399,6 +384,20 @@ impl Source {
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }
+}
+
+/// Whether the v1 list holds any of the rows `keys` name, read from the fetched rows.
+async fn lists_any(
+    client: &Client,
+    keys: Vec<String>,
+    want: &Want<'_>,
+    with_tools: bool,
+) -> Result<bool> {
+    if keys.is_empty() {
+        return Ok(false);
+    }
+    let rows = fetch(client, keys, with_tools, false).await?;
+    Ok(rows.iter().any(|row| (want.lists_row)(row)))
 }
 
 fn too_old(row: &Value, cutoff: Option<u64>) -> bool {

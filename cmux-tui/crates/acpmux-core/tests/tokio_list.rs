@@ -5,7 +5,7 @@
 use acpmux_book::index::{RowKey, Summary, SummaryIndex};
 use acpmux_client::Change;
 use acpmux_client::tokio_list::{self, ListConnection, Opened, Read};
-use acpmux_client::wire::{ListKey, ListView, OriginState};
+use acpmux_client::wire::{Frame, FrameDecoder, ListKey, ListView, OriginState};
 use acpmux_core::conn::{self, HubSource};
 use acpmux_core::hub::Hub;
 use serde_json::{Value, json};
@@ -47,6 +47,81 @@ fn daemon(hub: Arc<Hub>, upgrade: bool) -> Halves {
         let _ = conn::run(reader, writer, source, "test", &["list".into()], conn::Role::Local).await;
     });
     tokio::io::split(client)
+}
+
+/// [`daemon`] whose every `page` is refused by an error that names no sid: each page request
+/// goes to the hub under a sid it does not hold, and the sid is taken out of the error.
+fn refusing_pages(hub: Arc<Hub>) -> Halves {
+    let (client, proxy) = tokio::io::duplex(64 * 1024);
+    let (inner, server) = daemon(hub, true);
+    let (mut from_client, mut to_client) = tokio::io::split(proxy);
+    let (mut from_daemon, mut to_daemon) = (inner, server);
+    // The upgrade line goes through as it is, then frames, each rewritten.
+    tokio::spawn(async move {
+        let mut line = Vec::new();
+        loop {
+            let Ok(byte) = from_client.read_u8().await else { return };
+            line.push(byte);
+            if byte == b'\n' {
+                break;
+            }
+        }
+        to_daemon.write_all(&line).await.unwrap();
+        pump(&mut from_client, &mut to_daemon, |value| {
+            if value["method"] == "page" {
+                value["params"]["sid"] = json!("nobody");
+            }
+        })
+        .await;
+    });
+    tokio::spawn(async move {
+        let mut line = Vec::new();
+        loop {
+            let Ok(byte) = from_daemon.read_u8().await else { return };
+            line.push(byte);
+            if byte == b'\n' {
+                break;
+            }
+        }
+        to_client.write_all(&line).await.unwrap();
+        pump(&mut from_daemon, &mut to_client, |value| {
+            if value["method"] == "page" && value.get("code").is_some() {
+                if let Some(error) = value.as_object_mut() {
+                    error.remove("sid");
+                }
+            }
+        })
+        .await;
+    });
+    tokio::io::split(client)
+}
+
+/// Copies frames from `from` to `to`, each JSON one through `rewrite`.
+async fn pump(
+    from: &mut (impl tokio::io::AsyncRead + Unpin),
+    to: &mut (impl tokio::io::AsyncWrite + Unpin),
+    rewrite: impl Fn(&mut Value),
+) {
+    let mut decoder = FrameDecoder::default();
+    let mut buf = [0_u8; 16 * 1024];
+    loop {
+        let Ok(n) = from.read(&mut buf).await else { return };
+        if n == 0 {
+            return;
+        }
+        for frame in decoder.push(&buf[..n]).unwrap() {
+            let frame = match frame.decode_json::<Value>() {
+                Ok(mut value) if value.is_object() => {
+                    rewrite(&mut value);
+                    Frame::json(frame.kind, &value).unwrap()
+                }
+                _ => frame,
+            };
+            if to.write_all(&frame.encode()).await.is_err() {
+                return;
+            }
+        }
+    }
 }
 
 async fn open(hub: &Arc<Hub>) -> ListConnection<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>> {
@@ -135,6 +210,30 @@ async fn a_walk_holds_at_most_one_page_it_has_not_handed_out() {
     assert_eq!(rows.len(), 2_000);
     assert!(rows.iter().all(Summary::is_live));
     assert!(rows.windows(2).all(|pair| pair[0].last_activity >= pair[1].last_activity));
+}
+
+#[tokio::test]
+async fn a_page_refused_with_no_sid_ends_the_read() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    for index in 0..300_u64 {
+        writer.apply(row(&format!("live-{index:04}"), "idle", 1_000 + index)).unwrap();
+    }
+    let (reader, writer) = refusing_pages(Arc::new(hub));
+    let mut connection = match tokio::time::timeout(WAIT, tokio_list::open(reader, writer))
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        Opened::List(connection) => *connection,
+        Opened::Fallback { .. } => panic!("the daemon upgraded"),
+    };
+    let mut reading = connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
+    // The window comes; the page after it is refused, and the read says so.
+    let window = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap().unwrap();
+    assert!(!window.rows.is_empty() && window.rows.len() < 300);
+    let refused = tokio::time::timeout(WAIT, reading.next()).await.expect("the read ended");
+    let error = refused.expect_err("a refused page is an error");
+    assert!(error.to_string().contains("page"), "{error}");
 }
 
 #[tokio::test]
@@ -242,6 +341,36 @@ async fn rows_as_v1_gave_them_read_a_parent_that_is_not_among_them() {
             &acpmux_client::v1_row(summary, connection.origin_state(&summary.origin), parent.as_ref())
         );
     }
+}
+
+/// A peer whose link is down and who lists only a closed chat: read by key, the chat's row says
+/// stale, as v1's list says it. The read's origins come from its one-row window of `live`, which
+/// holds none of that peer's rows.
+#[tokio::test]
+async fn a_closed_row_of_a_down_peer_read_by_key_is_stale() {
+    let (hub, writer) = Hub::new(SummaryIndex::new());
+    let hub = Arc::new(hub);
+    tokio::spawn(writer.run());
+    hub.submit(row("here", "idle", 20)).unwrap();
+    hub.origin("peer-b", OriginState::Stale, 5).unwrap();
+    let mut old = row("old", "closed", 3);
+    old.origin = "peer-b".into();
+    hub.submit(old).unwrap();
+    settle(&hub, |index| index.iter().count() == 2).await;
+
+    let mut connection = open(&hub).await;
+    let key = ListKey { last_activity: 0, chat_id: "old".into(), origin: "peer-b".into() };
+    let mut reading = connection.read(Read::Keys(vec![key])).await.unwrap();
+    let mut rows = Vec::new();
+    while let Some(page) = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap() {
+        rows.extend(page.rows);
+    }
+    drop(reading);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(connection.origin_state("peer-b"), OriginState::Stale);
+    let v1 = connection.v1_rows(&rows).await.unwrap();
+    assert_eq!(v1[0]["peer"], "peer-b");
+    assert_eq!(v1[0]["stale"], true, "{}", v1[0]);
 }
 
 /// Applies a mirror's changes to the rows it holds.

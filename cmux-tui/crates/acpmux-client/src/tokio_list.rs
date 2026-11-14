@@ -348,7 +348,10 @@ enum ReadState {
     Done,
 }
 
-/// A read in progress. Dropping it ends its subscription.
+/// A read in progress. Dropping it ends its subscription: the `unsub` is queued then and goes
+/// out with the connection's next read from the socket (the `next` of a later read or follow
+/// flushes what is queued first, `next_change`), so a caller that keeps the connection and reads
+/// nothing more leaves the subscription open until it does, or until the connection closes.
 pub struct Reading<'a, R, W>
 where
     R: AsyncRead + Unpin,
@@ -479,6 +482,13 @@ where
                 },
                 Change::Page(page) if page.sid == self.sid => Reply::Page(page),
                 Change::Error { sid: Some(sid), method, code, .. } if sid == self.sid => {
+                    return Err(io::Error::other(format!("the list's {method}: {code}")));
+                }
+                // A refused `sub` or `page` that names no sid: the read holds the connection,
+                // so it is this read's, and waiting on would never end.
+                Change::Error { sid: None, method, code, .. }
+                    if method == "sub" || method == "page" =>
+                {
                     return Err(io::Error::other(format!("the list's {method}: {code}")));
                 }
                 Change::Dropped { sid, .. } if sid == self.sid => {
