@@ -36,6 +36,8 @@ extension AgentChatSpillTests {
         }
     }
 
+    // AgentSessionDirectory is iOS-only (the macOS swift test pass has no directory).
+    #if os(iOS)
     /// 50 agent tabs touched (Home and Feed cards make their stores), one of them working off
     /// screen through 5,000 turns of 1 KB replies, one turn per arrival as a live agent sends
     /// them. Its store holds at most the list's window; the rest is on disk, and a memory
@@ -66,6 +68,7 @@ extension AgentChatSpillTests {
         while chat.turnsOnDisk > 0 { await chat.loadEarlierFromDisk() }
         #expect(chat.turns.map(\.id) == (0..<5000).map { "t\($0)" })
     }
+    #endif
 
     /// A chat a list shows is left to the list, which knows where the reader is
     /// (`ChatTranscriptList.spillIfResting`): the store spills nothing then, also on a warning.
