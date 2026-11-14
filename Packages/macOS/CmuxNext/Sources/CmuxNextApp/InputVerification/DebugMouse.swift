@@ -15,7 +15,7 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content; `focused` names the focused pane) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// `pane` (the center of that pane's content; `focused` names the focused pane) or `view` (an accessibility id) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
 /// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
@@ -45,7 +45,7 @@ enum DebugMouse {
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = params["target"]?.stringValue == "chief-launcher" ? controller.chiefPanelView?.launcher : controller.window else { return .object(["error": .string("no window")]) }
         guard let point = point(params, controller: controller, window: window) else {
-            return .object(["error": .string("pass x and y, a pane shown in the window, or a workspace row in its sidebar")])
+            return .object(["error": .string("pass x and y, a pane shown in the window, a view identifier, or a workspace row in its sidebar")])
         }
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
         let (down, up, dragged) = eventTypes(button: params["button"]?.stringValue)
@@ -177,10 +177,18 @@ enum DebugMouse {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
         if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
         if let divider = params["divider"]?.stringValue { return dividerPoint(divider, controller: controller, window: window) }
+        if let identifier = params["view"]?.stringValue { return viewPoint(identifier, in: window) }
         guard let named = params["pane"]?.stringValue, let key = named == "focused" ? controller.focus.state.pane : named, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view
         let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
+    }
+
+    /// The center of `window`'s first visible view with accessibility identifier `id` (a capture clicks the omnibar avatar).
+    private static func viewPoint(_ id: String, in window: NSWindow) -> NSPoint? {
+        func find(_ view: NSView) -> NSView? { view.isHidden ? nil : view.accessibilityIdentifier() == id ? view : view.subviews.lazy.compactMap(find).first }
+        guard let view = window.contentView.flatMap(find) else { return nil }
+        return InputJournal.topLeftPoint(view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil), in: window, relativeTo: window)
     }
 
     /// Moves the synthesized pointer that layout and chrome hover read, for the window's on-screen layouts.
