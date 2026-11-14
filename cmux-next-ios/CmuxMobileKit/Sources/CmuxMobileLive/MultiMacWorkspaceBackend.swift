@@ -8,7 +8,7 @@ import Foundation
 /// connected.
 @MainActor
 public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend,
-    AgentChatsBackend, WorkspacePaneBackend {
+    AgentChatsBackend, WorkspacePaneBackend, TerminalChatBackend {
     private weak var coordinator: LiveCoordinator?
 
     public init(coordinator: LiveCoordinator) {
@@ -248,6 +248,13 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
                                  in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).launchAgentTeams(teams, beside: tab, folder: folder, in: workspace)
+    }
+
+    // MARK: TerminalChatBackend
+
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { linked(macID)?.terminalChatListings(on: macID) ?? [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        try await backend(macID).openTerminalChat(harness: harness, session: session, terminalTabID: terminalTabID, on: macID)
     }
 
     // MARK: WorkspaceGroupBackend
