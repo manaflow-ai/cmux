@@ -188,6 +188,7 @@ export type MockExtensionApp = {
         minimum?: number;
         maximum?: number;
         maxLength?: number;
+        "x-cmux-devOnly"?: boolean;
       }
     >;
   };

@@ -130,3 +130,28 @@ test("the Extensions category draws the card", () => {
   expect(CATEGORY_CARDS).toContain("extensions");
   expect(categories.find((category) => category.id === "extensions")?.lead).toEqual(["extensions"]);
 });
+
+test("a DEV-only setting shows only in a DEV build", async () => {
+  const addVariant = (provider: Parameters<NonNullable<Parameters<typeof renderCard>[1]>>[0]) => {
+    provider.extensionApps[0]!.schema.properties.variant = {
+      type: "string",
+      title: "Design variant",
+      enum: ["menu", "pane"],
+      default: "menu",
+      "x-cmux-devOnly": true,
+    };
+  };
+  const release = await renderCard(<ExtensionsCard />, (provider) => {
+    addVariant(provider);
+    provider.host = { ...provider.host, dev_build: false };
+  });
+  expect(row(release.container, "variant")).toBeNull();
+  expect(row(release.container, "compact")).not.toBeNull();
+  release.unmount();
+  const dev = await renderCard(<ExtensionsCard />, (provider) => {
+    addVariant(provider);
+    provider.host = { ...provider.host, dev_build: true };
+  });
+  expect(row(dev.container, "variant")).not.toBeNull();
+  dev.unmount();
+});
