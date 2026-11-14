@@ -645,6 +645,19 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
     }
 
+    /// Back to the list and into the workspace again (a new screen, as the list's tap pushes):
+    /// the tab that was on screen, not the first (Leo 2026-11-14).
+    @Test func reenteringTheWorkspaceOpensTheTabLeftOnScreen() {
+        let (store, first) = make()
+        first.opened()
+        #expect(first.activeTabID == "t-claude")
+        first.activate("t-zsh")
+        let reentered = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(reentered.activeTabID == "t-zsh")
+        reentered.opened()
+        #expect(reentered.activeTabID == "t-zsh")
+    }
+
     /// A notification or Feed item for a tab of the workspace already on screen rebuilds its
     /// page: the old page must leave the request to the new one, which opens on that tab.
     @Test func aRequestWhileTheWorkspaceIsUpIsLeftForTheRebuiltPage() async {
