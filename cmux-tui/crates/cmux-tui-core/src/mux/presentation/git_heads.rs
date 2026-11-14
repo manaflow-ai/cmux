@@ -5,16 +5,26 @@
 //! than [`GIT_HEAD_TTL`]: one walk for each terminal, on the thread of the reply. In a session of
 //! some hundred terminals that was half of a `list-workspaces` reply's time.
 //!
-//! A reply now uses the cached value of a directory whatever its age. A value older than
-//! [`GIT_HEAD_TTL`] goes to one background refresh, and the refresh sends `tab-changed` for the
-//! tabs whose value changed, so a client that takes events gets the new branch. A stale value
-//! has no age bound: it is served until its refresh ends. Only a directory with no cached value
-//! is read in the reply, because a client that takes no event (a one-shot command) must find
-//! its branches in its first reply.
+//! A walk of the tree now uses the cached value of a directory whatever its age. A value older
+//! than [`GIT_HEAD_TTL`] goes to one background refresh, and the refresh sends `tab-changed` for
+//! the tabs whose value changed, so a client that takes events gets the new branch. A directory
+//! with no cached value is read in the walk.
 //!
-//! The refresh is one worker thread for a session. It starts when a reply finds a stale value
+//! Who gets a value of which age:
+//!
+//! - A `list-workspaces` request with no `known` comes from a client that holds no tree (a
+//!   command that prints the tree one time): its reply is all that it gets. Before its tree is
+//!   read, the request reads each stale directory that a tab shows, on its own thread
+//!   ([`Mux::read_stale_git_heads`]), as each reply did before the refresh existed. Its reply
+//!   has no value older than [`GIT_HEAD_TTL`] plus the time of its own reads.
+//! - A request with `known` comes from a client that asks again: it gets the cached value, and
+//!   its stale directories go to the refresh (below).
+//! - Each other walk (the delta of a mutation, the launch snapshot, the cloud replica) gets the
+//!   cached value and sends its stale directories to the refresh.
+//!
+//! The refresh is one worker thread for a session. It starts when a walk finds a stale value
 //! and ends when its queue is empty. A directory is in the queue at most one time
-//! (`refreshing`), and only a directory that a reply asked for gets there, so requests that
+//! (`refreshing`), and only a directory that a walk asked for gets there, so requests that
 //! come inside one refresh start no second one. The worker reads the file system with no lock
 //! held; it takes the state lock only to find the tabs of a directory whose value changed.
 //!
@@ -64,10 +74,10 @@ struct Entry {
 }
 
 impl Inner {
-    /// Stores the value that a reply read for a directory that had none when the reply looked.
-    /// Whether the tree revision must move (tree_revision.rs): another reader stored another
-    /// value for the directory meanwhile, or the full cache was emptied and forgot what a
-    /// refresh could compare with.
+    /// Stores the value that a reply read: for a directory that had none when the reply
+    /// looked, or for a stale one ([`Mux::read_stale_git_heads`]). Whether the tree revision
+    /// must move (tree_revision.rs): the directory had another value, or the full cache was
+    /// emptied and forgot what a refresh could compare with.
     fn store_read(&mut self, cwd: &str, now: Instant, head: Option<GitHead>) -> bool {
         if let Some(entry) = self.heads.get_mut(cwd) {
             let moved = entry.head != head;
@@ -199,6 +209,50 @@ impl Mux {
             }
         }
         self.start_git_head_refresh();
+    }
+
+    /// For a `list-workspaces` request with no `known`, before it reads its tree: reads, on the
+    /// thread of the request, the HEAD of each directory that a tab shows and whose cached
+    /// value is older than [`GIT_HEAD_TTL`]. The client of such a request holds no tree and asks
+    /// no second time, so the refresh would come too late for it: a branch switched with no
+    /// event must be in this reply. A HEAD that changed moves the tree revision, as a first read
+    /// that differs does. The tree that the request reads next finds each value fresh, so the
+    /// request queues nothing for the refresh.
+    ///
+    /// The cache also holds directories that no tab shows now; none of them is read here. The
+    /// state lock is taken one time, for the directories of the tabs, and only when the cache
+    /// has a stale value.
+    pub(crate) fn read_stale_git_heads(&self) {
+        let now = Instant::now();
+        let stale: HashSet<String> = {
+            let cache = self.git_heads.inner.lock().recover_poison();
+            cache
+                .heads
+                .iter()
+                .filter(|(_, entry)| now.saturating_duration_since(entry.checked) >= GIT_HEAD_TTL)
+                .map(|(cwd, _)| cwd.clone())
+                .collect()
+        };
+        if stale.is_empty() {
+            return;
+        }
+        let shown: HashSet<String> = self.with_state(|state| {
+            surface_directories_in_state(state)
+                .into_iter()
+                .map(|(_, cwd)| cwd)
+                .filter(|cwd| stale.contains(cwd))
+                .collect()
+        });
+        let mut moved = false;
+        for cwd in shown {
+            // No lock is held while the file system is read.
+            let head = read_git_head(Path::new(&cwd));
+            let mut cache = self.git_heads.inner.lock().recover_poison();
+            moved |= cache.store_read(&cwd, Instant::now(), head);
+        }
+        if moved {
+            self.tree_revision.bump();
+        }
     }
 
     /// Starts the worker when stale directories wait and none runs.

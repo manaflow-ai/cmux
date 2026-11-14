@@ -7,8 +7,11 @@
 //!   whole reply was written, parsed, changed and written a second time.
 //! - The catalog check of a `session.snapshot` result built a path string for each value of the
 //!   result, and used it only for a value that fails.
-//! - `list-workspaces` read the git HEAD of each terminal's directory in the reply when its
-//!   cached value was older than 2 seconds: one file-system walk for each directory.
+//! - Each walk of the tree read the git HEAD of each terminal's directory when its cached value
+//!   was older than 2 seconds: one file-system walk for each directory. A `list-workspaces`
+//!   request with `known`, and each walk that is not a `list-workspaces` request, now take the
+//!   cached value and leave the read to one background refresh. A request with no `known` reads
+//!   them in its reply as before: its client holds no tree and asks no second time.
 //! - `list-workspaces` built the nodes of its tree with the mux state lock held: each request
 //!   that needs the state waited for the whole build.
 //!
@@ -380,30 +383,32 @@ fn the_catalog_check_of_a_snapshot_that_passes_builds_no_path() {
     );
 }
 
+/// A request with `known` that gets the whole tree (here a client that holds no tree yet and
+/// sends an empty `known`) reads a directory only when the cache has no value for it.
 #[test]
-fn a_list_reply_reads_no_git_head_when_each_directory_has_a_cached_value() {
+fn a_known_reply_with_the_whole_tree_reads_no_git_head_of_a_cached_directory() {
     let session = Session::of("list-counts-git-reads", 6);
     let mux = &session.mux;
     session.give_directories(&[session.repository("repository", "main")]);
     let render = Arc::new(RenderService::new());
     let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
 
-    // No cached value: the reply reads each directory, so the first reply of a client that takes
-    // no event has its branches.
+    // No cached value: the reply reads each directory, so the first reply of a client has its
+    // branches.
     let before = Mux::git_head_reads_on_this_thread();
-    let first = app.list(mux);
+    let first = app.list_since(mux, &json!({})).to_string();
     assert_eq!(first.matches("\"git_branch\":\"main\"").count(), 6, "{}", start_of(&first));
     assert_eq!(Mux::git_head_reads_on_this_thread() - before, 6, "one read for each directory");
 
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
     let before = Mux::git_head_reads_on_this_thread();
-    let stale = app.list(mux);
+    let stale = app.list_since(mux, &json!({})).to_string();
     let reads = Mux::git_head_reads_on_this_thread() - before;
     assert_eq!(stale.matches("\"git_branch\":\"main\"").count(), 6, "{}", start_of(&stale));
     assert_eq!(
         reads, 0,
-        "a list-workspaces reply made {reads} git HEAD reads for 6 directories that each have a \
-         cached value"
+        "a list-workspaces reply to a request with `known` made {reads} git HEAD reads for 6 \
+         directories that each have a cached value"
     );
     session.end();
 }
@@ -422,7 +427,7 @@ fn list_requests_inside_one_git_head_refresh_start_no_second_one() {
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
     let before = Mux::git_head_reads_on_this_thread();
     for _ in 0..3 {
-        let reply = app.list(mux);
+        let reply = app.list_since(mux, &json!({})).to_string();
         assert_eq!(reply.matches("\"git_branch\":\"main\"").count(), 2, "{}", start_of(&reply));
     }
     let in_replies = Mux::git_head_reads_on_this_thread() - before;
@@ -434,9 +439,9 @@ fn list_requests_inside_one_git_head_refresh_start_no_second_one() {
     assert_eq!(
         (in_replies, held, all),
         (0, 1, 2),
-        "3 list-workspaces requests with 2 stale directories: {in_replies} git HEAD reads in the \
-         replies, {held} reads started while the first one was held, {all} reads in all (one \
-         refresh reads each directory one time)"
+        "3 list-workspaces requests with `known` and 2 stale directories: {in_replies} git HEAD \
+         reads in the replies, {held} reads started while the first one was held, {all} reads in \
+         all (one refresh reads each directory one time)"
     );
     session.end();
 }
@@ -475,16 +480,23 @@ fn a_git_head_refresh_sends_tab_changed_only_for_a_branch_that_changed() {
     app.list(mux);
     let events = mux.subscribe();
 
-    // A refresh that finds each branch as it was sends nothing.
+    // The walk that each mutation makes for its delta (`tree_decorations`) sends each stale
+    // directory to the refresh. A refresh that finds each branch as it was sends nothing.
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
-    app.list(mux);
+    let before = Mux::git_head_reads_on_this_thread();
+    drop(mux.tree_decorations());
     wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
     assert_eq!(changed_tabs(&events), Vec::<SurfaceId>::new(), "no branch changed");
 
     // The branch of the first terminal's repository changes with no change of its directory.
     set_branch(&moving, "next");
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
-    app.list(mux);
+    drop(mux.tree_decorations());
+    assert_eq!(
+        Mux::git_head_reads_on_this_thread() - before,
+        0,
+        "the walks of 2 mutations read no git HEAD of a cached directory on their thread"
+    );
     let mut changed = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(10);
     while changed.is_empty() && Instant::now() < deadline {
@@ -525,16 +537,17 @@ fn a_git_head_refresh_moves_the_tree_revision_only_for_a_branch_that_changed() {
     assert!(known["tree_revision"].is_string(), "{known}");
     assert_eq!(since(&known)["unchanged"], json!(true), "nothing changed");
 
-    // A refresh that finds each branch as it was.
+    // A refresh that finds each branch as it was. A request with an empty `known` gets the whole
+    // tree from the cache and sends each stale directory to the refresh.
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
-    app.list(mux);
+    since(&json!({}));
     wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
     assert_eq!(since(&known)["unchanged"], json!(true), "a refresh with no change of a branch");
 
     // The branch of the first terminal's repository changes with no change of its directory.
     set_branch(&moving, "next");
     assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
-    app.list(mux);
+    since(&json!({}));
     wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
     let next = since(&known);
     assert!(next.get("unchanged").is_none(), "the tree changed: {next}");
