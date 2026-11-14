@@ -366,7 +366,12 @@ head_pushed() {
   branch="$(git branch --show-current 2>/dev/null || true)"
   if [[ -n "$branch" ]]; then
     remote_head="$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | awk '{ print $1 }')"
-    [[ "$remote_head" == "$SHA" ]] && return 0
+    if [[ "$remote_head" == "$SHA" ]]; then
+      # cmux-ci checks the head against remote-tracking branches; a clone that fetches only its base has none.
+      [[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ]] ||
+        git fetch -q origin "refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null || true
+      return 0
+    fi
   fi
   [[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ]]
 }

@@ -13,7 +13,13 @@ Script paths are relative to the repository root. Team members: shared build fle
 
 ## Finishing a task
 
-Every agent report for an app change ends with a hand-off the person can review on their
+`ios/` is the **classic** cmux iPhone app (dev bundles `dev.cmux.ios.<tag>`). The cmux-next
+iPhone app lives in `cmux-next-ios/` and hands off with its own command,
+`cmux-next-ios/scripts/review.sh --tag <task-slug>`
+([cmux-next-ios/AGENTS.md](../cmux-next-ios/AGENTS.md#finishing-a-task)); a cmux-next change uses
+that one, not the command below.
+
+Every agent report for a classic app change ends with a hand-off the person can review on their
 iPhone, with simulator evidence from the fleet, from one command run at the pushed head:
 
 ```bash
@@ -42,7 +48,8 @@ It does, in order, and fails (non-zero) if any step fails:
 
 ### New phones
 
-Connecting a new phone is welcome: `--review` treats every connected, paired iPhone as a target.
+Connecting a new phone is welcome: `--review` (and cmux-next's `review.sh`, which shares its phone
+discovery, `scripts/lib/iphone-review-targets.sh`) treats every connected, paired iPhone as a target.
 The first time it sees a phone, it adds it to `~/.config/cmux/iphone-device-ids`
 (`<udid>\t<name>\t<model>`), installs on it, and makes it the default
 (`~/.config/cmux/iphone-device-id`) when none is set. A default phone that is not connected is

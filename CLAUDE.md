@@ -66,18 +66,23 @@ A documentation-only change needs no build; give the file path instead.
 
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
-- **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
-  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
-  iPhone, not only the configured one, through the authenticated install
-  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
-  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
-  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **iOS (the cmux-next iPhone app, `cmux-next-ios/`):** run
+  `cmux-next-ios/scripts/review.sh --tag <task-slug>`. In one command it builds on the fleet at the
+  pushed head (the Mac build above included, same tag, published to HQ, and the iPhone app with a
+  signed-in fleet simulator check, screenshots and a recording), signs the app on this Mac, installs
+  it on every connected iPhone through the sanctioned install (never raw `devicectl`), signs it in
+  with the `personal` profile, pairs it with the same-tag Mac by the Mac's own pairing code, and
+  proves each phone signed in and paired, again after a credential-free relaunch of the phone and
+  after the tagged Mac app quits and starts again. Nothing builds or boots in a simulator on the
+  person's Mac. Details: [cmux-next-ios/AGENTS.md](cmux-next-ios/AGENTS.md#finishing-a-task).
+  `ios/` is the classic cmux iPhone app; `ios/scripts/reload.sh --review` hands off that app only
+  ([ios/AGENTS.md](ios/AGENTS.md#finishing-a-task)).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
-  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
-  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
-  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
-  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
-  the cause. Locally built dev apps use the public staging API and have no such requirement.
+  you have not seen before: `review.sh` (and the classic `--review`) registers a new phone and
+  installs on it too. The cmux-next iPhone app talks to the public dev mobile service and needs no
+  Tailscale. The classic app's fleet build talks to hq's tagged dev backend, a tailnet-only
+  `*.ts.net` host: a phone off the tailnet installs it but fails the auth gate with "never
+  published a signed-in app receipt"; report that as the phone's blocker and name the cause.
 - **A phone is always connected.** No connected phone, a locked phone, a queued install or a
   failed auth gate is a blocker to report with its error and retry command, never a step to skip
   or replace with a simulator-only result.
@@ -85,8 +90,8 @@ A documentation-only change needs no build; give the file path instead.
 
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
-  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
-  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshots and the recording)
+  iPhone:     <name> (<model>, <udid>): installed, signed in, paired (relaunch checks passed)
               <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```
 
