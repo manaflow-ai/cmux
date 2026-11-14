@@ -1099,11 +1099,12 @@ impl TerminalPredictionEngine {
         {
             return;
         }
-        let prompt = candidate.to_vec();
-        self.prompt_candidate = None;
-        if self.known_prompts.contains(&prompt) {
+        // The candidate stays for the rest of the line, so a later key typed
+        // with nothing in flight does not take the row so far for a prompt.
+        if self.known_prompts.iter().any(|known| known.as_slice() == candidate) {
             return;
         }
+        let prompt = candidate.to_vec();
         if self.known_prompts.len() >= MAXIMUM_KNOWN_PROMPTS {
             self.known_prompts.remove(0);
         }

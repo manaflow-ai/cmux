@@ -1783,3 +1783,29 @@ fn a_run_that_arms_late_in_the_line_still_learns_the_prompt() {
     session.type_key("g");
     assert_eq!(session.drawn(), "g");
 }
+
+#[test]
+fn a_pause_inside_a_command_does_not_learn_the_line_so_far_as_a_prompt() {
+    // Typing `gi`, a pause long enough for every echo to land, then `t`: the
+    // row `$ gi` is not a prompt, so a Return answered with it arms nothing.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n$ ");
+    session.advance(ms(400));
+    for character in ["g", "i"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.advance(ms(400));
+    for character in ["t", " "] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\x03");
+    session.remote("^C\r\n$ gi");
+    session.advance(ms(400));
+    session.type_key("x");
+    assert_eq!(session.drawn(), "");
+}
