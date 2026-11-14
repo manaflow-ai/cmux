@@ -10439,6 +10439,91 @@ mod tests {
         );
     }
 
+    /// Claude Code draws each fullscreen frame inside a synchronized update
+    /// (DECSET 2026). A frame published mid-update showed its old "Jump to
+    /// bottom" pill beside the new "6 new messages" pill (ask-f9d1d1707b).
+    #[cfg(unix)]
+    #[test]
+    fn frame_producer_never_publishes_a_half_drawn_synchronized_update() {
+        fn rows(frame: &SurfaceRenderFrame) -> Vec<String> {
+            frame
+                .frame
+                .styled_rows()
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|cell| if cell.text.is_empty() { " " } else { cell.text.as_str() })
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect()
+        }
+        fn next_frame(
+            attach: &RenderAttachStream,
+            deadline: Instant,
+        ) -> Option<Arc<SurfaceRenderFrame>> {
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                match attach.stream.recv_timeout(left) {
+                    Ok(RenderAttachFrame::Frame(frame)) => return Some(frame),
+                    Ok(RenderAttachFrame::ScrollChanged { .. }) => {}
+                    Err(_) => return None,
+                }
+            }
+        }
+
+        let mux = Mux::new_for_test("sync-output-hold", SurfaceOptions::default());
+        let opts = SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), "read _".into()]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn_for_test(1, opts, Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let attach = surface.attach_render_stream().unwrap();
+        // Test surfaces run no producer thread; build each frame the way it
+        // does, once per output chunk.
+        let push = |bytes: &[u8]| {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(bytes);
+            let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            let _ = pty.build_producer_frame(term, generation);
+        };
+
+        push(b"\x1b[2J\x1b[1;1Hask: Approve\x1b[3;1HJump to bottom");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let frame = next_frame(&attach, deadline).expect("the first frame was never published");
+            if rows(&frame).get(2).is_some_and(|row| row == "Jump to bottom") {
+                break;
+            }
+        }
+
+        // Begin the update, erase the old pill and draw the new one a row up;
+        // the rest of the frame has not arrived yet.
+        push(b"\x1b[?2026h\x1b[3;1H\x1b[2K\x1b[2;1H6 new messages");
+        let drained = Instant::now() + Duration::from_millis(50);
+        while let Some(frame) = next_frame(&attach, drained) {
+            assert!(
+                !rows(&frame).iter().any(|row| row.contains("6 new messages")),
+                "a half-drawn synchronized update was published: {:?}",
+                rows(&frame)
+            );
+        }
+
+        push(b"\x1b[?2026l");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let frame =
+                next_frame(&attach, deadline).expect("the finished update was never published");
+            let rows = rows(&frame);
+            if rows.get(1).is_some_and(|row| row == "6 new messages") {
+                assert_eq!(rows.get(2).map(String::as_str), Some(""), "{rows:?}");
+                break;
+            }
+        }
+    }
+
     #[test]
     fn producer_without_render_taps_skips_frame_but_emits_output() {
         let mux = Mux::new_for_test("producer-skip", SurfaceOptions::default());
