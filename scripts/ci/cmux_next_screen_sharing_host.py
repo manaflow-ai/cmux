@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import signal
 import socket
 import subprocess
 import time
@@ -132,13 +133,30 @@ def rpc(path, method, params=None):
 
 
 def stop(proc):
-    if proc is not None and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
+    if proc is None:
+        return
+    # Every caller creates a new session. The recorded PID is our group, and
+    # the parent exiting alone cannot prove its children have stopped.
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    proc.wait(timeout=10)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        state = subprocess.run(["ps", "-axo", "pgid=,stat="],
+                               capture_output=True, text=True, timeout=5)
+        if state.returncode:
+            raise subprocess.SubprocessError("owned_group_state_unavailable")
+        if not any(len(fields := line.split()) == 2 and fields[0] == str(proc.pid)
+                   and not fields[1].startswith("Z") for line in state.stdout.splitlines()):
+            return
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    raise subprocess.SubprocessError("owned_group_still_running")
 
 
 class Host:
@@ -159,7 +177,8 @@ class Host:
     def _launch(self, env, home):
         self.proc = subprocess.Popen([str(self.app / "Contents/MacOS" / self.info["CFBundleExecutable"]),
                                       "--cloud-backend", "staging"],
-                                     cwd=home, env=env, stdout=self.log, stderr=subprocess.STDOUT)
+                                     cwd=home, env=env, stdout=self.log, stderr=subprocess.STDOUT,
+                                     start_new_session=True)
 
     def _account(self):
         end = time.monotonic() + 180
@@ -258,7 +277,8 @@ class Host:
         self.hub({"action": "set_shared", "shared": True})
         binary = self.work / "input-probe"
         command(["xcrun", "swiftc", "-O", str(probe_source), "-o", str(binary)], timeout=120)
-        self.probe = subprocess.Popen([str(binary), str(self.events_path)], stdout=self.log, stderr=subprocess.STDOUT)
+        self.probe = subprocess.Popen([str(binary), str(self.events_path)], stdout=self.log,
+                                      stderr=subprocess.STDOUT, start_new_session=True)
 
     def events(self):
         try:
