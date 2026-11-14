@@ -438,7 +438,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale, memberIndent: model.memberIndent)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame

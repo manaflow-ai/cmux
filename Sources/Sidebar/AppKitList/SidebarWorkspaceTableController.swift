@@ -3063,7 +3063,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                   !rows[targetRow].isGroupHeader else {
                 return 0
             }
-            return SidebarWorkspaceGroupingMetrics.memberIndent
+            return rows[targetRow].appKitWorkspaceRowModel?.settings.groupMemberIndent
+                ?? SidebarWorkspaceGroupingMetrics.memberIndent
         }()
         container.emptyDropIndicatorView.frame = NSRect(
             x: 8 + leadingIndent,
