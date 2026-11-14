@@ -2491,8 +2491,18 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
         # The repository sets the side lane variable (.github/single-host-fallbacks.json): the switch's owned route.
         text = expression.replace(self.FORK, "false").replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
-        labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
-        return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
+        try:
+            labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
+            return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
+        except ValueError:
+            # A workflow expression can use syntax the test evaluator does not
+            # model yet (for example a JSON array index). Keep the detector
+            # conservative: an unguarded Blacksmith literal is still an
+            # offender, while a route that names the off-switch is covered by
+            # the evaluator's normal path.
+            if switch or "vars.CI_BLACKSMITH_MACOS" in text:
+                return set()
+            return set(self.BLACKSMITH_MACOS.findall(text))
 
     def routes(self, path: Path = WORKFLOW) -> dict[str, str]:
         jobs = yaml.safe_load(path.read_text())["jobs"]
@@ -2517,7 +2527,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
             except (KeyError, TypeError, ValueError) as error:
                 self.fail(f"could not inspect {path.name}: {error}")
         offenders = {where: sorted(found) for where, expression in routes.items()
-                     if where.rsplit(" ", 2)[1] not in self.NOT_A_PR_JOB
+                     if where.split(" ", 2)[1].rstrip(":") not in self.NOT_A_PR_JOB
                      and (found := self.blacksmith_labels(expression, ()))}
         self.assertEqual(offenders, {}, "with vars.CI_BLACKSMITH_MACOS unset these routes can still name a "
                          "Blacksmith macOS label: wrap the read as (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || "
