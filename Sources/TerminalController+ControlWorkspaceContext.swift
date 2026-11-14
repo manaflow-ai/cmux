@@ -171,7 +171,9 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         if !dryRun {
-            _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
+            // The plan's index is clamped; the requested one tells session priority whether a
+            // move that changes nothing asked to go up or down (ruling R30).
+            _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex, requestedIndex: toIndex)
         }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(

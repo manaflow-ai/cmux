@@ -49,6 +49,11 @@ extension CMUXCLI {
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
+        // `session-priority status` (the default) is read-only and passes the window to
+        // `session_priority.status` itself.
+        if normalizedCommand == "session-priority", !sessionPriorityChangesAWorkspace(commandArgs: commandArgs) {
+            return false
+        }
         if Self.commandDefersSocketConnectionUntilRequest(command: command, commandArgs: commandArgs) {
             return false
         }

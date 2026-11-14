@@ -4,6 +4,15 @@ import Foundation
 
 /// Workspace sidebar snapshot value types extracted from `ContentView.swift`, which sits at its file-length budget.
 struct SidebarWorkspaceSnapshotBuilder {
+    /// How many status lines a workspace row shows before "Show more".
+    static let collapsedMetadataEntryLimit = 3
+
+    /// The status lines a workspace row shows: all of them when expanded, else the first
+    /// ``collapsedMetadataEntryLimit`` in display order.
+    static func visibleMetadataEntries(_ entries: [SidebarStatusEntry], isExpanded: Bool) -> [SidebarStatusEntry] {
+        isExpanded ? entries : Array(entries.prefix(collapsedMetadataEntryLimit))
+    }
+
     struct PresentationKey: Equatable {
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool
@@ -101,6 +110,12 @@ struct SidebarWorkspaceSnapshotBuilder {
 
         /// Remote host named after the title when another workspace shares it (beta), else nil.
         var hostTitleSuffix: String? = nil
+
+        /// The session-priority values the row freezes into its context menu. Read here, with
+        /// the rest of the snapshot and outside rendering, so the sidebar body observes neither
+        /// the workspace's `@Observable` session priority state nor its pane list. The
+        /// workspace's `sessionPriorityDidChangeSubject` refreshes the snapshot when they change.
+        var sessionPriorityMenu = SessionPriorityMenuState.disabled
 
         /// The title as the row shows it. Renaming and other title affordances keep using `title`.
         var displayTitle: String {

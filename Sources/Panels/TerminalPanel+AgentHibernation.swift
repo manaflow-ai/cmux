@@ -145,7 +145,7 @@ extension TerminalPanel {
         guard case .hibernated(let state) = agentHibernationPhase else {
             return .unavailable
         }
-        let resumeStartupInput = state.agent.resumeStartupInput()
+        let resumeStartupInput = agentHibernationResumeStartupInput(state.agent)
         guard surface.prepareAgentHibernationResume(initialInput: resumeStartupInput) else {
             return .unavailable
         }
@@ -153,5 +153,11 @@ extension TerminalPanel {
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return .resumed(queuedStartupInput: resumeStartupInput != nil)
+    }
+
+    /// The input a wake types to resume `agent`, with the account keys this pane's Claude account
+    /// switch cleared unset (see ``ClaudeAccountPaneEnvironment/restoreStartupInput(_:)``).
+    func agentHibernationResumeStartupInput(_ agent: SessionRestorableAgentSnapshot) -> String? {
+        agent.resumeStartupInput().map { claudeAccountEnvironment?.restoreStartupInput($0) ?? $0 }
     }
 }

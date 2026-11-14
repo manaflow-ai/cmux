@@ -432,6 +432,14 @@ command  capture-pane  aliases=-
   arg  arguments  kind=argument  completion=-
 command  chief  aliases=-
   arg  arguments  kind=argument  completion=-
+command  claude-account  aliases=-
+command  claude-account list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  claude-account switch  aliases=-
+  arg  --force  kind=flag  completion=-
+  arg  --surface  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
 command  claude-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  claude-teams  aliases=-
@@ -1157,6 +1165,20 @@ command  session move  aliases=-
 command  session restore  aliases=-
   arg  --list  kind=flag  completion=-
   arg  --session  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  session-priority  aliases=-
+command  session-priority difficulty  aliases=-
+  arg  --window  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
+  arg  difficulty  kind=argument  completion=list(auto,easy,hard,normal)
+command  session-priority manual  aliases=-
+  arg  --window  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
+  arg  value  kind=argument  completion=list(off,on)
+command  session-priority status  aliases=-
+  arg  --window  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
 command  sessions  aliases=-
   arg  --agent  kind=option  completion=-
