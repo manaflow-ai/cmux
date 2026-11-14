@@ -392,10 +392,110 @@ fn wait_events(
 /// (`host.rs` `watch_record`). `present` is asked after a change that could end it and once at
 /// the start; `gone` runs once, the first time it says false. `dirs` hold the file (`files` names
 /// where it may be now: a pooled host's record is in the pool or its parent).
+///
+/// Linux and macOS: the identities of the files and of their directories are watched
+/// ([`DirWatch::start_identities`]), not the directories' entries. Every host's record sits in
+/// the one hosts directory, so an entry watch woke every host for each record any host or the
+/// daemon wrote, renamed or removed there: N hosts, O(N) wakeups per change (CMUX-571: ~4000
+/// wakeups/s across ~800 agent hosts at 1000 chats). Presence can only be lost through the
+/// watched file itself (removed, renamed away, or replaced by a rename over it, which unlinks
+/// it: inotify `IN_ATTRIB`, kqueue `NOTE_DELETE`) or its directory moved or removed, so nothing
+/// else needs to wake it. A record rewritten by rename is a new file: after each change that
+/// leaves it present, the watch is armed again on the files as they are then, and `present` is
+/// asked once more after that, so a change between the check and the new watch is not missed.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) struct RecordWatch {
+    _inner: std::sync::Arc<RecordInner>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+struct RecordInner {
+    dirs: Vec<PathBuf>,
+    files: Box<dyn Fn() -> Vec<PathBuf> + Send + Sync>,
+    present: Box<dyn Fn() -> bool + Send + Sync>,
+    gone: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The watch on the files as they were at the last check; replaced at each re-arm.
+    watch: std::sync::Mutex<Option<DirWatch>>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl RecordInner {
+    fn end(&self) {
+        let taken = self.gone.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(gone) = taken {
+            gone();
+        }
+    }
+
+    /// Watches the directories and the files as they are now, then asks `present`: false when
+    /// nothing could be watched.
+    fn arm(self: &std::sync::Arc<Self>) -> bool {
+        let mut paths = self.dirs.clone();
+        // A directory reached through a symlink: its own identity too, not only the link's.
+        for dir in &self.dirs {
+            if let Ok(real) = std::fs::canonicalize(dir)
+                && !paths.contains(&real)
+            {
+                paths.push(real);
+            }
+        }
+        paths.extend((self.files)());
+        let weak = std::sync::Arc::downgrade(self);
+        let watch = DirWatch::start_identities(&paths, move || {
+            if let Some(inner) = weak.upgrade() {
+                inner.changed();
+            }
+            // Each watch reports one change: `changed` armed the next one, or it ended.
+            true
+        });
+        let armed = watch.is_some();
+        // The previous watch (whose thread may be the one running this) ends as it is dropped.
+        let previous = std::mem::replace(
+            &mut *self.watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            watch,
+        );
+        drop(previous);
+        if !(self.present)() {
+            self.end();
+        }
+        armed
+    }
+
+    fn changed(self: &std::sync::Arc<Self>) {
+        if !(self.present)() {
+            self.end();
+            return;
+        }
+        self.arm();
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl RecordWatch {
+    pub(crate) fn start(
+        dirs: Vec<PathBuf>,
+        files: impl Fn() -> Vec<PathBuf> + Send + Sync + 'static,
+        present: impl Fn() -> bool + Send + Sync + 'static,
+        gone: impl FnOnce() + Send + 'static,
+    ) -> Option<Self> {
+        let inner = std::sync::Arc::new(RecordInner {
+            dirs,
+            files: Box::new(files),
+            present: Box::new(present),
+            gone: std::sync::Mutex::new(Some(Box::new(gone))),
+            watch: std::sync::Mutex::new(None),
+        });
+        inner.arm().then_some(Self { _inner: inner })
+    }
+}
+
+/// Elsewhere: the directories' entries, through notify.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(crate) struct RecordWatch {
     _watch: DirWatch,
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 impl RecordWatch {
     pub(crate) fn start(
         dirs: Vec<PathBuf>,
