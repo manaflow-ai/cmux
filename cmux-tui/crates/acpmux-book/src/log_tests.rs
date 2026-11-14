@@ -1,7 +1,7 @@
 use crate::log::{
-    Anchor, Edge, Error, Log, MAX_BLOB_READ, MAX_CHECKPOINT_STATE, MAX_PAGE_BYTES, MAX_ROWS,
-    Options, Patch, RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter,
-    section, sections,
+    Anchor, Edge, Error, Log, MAX_BLOB_READ, MAX_CHECKPOINT_STATE, MAX_FRAME_BYTES, MAX_PAGE_BYTES,
+    MAX_ROWS, Options, Patch, RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side,
+    StateWriter, section, sections,
 };
 use crate::row::{MAX_ROW_TEXT, Placement, Row, RowKind};
 use crate::testkit::{assert_rows, ids, open, settle, text, texts, whole_book};

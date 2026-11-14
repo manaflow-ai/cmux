@@ -1,5 +1,5 @@
 use crate::log::{Anchor, Log, MAX_BLOB_READ, MAX_FRAME_BYTES, Options, RawRange};
-use crate::testkit::{open, text};
+use crate::testkit::open;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
