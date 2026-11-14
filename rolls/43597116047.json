@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43597116047",
+  "recorded_at": "2026-11-14T13:02:07Z",
+  "reason": "cmux-tui f9893c1fe84b changes the image's cmux-tui (pinned 084542437c3f)",
+  "dry_run": false,
+  "cmux_tui": "f9893c1fe84b27e75f4d8b6a1298910e36245b87",
+  "fixes": [
+    {
+      "sha": "692e9d1bfbf7e215851b9181c9a4b1b5f639d62c",
+      "mergedAt": "2026-11-14T04:33:43-08:00",
+      "subject": "fix(acpmux): release paused replay copies and isolate append measurements (#42970)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T13:02:07Z",
+    "snapshot_id": "sh-d85995b5b97f434bb078c9e4b3de236e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43597116047): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ec213ca54082c48bce6f30d9a5d467eb1239c911",
+    "image": "cloud-native-auto-f9893c1f-43597116047-1",
+    "revision": "ci-43597116047-1",
+    "at": "2026-11-14T13:02:07Z"
+  },
+  "rolled_back": false
+}
