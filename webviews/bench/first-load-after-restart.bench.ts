@@ -545,8 +545,8 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`).
-  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab`;
+  /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
+  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab&new`;
   const browser: Browser = await chromium.launch({
     headless: true,
     // A released chat opens again in the renderer the app's other chat pages share (one per site).
