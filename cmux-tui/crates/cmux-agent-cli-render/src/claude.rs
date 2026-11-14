@@ -215,6 +215,8 @@ fn prompt(lines: &mut Vec<Line>, text: &str, width: usize) {
     for (i, row) in wrap(text, width.saturating_sub(2)).iter().enumerate() {
         let mut l = Line::new();
         l.push(if i == 0 { "❯ " } else { "  " }, bg).push(row, Style::fg(TEXT).on(PROMPT_BG));
+        // The prompt's background runs the full width.
+        l.pad_to(width, Style::fg(TEXT).on(PROMPT_BG));
         lines.push(l);
     }
 }
@@ -323,6 +325,15 @@ fn tool_lines(lines: &mut Vec<Line>, tool: &Tool, chrome: &Chrome, width: usize)
         lines.push(l);
         return;
     };
+    // A call with no result yet: adopting logs it failed until its result comes, so one with
+    // no text is still waiting (on a permission, or running).
+    if settled.failed && settled.text.trim().is_empty() {
+        let mut l = Line::new();
+        result_prefix(&mut l);
+        l.push("Waiting…", Style::fg(GRAY));
+        lines.push(l);
+        return;
+    }
     if settled.failed {
         let mut l = Line::new();
         result_prefix(&mut l);
@@ -471,14 +482,29 @@ fn edit_lines(lines: &mut Vec<Line>, input: &Value, width: usize) {
 }
 
 /// How many characters `a` and `b` share at the start and, after that, at the end.
+/// Word by word, as Claude Code marks changed words: a word is a run of letters, digits and
+/// underscores, any other character a word of its own.
 fn common_ends(a: &str, b: &str) -> (usize, usize) {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
+    fn words(s: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut in_word = false;
+        for c in s.chars() {
+            let wordy = c.is_alphanumeric() || c == '_';
+            match out.last_mut() {
+                Some(last) if wordy && in_word => last.push(c),
+                _ => out.push(c.to_string()),
+            }
+            in_word = wordy;
+        }
+        out
+    }
+    let (a, b) = (words(a), words(b));
     let pre = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
     let max_post = a.len().min(b.len()) - pre;
     let post =
         a.iter().rev().zip(b.iter().rev()).take(max_post).take_while(|(x, y)| x == y).count();
-    (pre, post)
+    let chars = |w: &[String]| w.iter().map(|w| w.chars().count()).sum::<usize>();
+    (chars(b.get(..pre).unwrap_or_default()), chars(b.get(b.len() - post..).unwrap_or_default()))
 }
 
 fn done(lines: &mut Vec<Line>, started: Option<u64>, ended: Option<u64>, chrome: &Chrome) {
@@ -542,7 +568,7 @@ fn input_box(lines: &mut Vec<Line>, chrome: &Chrome, running: bool, width: usize
             .push(" ", Style::PLAIN)
             .push(hint, Style::fg(GRAY));
     }
-    if let Some(effort) = chrome.effort.as_deref().filter(|_| !running) {
+    if let Some(effort) = chrome.effort.as_deref() {
         let right = format!("◐ {effort} · /effort");
         let at = width.saturating_sub(2 + crate::str_width(&right));
         f.pad_to(at, Style::PLAIN);
@@ -586,6 +612,11 @@ mod tests {
         assert!(text.iter().any(|t| t == "❯"));
         let code = grid.cells.get(6).and_then(|r| r.get(7)).map(|c| c.style.fg);
         assert_eq!(code, Some(crate::Color::Palette(CODE)));
+    }
+
+    #[test]
+    fn an_edit_marks_the_changed_word_not_its_common_letters() {
+        assert_eq!(common_ends("print(\"hi\")", "print(\"hello\")"), (7, 2));
     }
 
     #[test]

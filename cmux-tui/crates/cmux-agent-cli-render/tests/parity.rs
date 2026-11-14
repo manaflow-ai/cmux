@@ -282,8 +282,8 @@ fn claude_code_screens_from_acpmux_records() {
                 .flatten()
         })
         .unwrap();
-    println!("| screen | live records | seeded records |");
-    println!("| --- | ---: | ---: |");
+    let mut table =
+        String::from("| screen | live records | seeded records |\n| --- | ---: | ---: |\n");
     let mut totals = [(0, 0), (0, 0)];
     let mut dumps = String::new();
     for (name, t) in &session.moments {
@@ -302,12 +302,12 @@ fn claude_code_screens_from_acpmux_records() {
             total.0 += p.0;
             total.1 += p.1;
         }
-        println!("| {name} | {:.1}% | {:.1}% |", pct(a), pct(b));
+        table.push_str(&format!("| {name} | {:.1}% | {:.1}% |\n", pct(a), pct(b)));
         dumps.push_str(&format!("  {name} (seeded):\n{}", diff_rows(&real, &seeded_grid)));
     }
     std::fs::remove_file(&scratch).ok();
-    println!("| all | {:.1}% | {:.1}% |", pct(totals[0]), pct(totals[1]));
-    println!("\nrows that differ:\n{dumps}");
+    table.push_str(&format!("| all | {:.1}% | {:.1}% |", pct(totals[0]), pct(totals[1])));
+    println!("rows that differ:\n{dumps}\n{table}");
 
     // Bytes over the session, first PTY byte to the last screen.
     let start = session.chunks.first().unwrap().0;
