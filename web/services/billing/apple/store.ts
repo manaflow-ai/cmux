@@ -222,9 +222,10 @@ export type AppleIapStore = {
    */
   lapsedSubscriptions(endedBefore: Date, limit: number): Promise<AppleLapsedSubscription[]>;
   /**
-   * `active` and `grace_period` rows with auto-renew on (or unknown) whose
-   * access ends inside the query's window and that Apple has not answered for
-   * since `checkedBefore`, soonest end first.
+   * `active` and `grace_period` rows whose access ends inside the query's
+   * window and that Apple has not answered for since `checkedBefore`, soonest
+   * end first. Auto-renew off is included: the notification that turned it
+   * back on may be the one that was missed.
    */
   renewalCheckCandidates(query: AppleRenewalCheckQuery): Promise<AppleSubscriptionRow[]>;
   /** Records that Apple answered a status lookup for the subscription. Leaves `updated_at` alone. */
@@ -478,7 +479,6 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
         .from(appleSubscriptions)
         .where(and(
           inArray(appleSubscriptions.status, ["active", "grace_period"]),
-          sql`${appleSubscriptions.autoRenewEnabled} is distinct from false`,
           sql`${ACCESS_ENDS_AT} > ${accessEndsAfter.toISOString()}::timestamptz`,
           sql`${ACCESS_ENDS_AT} <= ${accessEndsBy.toISOString()}::timestamptz`,
           or(isNull(appleSubscriptions.appleCheckedAt), lt(appleSubscriptions.appleCheckedAt, checkedBefore)),

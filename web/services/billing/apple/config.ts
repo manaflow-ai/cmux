@@ -122,6 +122,24 @@ export function appleServerApiRequired(env: Env = process.env): boolean {
   return env.VERCEL_ENV === "production";
 }
 
+export type AppleServerApiStatus = {
+  readonly appleServerApi: "configured" | "missing";
+  /** Whether this deployment must have it (production). */
+  readonly required: boolean;
+  /** Names of the missing env values, never their contents. */
+  readonly missingEnv: readonly string[];
+};
+
+/** The key's presence as server start and the admin analytics endpoint report it. */
+export function appleServerApiStatus(env: Env = process.env): AppleServerApiStatus {
+  const missingEnv = missingAppleServerApiEnv(env);
+  return {
+    appleServerApi: missingEnv.length === 0 ? "configured" : "missing",
+    required: appleServerApiRequired(env),
+    missingEnv,
+  };
+}
+
 /** App Store Server API key, or null when this deployment has none. */
 export function appleServerApiCredentials(env: Env = process.env): AppleServerApiCredentials | null {
   const keyId = trimmed(env.APPLE_IAP_KEY_ID);

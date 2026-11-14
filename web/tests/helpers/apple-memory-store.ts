@@ -161,7 +161,6 @@ export function memoryAppleStore(): MemoryAppleStore {
         .filter((row) => {
           const endsAt = appleAccessEndsAt(row);
           return (row.status === "active" || row.status === "grace_period") &&
-            row.autoRenewEnabled !== false &&
             endsAt !== null && endsAt > accessEndsAfter && endsAt <= accessEndsBy &&
             (row.appleCheckedAt === null || row.appleCheckedAt < checkedBefore);
         })

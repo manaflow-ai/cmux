@@ -177,9 +177,12 @@ export type AppleRenewalCheckResult = {
 };
 
 /**
- * Asks Apple about auto-renewing `active` and `grace_period` rows whose
- * access ends within APPLE_RENEWAL_LOOKAHEAD_MS (or ended within the sweep's
- * leeway) and that Apple has not answered for in APPLE_RECHECK_INTERVAL_MS.
+ * Asks Apple about `active` and `grace_period` rows whose access ends within
+ * APPLE_RENEWAL_LOOKAHEAD_MS (or ended within the sweep's leeway) and that
+ * Apple has not answered for in APPLE_RECHECK_INTERVAL_MS. Rows stored with
+ * auto-renew off are asked about too, since the notification that turned it
+ * back on can be the one that was missed; an answer that matches the row
+ * writes nothing.
  * A renewal Apple already charged moves `expires_at` forward before the old
  * one passes. Runs only in the cron, never on a plan read, so reads stay one
  * database query; with the cron every 30 minutes a row is asked about at

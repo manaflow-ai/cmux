@@ -49,6 +49,10 @@ export async function register() {
     // A Stack 429 is final for the SDK call that got it; see the guard.
     const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
     if (projectId) installStackThrottleFetchGuard(globalThis, projectId);
+    // Logs apple_iap.server_api_not_configured when the App Store Server API
+    // key is missing (an error in production).
+    const { reportAppleServerApiAtStartup } = await import("./services/billing/apple/startupCheck");
+    reportAppleServerApiAtStartup();
   }
   registerOTel({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
