@@ -5,6 +5,8 @@ extension RightSidebarMode {
     var productFeature: ProductFeature {
         switch self {
         case .files: .filesExplorer
+        case .gitGraph: .gitGraph
+        case .herd: .herd
         case .find: .find
         case .sessions: .vault
         case .feed: .feed

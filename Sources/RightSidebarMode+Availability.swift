@@ -45,7 +45,7 @@ extension RightSidebarMode {
         devicesEnabled: Bool = false
     ) -> [RightSidebarMode] {
         allCases.filter {
-            $0.isAvailable(
+            $0 != .gitGraph && $0 != .herd && $0.isAvailable(
                 feedEnabled: feedEnabled,
                 machinesEnabled: machinesEnabled,
                 devicesEnabled: devicesEnabled
@@ -97,7 +97,7 @@ extension RightSidebarMode {
         devicesEnabled: Bool = false
     ) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .gitGraph, .herd, .find, .sessions:
             return true
         case .feed:
             return feedEnabled
