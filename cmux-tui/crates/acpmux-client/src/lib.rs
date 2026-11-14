@@ -726,6 +726,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -768,6 +770,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1180,6 +1184,8 @@ where
                     view: sub.request.view,
                     max_bytes: wire::MAX_PAGE_BYTES as u32,
                     filter: sub.request.filter.clone(),
+                    edition: None,
+                    fold: None,
                 }
             };
             self.pages.insert(
@@ -1526,6 +1532,17 @@ where
                         frame_bytes,
                         charge,
                     );
+                }
+                // A chat's ops on a list subscription: skipped and counted, as any op this
+                // client does not apply.
+                Ok(
+                    DeltaOp::Row { seq, .. }
+                    | DeltaOp::Text { seq, .. }
+                    | DeltaOp::Patch { seq, .. }
+                    | DeltaOp::ChatQueue { seq, .. },
+                ) => {
+                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                    self.advance(&sid, seq);
                 }
                 Err(_) => {
                     self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
@@ -2302,6 +2319,8 @@ tail"#;
             view: Some(ListView::Folders),
             max_bytes: wire::MAX_PAGE_BYTES as u32,
             filter: None,
+            edition: None,
+            fold: None,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({

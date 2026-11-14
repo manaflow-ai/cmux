@@ -18,6 +18,8 @@ pub struct ConnectionMetrics {
     notices: AtomicUsize,
     peak_queued: AtomicUsize,
     peak_outside: AtomicUsize,
+    unanswered: AtomicUsize,
+    peak_unanswered: AtomicUsize,
 }
 impl ConnectionMetrics {
     pub fn queued_bytes(&self) -> usize {
@@ -34,6 +36,13 @@ impl ConnectionMetrics {
     }
     pub fn peak_outside_budget_bytes(&self) -> usize {
         self.peak_outside.load(Ordering::Relaxed)
+    }
+    /// Chat `page` and `blob` requests taken and not yet answered: at most one.
+    pub fn unanswered(&self) -> usize {
+        self.unanswered.load(Ordering::Relaxed)
+    }
+    pub fn peak_unanswered(&self) -> usize {
+        self.peak_unanswered.load(Ordering::Relaxed)
     }
 }
 
@@ -101,6 +110,9 @@ pub struct ConnectionState {
     pub(super) metrics: Arc<ConnectionMetrics>,
     ended: Vec<String>,
     reserved: usize,
+    /// The room a request answered later holds for its reply until the reply is queued.
+    held: usize,
+    unanswered: usize,
     reply_control: Option<Arc<SubscriptionControl>>,
     identity: Option<Vec<u8>>,
     pub(super) wake: Arc<Notify>,
@@ -122,6 +134,8 @@ impl ConnectionState {
             metrics: Arc::new(ConnectionMetrics::default()),
             ended: Vec::new(),
             reserved: 0,
+            held: 0,
+            unanswered: 0,
             reply_control: None,
             identity: None,
             wake: Arc::new(Notify::new()),
@@ -133,6 +147,8 @@ impl ConnectionState {
         self.metrics.notices.store(self.notices, Ordering::Relaxed);
         self.metrics.peak_queued.fetch_max(self.queued_bytes, Ordering::Relaxed);
         self.metrics.peak_outside.fetch_max(self.outside, Ordering::Relaxed);
+        self.metrics.unanswered.store(self.unanswered, Ordering::Relaxed);
+        self.metrics.peak_unanswered.fetch_max(self.unanswered, Ordering::Relaxed);
     }
     pub fn queued_bytes(&self) -> usize {
         self.queued_bytes
@@ -241,7 +257,7 @@ impl ConnectionState {
         }
         let own_reply =
             self.reply_control.as_ref().is_some_and(|reply| Arc::ptr_eq(reply, control));
-        let reserve = if own_reply { 0 } else { self.reserved };
+        let reserve = if own_reply { 0 } else { self.reserved }.saturating_add(self.held);
         if self.queued_bytes.saturating_add(reserve).saturating_add(bytes) > self.budget {
             let cursor = self.drop_subscription(sid);
             self.wake.notify_one();
@@ -270,7 +286,55 @@ impl ConnectionState {
         Offer::Taken
     }
     pub(super) fn request_room(&self) -> bool {
-        self.queued_bytes.saturating_add(MAX_FRAME_BYTES) <= self.budget
+        self.queued_bytes.saturating_add(self.held).saturating_add(MAX_FRAME_BYTES) <= self.budget
+    }
+    /// A chat's `page` or `blob` waits for its actor: the room this request reserved moves to
+    /// the request and stays held until its reply is queued.
+    pub(super) fn hold_reply(&mut self) {
+        self.held = self.held.saturating_add(std::mem::take(&mut self.reserved));
+        self.unanswered = self.unanswered.saturating_add(1);
+        self.publish_metrics();
+    }
+    /// The source did not take the request: its room is the request's again.
+    pub(super) fn unhold_reply(&mut self) {
+        self.reserved = std::mem::take(&mut self.held);
+        self.unanswered = self.unanswered.saturating_sub(1);
+        self.publish_metrics();
+    }
+    pub(super) fn has_unanswered(&self) -> bool {
+        self.unanswered != 0
+    }
+    /// The reply to a request held by [`Self::hold_reply`], by the budget-checked reply path:
+    /// it uses the room the request held, and the room is released with it.
+    pub(super) fn answer_held(&mut self, frame: Frame) -> Result<(), ConnError> {
+        self.held = 0;
+        self.unanswered = self.unanswered.saturating_sub(1);
+        let result = if self.queued_bytes.saturating_add(frame.encoded_len()) > self.budget {
+            Err(ConnError::ReplyBudget)
+        } else {
+            self.queued_bytes += frame.encoded_len();
+            self.queue.push_back(Queued::Data(FrameLease {
+                sid: None,
+                control: None,
+                cursor: Cursor(0),
+                exact: false,
+                bytes: frame.encode(),
+                notice: false,
+                outside: 0,
+            }));
+            Ok(())
+        };
+        self.publish_metrics();
+        self.wake.notify_one();
+        result
+    }
+    /// Ends a subscription as a full queue does: `dropped {sid, cursor}`, and the source's
+    /// `end`. A chat whose actor stopped asks it so its subscribers resume.
+    pub(super) fn drop_from(&mut self, sid: &str, control: &Arc<SubscriptionControl>) {
+        if self.subscriptions.get(sid).is_some_and(|sub| Arc::ptr_eq(&sub.control, control)) {
+            self.drop_subscription(sid);
+            self.wake.notify_one();
+        }
     }
     pub(super) fn reserve_reply(&mut self) -> bool {
         if !self.request_room() {

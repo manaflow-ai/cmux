@@ -4,7 +4,9 @@ use crate::hub::HubError;
 mod list;
 #[cfg(test)]
 mod replay_gates;
-use crate::wire::{Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub};
+use crate::wire::{
+    Blob, Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub,
+};
 pub use list::HubSource;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -52,6 +54,99 @@ pub enum ConnError {
     IdentifierTooLong,
     #[error("identity proof is larger than 64 bytes")]
     IdentityTooLarge,
+    /// An error a source names by its code: `failed`, `stale_edition`, `mailbox_full`...
+    #[error("{message}")]
+    Coded { code: &'static str, message: String },
+}
+
+impl ConnError {
+    pub fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Coded { code, message: message.into() }
+    }
+}
+
+/// A request a source answers later, through a [`Reply`]: a chat's `page` and `blob`, which
+/// its actor reads.
+pub enum Later<'a> {
+    Page(&'a Page),
+    Blob(&'a Blob),
+}
+
+enum ReplyTo {
+    Connection(Arc<std::sync::Mutex<ConnectionState>>),
+    Channel(std::sync::mpsc::Sender<Frame>),
+}
+
+/// Where the answer to a [`Later`] request goes. The connection holds the room the request
+/// reserved until the answer is queued, by the budget-checked reply path. A reply dropped
+/// unanswered (an actor that panicked) answers `error` with code `request_failed`.
+pub struct Reply {
+    to: Option<ReplyTo>,
+    method: &'static str,
+    sid: Option<String>,
+    id: Option<String>,
+}
+
+impl Reply {
+    fn new(
+        state: Arc<std::sync::Mutex<ConnectionState>>,
+        method: &'static str,
+        sid: Option<String>,
+        id: Option<String>,
+    ) -> Self {
+        Self { to: Some(ReplyTo::Connection(state)), method, sid, id }
+    }
+
+    /// A reply read from a channel, for a caller with no connection (tests, benches).
+    pub fn channel(
+        method: &'static str,
+        sid: Option<String>,
+        id: Option<String>,
+    ) -> (Self, std::sync::mpsc::Receiver<Frame>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        (Self { to: Some(ReplyTo::Channel(tx)), method, sid, id }, rx)
+    }
+
+    pub fn answer(mut self, frame: Frame) {
+        match self.to.take() {
+            Some(ReplyTo::Connection(state)) => {
+                if let Ok(mut state) = state.lock() {
+                    let _ = state.answer_held(frame);
+                }
+            }
+            Some(ReplyTo::Channel(tx)) => {
+                let _ = tx.send(frame);
+            }
+            None => {}
+        }
+    }
+
+    /// Answers `error` with `code`, naming the request's method and its `sid` or `id`.
+    pub fn error(self, code: &str, message: &str) {
+        match coded_error(self.method, self.sid.as_deref(), self.id.as_deref(), code, message) {
+            Ok(frame) => self.answer(frame),
+            Err(_) => self.disarm(),
+        }
+    }
+
+    /// The source did not take the request.
+    fn disarm(mut self) {
+        self.to = None;
+    }
+}
+
+impl Drop for Reply {
+    fn drop(&mut self) {
+        if self.to.is_some() {
+            let reply = Reply {
+                to: self.to.take(),
+                method: self.method,
+                sid: self.sid.take(),
+                id: self.id.take(),
+            };
+            reply.error("request_failed", "the source ended before it answered");
+        }
+    }
 }
 
 /// The source's non-blocking sink. A source must treat `NotFed` as a cursor
@@ -61,6 +156,11 @@ pub trait OfferSink: Send + Sync {
     fn offer(&self, sid: &str, frame: Frame, cursor: Cursor) -> Offer;
     /// End this generation with a bounded, correlated source_failed notice.
     fn fail(&self, sid: &str);
+    /// End this generation with `dropped {sid, cursor}`, as a full queue does: the client
+    /// resumes from its cursor. A chat whose actor stopped uses it.
+    fn dropped(&self, sid: &str) {
+        self.fail(sid);
+    }
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>>;
     fn metrics(&self) -> Arc<ConnectionMetrics>;
 }
@@ -81,6 +181,12 @@ pub trait Source: Send + Sync + 'static {
     fn resume(&self, sid: &str, cursor: Cursor);
     fn page(&self, _page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
         Err(ConnError::InvalidRequest("page is not supported for this stream".into()))
+    }
+    /// A request this source answers later through `reply` (a chat's `page` and `blob`).
+    /// `None`: the source took it, and answers it, at once or later. `Some(reply)`: it did not,
+    /// and a `page` is answered in the call by [`Source::page`].
+    fn later(&self, _request: Later<'_>, _person: Option<&[u8]>, reply: Reply) -> Option<Reply> {
+        Some(reply)
     }
     fn end(&self, sid: &str);
     /// Join tasks released by end, including on a read or write error.
@@ -127,6 +233,11 @@ impl OfferSink for ConnectionSink {
     fn fail(&self, sid: &str) {
         if let Ok(mut state) = self.state.lock() {
             state.fail_from(sid, &self.control);
+        }
+    }
+    fn dropped(&self, sid: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.drop_from(sid, &self.control);
         }
     }
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>> {
@@ -204,7 +315,10 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         }
         let can_process = if let Some(frame) = pending.front() {
             let state = state.lock().map_err(|_| poisoned())?;
-            state.request_room() || (hello_seen && known_control(frame, &state))
+            // One `page` or `blob` waits for its answer at a time. A second waits here, and
+            // the socket is not read, until the first is answered; offers go on meanwhile.
+            let waits = state.has_unanswered() && answered_later(frame);
+            !waits && (state.request_room() || (hello_seen && known_control(frame, &state)))
         } else {
             false
         };
@@ -282,6 +396,18 @@ enum Control {
     End(String),
 }
 
+/// A `page` or a `blob`: a request a source may answer later.
+fn answered_later(frame: &Frame) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Method<'a> {
+        #[serde(borrow)]
+        method: std::borrow::Cow<'a, str>,
+    }
+    frame.kind == FrameKind::Request
+        && serde_json::from_slice::<Method<'_>>(frame.payload())
+            .is_ok_and(|request| matches!(request.method.as_ref(), "page" | "blob"))
+}
+
 fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
     if frame.kind != FrameKind::Request {
         return false;
@@ -322,6 +448,7 @@ fn process_frame(
     match &request {
         Request::Sub(sub) => require_surface(&sub.stream, surfaces)?,
         Request::Page(page) => require_surface(&page.stream, surfaces)?,
+        Request::Blob(blob) => require_surface(&blob.stream, surfaces)?,
         _ => {}
     }
     match request {
@@ -377,12 +504,38 @@ fn process_frame(
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
-            let identity = state.lock().map_err(|_| poisoned())?.identity().map(ToOwned::to_owned);
-            let frame = source.page(&page, identity.as_deref())?;
-            state.lock().map_err(|_| poisoned())?.offer_reply(frame)?;
+            let identity = hold_reply(state)?;
+            let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
+            if let Some(reply) = source.later(Later::Page(&page), identity.as_deref(), reply) {
+                reply.disarm();
+                state.lock().map_err(|_| poisoned())?.unhold_reply();
+                let frame = source.page(&page, identity.as_deref())?;
+                state.lock().map_err(|_| poisoned())?.offer_reply(frame)?;
+            }
+        }
+        Request::Blob(blob) => {
+            require_surface(&blob.stream, surfaces)?;
+            let identity = hold_reply(state)?;
+            let reply = Reply::new(state.clone(), "blob", None, Some(blob.id.clone()));
+            if let Some(reply) = source.later(Later::Blob(&blob), identity.as_deref(), reply) {
+                reply.disarm();
+                state.lock().map_err(|_| poisoned())?.unhold_reply();
+                return Err(ConnError::InvalidRequest(
+                    "blob is not supported for this stream".into(),
+                ));
+            }
         }
     }
     Ok(())
+}
+
+/// Holds the request's room for a reply that may come later; the person it is asked for.
+fn hold_reply(
+    state: &Arc<std::sync::Mutex<ConnectionState>>,
+) -> Result<Option<Vec<u8>>, ConnError> {
+    let mut state = state.lock().map_err(|_| poisoned())?;
+    state.hold_reply();
+    Ok(state.identity().map(ToOwned::to_owned))
 }
 
 pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
@@ -399,6 +552,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
                 ));
             }
             Ok(())
+        }
+        Request::Blob(_) => {
+            Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
         Request::Page(page) => {
             if page.stream.as_str() != "list"
@@ -444,6 +600,7 @@ fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
         ConnError::Hub(
             HubError::InvalidParams(_) | HubError::InvalidPage | HubError::InvalidWindow,
         ) => "invalid_params",
+        ConnError::Coded { code, .. } => *code,
         _ => "request_failed",
     };
     let mut fields = serde_json::Map::new();
@@ -464,6 +621,27 @@ fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
         }
     }
     Ok(Frame::json(FrameKind::Error, &fields)?)
+}
+
+/// An `error` frame a source sends by itself: a later reply's, or a chat's `not_ready`.
+pub fn coded_error(
+    method: &str,
+    sid: Option<&str>,
+    id: Option<&str>,
+    code: &str,
+    message: &str,
+) -> Result<Frame, FrameError> {
+    let mut fields = serde_json::Map::new();
+    fields.insert("method".into(), method.into());
+    fields.insert("code".into(), code.into());
+    fields.insert("message".into(), message.chars().take(512).collect::<String>().into());
+    if let Some(sid) = sid {
+        fields.insert("sid".into(), sid.into());
+    }
+    if let Some(id) = id {
+        fields.insert("id".into(), id.into());
+    }
+    Frame::json(FrameKind::Error, &fields)
 }
 
 fn require_surface(stream: &crate::wire::Stream, surfaces: &[String]) -> Result<(), ConnError> {
