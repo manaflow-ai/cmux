@@ -29,9 +29,10 @@ struct MacScreenActionRoutingTests {
     func onlyAPersonsActionRequestsViewOnOpen(origin: ActionOrigin) throws {
         let pages = pages()
         let invocation = ActionInvocation(arguments: ["device": .string(device.uppercased())], origin: origin)
-        let record = try ActionRunScope.$current.withValueInTask(ActionRunScope(origin: origin, allowsViewChange: true)) {
-            try MacScreenActions.record(invocation, pages: pages)
+        let result = ActionRunScope.$current.withValueInTask(ActionRunScope(origin: origin, allowsViewChange: true)) {
+            Result { try MacScreenActions.record(invocation, pages: pages) }
         }
+        let record = try result.get()
         #expect(record.deviceID == device)
         #expect(pages.pendingScopes[device] == (origin == .user ? .view : nil))
     }
