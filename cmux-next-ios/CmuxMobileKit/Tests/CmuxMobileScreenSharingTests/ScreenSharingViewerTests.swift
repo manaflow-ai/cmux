@@ -130,11 +130,42 @@ import Testing
         #expect(viewer.screen === screen)
         let id = await reattach.wait()
         #expect(id == "s7")
-        #expect(ContinuousClock.now - droppedAt >= .seconds(1))
+        // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14).
+        #expect(ContinuousClock.now - droppedAt < .milliseconds(500))
         #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
         #expect(viewer.screen === screen)
         #expect(ends.calls.isEmpty)
     }
+
+    /// Drop to the hub's reattach call, 8 drops in a row: the timing the conn-quiet table quotes
+    /// (`drop_to_reattach_ms p50/p95`). Builds at base too, where every drop waited 1 s.
+    @Test func dropToReattachIsUnder250MillisecondsAtP95() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s9", scope: .full)))
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        var samples: [Double] = []
+        for _ in 0 ..< 8 {
+            let droppedAt = ContinuousClock.now
+            viewer.streamDropped("s9")
+            _ = await reattach.wait()
+            let elapsed = ContinuousClock.now - droppedAt
+            samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+            // The ticket's accept runs right after the call returns.
+            for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s9", scope: .full) { await Task.yield() }
+        }
+        samples.sort()
+        let p50 = samples[samples.count / 2], p95 = samples[samples.count - 1]
+        print("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
+        #expect(p95 < 250)
+        viewer.close(reason: .viewerDisconnected)
+    }
+
 
     @Test func aFailedSignOutEndsTheSessionAndStopSignsOutAgain() async throws {
         let (service, ends) = makeService()
@@ -329,6 +360,17 @@ import Testing
     func wait() async -> String {
         if !ids.isEmpty { return ids.removeFirst() }
         return await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// How many more reattach calls fail.
+@MainActor final class FailureBudget {
+    private var left: Int
+    init(_ left: Int) { self.left = left }
+    func take() -> Bool {
+        guard left > 0 else { return false }
+        left -= 1
+        return true
     }
 }
 
