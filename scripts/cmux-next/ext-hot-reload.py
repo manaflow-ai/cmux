@@ -122,7 +122,7 @@ def diagnostics(app, customize):
     env = dict(os.environ, CMUX_SOCKET_PATH=app.socket)
     for args in (["apps", "info", APP], ["apps", "list"]):
         try:
-            run = subprocess.run([app.cli(), *args], capture_output=True, text=True, timeout=20, env=env)
+            run = subprocess.run([app.cli, *args], capture_output=True, text=True, timeout=20, env=env)
             out[" ".join(args)] = (run.stdout + run.stderr)[-3000:]
         except (OSError, subprocess.TimeoutExpired) as error:
             out[" ".join(args)] = f"did not run: {error}"
