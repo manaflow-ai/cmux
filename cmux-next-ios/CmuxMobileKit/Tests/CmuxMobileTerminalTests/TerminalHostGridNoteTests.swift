@@ -244,5 +244,81 @@ import UIKit
         let after = try #require(rowOf("AFTER"))
         #expect(after == gridRows - 20 + 1, "bytes after the resize use the 20-row grid")
     }
+
+    /// Review of #42422 (finding 1): the owner event came straight to the
+    /// note while the grid it set waited behind queued bytes, so for a few
+    /// frames the note named the new owner next to the old grid. The owner
+    /// now waits its turn in the output queue with the grid.
+    @Test func aNewOwnerWaitsForTheGridItSet() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen()
+        defer { rig.close() }
+        rig.session.emit(.hostGrid(columns: 30, rows: 12))
+        rig.session.emit(.hostGridOwner("Rig Mac"))
+        rig.session.write(Self.primaryPaint(rows: 12))
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.visibleLabel("30×12 · set by Rig Mac") != nil }
+        try #require(rig.visibleLabel("30×12 · set by Rig Mac") != nil)
+
+        // In one turn: bytes for the old grid, then the new grid and its owner.
+        rig.session.write("\u{1B}[3;1Hstill the old grid")
+        rig.session.remoteColumns = 28
+        rig.session.remoteRows = 10
+        rig.session.emit(.hostGrid(columns: 28, rows: 10))
+        rig.session.emit(.hostGridOwner("Other iPhone"))
+        #expect(rig.screen.hostGridOwner == "Rig Mac", "the owner changed ahead of the bytes and the grid before it")
+        #expect(rig.visibleLabel("30×12 · set by Other iPhone") == nil, "the note named the new owner next to the old grid")
+
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.visibleLabel("28×10 · set by Other iPhone") != nil }
+        #expect(rig.visibleLabel("28×10 · set by Other iPhone") != nil, "the note never showed the new grid and owner")
+    }
+
+    /// Review of #42422 (findings 2 and 4): a resize the phone sent is in
+    /// flight. The Mac's grid at the phone's old claim or its new one shows
+    /// no note (it is the phone's own); but a grid at the old claim that a
+    /// named device owns is that device's and shows the note.
+    @Test func aResizeInFlightShowsNoNoteUnlessAnotherDeviceOwnsTheGrid() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen()
+        defer { rig.close() }
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.session.sent != nil }
+        let first = try #require(rig.session.sent, "the screen never sent its grid")
+        rig.session.remoteColumns = first.columns
+        rig.session.remoteRows = first.rows
+        rig.session.emit(.hostGrid(columns: first.columns, rows: first.rows))
+        rig.session.write("\u{1B}c$ ")
+
+        // The phone's page gets narrower: it sends a new grid.
+        rig.window.frame = CGRect(x: 0, y: 0, width: 320, height: 844)
+        rig.window.layoutIfNeeded()
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.session.sent.map { $0 != first } == true }
+        let second = try #require(rig.session.sent.flatMap { $0 != first ? $0 : nil }, "the screen never sent its new grid")
+        func noteShown() -> Bool {
+            rig.screen.view.subviews.contains { ($0 as? UILabel)?.accessibilityIdentifier == "terminal.hostGridNote" && Screen.isShown($0, in: rig.window) }
+        }
+
+        // The Mac still has the old claim, then takes the new one: no note either time.
+        rig.session.emit(.hostGrid(columns: first.columns, rows: first.rows))
+        rig.session.write("\u{1B}[1;1Hold")
+        try await TerminalPredictionInputTests.waitUntil(2) { (rig.screen.surface.activeAreaText() ?? "").contains("old") }
+        #expect(!noteShown(), "a note for the phone's own grid before its resize landed")
+        rig.session.remoteColumns = second.columns
+        rig.session.remoteRows = second.rows
+        rig.session.emit(.hostGrid(columns: second.columns, rows: second.rows))
+        rig.session.write("\u{1B}[1;1Hnew")
+        try await TerminalPredictionInputTests.waitUntil(2) { (rig.screen.surface.activeAreaText() ?? "").contains("new") }
+        #expect(!noteShown(), "a note for the phone's own new grid")
+
+        // Another device owns a grid equal to the phone's old claim: its note shows.
+        rig.session.remoteColumns = first.columns
+        rig.session.remoteRows = first.rows
+        rig.session.emit(.hostGrid(columns: first.columns, rows: first.rows))
+        rig.session.emit(.hostGridOwner("Rig Mac"))
+        rig.session.write("\u{1B}[1;1Hmac")
+        let note = "\(first.columns)×\(first.rows) · set by Rig Mac"
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.screen.hostGridOwner == "Rig Mac" && noteShown() }
+        #expect(noteShown(), "no \"\(note)\" note for another device's grid at the phone's old claim")
+    }
 }
 #endif
