@@ -275,7 +275,10 @@ impl ListReceiver {
     pub fn try_next(&self) -> Option<ListItem> {
         if self.folders {
             return match self.try_next_raw(None, crate::wire::MAX_PAGE_BYTES)? {
-                RawRead::Span(span) => folders::decode_item(span.bytes, span.last_seq),
+                RawRead::Span(span) => {
+                    let seq = span.last_seq;
+                    folders::decode_item(span.into_bytes(), seq)
+                }
                 RawRead::Lagged => {
                     Some(ListItem::Lagged { cursor: self.subscriber.state.lock().ok()?.cursor })
                 }
@@ -1034,9 +1037,10 @@ impl Hub {
         let replay_snapshot = if peer {
             None
         } else {
-            Some(Arc::new(
-                self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot_after(cursor),
-            ))
+            let snapshot =
+                self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot_after(cursor);
+            snapshot.prepare_frame_buffer();
+            Some(Arc::new(snapshot))
         };
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());

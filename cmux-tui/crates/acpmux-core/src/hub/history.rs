@@ -5,9 +5,12 @@ use acpmux_book::index::Summary;
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+
+#[cfg(test)]
+mod replay_tests;
 
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
@@ -66,11 +69,16 @@ pub(crate) struct RawSpan {
     pub(crate) bytes: Vec<u8>,
     pub(crate) last_seq: u64,
     entries: Vec<Entry>,
+    recycle: Option<Weak<Mutex<Vec<u8>>>>,
 }
 
 impl RawSpan {
     pub(super) fn folder(bytes: Vec<u8>, last_seq: u64) -> Self {
-        Self { bytes, last_seq, entries: Vec::new() }
+        Self { bytes, last_seq, entries: Vec::new(), recycle: None }
+    }
+
+    pub(crate) fn into_bytes(mut self) -> Vec<u8> {
+        std::mem::take(&mut self.bytes)
     }
 
     /// Check the copied bytes after releasing the ring lock. Entry offsets
@@ -89,6 +97,18 @@ impl RawSpan {
     }
 }
 
+impl Drop for RawSpan {
+    fn drop(&mut self) {
+        let Some(pool) = self.recycle.as_ref().and_then(Weak::upgrade) else { return };
+        let Ok(mut spare) = pool.try_lock() else { return };
+        // At most one spare; concurrent readers free their excess buffers.
+        if spare.capacity() == 0 {
+            self.bytes.clear();
+            *spare = std::mem::take(&mut self.bytes);
+        }
+    }
+}
+
 /// Immutable bytes and entry metadata captured when a replay subscription
 /// opens. Replay copies use this snapshot without holding the writer's history
 /// mutex, so a raw frame cannot stall an append.
@@ -99,6 +119,7 @@ pub(super) struct HistorySnapshot {
     len: usize,
     first: u64,
     used: usize,
+    frame_buffer: Arc<Mutex<Vec<u8>>>,
     #[cfg(test)]
     reserved_bytes: usize,
     #[cfg(test)]
@@ -118,6 +139,7 @@ impl HistorySnapshot {
             len: 0,
             first,
             used: 0,
+            frame_buffer: Arc::default(),
             #[cfg(test)]
             reserved_bytes: 0,
             #[cfg(test)]
@@ -126,6 +148,22 @@ impl HistorySnapshot {
             raw_copy_permit: _history.raw_copy_permit.clone(),
             #[cfg(test)]
             raw_copy_waiting: _history.raw_copy_waiting.clone(),
+        }
+    }
+
+    /// Prepare the first frame at replay open, after releasing the ring lock.
+    /// Later spans return this allocation when their bytes have been consumed.
+    pub(super) fn prepare_frame_buffer(&self) {
+        if self.len == 0 {
+            return;
+        }
+        let mut bytes = vec![0; self.used.saturating_add(self.len).min(256 * 1024)];
+        // Touch the allocation here too; frame production must not fault its
+        // pages for the first time while an append is running beside it.
+        std::hint::black_box(bytes.as_mut_slice()).fill(0);
+        bytes.clear();
+        if let Ok(mut spare) = self.frame_buffer.lock() {
+            *spare = bytes;
         }
     }
 
@@ -144,7 +182,12 @@ impl HistorySnapshot {
         max_bytes: usize,
     ) -> Option<RawSpan> {
         if cursor >= through {
-            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+            return Some(RawSpan {
+                bytes: Vec::new(),
+                last_seq: cursor,
+                entries: Vec::new(),
+                recycle: None,
+            });
         }
         let first = cursor.checked_add(1)?;
         let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
@@ -156,7 +199,8 @@ impl HistorySnapshot {
         let max_bytes = max_bytes.min(256 * 1024);
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
-        let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
+        let mut out = std::mem::take(&mut *self.frame_buffer.lock().ok()?);
+        out.reserve(max_bytes.min(self.used.saturating_add(count)));
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
@@ -177,7 +221,12 @@ impl HistorySnapshot {
             }
             last_seq = first.saturating_add(index as u64);
         }
-        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries: Vec::new() })
+        (!out.is_empty()).then_some(RawSpan {
+            bytes: out,
+            last_seq,
+            entries: Vec::new(),
+            recycle: Some(Arc::downgrade(&self.frame_buffer)),
+        })
     }
 }
 
@@ -311,6 +360,7 @@ impl History {
             len: count,
             first,
             used,
+            frame_buffer: Arc::default(),
             #[cfg(test)]
             reserved_bytes,
             #[cfg(test)]
@@ -446,7 +496,12 @@ impl History {
         #[cfg(test)]
         self.raw_copies.fetch_add(1, Ordering::Release);
         if cursor >= through {
-            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+            return Some(RawSpan {
+                bytes: Vec::new(),
+                last_seq: cursor,
+                entries: Vec::new(),
+                recycle: None,
+            });
         }
         let first = cursor.checked_add(1)?;
         let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
@@ -477,7 +532,7 @@ impl History {
             }
             last_seq = first.saturating_add(index as u64);
         }
-        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries, recycle: None })
     }
 }
 
@@ -656,7 +711,12 @@ impl PeerHistory {
         max_bytes: usize,
     ) -> Option<RawSpan> {
         if cursor >= through {
-            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+            return Some(RawSpan {
+                bytes: Vec::new(),
+                last_seq: cursor,
+                entries: Vec::new(),
+                recycle: None,
+            });
         }
         if cursor < self.floor {
             return None;
@@ -684,7 +744,7 @@ impl PeerHistory {
             entries.push(Entry { start, ..entry });
             last_seq = entry.seq;
         }
-        Some(RawSpan { bytes: out, last_seq, entries })
+        Some(RawSpan { bytes: out, last_seq, entries, recycle: None })
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
@@ -896,7 +956,7 @@ mod tests {
         assert!(one.is_valid());
         assert_eq!(one.last_seq, 1);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(one.bytes).unwrap()).as_bytes(),
+            format!("[{}]", String::from_utf8(one.into_bytes()).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(parsed.len(), 1);
@@ -904,7 +964,7 @@ mod tests {
         assert!(both.is_valid());
         assert_eq!(both.last_seq, 2);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(both.bytes).unwrap()).as_bytes(),
+            format!("[{}]", String::from_utf8(both.into_bytes()).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(parsed.len(), 2);
@@ -945,9 +1005,11 @@ mod tests {
             let span = history.after_frame(cursor, last, 256 * 1024).unwrap();
             assert!(span.is_valid());
             assert!(span.bytes.len() <= 256 * 1024);
-            let ops: Vec<serde_json::Value> =
-                serde_json::from_str(&format!("[{}]", String::from_utf8(span.bytes).unwrap()))
-                    .unwrap();
+            let ops: Vec<serde_json::Value> = serde_json::from_str(&format!(
+                "[{}]",
+                String::from_utf8(span.into_bytes()).unwrap()
+            ))
+            .unwrap();
             for (offset, op) in ops.iter().enumerate() {
                 assert_eq!(op["seq"], cursor + offset as u64 + 1);
             }
@@ -1004,7 +1066,7 @@ mod tests {
         let span = history.after_frame(0, 4, usize::MAX).unwrap();
         assert!(span.is_valid());
         let values: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes(),
+            format!("[{}]", String::from_utf8(span.into_bytes()).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(values.len(), 2);

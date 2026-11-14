@@ -384,7 +384,7 @@ async fn single_encode_gate() {
             if let Some(expected) = &bytes {
                 assert_eq!(expected, &span.bytes);
             } else {
-                bytes = Some(span.bytes);
+                bytes = Some(span.into_bytes());
             }
         }
         hub.history_encoded_ops()
