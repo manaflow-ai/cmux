@@ -100,8 +100,6 @@ pub enum Exemption {
     Unanswered,
     Downloading,
     AgentLease,
-    /// cmux.json does not set `browser.hibernation`: hidden pages only freeze.
-    KeepsState,
 }
 
 /// How many pages one pass discards and how soon the next pass runs while more are due, so pages
@@ -244,13 +242,6 @@ struct Ranked<'a> {
 /// [`Pace::per_pass`] pages and looks again after [`Pace::interval`] while more are waiting.
 pub fn plan(setting: &Setting, pressure: Pressure, candidates: &[Candidate]) -> Plan {
     let mut plan = Plan::default();
-    if setting.is_enabled() && !setting.discards_automatically() {
-        for candidate in candidates {
-            let reason = exemption(candidate, setting).unwrap_or(Exemption::KeepsState);
-            plan.exemptions.insert(candidate.key.clone(), reason);
-        }
-        return plan;
-    }
     let base = if pressure == Pressure::Critical { Pressure::Warning } else { pressure };
     let Some(threshold) = threshold(setting, base) else {
         for candidate in candidates {

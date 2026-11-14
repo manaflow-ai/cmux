@@ -90,15 +90,12 @@ impl Default for Setting {
 }
 
 impl Setting {
-    /// The mode in force: an unset `browser.hibernation` is `moderate`.
+    /// The mode in force. An unset `browser.hibernation` is `moderate`: hidden tabs are discarded
+    /// after 30 minutes hidden, sooner under memory pressure (Leo, 2026-11-14, "4 yes": hidden
+    /// browser tabs discarded by default, kept when they play audio, hold an unsaved form or are
+    /// pinned). Before, unset only froze them and never discarded one on its own.
     pub fn effective_mode(&self) -> Mode {
         self.mode.unwrap_or(Mode::Moderate)
-    }
-
-    /// Hidden pages are discarded on their own (after the timeout or under memory pressure).
-    /// Only once cmux.json sets `browser.hibernation`: unset, hidden pages only freeze.
-    pub fn discards_automatically(&self) -> bool {
-        self.mode.is_some()
     }
 
     pub fn is_enabled(&self) -> bool {
