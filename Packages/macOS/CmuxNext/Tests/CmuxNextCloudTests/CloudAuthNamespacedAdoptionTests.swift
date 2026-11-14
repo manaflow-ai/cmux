@@ -22,8 +22,11 @@ import Testing
         let previous = try #require(nightly(legacy: true).namespacedLegacyStorage(homeDirectory: home))
         #expect(nightly(legacy: true).keychainService == "com.cmuxterm.app.nightly.auth")
         #expect(previous.keychainService == "com.cmuxterm.app.nightly.auth.origin-0")
-        #expect(previous.credentialsDirectory.path
-            == "/Users/fixture/Library/Application Support/cmux/com.cmuxterm.app.nightly/origin-0")
+        // The store the update used is the one a selection scoped to `origin-0` names; the linked FFI says
+        // where that folder is (classic's `cmux`, or `cmux-next` once the scoped stores move).
+        let scoped = nightly(legacy: false).credentialsDirectory(homeDirectory: home)
+        #expect(previous.credentialsDirectory == scoped)
+        #expect(scoped.pathComponents.suffix(2) == ["com.cmuxterm.app.nightly", "origin-0"])
         #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil) is ImportingTokenStore)
     }
 
