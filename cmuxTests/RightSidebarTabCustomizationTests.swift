@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxSettings
 import Foundation
 import CmuxSidebar
 import XCTest
@@ -39,6 +40,11 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     }
 
+    private func enableCustomSidebar() {
+        defaults.set(true, forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
+        defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
+    }
+
     // MARK: - Ordering and visibility
 
     func testDefaultOrderIsCanonical() {
@@ -54,6 +60,42 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
             [.machines, .files, .find, .sessions, .feed, .dock]
         )
+    }
+
+    func testAvailableCustomSidebarIsVisibleAndGetsPositionalShortcut() {
+        enableAllModeGates()
+        enableCustomSidebar()
+
+        XCTAssertEqual(
+            RightSidebarTabPreferences.orderedModes(defaults: defaults).last,
+            .customSidebar
+        )
+        XCTAssertEqual(
+            RightSidebarMode.visibleModes(defaults: defaults).last,
+            .customSidebar
+        )
+        XCTAssertEqual(
+            RightSidebarMode.positionalDigit(for: .customSidebar, defaults: defaults),
+            7
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(
+                for: .customSidebar,
+                defaults: defaults
+            ),
+            StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
+        )
+    }
+
+    func testCustomSidebarCanBeHiddenAndReordered() {
+        enableCustomSidebar()
+
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .customSidebar, defaults: defaults))
+        XCTAssertFalse(RightSidebarMode.visibleModes(defaults: defaults).contains(.customSidebar))
+
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(false, mode: .customSidebar, defaults: defaults))
+        RightSidebarTabPreferences.move(.customSidebar, offset: -10, defaults: defaults)
+        XCTAssertEqual(RightSidebarTabPreferences.orderedModes(defaults: defaults).first, .customSidebar)
     }
 
     func testVisibleModesDropUserHiddenTabs() {

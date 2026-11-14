@@ -100,8 +100,10 @@ final class FileExplorerState: ObservableObject {
         let defaults = defaults ?? self.defaults
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        guard storedCustomSidebarName != name else { return }
         storedCustomSidebarName = name
         defaults.set(name, forKey: Self.customSidebarNameKey)
+        RightSidebarTabPreferences.notifyChanged()
     }
 
     /// The persisted right-sidebar custom-sidebar name, readable without an
@@ -164,8 +166,6 @@ final class FileExplorerState: ObservableObject {
         defaults: UserDefaults
     ) -> RightSidebarMode {
         let candidate = availableMode(mode, defaults: defaults)
-        // Custom sidebars are selectable content, not customizable mode-bar tabs.
-        if candidate == .customSidebar { return candidate }
         let visible = RightSidebarMode.visibleModes(defaults: defaults)
         if visible.contains(candidate) { return candidate }
         return visible.first ?? candidate
