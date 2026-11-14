@@ -292,12 +292,9 @@ fn serve_session(
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                     return Ok("viewer closed the link".into())
                 }
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
                     // The round trip sizes the frames in flight when the stream starts.
-                    if rtt_us.is_some() {
-                        carrier.link.rtt_us = rtt_us;
-                    }
-                    carrier.link.paths.push(path)
+                    carrier.link.record_path(path);
                 }
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
                 _ => {}

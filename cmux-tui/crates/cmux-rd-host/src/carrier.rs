@@ -126,6 +126,18 @@ pub struct LinkCarrier {
 }
 
 #[cfg(feature = "link")]
+impl LinkCarrier {
+    pub(crate) fn record_path(&mut self, path: cmux_rd_link::EndpointEvent) {
+        if let cmux_rd_link::EndpointEvent::PathChanged { rtt_us, .. } = &path {
+            if rtt_us.is_some() {
+                self.rtt_us = *rtt_us;
+            }
+            self.paths.push(path);
+        }
+    }
+}
+
+#[cfg(feature = "link")]
 impl Carrier for LinkCarrier {
     fn fds(&self) -> Vec<RawFd> {
         vec![self.net.event_fd()]
@@ -199,4 +211,52 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
             })
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "link"))]
+mod path_tests {
+    use super::*;
+    use cmux_rd_link::net::{Net, NetConfig};
+    use cmux_rd_link::{EndpointEvent, KeyPair, Role, Route};
+
+    fn carrier() -> LinkCarrier {
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"startup-path-rtt".to_vec(),
+            local: KeyPair::generate().expect("local key"),
+            expected_remote: KeyPair::generate().expect("peer key").public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .expect("link");
+        LinkCarrier { net, paths: Vec::new(), rtt_us: None }
+    }
+
+    fn path(route: Option<Route>, rtt_us: Option<u64>) -> EndpointEvent {
+        EndpointEvent::PathChanged { route, kind: None, medium: None, rtt_us }
+    }
+
+    fn assert_startup_forgets_rtt(next: EndpointEvent) {
+        let mut carrier = carrier();
+        let initial = path(Some(Route::Udp("127.0.0.1:4001".parse().unwrap())), Some(10_000));
+        carrier.record_path(initial.clone());
+        assert_eq!(carrier.path_rtt_us(), Some(10_000));
+        carrier.record_path(next.clone());
+        assert_eq!(carrier.path_rtt_us(), None, "startup must not retain the old route's RTT");
+        assert_eq!(carrier.paths, vec![initial, next], "path badges still receive both changes");
+    }
+
+    #[test]
+    fn startup_path_forgets_rtt_when_route_is_withdrawn() {
+        assert_startup_forgets_rtt(path(None, None));
+        assert_startup_forgets_rtt(path(None, Some(10_000)));
+    }
+
+    #[test]
+    fn startup_path_forgets_rtt_when_replacement_is_unmeasured() {
+        let route = Route::Udp("127.0.0.1:4002".parse().unwrap());
+        assert_startup_forgets_rtt(path(Some(route), None));
+    }
 }
