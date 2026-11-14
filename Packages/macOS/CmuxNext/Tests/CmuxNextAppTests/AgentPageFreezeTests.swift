@@ -2,6 +2,7 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextSettings
 import AppKit
 import Foundation
@@ -32,6 +33,8 @@ struct AgentPageFreezeTests {
     /// The hibernation rig with every page in Chromium (one freeze control per page).
     static func rig() -> AgentPageHibernationTests.Rig {
         let rig = AgentPageHibernationTests.Rig()
+        // These suites test the freeze alone: a hidden idle chat's release (60 s) would thaw it first.
+        rig.hibernation.pages.idleWait = 3600
         var pages: [ObjectIdentifier: Page] = [:]
         rig.hibernation.freezer = { view in
             if let page = pages[ObjectIdentifier(view)] { return page }

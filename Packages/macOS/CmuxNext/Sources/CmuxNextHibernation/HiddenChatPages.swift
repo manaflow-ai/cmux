@@ -94,6 +94,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var idleRelease: Double { 60 }
     /// The same under warning memory pressure.
     package static var idleReleaseUnderWarning: Double { 30 }
+    /// This planner's idle wait at normal pressure, ``idleRelease`` (tests of the freeze alone set it past their clock).
+    package var idleWait: Double = HiddenChatPages<Host>.idleRelease
 
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
@@ -216,8 +218,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// pressure, at once under critical (floored at ``minimumHidden`` by the caller).
     private var idleThreshold: Double {
         switch pressure {
-        case .normal: return Self.idleRelease
-        case .warning: return Self.idleReleaseUnderWarning
+        case .normal: return idleWait
+        case .warning: return min(idleWait, Self.idleReleaseUnderWarning)
         case .critical: return 0
         }
     }
