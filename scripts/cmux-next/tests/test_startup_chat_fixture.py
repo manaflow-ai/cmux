@@ -34,21 +34,21 @@ class SeedClient:
         self.error = error
         self.state = state or {}
         self.create_applies = create_applies
-        self.creates = self.sends = self.trusts = 0
+        self.creates = self.sends = self.clicks = 0
         self.calls = []
 
     def call(self, method, params):
         self.calls.append((method, params))
-        if method == "acp.trust.set":
-            self.trusts += 1
-            return {"ok": True, "result": {}}
-        if params["action"] == "new_chat":
+        action = params.get("action")
+        if action == "new_chat":
             self.creates += 1
-            if self.create_applies:
-                self.state["sessionId"] = "new-session"
             if self.error:
                 return {"ok": True, "result": {"pane": "chat-pane", "error": self.error}}
-        elif params["action"] == "send_prompt":
+        elif action == "click" and params.get("selector") == ".acpmux-trust-ask-action":
+            self.clicks += 1
+            if self.create_applies:
+                self.state["sessionId"] = "new-session"
+        elif action == "send_prompt":
             self.sends += 1
             text = params["text"]
             self.state.update(transcript=[{"kind": "user", "text": text},
@@ -116,15 +116,17 @@ class Restoration(unittest.TestCase):
         self.assertEqual(self.fixture.expected["test"]["sessionId"], "new-session")
         self.assertEqual(len(self.fixture.expected["test"]["transcript"]), 2)
 
-    def test_seed_trusts_fixture_folder_before_creating_a_session(self):
+    def test_seed_answers_folder_trust_prompt_before_waiting_for_session(self):
         client = SeedClient()
         self.fixture.seed("test", client, 1)
-        trust = next(index for index, (method, _) in enumerate(client.calls)
-                     if method == "acp.trust.set")
+        click = next(index for index, (_, params) in enumerate(client.calls)
+                     if params.get("action") == "click" and
+                     params.get("selector") == ".acpmux-trust-ask-action")
         create = next(index for index, (_, params) in enumerate(client.calls)
                       if params.get("action") == "new_chat")
-        self.assertEqual(client.trusts, 1)
-        self.assertLess(trust, create)
+        self.assertEqual(client.clicks, 1)
+        self.assertLess(create, click)
+        self.assertFalse(any(method == "acp.trust.set" for method, _ in client.calls))
 
     def test_existing_session_is_rejected_before_creating_another(self):
         client = SeedClient(state={"sessionId": "existing-session"})
@@ -156,8 +158,6 @@ class Restoration(unittest.TestCase):
             sock = mock.Mock()
 
             def call(self, method, params):
-                if method == "acp.trust.set":
-                    return {"ok": True, "result": {}}
                 if method == "action.run":
                     if params["action"] == "palette.newAgentChat":
                         page["opened"] = True
@@ -167,6 +167,8 @@ class Restoration(unittest.TestCase):
                 if not page["painted"]:
                     return {"error": "no pane shows an agent tab", "agent_panes": []}
                 if params["action"] == "new_chat":
+                    pass
+                elif params["action"] == "click" and params.get("selector") == ".acpmux-trust-ask-action":
                     state["sessionId"] = "session-1"
                 elif params["action"] == "send_prompt":
                     text = params["text"]
