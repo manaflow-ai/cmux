@@ -783,7 +783,7 @@ fn a_remote_devices_page_counts_with_the_view_its_rows_were_read_with() {
             // After the view was read, before the rows are.
             create(&mux, &app, "page-private", true);
         }
-        Ok(crate::server::list_workspaces_reply_first(&mux, 50, view)?.0)
+        Ok(list_workspaces_reply_first(&mux, 50, view)?.0)
     })
     .unwrap();
     assert_eq!(reads, 2, "the page was not read again with the new view: {reply}");
