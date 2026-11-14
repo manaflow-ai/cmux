@@ -213,20 +213,17 @@ async fn append_replay_sample(
     hub.reset_history_raw_copies();
     let copy_stop = stop.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
-        // Reserve and touch once before arming. Reuse storage while the
-        // measured append runs; free it after the writer stops its clock.
-        let mut buffer = vec![0; MAX_REPLAY_FRAME_BYTES];
-        std::hint::black_box(buffer.as_mut_slice()).fill(1);
+        // Use the daemon's frame path, including its reserve and free.
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
             let Some(RawRead::Span(span)) =
-                receiver.try_next_raw_with_buffer(Some(target), MAX_REPLAY_FRAME_BYTES, buffer)
+                receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
                 panic!("retained replay copy lost its span");
             };
             replay_cursor = if span.last_seq >= target { cursor } else { span.last_seq };
-            buffer = span.bytes;
+            drop(span);
             std::thread::yield_now();
         }
     });

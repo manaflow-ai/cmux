@@ -338,17 +338,6 @@ impl ListReceiver {
     /// follows the live tail. A malformed or expired span is reported as a
     /// lag so the connection can open one fresh window.
     pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
-        self.try_next_raw_with_buffer(through, max_bytes, Vec::new())
-    }
-
-    /// A replay reader may reuse its last frame's storage. The live ring path
-    /// retains its own bounded copy and checksum validation.
-    pub(crate) fn try_next_raw_with_buffer(
-        &self,
-        through: Option<u64>,
-        max_bytes: usize,
-        buffer: Vec<u8>,
-    ) -> Option<RawRead> {
         let window_pending = {
             let mut state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -391,7 +380,7 @@ impl ListReceiver {
             if snapshot.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
                 None
             } else {
-                snapshot.after_frame(cursor, target, max_bytes, buffer)
+                snapshot.after_frame(cursor, target, max_bytes)
             }
         } else {
             let history = self.history.lock().ok()?;

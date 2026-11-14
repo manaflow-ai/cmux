@@ -142,9 +142,7 @@ impl HistorySnapshot {
         cursor: u64,
         through: u64,
         max_bytes: usize,
-        mut out: Vec<u8>,
     ) -> Option<RawSpan> {
-        out.clear();
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
@@ -156,9 +154,9 @@ impl HistorySnapshot {
             return None;
         }
         let max_bytes = max_bytes.min(256 * 1024);
-        out.reserve(max_bytes.min(self.used.saturating_add(count)));
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
+        let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
@@ -819,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn replay_reuses_frame_storage_without_changing_operations() {
+    fn replay_frames_match_live_ring_operations() {
         let mut history = History::with_capacity(4096);
         for seq in 1..300 {
             history.append(&gone(seq)).unwrap();
@@ -827,17 +825,13 @@ mod tests {
         let first = history.first - 1;
         let last = history.last_seq().unwrap();
         let snapshot = history.snapshot_after(first);
-        let mut buffer = vec![0; 512];
-        let allocation = buffer.as_ptr();
         let mut cursor = first;
         while cursor < last {
-            let span = snapshot.after_frame(cursor, last, 512, buffer).unwrap();
+            let span = snapshot.after_frame(cursor, last, 512).unwrap();
             let expected = history.after_frame(cursor, last, 512).unwrap();
             assert_eq!(span.bytes, expected.bytes);
             assert_eq!(span.last_seq, expected.last_seq);
-            assert_eq!(span.bytes.as_ptr(), allocation);
             cursor = span.last_seq;
-            buffer = span.bytes;
         }
     }
 
