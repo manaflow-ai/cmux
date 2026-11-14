@@ -218,6 +218,34 @@ enum AppearanceSettings {
         return normalized
     }
 
+    /// Re-applies the stored mode once launch has finished, replacing the
+    /// launch-time pin.
+    ///
+    /// In system mode, `cmuxApp.init` pins `NSApp.appearance` to a snapshot of
+    /// the system appearance (see `applicationAppearance(for:duringLaunch:environment:)`).
+    /// The main-window scene clears that pin from `onAppear`, but its bootstrap
+    /// window is ordered out and closed right away, so that path isn't
+    /// guaranteed to run. While the pin stays, AppKit keeps `effectiveAppearance`
+    /// on the launch appearance, and neither the chrome nor the terminal theme
+    /// follows a later macOS Light/Dark switch (#33980).
+    ///
+    /// Terminal theme sync is left out on purpose: `SystemAppearanceObserver`,
+    /// started before this runs, picks up any change in `effectiveAppearance`
+    /// that releasing the pin causes.
+    @discardableResult
+    static func applyStoredModeAfterLaunch(
+        defaults: UserDefaults = .standard,
+        environment: LiveApplyEnvironment = .live
+    ) -> AppearanceMode {
+        applyStoredMode(
+            rawValue: defaults.string(forKey: appearanceModeKey),
+            defaults: defaults,
+            source: "appDelegate.didFinishLaunching",
+            synchronizeTerminalTheme: false,
+            environment: environment
+        )
+    }
+
     @discardableResult
     static func applyLiveMode(
         _ mode: AppearanceMode,
