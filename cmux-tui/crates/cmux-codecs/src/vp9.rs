@@ -36,7 +36,11 @@ pub struct Vp9Encoder {
     cfg: Box<sys::vpx_codec_enc_cfg_t>,
     img: Box<sys::vpx_image_t>,
     kbps: u32,
-    pts: i64,
+    /// The first capture time (libvpx counts from it) and the last pts given to libvpx.
+    origin: Option<i64>,
+    last_pts: i64,
+    /// One frame at the configured rate, in the microsecond timebase.
+    frame_us: i64,
     name: String,
     width: usize,
     height: usize,
@@ -131,7 +135,9 @@ impl Vp9Encoder {
                 cfg: c,
                 img,
                 kbps: cfg.kbps.max(100),
-                pts: 0,
+                origin: None,
+                last_pts: -1,
+                frame_us: 1_000_000 / i64::from(cfg.fps.max(1)),
                 name,
                 width: w,
                 height: h,
@@ -153,10 +159,19 @@ impl VideoEncoder for Vp9Encoder {
         img.stride[0] = self.width as c_int;
         img.stride[1] = (self.width / 2) as c_int;
         img.stride[2] = (self.width / 2) as c_int;
-        // libvpx wants increasing timestamps.
-        let pts = pts.max(self.pts + 1);
-        let duration = (pts - self.pts).max(1) as c_ulong;
-        self.pts = pts;
+        // libvpx refuses (INVALID_PARAM) a pts or duration that overflows its
+        // internal timebase, which a wall-clock capture time in microseconds does:
+        // count from the first capture instead. Timestamps must increase, and a
+        // frame's duration (rate control's frame interval) is the gap since the
+        // last one, one frame at the configured rate for the first, at most 1 s.
+        let origin = *self.origin.get_or_insert(pts);
+        let pts = pts.saturating_sub(origin).max(self.last_pts + 1);
+        let duration = if self.last_pts < 0 {
+            self.frame_us
+        } else {
+            (pts - self.last_pts).clamp(1, 1_000_000)
+        } as c_ulong;
+        self.last_pts = pts;
         let flags = if force_idr { sys::VPX_EFLAG_FORCE_KF as i64 } else { 0 };
         let mut key = false;
         // SAFETY: the image's planes point into `pic`, alive for the call; packets are read
