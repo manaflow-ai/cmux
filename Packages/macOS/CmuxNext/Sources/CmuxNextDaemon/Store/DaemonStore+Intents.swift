@@ -122,7 +122,7 @@ extension DaemonStore {
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
         let held = holdOverlayPublication()
-        liftOverlay()
+        let liftedTabs = liftOverlay()
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
@@ -132,7 +132,9 @@ extension DaemonStore {
         releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
+        let orphaned = liftedTabs.filter { pane($0.pane.handle) !== $0.pane } // held before, gone now: read before an overlay hides a pane again
         restoreOverlay()
+        TabCloseOverlay(store: self).dropFromClosedPanes(orphaned)
         overlayLifted = false
         publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
@@ -236,12 +238,25 @@ extension DaemonStore {
         intentLog.connectionReplaced()
     }
 
-    /// Undoes every overlay apply, newest first.
-    private func liftOverlay() {
+    /// Undoes every overlay apply, newest first. Returns each hidden tab the lift put back (a close's, a cancelled
+    /// creation's, a guessed or a stand-in's fresh tab) with the confirmed pane record that holds it once the whole lift
+    /// is done (``TabCloseOverlay/dropFromClosedPanes(_:)``). An older undo may move the tab on (a move, a dock), so the
+    /// pane is read after the lift; a provisional or stand-in pane is never in the confirmed records, so the daemon
+    /// cannot close it in this apply and it is left out.
+    private func liftOverlay() -> [(tab: TabModel, pane: PaneModel)] {
+        var unhidden: [TabModel] = []
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[checked: index]?.undo { IntentOverlay.undo(undo, in: self) }
+            if let undo = intentLog.entries[checked: index]?.undo {
+                unhidden += undo.hiddenTabModels
+                IntentOverlay.undo(undo, in: self)
+            }
             if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
+        var lifted: [(tab: TabModel, pane: PaneModel)] = []
+        for tab in unhidden {
+            if let held = self.index.pane(holding: tab), pane(held.handle) === held { lifted.append((tab: tab, pane: held)) }
+        }
+        return lifted
     }
 
     /// Applies every pending intent in order, recording each inverse.
