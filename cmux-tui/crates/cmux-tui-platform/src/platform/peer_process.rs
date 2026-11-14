@@ -115,6 +115,10 @@ pub(crate) fn key(_fd: RawFd) -> Option<String> {
     None
 }
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "peer_process_tests.rs"]
+mod start_time_tests;
+
 #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
 mod tests {
     use std::os::fd::AsRawFd;

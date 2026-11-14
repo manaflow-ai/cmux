@@ -540,6 +540,31 @@ fn the_parent_of_a_process_is_the_systems() {
     assert_eq!(parent_process(std::process::id()), u32::try_from(parent).ok());
 }
 
+/// The parent of a process is read whatever bytes the name of its program
+/// has. The system keeps 15 bytes of that name.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_parent_is_read_for_each_program_name() {
+    use std::os::unix::process::CommandExt;
+    let dir = std::env::temp_dir().join(format!("cmux-parent-name-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // 8 characters of 2 bytes: byte 15 is the first half of the last one.
+    let program = dir.join("\u{e9}".repeat(8));
+    std::os::unix::fs::symlink("/bin/sleep", &program).unwrap();
+    let mut child = std::process::Command::new(&program).arg0("sleep").arg("30").spawn().unwrap();
+    let line = std::fs::read(format!("/proc/{}/stat", child.id())).unwrap();
+    let parent = parent_process(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        std::str::from_utf8(&line).is_err(),
+        "setup: the name was not cut inside a character: {}",
+        String::from_utf8_lossy(&line)
+    );
+    assert_eq!(parent, Some(std::process::id()), "the parent of a child of this test");
+}
+
 /// A burst of 300 terminals whose hosts the daemon starts, each with one
 /// event stream that its process opens before the terminal has its seat.
 /// The counts, with no clock:
