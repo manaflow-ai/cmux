@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4364405356601",
+  "notes": "notes/4364405356601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43195,
+      "title": "cmux-next-ios energy bench: drop the xctrace Activity Monitor probe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43244,
+      "title": "Composer hat: the header's icons keep their place open and folded; a clearer tuck control",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43249,
+      "title": "test(chat pages): perf-10x-idle chat_renderer_crash=1, a cmux-page renderer kill reloads at most 8 chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43135,
+      "title": "carrier: the cmux link runs the Cloud tunnel hub, so the ssh backup route exists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43048,
+      "title": "cmux remote exec and cp, and a reserved process stream never loses output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43200,
+      "title": "Agent chat: user rows say who sent a prompt and where from, and ask rows carry their request (v2 row 2c, PR 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43243,
+      "title": "ci: classic-frozen paths are frozen only into main; feat-cmux-next may change them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43257,
+      "title": "Agent chat: Worked for keeps its quiet ink when a turn ends; no finished row turns green",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43213,
+      "title": "cmux-next-ios: TerminalChatLiveTests imports CmuxMobileAgentChat, where JSONValue lives (base red since #43111)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43132,
+      "title": "cmux-next iOS: the phone's workspace list sends known and keeps its tree on unchanged",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
