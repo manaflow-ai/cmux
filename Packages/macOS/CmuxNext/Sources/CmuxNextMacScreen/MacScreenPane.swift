@@ -291,7 +291,8 @@ public final class MacScreenPane {
         hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
     }
 
-    private func disconnectByPerson() {
+    /// The viewer toolbar or a targeted Stop Viewing action ends this session.
+    public func disconnectByPerson() {
         view.input.releaseKeyboard()
         model.hub?.disconnect(reason: .viewerDisconnected)
     }

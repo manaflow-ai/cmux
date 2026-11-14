@@ -74,12 +74,15 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         context.services.pages.register(context.services.macScreenTabs)
-        registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
-        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
-        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
-        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
+        MacScreenActions(pages: context.services.macScreenPages, selectedTab: { context.scope().tab?.id.rawValue },
+                         providerKey: { id, machine in
+                             if let machine, context.targetTab(id, ActionInvocation().onMachine(machine)) == nil,
+                                context.services.paneController(showingTab: id)?.daemon.machineID != machine { return nil }
+                             return context.services.pages.storeKey(of: id) ?? id
+                         }, open: { record, invocation, byPerson in
+                             let pane = try context.pane(invocation)
+                             context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
+                         }, refusal: { registry.refuse(thrown: $0) }).bind(into: registry)
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
