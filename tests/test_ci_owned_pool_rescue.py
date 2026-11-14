@@ -1518,6 +1518,16 @@ class SideLanes(unittest.TestCase):
         self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
                                              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
 
+    def test_every_attempt_side_workflows_are_followed_through_bot_attempt_three(self):
+        for path in sorted(rescue.OWNED_EVERY_ATTEMPT_PATHS):
+            with self.subTest(path=path):
+                for attempt, expected in ((2, True), (3, True), (4, False)):
+                    self.assertEqual(rescue.owned_rerun({
+                        "path": path,
+                        "run_attempt": attempt,
+                        "triggering_actor": {"login": rescue.RESCUE_ACTOR},
+                    }), expected, (path, attempt))
+
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
             return [refused_job("diagnostic-presentation", labels=(SIDE,)) if seconds >= 60 else

@@ -503,6 +503,12 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if attempt <= 1:
         return False
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if run.get("path") in OWNED_EVERY_ATTEMPT_PATHS:
+        # These side workflows keep their owned label on the rescue bot's
+        # third attempt too. Follow that one extra attempt so a refused or
+        # unclaimed mini job cannot sit queued after the first rescue; a
+        # fourth bot attempt is outside this bounded rescue loop.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT + 1
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt takes a free Blacksmith slot, else the owned side label
