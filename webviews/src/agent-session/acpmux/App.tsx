@@ -2120,6 +2120,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
   const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
+  /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
+  const heldWorkedClosing = useRef(false);
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
@@ -3066,8 +3069,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const asked = heldRuns.current.asked === true;
       if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
         heldRuns.current = { session: shownSessionId, keys: new Set() };
-      if (heldWorked.current.session !== shownSessionId || (!viewNow && heldWorked.current.keys.size > 0))
+      if (heldWorked.current.session !== shownSessionId)
         heldWorked.current = { session: shownSessionId, keys: new Set() };
+      else if (!viewNow && heldWorked.current.keys.size > 0) {
+        // Back at the latest row: the Worked for held open over what the reader read closes, in
+        // the turn's end motion (VirtualTranscript `heldWorkedClosing`), never in one frame.
+        heldWorked.current = { session: shownSessionId, keys: new Set() };
+        heldWorkedClosing.current = true;
+      }
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -11667,6 +11676,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     }
                                                                     inViewNow={
                                                                       quick || childRows ? undefined : transcriptInView
+                                                                    }
+                                                                    heldWorkedClosing={
+                                                                      quick || childRows ? undefined : heldWorkedClosing
                                                                     }
                                                                     // A prompt goes to the chat, not to the subagent shown in its place.
                                                                     sends={childRows ? undefined : sends}

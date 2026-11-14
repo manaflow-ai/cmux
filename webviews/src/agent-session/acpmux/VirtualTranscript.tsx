@@ -1624,6 +1624,7 @@ function TranscriptView({
   onAnchor,
   anchorNow,
   inViewNow,
+  heldWorkedClosing,
   onLoadOlder,
   sends = 0,
   onFollowingChange,
@@ -1666,6 +1667,10 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
+  /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
+  /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
+  /// That close folds in the turn's end motion (conversation/turnEndFold.ts), and the flag is let go.
+  heldWorkedClosing?: React.MutableRefObject<boolean>;
   /// A reply is streaming: Jump to latest remains static while the shared transcript spinner carries
   /// the working state.
   working?: boolean;
@@ -3462,8 +3467,17 @@ function TranscriptView({
   // A turn that ended while the reader was away (its end among the frames held while the chat was
   // hidden) draws ended in place: folding from the rows drawn before they left moved its rows by
   // all that came since.
+  // A Worked for held open while the reader was scrolled up over its work closes once they are back
+  // at the latest row (App.tsx `heldWorked`). Closed in one frame, it brought everything above the
+  // reply down by the work's height at once (Leo, 2026-11-14: "a resizing/re-adjustment of all chats
+  // after tool calls get folded"): it folds in the turn's end motion instead, the rows over it
+  // coming down together as the work leaves.
+  const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
+  if (closingHeld) heldWorkedClosing!.current = false;
   if (sameChat && endsTurn(rowsBefore, rows) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
+  else if (sameChat && closingHeld && !pageAway())
+    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, true);
   else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
