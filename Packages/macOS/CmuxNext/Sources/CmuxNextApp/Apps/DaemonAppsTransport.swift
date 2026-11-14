@@ -17,7 +17,6 @@ import os
 /// takes `apps-provider-*`.
 @MainActor
 final class DaemonAppsTransport: AppsTransport {
-    nonisolated static let capability = "apps-v1"
     /// `apps-run` waits for the app's op; everything else uses the control-plane deadline.
     static let runTimeout: Duration = .seconds(30)
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps")
@@ -72,7 +71,7 @@ final class DaemonAppsTransport: AppsTransport {
     private func update(_ state: DaemonConnectionState, storeEpoch: Int) {
         let capabilities: [String]? = if case .connected(let identity) = state { identity.capabilities } else { nil }
         let next: AppsAvailability
-        if let reason = Self.unavailableReason(capabilities: capabilities, cause: daemon.notConnectedReason) {
+        if let reason = AppsUnavailableReason.daemon(capabilities: capabilities, cause: daemon.notConnectedReason) {
             next = .unavailable(reason)
         } else if case .available(let current) = availability, storeEpoch == self.storeEpoch {
             next = .available(epoch: current)
@@ -87,13 +86,6 @@ final class DaemonAppsTransport: AppsTransport {
         guard shown != availability else { return }
         availability = shown
         onEvent?(.availability(shown))
-    }
-
-    /// Why the supervisor cannot be used: `capabilities` of the connected
-    /// daemon, nil when none is connected (`cause`: the daemon service's reason).
-    nonisolated static func unavailableReason(capabilities: [String]?, cause: String? = nil) -> AppsUnavailableReason? {
-        guard let capabilities else { return cause.map(AppsUnavailableReason.notReady) ?? .notConnected }
-        return capabilities.contains(capability) ? nil : .noAppHost
     }
 
     // MARK: Commands
