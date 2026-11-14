@@ -67,9 +67,15 @@ fn assert_kin(
     assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
     for row in index.iter() {
         if let Some(parent) = row.parent.as_ref() {
-            assert_eq!(
-                index.kin().child_set(parent, &row.key()),
-                index.kin().children(&row.key()),
+            let parent_handle = index.kin().child_set(parent, &row.key());
+            let own_handle = index.kin().children(&row.key());
+            assert!(
+                match (parent_handle, own_handle) {
+                    (None, None) => true,
+                    (Some(parent), Some(own)) => parent == own,
+                    (Some(parent), None) => parent.is_empty(),
+                    (None, Some(_)) => false,
+                },
                 "child handle mismatch for {} at lifecycle step {step}",
                 row.chat_id,
             );
@@ -116,6 +122,86 @@ fn assert_kin(
         index.folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     let expected = rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     assert_eq!(actual, expected, "folder projection mismatch at lifecycle step {step}");
+}
+
+fn plain_family(index: &SummaryIndex, root: &RowKey) -> Vec<RowKey> {
+    let mut children = BTreeMap::<RowKey, Vec<RowKey>>::new();
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            children.entry(parent.clone()).or_default().push(row.key());
+        }
+    }
+    for rows in children.values_mut() {
+        rows.sort();
+    }
+    fn walk(
+        key: &RowKey,
+        root: &RowKey,
+        depth: usize,
+        children: &BTreeMap<RowKey, Vec<RowKey>>,
+        visited: &mut BTreeSet<RowKey>,
+        output: &mut Vec<RowKey>,
+    ) {
+        if depth >= MAX_KIN_DEPTH {
+            return;
+        }
+        for child in children.get(key).into_iter().flatten() {
+            if child == root || !visited.insert(child.clone()) {
+                continue;
+            }
+            output.push(child.clone());
+            walk(child, root, depth + 1, children, visited, output);
+        }
+    }
+    let mut output = Vec::new();
+    let mut visited = BTreeSet::new();
+    walk(root, root, 0, &children, &mut visited, &mut output);
+    output
+}
+
+fn assert_independent_kin_oracle(index: &SummaryIndex) {
+    let keys = index.iter().map(|row| row.key()).collect::<Vec<_>>();
+    for root in &keys {
+        let expected = plain_family(index, root);
+        let actual = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                expected.len() + 1,
+                usize::MAX,
+                Some(&ListFilter::family(root.clone())),
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "family oracle mismatch for {root:?}");
+
+        let mut expected_forks = keys
+            .iter()
+            .filter_map(|key| index.get_row(key))
+            .filter(|row| row.fork_of.as_ref().is_some_and(|fork| fork.key == *root))
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        expected_forks.sort();
+        let actual_forks = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                expected_forks.len() + 1,
+                usize::MAX,
+                Some(&ListFilter::forks(root.clone())),
+            )
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.key())
+            .collect::<Vec<_>>();
+        assert_eq!(actual_forks, expected_forks, "fork oracle mismatch for {root:?}");
+    }
 }
 
 fn compact(
@@ -277,6 +363,7 @@ pub(super) fn randomized_hot_lifecycle() {
     assert!(successful[6] > 0, "no warm hydration succeeded");
     assert!(successful[7] > 0, "no delete succeeded");
     assert!(successful[8] > 0, "no origin cleanup succeeded");
+    assert_independent_kin_oracle(&index);
 }
 
 #[test]
@@ -341,11 +428,11 @@ fn deep_handle_refresh_matches_a_fresh_table_at_the_64_level_edge() {
     index = index.apply(chain.len() as u64 + 1, leaf.clone());
 
     let mut fresh = SummaryIndex::new();
-    for (seq, row) in chain.iter().cloned().chain(std::iter::once(leaf)).enumerate() {
+    for (seq, row) in std::iter::once(leaf).chain(chain.iter().rev().cloned()).enumerate() {
         fresh = fresh.apply(seq as u64 + 1, row);
     }
 
-    for depth in [62, 63, 64] {
+    for depth in [2, 1, 0] {
         let key = RowKey::new("local", format!("deep-{depth:02}"));
         let filter = ListFilter::family(key);
         let actual =
@@ -358,4 +445,41 @@ fn deep_handle_refresh_matches_a_fresh_table_at_the_64_level_edge() {
             "stale handle at chain depth {depth}",
         );
     }
+}
+
+#[test]
+fn removing_a_last_child_keeps_hot_ancestors_in_the_family_table() {
+    let root = row("remove-root", 0);
+    let a = parent_row("remove-a", 1, &root);
+    let b = parent_row("remove-b", 2, &a);
+    let c = parent_row("remove-c", 3, &b);
+    let mut index = SummaryIndex::new();
+    for (seq, row) in [root.clone(), a.clone(), b.clone(), c.clone()].into_iter().enumerate() {
+        index = index.apply(seq as u64 + 1, row);
+    }
+    index = index.remove_row(5, &c.key()).unwrap();
+
+    let page = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            16,
+            64 * 1024,
+            Some(&ListFilter::family(root.key())),
+        )
+        .unwrap();
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["remove-a", "remove-b"],
+    );
+
+    let oracle = SummaryIndex::new().apply(1, root).apply(2, a).apply(3, b);
+    assert_eq!(index.kin(), oracle.kin());
+}
+
+fn parent_row(id: &str, activity: u64, parent: &Summary) -> Summary {
+    let mut row = row(id, activity);
+    row.parent = Some(parent.key());
+    row
 }

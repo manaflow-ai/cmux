@@ -129,6 +129,7 @@ impl KinTables {
 
     /// Replace one hot row, mutating only the tables whose indexed relation
     /// changed. A title or other non-indexed field update writes no table path.
+    #[cfg(test)]
     pub fn replace(&self, old: Option<&Summary>, new: Option<&Summary>) -> Self {
         let mut next = self.clone();
         next.mutate(old, new, None, None, None);
@@ -147,6 +148,7 @@ impl KinTables {
     }
 
     /// Replace one row while counting changed table roots.
+    #[cfg(test)]
     pub fn replace_counted(
         &self,
         old: Option<&Summary>,
@@ -170,6 +172,7 @@ impl KinTables {
         next
     }
 
+    #[cfg(test)]
     pub fn insert(&mut self, summary: &Summary) {
         self.mutate(None, Some(summary), None, None, None);
     }
@@ -178,6 +181,7 @@ impl KinTables {
         self.mutate(None, Some(summary), Some(summary), Some(rows), None);
     }
 
+    #[cfg(test)]
     pub fn remove(&mut self, summary: &Summary) {
         self.mutate(Some(summary), None, None, None, None);
     }
@@ -303,8 +307,10 @@ impl KinTables {
         let mut current = parent.clone();
         let mut value = children;
         let mut visited = OrdSet::new();
-        for _ in 0..MAX_KIN_DEPTH {
+        let mut stopped_at_bound = true;
+        for _ in 0..=MAX_KIN_DEPTH {
             if !visited.insert(current.clone()) {
+                stopped_at_bound = false;
                 break;
             }
             match value.take() {
@@ -317,25 +323,47 @@ impl KinTables {
                 }
             }
             Self::count(writes);
-            let Some(rows) = rows else { break };
-            let Some(row) = rows.get(&current) else { break };
-            let Some(grandparent) = row.parent.as_ref() else { break };
-            let Some(parent_set) = self.children.get(grandparent).cloned() else { break };
+            let Some(rows) = rows else {
+                stopped_at_bound = false;
+                break;
+            };
+            let Some(row) = rows.get(&current) else {
+                stopped_at_bound = false;
+                break;
+            };
+            let Some(grandparent) = row.parent.as_ref() else {
+                stopped_at_bound = false;
+                break;
+            };
+            let Some(parent_set) = self.children.get(grandparent).cloned() else {
+                stopped_at_bound = false;
+                break;
+            };
             let Some(child_set) = value.as_ref() else {
                 if parent_set.get(&current).is_none() {
+                    stopped_at_bound = false;
                     break;
                 }
-                let updated = parent_set.remove(&current);
+                let empty = Arc::new(ChildSet::default());
+                if parent_set.get(&current).is_some_and(|old| old.as_ref() == empty.as_ref()) {
+                    stopped_at_bound = false;
+                    break;
+                }
+                let updated = parent_set.insert(current.clone(), empty);
                 current = grandparent.clone();
-                value = (!updated.is_empty()).then(|| Arc::new(updated));
+                value = Some(Arc::new(updated));
                 continue;
             };
             if parent_set.get(&current).is_some_and(|old| old.as_ref() == child_set.as_ref()) {
+                stopped_at_bound = false;
                 break;
             }
             let updated = parent_set.insert(current.clone(), child_set.clone());
             current = grandparent.clone();
             value = Some(Arc::new(updated));
+        }
+        if stopped_at_bound {
+            super::KIN_DEPTH_STOPS.fetch_add(1, AtomicOrdering::Relaxed);
         }
     }
 
@@ -541,9 +569,11 @@ mod tests {
         let leaf = Arc::new(leaf);
         with_leaf.insert(leaf.key(), leaf.clone());
         let writes = AtomicUsize::new(0);
+        let stops_before = super::super::kin_depth_stops();
         let updated =
             tables.replace_counted_with_rows(None, Some(leaf.as_ref()), &with_leaf, &writes);
-        assert_eq!(writes.load(AtomicOrdering::Relaxed), MAX_KIN_DEPTH);
+        assert_eq!(writes.load(AtomicOrdering::Relaxed), MAX_KIN_DEPTH + 1);
+        assert_eq!(super::super::kin_depth_stops(), stops_before + 1);
         assert!(updated.children(&parent.key()).is_some_and(|set| set.get(&leaf.key()).is_some()));
 
         for sibling_count in [10, 10_000] {
