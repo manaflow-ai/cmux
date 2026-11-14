@@ -9,7 +9,12 @@ import { foldMotion, foldMs } from "./fold";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = { document: scope.document, window: scope.window };
-afterEach(() => Object.assign(scope, saved));
+afterEach(() => {
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+});
 
 function body(motion?: string) {
   const dom = new JSDOM("<!doctype html><body><div class=cv-fold></div></body>");
