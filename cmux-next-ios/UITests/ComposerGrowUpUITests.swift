@@ -50,9 +50,13 @@ final class ComposerGrowUpUITests: XCTestCase {
         if name == "terminal" {
             // The text view runs the field's whole height (user report
             // 2026-11-13: a scrolled draft was cut 6 pt inside the glass):
-            // one line is the field's 40 pt, the send circle 6 pt above its bottom.
+            // one line is the field's 40 pt.
             XCTAssertEqual(oneLine.height, 40, accuracy: 1, "terminal: the text view is the field's full height")
         }
+        // The send circle rides the last line: its distance from the field's
+        // bottom never changes as the field grows. (Its accessibility frame is
+        // not the drawn circle, so the distance is compared, not a fixed 6 pt.)
+        let sendGap = name == "terminal" ? oneLine.maxY - app.buttons["terminal.composer.send"].firstMatch.frame.maxY : 0
         attach(app, "\(name)-1-line")
         var frames: [Int: CGRect] = [1: oneLine]
         for count in 2...9 {
@@ -60,7 +64,7 @@ final class ComposerGrowUpUITests: XCTestCase {
             frames[count] = field.frame
             if name == "terminal" {
                 let send = app.buttons["terminal.composer.send"].firstMatch.frame
-                XCTAssertEqual(send.maxY, field.frame.maxY - 6, accuracy: 1, "terminal: the send circle rides 6 pt above the field's bottom at \(count) lines")
+                XCTAssertEqual(field.frame.maxY - send.maxY, sendGap, accuracy: 1, "terminal: the send circle keeps its place on the last line at \(count) lines")
             }
             if [3, 6, 9].contains(count) { attach(app, "\(name)-\(count)-lines") }
         }
