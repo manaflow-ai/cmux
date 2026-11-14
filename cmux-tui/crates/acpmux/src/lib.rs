@@ -246,6 +246,9 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
+/// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub mod test_support;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
