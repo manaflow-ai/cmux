@@ -786,12 +786,14 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64)
     };
     let (c0, t_begin) = (cpu_s(), now_ns());
+    let frames_start = v.frames;
     let mut series = Vec::new();
     let (mut bytes, mut frames, mut decode_from) = (v.bytes, v.frames, v.decode_ms.len());
     let mut next = t_begin + 1_000_000_000;
@@ -811,12 +813,15 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         (bytes, frames, decode_from) = (v.bytes, v.frames, v.decode_ms.len());
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
+    let fps = v.frames.saturating_sub(frames_start) as f64 / secs.max(f64::EPSILON);
     let report = json!({
         "addr": addr.to_string(),
         "carrier": carrier,
         "input": "none",
         "welcome": v.welcome,
         "seconds": secs,
+        "first_frame_ms": first_frame_ms,
+        "fps": fps,
         "series": series,
         "decode_errors": v.decode_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
