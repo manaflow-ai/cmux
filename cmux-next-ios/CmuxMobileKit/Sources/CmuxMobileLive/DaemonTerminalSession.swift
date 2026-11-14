@@ -119,6 +119,28 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Rows each ``loadOlderHistory()`` adds (a bounded chunk: about 200 KB
     /// of a typical shell's history).
     static let historyChunkRows = 2_000
+    /// The daemon takes `replay_history_start` (it listed
+    /// `attach-replay-history-window-v1`, and its lane did not refuse it).
+    private var windowReplay = false
+    /// The first history row of the window the mirror holds far above the
+    /// Mac's screen (`replay_history_start`); nil: the newest rows
+    /// (``historyAllowance``). A reattach keeps it, so a reader keeps their rows.
+    private(set) var historyWindowStart: Int?
+    /// History rows between the mirror's window and the Mac's screen, left
+    /// out (the last `vt-state`'s `history_rows_skipped`); 0: the mirror's
+    /// rows reach the screen.
+    public private(set) var historyRowsSkipped = 0
+    /// The newest history rows the mirror holds at most. Scrolling past them,
+    /// it holds a window of ``historyWindowRows`` instead, moved
+    /// ``historyWindowStep`` rows at a time: its memory and each replay stay bounded
+    /// however long the Mac's history is, and the reader still reaches line 1.
+    static let maxTailHistoryRows = 5 * historyChunkRows
+    /// Rows of a window far above the screen: the chunk read and one more.
+    static let historyWindowRows = 2 * historyChunkRows
+    /// Rows a window moves per fetch: under the reading mark's search
+    /// (`TerminalReadingMark.searchRows`), so the replay puts the reader back
+    /// on their rows, which moved by this much in the mirror.
+    static let historyWindowStep = 1_500
     /// When the last `note-size-activity` went out (``now``'s clock).
     private var lastActivityNote: TimeInterval?
     /// At most one activity note per this many seconds.
@@ -569,15 +591,59 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
     /// Returns whether the fetch was sent (its reset and replay follow).
+    ///
+    /// Against a daemon with `attach-replay-history-window-v1`, the mirror
+    /// holds at most ``maxTailHistoryRows`` of the newest rows; past them it
+    /// holds a window of ``historyWindowRows`` far above the screen
+    /// (`replay_history_start`), moved up ``historyWindowStep`` rows per fetch until it holds
+    /// line 1, so the phone never holds the Mac's whole history.
     @discardableResult
     public func loadOlderHistory() -> Bool {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
-              let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
-        historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
-        log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
+              inputInFlight == 0, let client else { return false }
+        if windowReplay, historyWindowStart != nil
+            || (historyAllowance ?? 0) + Self.historyChunkRows > Self.maxTailHistoryRows {
+            // The window moves up a step: the rows read stay in it.
+            historyWindowStart = max(0, historyRowsOmitted - Self.historyWindowStep)
+        } else {
+            guard let allowance = historyAllowance else { return false }
+            historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
+        }
+        log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next \(self.historyRequestDescription, privacy: .public))")
         replacing = client
         Task { await attach() }
         return true
+    }
+
+    public var historyWindowRows: Int? {
+        historyWindowStart != nil && historyRowsSkipped > 0 ? Self.historyWindowRows : nil
+    }
+
+    /// The reader came down to the last row of the window far above the
+    /// screen (``historyWindowRows``): the window moves a step toward the
+    /// screen. Once it comes within its size of the screen the Mac sends the
+    /// rows from its start down to the screen, and the mirror holds the
+    /// newest rows again (at most twice the window). `toTheScreen` (the
+    /// reader came up from the screen to the window): the newest rows at once.
+    @discardableResult
+    public func loadNewerHistory(toTheScreen: Bool) -> Bool {
+        guard attached, !attaching, replacing == nil, let start = historyWindowStart, historyRowsSkipped > 0,
+              inputInFlight == 0, let client else { return false }
+        if toTheScreen {
+            historyWindowStart = nil
+            historyAllowance = Self.maxTailHistoryRows
+        } else {
+            historyWindowStart = start + Self.historyWindowStep
+        }
+        log.notice("surface \(self.surface, privacy: .public): newer history asked (\(self.historyRowsSkipped, privacy: .public) rows below the window, next \(self.historyRequestDescription, privacy: .public))")
+        replacing = client
+        Task { await attach() }
+        return true
+    }
+
+    private var historyRequestDescription: String {
+        if let start = historyWindowStart { return "window \(start)+\(Self.historyWindowRows)" }
+        return "allowance \(historyAllowance.map(String.init) ?? "all")"
     }
 
     /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
@@ -686,6 +752,8 @@ public final class DaemonTerminalSession: TerminalSession {
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
+            windowReplay = tailReplay && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
+            if !windowReplay { historyWindowStart = nil }
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -693,6 +761,15 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Each request gets its own literal: a dictionary sent to the
                 // client actor is never touched again here (Swift 6 regions).
                 func send(historyRows: Int?) async throws -> Data {
+                    // A window far above the screen (attach-replay-history-window-v1).
+                    if let rows = historyRows, windowReplay, let start = historyWindowStart {
+                        if let size {
+                            return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows,
+                                                                                       "replay_history_rows": rows, "replay_history_start": start])
+                        }
+                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows,
+                                                                                   "replay_history_start": start])
+                    }
                     switch (size, historyRows) {
                     case let (size?, rows?):
                         return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
@@ -703,6 +780,15 @@ public final class DaemonTerminalSession: TerminalSession {
                     case (nil, nil):
                         return try await client.request("attach-surface", params: ["surface": surface])
                     }
+                }
+                if tailReplay, windowReplay, historyWindowStart != nil {
+                    let reply = try await send(historyRows: Self.historyWindowRows)
+                    guard let error = Self.error(in: reply), error.contains("replay_history_start") else { return reply }
+                    // A lane that refuses the window (a Mac app older than
+                    // its daemon): the newest rows, as before.
+                    windowReplay = false
+                    historyWindowStart = nil
+                    historyAllowance = Self.maxTailHistoryRows
                 }
                 guard tailReplay, let rows = historyAllowance else { return try await send(historyRows: nil) }
                 let reply = try await send(historyRows: rows)
@@ -913,9 +999,26 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+        case .historyRowsSkipped(let rows):
+            historyRowsSkipped = rows
+            if rows == 0, historyWindowStart != nil {
+                // The window came within its size of the screen: the Mac sent
+                // the rows from its start down (at most twice the window), and
+                // the mirror holds the newest rows again.
+                historyWindowStart = nil
+                historyAllowance = 2 * Self.historyWindowRows
+            }
         case .resetMirror(let alternate):
-            // A `resized` replay holds the whole history.
+            // A `resized` replay holds the whole history, unless it names the
+            // rows it left out (the next event). Either way its rows reach the
+            // screen: a window far above it is numbered again by the reflow,
+            // and the newest rows of its size come instead.
             historyRowsOmitted = 0
+            historyRowsSkipped = 0
+            if historyWindowStart != nil {
+                historyWindowStart = nil
+                historyAllowance = Self.historyWindowRows
+            }
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
             show(.output(TerminalReclaimHold.reset))
@@ -1401,8 +1504,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `replay_history_rows` on `attach-surface`: the replay holds the screen
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
+    /// `replay_history_start` on `attach-surface`, and windowed `resized`
+    /// replays for a viewer that declares it (cmux-tui `commands.md`).
+    static let replayHistoryWindowCapability = "attach-replay-history-window-v1"
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+    static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews

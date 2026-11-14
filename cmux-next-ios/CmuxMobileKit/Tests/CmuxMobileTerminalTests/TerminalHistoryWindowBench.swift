@@ -5,8 +5,8 @@ import Testing
 import UIKit
 @testable import CmuxMobileTerminal
 
-/// Bench (opt-in: CMUX_VIEWPORT_WINDOW_BENCH=1; `scripts/ci/cmux-next-ios-sim.sh`
-/// sets it for `only=CmuxMobileTerminalTests/TerminalHistoryWindowBench`).
+/// Bench (opt-in: CMUX_VIEWPORT_WINDOW_BENCH=1; on the fleet, `cmux-ci run ...
+/// --env TEST_RUNNER_CMUX_VIEWPORT_WINDOW_BENCH=1`, which xcodebuild forwards).
 ///
 /// What the phone's Ghostty mirror pays for each replay shape of a Mac
 /// terminal with 100,000 history rows, through the real surface: the bytes,

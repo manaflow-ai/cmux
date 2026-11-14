@@ -238,6 +238,41 @@ import Testing
         #expect(session.loadOlderHistory(), "older rows are fetched after the resize")
     }
 
+    /// Past the newest 10,000 rows the mirror holds a window: coming back down
+    /// moves it toward the screen until the Mac sends the rows down to the
+    /// screen again; coming up from the screen brings the newest rows at once.
+    @Test func comingBackDownFromAWindowReachesTheNewestRows() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        var fetches = 0
+        while session.historyWindowRows == nil, fetches < 20 {
+            try await waitUntil { session.historyWindowRows != nil || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyWindowRows != nil }
+        #expect(session.historyWindowRows == DaemonTerminalSession.historyWindowRows)
+        let start = try #require(attaches(daemon).last?["replay_history_start"] as? Int)
+
+        // Down a step: the window moves toward the screen.
+        try await waitUntil { session.loadNewerHistory(toTheScreen: false) }
+        try await waitUntil { session.historyRowsOmitted == start + DaemonTerminalSession.historyWindowStep }
+        #expect(session.historyWindowRows != nil)
+
+        // Up from the screen to the window: the newest rows, contiguous again.
+        try await waitUntil { session.loadNewerHistory(toTheScreen: true) }
+        try await waitUntil { session.historyWindowRows == nil && session.historyRowsOmitted == 90_000 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.maxTailHistoryRows)
+        #expect(attaches(daemon).last?["replay_history_start"] == nil)
+        #expect(session.historyRowsSkipped == 0)
+    }
+
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))

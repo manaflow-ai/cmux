@@ -2554,6 +2554,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
            scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
             model.session.loadOlderHistory()
         }
+        // The mirror holds a window far above the Mac's screen (a long
+        // history): a reader within a screen of where the window ends gets
+        // the newer rows, or the newest when they came up from the screen.
+        if scrollView.isTracking || scrollView.isDecelerating, cell.height > 0,
+           let windowRows = model.session.historyWindowRows {
+            let gap = TerminalHistoryGap(shift: feedHostRows.map { surface.grid.rows - $0 } ?? 0, windowRows: windowRows)
+            let minY = max(0, scrollView.contentOffset.y)
+            let top = originRow + Int(floor(minY / cell.height))
+            let bottom = originRow + Int(ceil((minY + scrollView.bounds.height) / cell.height))
+            if let need = gap.need(visibleTop: top, visibleBottom: bottom) {
+                model.session.loadNewerHistory(toTheScreen: need == .newest)
+            }
+        }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
         // end and leave the page short of it. The fling keeps its rubber
