@@ -192,6 +192,10 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
+    # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
+    # takes no argument for it): the Mac runs that config, and once paired the phone opens that
+    # Mac's terminal; both screens are kept (screens/theme-*.png).
+    a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -232,6 +236,8 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
+    if a.theme:
+        env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -428,6 +434,8 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if a.theme and paired:
+                note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -481,6 +489,24 @@ def main():
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
+
+
+def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
+    """The phone opens the paired Mac's first terminal (DEBUG demo `live-terminal`, which prints the
+    palette in it); the phone and the Mac window are captured. Returns the summary line."""
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
+                   env=phone_env, check=True, capture_output=True)
+    shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
+    outcome = shown[1].group(1) if shown else "timed out"
+    phone = phone_shot("theme-phone-terminal")
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
+    mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
 
 
 def log_time(line):

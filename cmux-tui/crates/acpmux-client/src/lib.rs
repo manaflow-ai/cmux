@@ -9,14 +9,16 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use wire::{
-    Anchor, Cursor, DeltaOp, Frame, FrameError, FrameKind, Hello, Limits, ListKey, Page,
-    PageResult, Request, Sub, Window,
+    Anchor, Cursor, DeltaOp, FolderPageResult, FolderWindow, Frame, FrameError, FrameKind, Hello,
+    Limits, ListKey, ListView, Page, PageResult, Request, Sub, Window,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Change<T> {
     Window(Window<T>),
+    FolderWindow(FolderWindow),
     Page(PageResult<T>),
+    FolderPage(FolderPageResult),
     Summary {
         sid: String,
         seq: u64,
@@ -47,6 +49,19 @@ pub enum Change<T> {
         sid: String,
         seq: u64,
         bytes: u64,
+        replay: bool,
+    },
+    Folder {
+        sid: String,
+        seq: u64,
+        row: wire::FolderRow,
+        replay: bool,
+    },
+    FolderGone {
+        sid: String,
+        seq: u64,
+        origin: String,
+        folder: String,
         replay: bool,
     },
     ResumeEnd {
@@ -165,6 +180,7 @@ enum PagePurpose {
 struct PageState {
     request: Option<Page>,
     changed_keys: HashSet<(String, String)>,
+    changed_folders: HashSet<(String, String)>,
     removed_origins: HashSet<String>,
     purpose: PagePurpose,
 }
@@ -189,6 +205,8 @@ pub struct Client<T = Summary> {
     subscriptions: HashMap<String, SubState>,
     retired_sids: HashSet<String>,
     pages: HashMap<String, PageState>,
+    stale_folder_pages: HashSet<String>,
+    deferred_folder_pages: HashMap<String, Page>,
     limits: Limits,
     line: Vec<u8>,
     next_id: u64,
@@ -220,7 +238,7 @@ where
     T: Serialize + DeserializeOwned + Clone,
 {
     fn sub_view_is_live(sub: &SubState) -> bool {
-        matches!(sub.request.view, Some(wire::ListView::Live))
+        matches!(sub.request.view, Some(ListView::Live))
     }
 
     pub fn new(surfaces: impl IntoIterator<Item = impl Into<String>>) -> Self {
@@ -234,6 +252,8 @@ where
             subscriptions: HashMap::new(),
             retired_sids: HashSet::new(),
             pages: HashMap::new(),
+            stale_folder_pages: HashSet::new(),
+            deferred_folder_pages: HashMap::new(),
             limits: Limits::default(),
             line: Vec::new(),
             next_id: 1,
@@ -270,6 +290,8 @@ where
         self.frame_buf.clear();
         self.frame_total = None;
         self.line.clear();
+        self.stale_folder_pages.clear();
+        self.deferred_folder_pages.clear();
         self.retired_sids.clear();
         self.pages.clear();
         for sub in self.subscriptions.values_mut() {
@@ -280,7 +302,18 @@ where
                 mirror.walking = false;
                 mirror.seen.clear();
             }
-            if sub.window_taken {
+            if sub.request.view == Some(ListView::Folders) {
+                // Folder subscriptions are always reopened at a fresh head;
+                // their view sequence is not a resumable history.
+                sub.request = sub.initial.clone();
+                sub.request.cursor = None;
+                sub.request.edition = None;
+                sub.request.anchor = Some(Anchor::End);
+                sub.cursor = Cursor::default();
+                sub.edition = 0;
+                sub.replaying = false;
+                sub.window_taken = false;
+            } else if sub.window_taken {
                 sub.request.cursor = Some(sub.cursor);
                 sub.request.edition = Some(sub.edition);
                 sub.request.anchor = None;
@@ -443,7 +476,13 @@ where
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
         }
-        if sub.cursor.is_none() {
+        if sub.view == Some(ListView::Folders) {
+            // A folders window is a replacement head snapshot. Cursors and
+            // editions belong to resumable summary streams only.
+            sub.cursor = None;
+            sub.edition = None;
+            sub.anchor = Some(Anchor::End);
+        } else if sub.cursor.is_none() {
             sub.anchor.get_or_insert(Anchor::End);
         }
         let sid = sub.sid.clone();
@@ -478,6 +517,7 @@ where
         held_keys: impl IntoIterator<Item = ListKey>,
         whole: bool,
     ) -> Result<String, FrameError> {
+        wire::validate_mirror_view(sub.view)?;
         if !whole {
             sub.cursor = None;
             sub.edition = None;
@@ -564,6 +604,8 @@ where
 
     pub fn unsubscribe(&mut self, sid: &str) -> Result<(), FrameError> {
         self.subscriptions.remove(sid);
+        self.stale_folder_pages.remove(sid);
+        self.deferred_folder_pages.remove(sid);
         self.pages.remove(sid);
         if self.phase == Phase::Ready {
             self.queue_request(Request::Unsub(wire::Unsub { sid: sid.to_owned() }))?;
@@ -574,6 +616,20 @@ where
     pub fn page(&mut self, page: Page) -> Result<(), FrameError> {
         if !wire::identifier_fits(&page.sid) {
             return Err(FrameError::InvalidLength(page.sid.len()));
+        }
+        let folder_page = page.view == Some(ListView::Folders)
+            || self
+                .subscriptions
+                .get(&page.sid)
+                .is_some_and(|sub| sub.request.view == Some(ListView::Folders));
+        if folder_page && self.stale_folder_pages.contains(&page.sid) {
+            if self.deferred_folder_pages.contains_key(&page.sid) {
+                return Err(FrameError::RequestInFlight);
+            }
+            // Validate now, before accepting a request whose send is deferred.
+            Frame::json(FrameKind::Request, &Request::Page(page.clone()))?;
+            self.deferred_folder_pages.insert(page.sid.clone(), page);
+            return Ok(());
         }
         if self.pages.contains_key(&page.sid) {
             return Err(FrameError::RequestInFlight);
@@ -708,7 +764,7 @@ where
                 stream: sub.request.stream.clone(),
                 before: None,
                 after: None,
-                keys: Some(keys),
+                keys: Some(keys.into_iter().map(wire::PageKey::Summary).collect()),
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
@@ -786,6 +842,52 @@ where
                 self.queue_subscriptions();
             }
             FrameKind::Window => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.subscriptions
+                        .get(sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(window) = frame.decode_json::<FolderWindow>() else {
+                        self.protocol_error("malformed folders window");
+                        return;
+                    };
+                    let sid = window.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    // A new head invalidates every folder page requested from
+                    // the previous head. Responses that arrive after this
+                    // point are discarded before sending a deferred request.
+                    if self.pages.remove(&sid).is_some() {
+                        self.stale_folder_pages.insert(sid.clone());
+                    }
+                    self.deferred_folder_pages.remove(&sid);
+                    let replaying =
+                        self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
+                    if let Some(sub) = self.subscriptions.get_mut(&sid) {
+                        sub.cursor = Cursor(window.cursor);
+                        sub.edition = window.edition;
+                        sub.replaying = false;
+                        sub.window_taken = true;
+                    }
+                    self.push_change(
+                        Change::FolderWindow(window),
+                        Some(sid.clone()),
+                        frame_bytes,
+                        true,
+                    );
+                    if replaying {
+                        self.push_change(Change::Unconfirmed { sid }, None, 0, false);
+                    }
+                    return;
+                }
                 let Ok(window) = frame.decode_json::<Window<T>>() else {
                     self.protocol_error("malformed window");
                     return;
@@ -826,6 +928,50 @@ where
                 }
             }
             FrameKind::Page => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                if sid_hint.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+                    // An unheld page cannot be applied to any current
+                    // subscription. Skip it before generic decoding, since a
+                    // Value client could otherwise surface it as a Page.
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                    self.charge_frame_now(None, frame_bytes);
+                    return;
+                }
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.subscriptions
+                        .get(sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(mut page) = frame.decode_json::<FolderPageResult>() else {
+                        self.protocol_error("malformed folders page");
+                        return;
+                    };
+                    let sid = page.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    let Some(state) = self.pages.remove(&sid) else {
+                        // This is a response to a page invalidated by a
+                        // reconnect or a replacement folder window.
+                        self.release_folder_tombstone(&sid);
+                        self.charge_frame_now(Some(&sid), frame_bytes);
+                        return;
+                    };
+                    page.rows.retain(|row| {
+                        !state
+                            .changed_folders
+                            .contains(&(row.origin.to_string(), row.folder.to_string()))
+                            && !state.removed_origins.contains(row.origin.as_ref())
+                    });
+                    self.push_change(Change::FolderPage(page), Some(sid), frame_bytes, true);
+                    return;
+                }
                 let Ok(mut page) = frame.decode_json::<PageResult<T>>() else {
                     self.protocol_error("malformed page");
                     return;
@@ -877,7 +1023,16 @@ where
                     PagePurpose::Wanted => self.accept_wanted_page(
                         page,
                         frame_bytes,
-                        state.request.and_then(|request| request.keys).unwrap_or_default(),
+                        state
+                            .request
+                            .and_then(|request| request.keys)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter_map(|key| match key {
+                                wire::PageKey::Summary(key) => Some(key),
+                                wire::PageKey::Folder(_) => None,
+                            })
+                            .collect(),
                     ),
                 }
             }
@@ -907,6 +1062,21 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
+                if method == "page"
+                    && let Some(sid) = sid.as_deref()
+                {
+                    // Retired and superseded folder replies cannot reach a new head.
+                    if !self.subscriptions.contains_key(sid) {
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    if self.stale_folder_pages.contains(sid) {
+                        self.pages.remove(sid);
+                        self.release_folder_tombstone(sid);
+                        self.charge_frame_now(Some(sid), frame_bytes);
+                        return;
+                    }
+                }
                 let restart_walk = if method == "page" {
                     sid.as_deref().is_some_and(|sid| self.accept_page_error(sid))
                 } else {
@@ -956,7 +1126,9 @@ where
             && let Some(keys) = state.request.and_then(|request| request.keys)
         {
             for key in keys.into_iter().rev() {
-                mirror.pending_wanted.push_front(key);
+                if let wire::PageKey::Summary(key) = key {
+                    mirror.pending_wanted.push_front(key);
+                }
             }
         }
         mirror.walking = false;
@@ -1309,9 +1481,49 @@ where
                         charge,
                     );
                 }
-                Ok(DeltaOp::Folder { seq, .. }) | Ok(DeltaOp::FolderGone { seq, .. }) => {
-                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                Ok(DeltaOp::Folder { seq, row }) => {
                     self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    self.note_page_folder(&sid, &row);
+                    self.push_change(
+                        Change::Folder { sid: sid.clone(), seq, row, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::FolderGone { seq, origin, folder }) => {
+                    self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    if let Some(page) = self.pages.get_mut(&sid) {
+                        page.changed_folders.insert((origin.clone(), folder.clone()));
+                    }
+                    self.push_change(
+                        Change::FolderGone { sid: sid.clone(), seq, origin, folder, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
                 }
                 Err(_) => {
                     self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
@@ -1330,6 +1542,9 @@ where
                     }
                 }
             }
+        }
+        if let Some(cursor) = value.get("cursor").and_then(Value::as_u64) {
+            self.advance(&sid, cursor);
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
@@ -1381,16 +1596,28 @@ where
             }
         };
         self.retired_sids.insert(drop.sid.clone());
-        let cursor = drop.cursor;
+        let folders = sub.request.view == Some(ListView::Folders);
+        if folders {
+            self.stale_folder_pages.remove(&drop.sid);
+            self.deferred_folder_pages.remove(&drop.sid);
+            self.pages.remove(&drop.sid);
+        }
+        let cursor = (!folders).then_some(drop.cursor).flatten();
         sub.request = sub.initial.clone();
         sub.request.sid = new_sid.clone();
-        sub.request.cursor = cursor;
-        sub.request.edition = cursor.map(|_| sub.edition);
-        if cursor.is_some() {
-            sub.request.anchor = None;
+        if folders {
+            sub.request.cursor = None;
+            sub.request.edition = None;
+            sub.request.anchor = Some(Anchor::End);
+        } else {
+            sub.request.cursor = cursor;
+            sub.request.edition = cursor.map(|_| sub.edition);
+            if cursor.is_some() {
+                sub.request.anchor = None;
+            }
         }
         sub.cursor = cursor.unwrap_or_default();
-        sub.replaying = cursor.is_some();
+        sub.replaying = !folders && cursor.is_some();
         if let Some(mirror) = sub.mirror.as_mut() {
             mirror.walking = false;
             mirror.whole = false;
@@ -1420,6 +1647,26 @@ where
         {
             let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
             page.changed_keys.insert((origin.to_owned(), key.to_owned()));
+        }
+    }
+
+    fn note_page_folder(&mut self, sid: &str, row: &wire::FolderRow) {
+        if let Some(page) = self.pages.get_mut(sid) {
+            page.changed_folders.insert((row.origin.to_string(), row.folder.to_string()));
+        }
+    }
+
+    fn release_folder_tombstone(&mut self, sid: &str) {
+        if !self.stale_folder_pages.remove(sid) {
+            return;
+        }
+        let Some(page) = self.deferred_folder_pages.remove(sid) else {
+            return;
+        };
+        let page_state = PageState { request: Some(page.clone()), ..PageState::default() };
+        self.pages.insert(sid.to_owned(), page_state);
+        if self.phase == Phase::Ready {
+            let _ = self.queue_request(Request::Page(page));
         }
     }
 }
@@ -1642,6 +1889,170 @@ tail"#;
         let request = String::from_utf8(client.take_send().unwrap()).unwrap();
         assert!(request.contains("\"anchor\":\"end\""));
         assert!(!request.contains("\"cursor\""));
+    }
+
+    #[test]
+    fn folder_subscription_strips_resume_fields_and_uses_head_anchor() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello_request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        assert!(matches!(hello_request.decode_json::<Request>().unwrap(), Request::Hello(_)));
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(ListView::Folders);
+        sub.cursor = Some(Cursor(7));
+        sub.edition = Some(3);
+        client.subscribe(sub).unwrap();
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
+    }
+
+    #[test]
+    fn folders_reconnect_and_drop_start_fresh_and_discard_old_pages() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello_request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        assert!(matches!(hello_request.decode_json::<Request>().unwrap(), Request::Hello(_)));
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(ListView::Folders);
+        client.subscribe(sub).unwrap();
+        let _ = client.take_send();
+
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":11,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":4
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+
+        let mut page = Page::new("folders", "list", wire::PageSide::After, 1);
+        page.view = Some(ListView::Folders);
+        client.page(page).unwrap();
+        let _old_page_request = client.take_send().unwrap();
+
+        // A replacement head also invalidates a page that was requested from
+        // the previous head, even before a transport reconnect.
+        let replacement = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":12,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":5
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&replacement);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+        let mut blocked_page = Page::new("folders", "list", wire::PageSide::After, 1);
+        blocked_page.view = Some(ListView::Folders);
+        assert!(client.page(blocked_page).is_ok());
+        assert!(client.take_send().is_none(), "deferred page must wait for stale reply");
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"folders","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+
+        let fresh_request = client.take_send().unwrap();
+        let request_value: Value =
+            Frame::from_encoded(&fresh_request).unwrap().decode_json().unwrap();
+        assert_eq!(request_value.get("method"), Some(&Value::String("page".into())));
+        let fresh_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"folders","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&fresh_page);
+        assert!(matches!(client.next_change(), Some(Change::FolderPage(_))));
+
+        let mut page = Page::new("folders", "list", wire::PageSide::After, 1);
+        page.view = Some(ListView::Folders);
+        client.page(page).unwrap();
+        client.disconnected();
+        let _hello_request = client.take_send().unwrap();
+        client.received(&hello);
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
+
+        // The page was outstanding on the old head and must not reappear.
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"folders","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+
+        let dropped =
+            Frame::json(FrameKind::Dropped, &serde_json::json!({"sid":"folders","cursor":12}))
+                .unwrap()
+                .encode();
+        client.received(&dropped);
+        let new_sid = match client.next_change() {
+            Some(Change::Dropped { new_sid: Some(sid), cursor, .. }) => {
+                assert!(cursor.is_none());
+                sid
+            }
+            other => panic!("unexpected change: {other:?}"),
+        };
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/sid"), Some(&Value::String(new_sid)));
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
+
+        // A late page for the retired folder SID must not fall through the
+        // generic PageResult<Value> decoder.
+        let before = client.skip_counters();
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({
+                "sid":"folders","rows":[{"chatId":"old"}],
+                "hasBefore":false,"hasAfter":false
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+        assert_eq!(client.skip_counters().unheld_sid, before.unheld_sid + 1);
+        let stale_error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"folders","code":"invalid_page"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_error);
+        assert!(client.next_change().is_none(), "a retired page error is stale too");
+        assert_eq!(client.skip_counters().unheld_sid, before.unheld_sid + 2);
     }
 
     #[test]
@@ -1872,6 +2283,64 @@ tail"#;
     }
 
     #[test]
+    fn folder_delta_is_applied_without_unknown_op_skip_or_page_stale_row() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub { view: Some(ListView::Folders), ..Sub::new("s", "list") }).unwrap();
+        while client.take_send().is_some() {}
+        let page_request = Page {
+            sid: "s".into(),
+            stream: "list".into(),
+            before: None,
+            after: None,
+            keys: None,
+            view: Some(ListView::Folders),
+            max_bytes: wire::MAX_PAGE_BYTES as u32,
+            filter: None,
+        };
+        client.page(page_request).unwrap();
+        let folder = serde_json::json!({
+            "origin":"local", "folder":"/work", "newest":{"origin":"local","chatId":"chat"}, "at": 3, "count": 1
+        });
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","ops":[{"op":"folder","seq":2,"row":folder}]}),
+        )
+        .unwrap()
+        .encode();
+        let before = client.skip_counters();
+        client.received(&delta);
+        assert_eq!(client.skip_counters().unknown_op, before.unknown_op);
+        assert!(matches!(client.next_change(), Some(Change::Folder { seq: 2, .. })));
+        let page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"s","rows":[folder],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&page);
+        let Change::FolderPage(page) = client.next_change().unwrap() else {
+            panic!("expected folder page")
+        };
+        assert!(page.rows.is_empty());
+    }
+
+    #[test]
+    fn mirror_api_refuses_folders_before_registering_a_sid() {
+        let mut client = Client::<Value>::connected_v2();
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(ListView::Folders);
+        assert!(client.subscribe_mirror(sub, std::iter::empty(), false).is_err());
+        assert!(client.subscriptions.is_empty());
+    }
+
+    #[test]
     fn mirror_walk_reconciles_and_emits_whole_after_rows() {
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
@@ -1918,7 +2387,7 @@ tail"#;
         .encode();
         client.received(&hello);
         let mut sub = Sub::new("m", "list");
-        sub.view = Some(wire::ListView::Live);
+        sub.view = Some(ListView::Live);
         client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
         while client.take_send().is_some() {}
         let window = Frame::json(
