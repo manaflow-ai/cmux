@@ -2,6 +2,18 @@ import CmuxNextDaemon
 import os
 
 extension DaemonService {
+    /// Preserve a caller's immediate offline refusal while recording the
+    /// same diagnostic as a command that loses its connection after dispatch.
+    public func send(_ label: String, checkingConnection: () -> Bool,
+                     logFailure: ((String, any Error) -> Void)? = nil, _ body: @escaping DaemonCommandBody) {
+        guard checkingConnection() else {
+            if let logFailure { logFailure(label, DaemonError.notConnected) }
+            else { logCommandFailure(label, error: DaemonError.notConnected) }
+            return
+        }
+        send(label, body)
+    }
+
     /// Also used when an action refuses before sending (an already offline
     /// connection). Logging does not choose or change the action's notice.
     public func logCommandFailure(_ label: String, error: any Error) {
