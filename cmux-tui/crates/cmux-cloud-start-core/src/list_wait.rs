@@ -42,10 +42,6 @@ pub fn list_wait(
     if loaded || !signed_in {
         return ListWait::Proceed;
     }
-    // RED PROBE (not for merge): the core change reverted to the app's old refuse-at-once rule.
-    if !loaded {
-        return ListWait::Unread;
-    }
     let left = LIST_LOAD_WAIT.saturating_sub(elapsed);
     let left = deadline_left.map_or(left, |deadline| deadline.min(left));
     if left.is_zero() {
