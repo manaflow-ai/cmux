@@ -1,6 +1,6 @@
 import { mock } from "bun:test";
 
-import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
+import { appleSubscriptions, stripeCustomers, stripeSubscriptions } from "../../db/schema";
 
 export type FixtureTeam = {
   readonly id: string;
@@ -62,6 +62,8 @@ export type BillingDbRows = {
   customers: Array<Record<string, unknown>>;
   subscriptions: Array<Record<string, unknown>>;
   inserted: Array<Record<string, unknown>>;
+  /** The buyer's App Store subscription rows; absent means none. */
+  appleSubscriptions?: Array<Record<string, unknown>>;
 };
 
 export function emptyBillingDbRows(): BillingDbRows {
@@ -77,6 +79,7 @@ export function stubBillingDb(rows: () => BillingDbRows) {
   const rowsFor = (table: unknown) => {
     if (table === stripeCustomers) return rows().customers;
     if (table === stripeSubscriptions) return rows().subscriptions;
+    if (table === appleSubscriptions) return rows().appleSubscriptions ?? [];
     return [];
   };
   const chain = (table: unknown): Record<string, unknown> => {

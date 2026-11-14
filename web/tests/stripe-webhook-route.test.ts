@@ -41,6 +41,7 @@ const applySubscriptionUpdate = mock(async () => {
 const revokeCoderouterRouteTokens = mock(async () => {});
 const revokeCoderouterTeamRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
+const reportDoubleBilling = mock(async (_userId: string, _detectedBy: string) => {});
 const deferredTasks: Array<() => Promise<void>> = [];
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
@@ -127,6 +128,7 @@ const POST = makeStripeWebhookHandler({
   revokeCoderouterTeamRouteTokens,
   captureStripeBillingEvent,
   defer: (task) => deferredTasks.push(task),
+  reportDoubleBilling,
 });
 
 describe("Stripe billing webhook route", () => {
@@ -186,6 +188,45 @@ describe("Stripe billing webhook route", () => {
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
     retrieveInvoice.mockClear();
+    reportDoubleBilling.mockClear();
+  });
+
+  test("a completed personal checkout runs the double billing check for the buyer", async () => {
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(reportDoubleBilling.mock.calls).toEqual([["user_1", "stripe_checkout"]]);
+  });
+
+  test("a completed team checkout does not run the personal double billing check", async () => {
+    recordCheckoutCompletionResult = { scope: "team", stackTeamId: "team_1", subscriptionId: "sub_team" };
+
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling).not.toHaveBeenCalled();
+  });
+
+  test("an unsettled checkout records nothing and runs no check", async () => {
+    retrievedCheckoutSession = { ...paidCheckoutSession, payment_status: "unpaid" };
+
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling).not.toHaveBeenCalled();
+  });
+
+  test("customer.subscription.created runs the check for an active personal subscription only", async () => {
+    currentEvent = { id: "evt_created", type: "customer.subscription.created", data: { object: { id: "sub_1" } } };
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling.mock.calls).toEqual([["user_1", "stripe_subscription_created"]]);
+
+    reportDoubleBilling.mockClear();
+    applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: false };
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling).not.toHaveBeenCalled();
+
+    applySubscriptionUpdateResult = { scope: "user", stackUserId: "user_1", isActive: true };
+    currentEvent = { id: "evt_updated", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } };
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(reportDoubleBilling).not.toHaveBeenCalled();
   });
 
   test("rejects invalid Stripe signatures", async () => {
@@ -295,6 +336,8 @@ describe("Stripe billing webhook route", () => {
     expect(recordFoundersCheckoutCompletion).toHaveBeenCalledTimes(1);
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
     expect(sendProSignupWelcome).not.toHaveBeenCalled();
+    // Founder's Edition is a one-time purchase, not a second subscription.
+    expect(reportDoubleBilling).not.toHaveBeenCalled();
   });
 
   test("routes a Founder checkout when the marker exists only on the subscription", async () => {
