@@ -133,6 +133,28 @@ pub(super) struct Card {
     listed: Vec<Listed>,
 }
 impl Card {
+    /// Each kind's count and bytes, for the bound tests.
+    #[cfg(test)]
+    pub(super) fn kinds(cards: &[Card]) -> Vec<(String, usize)> {
+        let mut out: Vec<(String, usize)> = Vec::new();
+        for card in cards {
+            let name = format!("card {}", card.kind.name());
+            match out.iter_mut().find(|(seen, _)| seen.starts_with(&name)) {
+                Some(entry) => entry.1 += card.bytes(),
+                None => out.push((name, card.bytes())),
+            }
+        }
+        let counts: Vec<usize> = out
+            .iter()
+            .map(|(name, _)| {
+                cards.iter().filter(|c| format!("card {}", c.kind.name()) == *name).count()
+            })
+            .collect();
+        out.into_iter()
+            .zip(counts)
+            .map(|((name, bytes), n)| (format!("{name} x{n}"), bytes))
+            .collect()
+    }
     /// The bytes the card holds in the segment, as the checkpoint encodes it: O(card).
     fn bytes(&self) -> usize {
         super::checkpoint::encoded_len(self)

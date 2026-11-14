@@ -571,6 +571,17 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     assert!(!state.claims.is_empty() && claimed <= MAX_HELD_CLAIM_BYTES, "{claimed}");
     let counters = state.counters();
     assert!(counters.forced_asks > 0 && counters.forced_steers > 0 && counters.unplaced_claims > 0);
+    let len = |name: &str, bytes: usize| println!("part {name}: {bytes} bytes");
+    len("whole", checkpoint::encoded_len(&(VERSION, &state)));
+    len("prompts", checkpoint::encoded_len(&state.prompts));
+    len("asks", checkpoint::encoded_len(&state.asks));
+    len("claims", checkpoint::encoded_len(&state.claims));
+    len("continued", checkpoint::encoded_len(&state.continued));
+    len("claimable", checkpoint::encoded_len(&state.claimable));
+    len("cards", checkpoint::encoded_len(&state.cards));
+    for kind in cards::Card::kinds(&state.cards) {
+        len(&kind.0, kind.1);
+    }
     let saved = state.checkpoint().expect("every held state at its bound fits");
     println!(
         "full held state: {} of {MAX_TRANSLATOR_BYTES} bytes ({} cards, {} bytes of them); {} left for the live turn",
