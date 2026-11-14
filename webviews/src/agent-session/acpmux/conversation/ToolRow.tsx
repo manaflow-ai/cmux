@@ -34,6 +34,7 @@ import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
+import { ToolWidget } from "./ToolWidget";
 import { FileResultCard } from "./FileResultCard";
 import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
@@ -275,6 +276,8 @@ export const ToolRow = memo(function ToolRow({
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
+      {/* An installed extension's card for this call (cmux.chat.widget/1), when the daemon routes one. */}
+      {!asRun && <ToolWidget tool={tool} />}
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}

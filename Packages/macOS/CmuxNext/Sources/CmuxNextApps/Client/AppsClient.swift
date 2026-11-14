@@ -80,6 +80,13 @@ public final class AppsClient {
         eventListeners.append((WeakOwner(object: owner), listener))
     }
 
+    /// The daemon's chat widget for a tool call or a widget part (`apps.chat_widgets.route`).
+    public func chatWidgetRoute(_ args: AppJSON) async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.chatWidgetRoute(args) }
+        catch { throw .refused(error) }
+    }
+
     public func sessionInfoPanels() async throws(AppsClientError) -> [AppSessionInfoPanel] {
         if case .unavailable(let reason) = availability { throw .unavailable(reason) }
         do throws(AppsTransportError) { return try await transport.sessionInfoPanels() }

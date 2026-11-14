@@ -76,9 +76,15 @@ Details, or the disconnected line alone. Reload calls `cmux.apps.panels.reload` 
 from the click (the host accepts it only from a gesture). `SceneMount` reports its drawn height
 with `cmux.apps.panels.layout {mount_id, height}`, once per change.
 
-`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard` or
-`sessionInfoSection`) and resolves the app's implementation as that surface's native host does
-(`AppMountSurface`).
+`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard`,
+`sessionInfoSection` or `chatWidget`) and resolves the app's implementation as that surface's
+native host does (`AppMountSurface`).
+
+A chat widget (`cmux.chat.widget/1`) mounts in two steps, both answered by the daemon:
+`cmux.apps.panels.route {key, tool}` names the extension that draws under a finished tool call
+and the context its render gets (`{widget: null}` when none does), and the page mounts that answer
+on the `chatWidget` surface (`chatWidgetClient.ts`, drawn by `ToolWidget.tsx`). The page does no
+matching of its own.
 
 ## Bundle images
 

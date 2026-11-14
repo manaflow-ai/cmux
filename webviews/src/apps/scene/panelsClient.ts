@@ -5,7 +5,7 @@ import { SceneStore, type SceneOp } from "./store";
 export type AppPanel = { app: string; section: string; title: string; symbol?: string };
 export type MountContext = { session_id: string; cwd?: string; branch?: string; harness?: string };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
-export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection";
+export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "chatWidget";
 /** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
  * `failed {reason}`, `disconnected {reason}`). */
 export type SceneEvent =

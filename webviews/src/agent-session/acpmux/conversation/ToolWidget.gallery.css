@@ -1,0 +1,12 @@
+/* The chat widget's alternative frames (ToolWidget.gallery.tsx); `hairline` is conversation.css's own. */
+.cv-tool-widget-looks[data-look="flat"] .cv-tool-widget {
+  padding: 0;
+  box-shadow: none;
+}
+.cv-tool-widget-looks[data-look="titled"] .cv-tool-widget::before {
+  content: attr(aria-label);
+  display: block;
+  margin-bottom: var(--ds-space-1);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}

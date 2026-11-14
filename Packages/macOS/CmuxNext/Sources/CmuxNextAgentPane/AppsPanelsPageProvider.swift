@@ -10,7 +10,9 @@ import UniformTypeIdentifiers
 /// It shares the AppsClient's transport callback, so panel scene events cannot replace the App
 /// Store's event handling.
 ///
-/// Ops: `list`, `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
+/// Ops: `list`, `route {key, tool | app+props}` (the daemon's chat widget for a tool call or a widget
+/// part, `apps.chat_widgets.route`: the page mounts what it answers on the `chatWidget` surface),
+/// `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
 /// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
@@ -72,6 +74,12 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "route":
+            do {
+                return pageJSON(try await client.chatWidgetRoute(appJSON(params)))
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
         case Self.namespace + "mount":
             return try mount(params)
         case Self.namespace + "dispatch":
@@ -122,7 +130,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         guard let rawSurface = params["surface"]?.stringValue, let surface = AppMountSurface(rawValue: rawSurface),
               let app = params["app"]?.stringValue,
               let rawContext = params["context"], case .object = rawContext else {
-            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard or sessionInfoSection), app and object context are required")
+            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection or chatWidget), app and object context are required")
         }
         let section = params["section"]?.stringValue
         guard let record = client.app(app), let implementation = surface.implementation(of: record, id: section) else {

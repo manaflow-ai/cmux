@@ -7978,3 +7978,13 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
 }
+/* A chat widget under a tool call (ToolWidget.tsx): an installed extension's scene, on the tool row's
+   text column like the row's other cards, framed by a hairline so it reads as the extension's and not
+   cmux's own text. The scene draws with the sections' renderer, so its rows and type match them. */
+.cv-tool-widget {
+  margin: 4px 0 8px var(--cv-tool-text-inset);
+  max-inline-size: 420px;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
+}

@@ -101,6 +101,7 @@ import Testing
             ("sidebarSection", "other", "cmux.section/1"),
             ("hoverCard", nil, "cmux.hovercard/1"),
             ("sessionInfoSection", "cmux.session.info.section/1", "cmux.session.info.section/1"),
+            ("chatWidget", nil, "cmux.chat.widget/1"),
         ] as [(String, String?, String)] {
             let reply = try await Self.mount(provider, surface: surface, section: section)
             #expect(reply["mount_id"]?.stringValue != nil)
@@ -116,6 +117,27 @@ import Testing
         }
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "sessionInfoSection") }
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "pane", app: "local/missing") }
+    }
+
+    /// The page asks the daemon which extension draws under a tool call (`route`), gets its answer
+    /// as the daemon sent it, and mounts it on the chatWidget surface.
+    @Test func routesAChatWidgetThroughTheDaemonAndMountsIt() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let ask: JSONValue = .object(["key": .string("tool:t1"), "tool": .object(["name": .string("mcp__github__get_pull_request")])])
+        let answer = try await provider.call("cmux.apps.panels.route", params: ask, context: Self.page)
+        #expect(transport.routes.last?["tool"]?["name"]?.stringValue == "mcp__github__get_pull_request")
+        #expect(answer["widget"]?["app"]?.stringValue == "local/customize")
+        let context = try #require(answer["widget"]?["context"])
+        let reply = try await provider.call(
+            "cmux.apps.panels.mount",
+            params: .object(["surface": .string("chatWidget"), "app": .string("local/customize"), "context": context]),
+            context: Self.page)
+        #expect(reply["mount_id"]?.stringValue != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.chat.widget/1")
+        #expect(transport.mounts.last?.context["widget"]?["key"]?.stringValue == "tool:t1")
     }
 
     @Test func hoverCardMountsOnlyTheUsersOwnApp() async throws {
@@ -279,6 +301,7 @@ private final class FakePanelsTransport: AppsTransport {
             "cmux.section/1": ["export": "renderSection"],
             "cmux.hovercard/1": ["export": "renderCard"],
             "cmux.session.info.section/1": ["export": "renderInfo"],
+            "cmux.chat.widget/1": ["export": "renderWidget"],
         ],
     ] }
 
@@ -310,4 +333,10 @@ private final class FakePanelsTransport: AppsTransport {
         .null
     }
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { [] }
+    var routes: [AppJSON] = []
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        routes.append(args)
+        return ["widget": ["app": "local/customize", "interface": "cmux.chat.widget/1", "title": "Card",
+                           "context": ["surface": "chatWidget", "widget": ["key": "tool:t1"]]]]
+    }
 }
