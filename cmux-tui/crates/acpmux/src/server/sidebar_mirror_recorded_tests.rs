@@ -270,8 +270,9 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     check_or_bless("mirror.jsonl", &lines);
 }
 
-/// The values in v1's replies that differ from run to run, wherever they sit: each person
-/// challenge's connection id and nonce, and each session receipt's generation.
+/// The values in v1's replies that differ from run to run or commit to commit, wherever they
+/// sit: each person challenge's connection id and nonce, the daemon's build (its commit and
+/// date), and each session receipt's generation.
 #[derive(Default)]
 struct PerRun {
     challenge: std::collections::BTreeMap<String, &'static str>,
@@ -288,6 +289,10 @@ impl PerRun {
                             self.challenge.insert(text.to_owned(), field);
                         }
                     }
+                }
+                let build = map.get("acpmux").and_then(|meta| meta.get("build"));
+                if let Some(text) = build.and_then(Value::as_str) {
+                    self.challenge.insert(text.to_owned(), "build");
                 }
                 if let Some(generation) = map
                     .get("sessionReceipt")
