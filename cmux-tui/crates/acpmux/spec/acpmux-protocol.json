@@ -1440,6 +1440,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pair_full_access_approve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/secret_request",
       "params": true,
       "result": true
