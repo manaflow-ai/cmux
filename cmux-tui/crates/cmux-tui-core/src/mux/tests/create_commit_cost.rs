@@ -59,6 +59,7 @@ use crate::walk_counters::walk_counts_for_test;
 
 mod lost_fold_journal;
 mod restate_parts;
+mod review2_hostile;
 mod scoped_kinds;
 
 /// SELECT statements that a create may run more in one session than in the other for a reason
