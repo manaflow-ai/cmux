@@ -344,6 +344,40 @@ class LogicLinesTests(Repo):
                          {"Kit": {"swift_logic_lines": 2}, "CmuxNextCore": {"swift_logic_lines": 2 + 3}})
         self.assertEqual((data["unlisted"]["in_table_modules"], data["unlisted"]["other_modules"]), (3, 2))
 
+    def test_a_package_only_test_targets_reach_is_out_of_the_scope(self):
+        # CmuxNextMobileTests named the old iOS app's packages (CmuxMobileRPC and what it pulls in), which the app
+        # never links: v2 counted them. A package a non-test target also names stays, and so does one no target names.
+        manifest = ('// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "CmuxNext", '
+                    'dependencies: [.package(path: "../../Shared/Kit"), .package(path: "../../iOS/Phone"), '
+                    '.package(path: "../../Shared/Both"), .package(path: "../../Shared/Declared")], targets: ['
+                    '.target(name: "CmuxNextCore", dependencies: [.product(name: "Kit", package: "Kit"), '
+                    '.product(name: "Both", package: "Both")]), '
+                    '.testTarget(name: "CmuxNextCoreTests", dependencies: ["CmuxNextCore", '
+                    '.product(name: "Phone", package: "Phone"), .product(name: "Both", package: "Both")])])\n')
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest)
+        for name, deps in (("Kit", ""), ("Both", ""), ("Declared", ""),
+                           ("Phone", 'dependencies: [.package(path: "../Deeper")], ')):
+            folder = "iOS" if name == "Phone" else "Shared"
+            self.write(f"Packages/{folder}/{name}/Package.swift",
+                       f'// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "{name}", '
+                       f'{deps}targets: [.target(name: "{name}"' + (', dependencies: [.product(name: "Deeper", '
+                       'package: "Deeper")]' if name == "Phone" else "") + ')])\n')
+            self.write(f"Packages/{folder}/{name}/Sources/{name}/{name}.swift", f"struct {name} {{\n}}\n")
+        self.write("Packages/iOS/Deeper/Package.swift",
+                   '// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(name: "Deeper", '
+                   'targets: [.target(name: "Deeper")])\n')
+        self.write("Packages/iOS/Deeper/Sources/Deeper/Deeper.swift", "struct Deeper {\n}\n")
+        self.write(f"{SRC}/CmuxNextCore/Core.swift", "struct Core {\n}\n")
+        self.table()
+        self.commit()
+        self.assertEqual(sorted(self.packages()), ["Both", "CmuxNextCore", "Declared", "Kit"])
+        # The same package named by a non-test target too is linked: it comes back with its own dependencies.
+        self.write("Packages/macOS/CmuxNext/Package.swift", manifest.replace(
+            '.product(name: "Both", package: "Both")]), ', '.product(name: "Both", package: "Both"), '
+            '.product(name: "Phone", package: "Phone")]), '))
+        self.commit()
+        self.assertEqual(sorted(self.packages()), ["Both", "CmuxNextCore", "Declared", "Deeper", "Kit", "Phone"])
+
     def test_invalid_and_duplicate_table_rows_never_lower_the_count(self):
         self.write(f"{SRC}/CmuxNextDomain/Store.swift", "final class Store {\n    var n = 0\n}\n")  # 3
         self.write(f"{SRC}/CmuxNextDomain/Wire.swift", "struct Wire {\n}\n")  # 2

@@ -1359,7 +1359,7 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
   turns: [countingTurnScript(), feltTurnScript()],
 };
 
