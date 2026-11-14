@@ -35,6 +35,7 @@ const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
+const MAX_BOUND_DEVICE_NAME_BYTES: usize = 128;
 const ENROLLMENT_URI_PREFIX: &str = "cmux://enroll/";
 const CLIENT_STATE_FILE: &str = "known-daemons.json";
 pub const MAX_INVITATION_URI_BYTES: usize = ENROLLMENT_URI_PREFIX.len() + 16 * 1024;
@@ -139,6 +140,38 @@ impl EnrollmentInvitation {
     }
 }
 
+/// The one device an invitation admits: its Noise public key, and the name
+/// the owner gave it. A bound invitation enrolls that key as soon as it
+/// presents the invitation, with no approval step, and refuses every other key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundDevice {
+    pub public_key: [u8; 32],
+    pub name: Option<String>,
+}
+
+impl BoundDevice {
+    /// Parse a device key as `cmux remote device-key` prints it (unpadded
+    /// URL-safe base64 of the 32-byte public key).
+    pub fn parse(public_key: &str, name: Option<String>) -> Result<Self, IdentityError> {
+        let public_key = decode_key(public_key.trim())?;
+        let name = name.map(|name| name.trim().to_owned());
+        if let Some(name) = &name
+            && (name.is_empty()
+                || name.len() > MAX_BOUND_DEVICE_NAME_BYTES
+                || name.chars().any(char::is_control))
+        {
+            return Err(IdentityError::Invalid(format!(
+                "device name must be 1 to {MAX_BOUND_DEVICE_NAME_BYTES} bytes with no control characters"
+            )));
+        }
+        Ok(Self { public_key, name })
+    }
+
+    pub fn fingerprint(&self) -> String {
+        public_key_fingerprint(&self.public_key)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KnownDaemon {
     pub fingerprint: String,
@@ -211,6 +244,12 @@ impl ClientIdentityStore {
 
     pub fn identity(&self) -> StaticIdentity {
         self.identity.clone()
+    }
+
+    /// This client's device public key, encoded the way `enroll create
+    /// --device-key` reads it.
+    pub fn device_public_key(&self) -> String {
+        encode_key(&self.identity.public_key())
     }
 
     pub async fn known_daemons(&self) -> Vec<KnownDaemon> {
@@ -963,7 +1002,19 @@ impl AuthDatabase {
         &self,
         ttl: Duration,
         route_hints: Vec<String>,
+        relay_access: Vec<EnrollmentRelayAccess>,
+    ) -> Result<EnrollmentInvitation, IdentityError> {
+        self.create_invitation_for_device(ttl, route_hints, relay_access, None).await
+    }
+
+    /// Create an invitation; with `bound_device`, one that only that device's
+    /// key can claim, and which enrolls it with no approval step.
+    pub async fn create_invitation_for_device(
+        &self,
+        ttl: Duration,
+        route_hints: Vec<String>,
         mut relay_access: Vec<EnrollmentRelayAccess>,
+        bound_device: Option<BoundDevice>,
     ) -> Result<EnrollmentInvitation, IdentityError> {
         let ttl = ttl.min(MAX_INVITATION_TTL);
         if ttl.is_zero() {
@@ -989,7 +1040,7 @@ impl AuthDatabase {
             expires_at_unix,
             route_hints,
             relay_access,
-            approval_required: true,
+            approval_required: bound_device.is_none(),
         };
         invitation.to_uri()?;
         let mut state = self.state.lock().await;
@@ -1007,6 +1058,7 @@ impl AuthDatabase {
                 expires_at_unix,
                 route_hints: invitation.route_hints.clone(),
                 claimed_by: None,
+                bound_device,
             },
         );
         let persistence = self.submit_mutation_locked(&mut state)?;
@@ -1599,6 +1651,15 @@ impl AuthState {
                 .into_iter()
                 .filter(|invitation| invitation.expires_at_unix > now)
                 .filter_map(|invitation| {
+                    // A binding that does not decode drops the invitation: it
+                    // must never load as an unbound one.
+                    let bound_device = match invitation.bound_device {
+                        Some(public_key) => Some(BoundDevice {
+                            public_key: decode_key(&public_key).ok()?,
+                            name: invitation.bound_device_name,
+                        }),
+                        None => None,
+                    };
                     Some((
                         invitation.id,
                         InvitationRecord {
@@ -1606,6 +1667,7 @@ impl AuthState {
                             expires_at_unix: invitation.expires_at_unix,
                             route_hints: invitation.route_hints,
                             claimed_by: invitation.claimed_by,
+                            bound_device,
                         },
                     ))
                 })
@@ -1646,6 +1708,14 @@ impl AuthState {
                     expires_at_unix: invitation.expires_at_unix,
                     route_hints: invitation.route_hints.clone(),
                     claimed_by: invitation.claimed_by.clone(),
+                    bound_device: invitation
+                        .bound_device
+                        .as_ref()
+                        .map(|device| encode_key(&device.public_key)),
+                    bound_device_name: invitation
+                        .bound_device
+                        .as_ref()
+                        .and_then(|device| device.name.clone()),
                 })
                 .collect(),
         }
@@ -1665,6 +1735,8 @@ struct InvitationRecord {
     expires_at_unix: u64,
     route_hints: Vec<String>,
     claimed_by: Option<String>,
+    /// Only this device may claim the invitation; it enrolls with no approval.
+    bound_device: Option<BoundDevice>,
 }
 
 struct PendingDecision {
@@ -1789,6 +1861,12 @@ struct PersistedInvitation {
     route_hints: Vec<String>,
     #[serde(default)]
     claimed_by: Option<String>,
+    /// The bound device's public key. State written before bound invitations
+    /// existed has none and loads unbound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bound_device: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bound_device_name: Option<String>,
 }
 
 impl std::fmt::Debug for PersistedInvitation {
@@ -1800,6 +1878,7 @@ impl std::fmt::Debug for PersistedInvitation {
             .field("expires_at_unix", &self.expires_at_unix)
             .field("route_hints", &route_debug_labels(&self.route_hints))
             .field("claimed_by", &self.claimed_by)
+            .field("bound_device", &self.bound_device)
             .finish()
     }
 }
@@ -2298,6 +2377,81 @@ impl std::error::Error for IdentityError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::NetworkPeer;
+    use cmux_remote_protocol::{Lane, SessionId};
+
+    /// Long enough that only an approval wait reaches it; a bound claim
+    /// answers at once.
+    const BOUND_CLAIM_DEADLINE: Duration = Duration::from_secs(10);
+
+    fn invitation_request(
+        invitation_id: &str,
+        device: &StaticIdentity,
+        device_name: &str,
+    ) -> AuthRequest {
+        AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation_id.into()),
+            grant: None,
+            connection_attempt: ConnectionAttemptId([7; 16]),
+            device_public_key: device.public_key(),
+            device_name: device_name.into(),
+            session: SessionId([9; 16]),
+            lane: Lane::Interactive,
+            lanes: vec![Lane::Interactive],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tcp),
+        }
+    }
+
+    async fn bound_invitation(
+        auth: &AuthDatabase,
+        device: &StaticIdentity,
+        name: Option<&str>,
+    ) -> EnrollmentInvitation {
+        let bound =
+            BoundDevice::parse(&encode_key(&device.public_key()), name.map(Into::into)).unwrap();
+        auth.create_invitation_for_device(
+            Duration::from_secs(60),
+            Vec::new(),
+            Vec::new(),
+            Some(bound),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn claim(auth: &Arc<AuthDatabase>, request: AuthRequest) -> Result<AuthGrant, String> {
+        let auth = Arc::clone(auth);
+        tokio::time::timeout(BOUND_CLAIM_DEADLINE, async move { auth.authorize(request).await })
+            .await
+            .expect("a bound invitation answers at once, never waiting for an approval")
+    }
+
+    #[tokio::test]
+    async fn a_bound_invitation_refuses_another_device_and_queues_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let bound = StaticIdentity::generate().unwrap();
+        let stranger = StaticIdentity::generate().unwrap();
+        let invitation = bound_invitation(&auth, &bound, None).await;
+        assert!(!invitation.approval_required);
+
+        let error = claim(&auth, invitation_request(&invitation.id, &stranger, "stranger"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "invitation is bound to another device");
+        assert!(auth.pending_enrollments().await.is_empty());
+        assert!(matches!(
+            auth.wait_for_pending(Duration::from_millis(50)).await,
+            Err(IdentityError::Timeout)
+        ));
+        assert!(auth.list_devices().await.is_empty());
+        // The refusal leaves the invitation to its device.
+        let grant = claim(&auth, invitation_request(&invitation.id, &bound, "bound")).await;
+        assert_eq!(grant.unwrap().device_id, bound.fingerprint());
+    }
 
     #[test]
     fn credential_free_routes_preserve_only_reconnect_material() {
