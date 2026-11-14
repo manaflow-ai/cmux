@@ -65,8 +65,7 @@ impl Daemon {
     /// Starts the daemon; returns the instant it was spawned.
     fn start(&mut self) -> Instant {
         assert!(self.child.is_none());
-        let mut command = std::process::Command::new(daemon_env::bin());
-        daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)

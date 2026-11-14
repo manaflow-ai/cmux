@@ -830,6 +830,34 @@ impl Store for JournalStore {
     ) -> Result<()> {
         self.inner.fenced(|| Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
     }
+    // The local store reads these from its kind and text copies; the trait's defaults would
+    // scan the log (`journal_store_forwards_every_local_store_override`).
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::text_entries(&self.inner.local, id, visit))
+    }
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_after(&self.inner.local, id, after, kinds, visit))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner
+            .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
+    }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
     }
