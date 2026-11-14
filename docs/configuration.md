@@ -262,6 +262,24 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
+## `sidebar.hiddenStatusKeys`
+
+Status keys whose pills the sidebar leaves out. Use it when two pills say the same thing, for example the Claude Code hook pill next to the `program_status` pill the same Claude Code session reports, or when your own `cmux set-status` pills replace an integration's:
+
+```json
+{
+  "sidebar": {
+    "hiddenStatusKeys": ["claude_code"]
+  }
+}
+```
+
+- Default: `[]`.
+- Only pills that show as rows are hidden. In `compactAgentStatus` an agent key in the list has no effect: the agent keys have no row there (they are folded into the glyph), so the glyph and its tooltip still follow every agent, and a hidden Claude pane still shows the needs-input dot. The keys that still show as rows in compact mode (`program_status`, `cmux set-status` keys) hide as usual. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
+- `cmux list-status` and the socket still report the hidden keys.
+- Keys match exactly. They are the agent keys cmux uses (`claude_code`, `codex`, `gemini`, `cursor`, `copilot`, `opencode`, `pi`, …), `program_status` for the OSC 7501 row, and any key you set with `cmux set-status`.
+- `sidebar.showCustomMetadata: false` still hides every pill.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.

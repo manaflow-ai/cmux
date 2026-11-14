@@ -12,6 +12,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsAgentActivity: Bool
         var compactsAgentStatus = false
         var compactStatusIcons: [String: String] = [:]
+        // Hidden status keys decide which rows a cached snapshot shows, so a
+        // settings edit has to rebuild it.
+        var hiddenStatusKeys: Set<String> = []
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
         // Effective row color (manual color, else resolved origin color). Part of
         // the key so the cached snapshot is rebuilt when the color changes — e.g.
