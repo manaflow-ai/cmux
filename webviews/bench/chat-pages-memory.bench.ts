@@ -16,6 +16,12 @@
 // HIDDEN=1 hides every chat but the newest before each sample (the document turns hidden, as a chat tab that is not
 // shown does in the app), so a row is what hidden chats cost; after the last count the oldest chat shows again and
 // its time from shown to the newest reply drawn is printed (chat_pages_memory.reshow).
+// RELEASE=1 releases every chat but the newest instead, as the app gives back a hidden idle chat's page (HiddenChatPages,
+// Leo 2026-11-14: "if something isn't drawn/is completely proven idle then dont bother taking memory"): the page closes,
+// so a row is what released chats cost. After the last count, REOPEN (default 10) of them open again one at a time,
+// each a new page in the warm renderer, timed from navigation to the newest reply drawn (chat_pages_memory.reopen:
+// first content, p50/p95). With HIDDEN=1, REOPEN of the hidden chats show again the same way, each timed from shown to
+// the newest reply drawn (chat_pages_memory.reshow p50/p95): the same open, of a kept page.
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
@@ -35,6 +41,8 @@ import { addStabilityProbe, measureIdle, settledAt } from "./stability";
 const COUNTS = (process.argv[2] ?? "1,10,30").split(",").map(Number);
 const TURNS = Number(process.argv[3] ?? 100);
 const IDLE_WINDOW_MS = Number(process.env.IDLE_MS ?? 5000);
+const RELEASE = process.env.RELEASE === "1";
+const REOPEN = Number(process.env.REOPEN ?? 10);
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -338,14 +346,23 @@ try {
         { timeout: 120_000, polling: "raf" },
       );
       // From navigation start to the newest reply drawn (page clock). After the first chat the renderer is warm,
-      // as it is when a released hidden chat is built again (agents.hiddenChats.discard).
+      // as it is when a released hidden chat is built again (HiddenChatPages' idle release).
       if (index > 0) warmLoads.push(Number(await shown.jsonValue()));
       pages.push({ page, cdp: await context.newCDPSession(page) });
     }
     // The newest pages' own settling (read-ahead, fonts, the first paints) is not idle.
     await new Promise((resolve) => setTimeout(resolve, 3000));
     for (const { page } of pages) await settledAt(page).catch(() => undefined);
-    if (process.env.HIDDEN === "1") {
+    if (RELEASE) {
+      // Every chat but the newest is released: its page closes, as the app retires a released chat's page.
+      for (const entry of pages.slice(0, -1)) {
+        if (entry.page.isClosed()) continue;
+        await entry.cdp.detach().catch(() => undefined);
+        await entry.page.close();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    if (process.env.HIDDEN === "1" && !RELEASE) {
       for (const { page, cdp } of pages.slice(0, -1)) {
         if (hiddenPages.has(page)) continue;
         await setMinimized(cdp, true);
@@ -361,16 +378,17 @@ try {
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
+    const live = pages.filter(({ page }) => !page.isClosed());
     const idle = await measureIdle(
-      pages.map(({ page }) => ({ page, cdp: null })),
+      live.map(({ page }) => ({ page, cdp: null })),
       IDLE_WINDOW_MS,
     );
     const wakeups = idle.reduce((sum, row) => sum + row.wakeups, 0) / (IDLE_WINDOW_MS / 1000);
     const sources = idle.flatMap((row) => row.sources).slice(0, 4);
-    const now = await sample(pages);
+    const now = await sample(live);
     await printDump(count);
     if (process.env.KINDS === "1") {
-      const sizes = bySize(await takeSnapshot(pages[0]!.cdp));
+      const sizes = bySize(await takeSnapshot(live[0]!.cdp));
       if (kindsAt) {
         const per = count - kindsAt.count;
         const rows = [...sizes].map(([name, size]) => [name, (size - (kindsAt!.sizes.get(name) ?? 0)) / per] as const);
@@ -406,7 +424,59 @@ try {
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
   }
-  if (process.env.HIDDEN === "1" && hiddenPages.size) {
+  const percentile = (values: number[], share: number) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
+  };
+  if (RELEASE && REOPEN > 0) {
+    // Released chats open again one at a time: a new page in the warm renderer, then released again.
+    const opens: number[] = [];
+    for (let index = 0; index < Math.min(REOPEN, pages.length - 1); index++) {
+      const page = await context.newPage();
+      await page.goto(urlFor(index));
+      const shown = await page.waitForFunction(
+        (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+        FIRST_TEXT,
+        { timeout: 120_000, polling: "raf" },
+      );
+      opens.push(Number(await shown.jsonValue()));
+      await page.close();
+    }
+    if (opens.length) {
+      const [p50, p95] = [percentile(opens, 0.5), percentile(opens, 0.95)];
+      console.log(
+        `chat-pages-memory: a released chat opened again draws its newest reply in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms (n=${opens.length})`,
+      );
+      perfRow({ name: "chat_pages_memory.reopen", p50, p95, unit: "ms" });
+    }
+  }
+  if (process.env.HIDDEN === "1" && !RELEASE && hiddenPages.size > 1 && REOPEN > 1) {
+    // The same open of kept pages: REOPEN hidden chats shown again one at a time, then hidden again.
+    const reshows: number[] = [];
+    for (const { page, cdp } of pages.slice(1, Math.min(REOPEN, pages.length - 1) + 1)) {
+      if (!hiddenPages.has(page)) continue;
+      if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
+      const start = await page.evaluate(() => performance.now());
+      await setMinimized(cdp, false);
+      await setHidden(page, false);
+      const shown = await page.waitForFunction(
+        (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+        FIRST_TEXT,
+        { timeout: 120_000, polling: "raf" },
+      );
+      reshows.push(Number(await shown.jsonValue()) - start);
+      await setHidden(page, true);
+      await setMinimized(cdp, true);
+    }
+    if (reshows.length) {
+      const [p50, p95] = [percentile(reshows, 0.5), percentile(reshows, 0.95)];
+      console.log(
+        `chat-pages-memory: a hidden chat shown again draws its newest reply in p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms (n=${reshows.length})`,
+      );
+      perfRow({ name: "chat_pages_memory.reshow_many", p50, p95, unit: "ms" });
+    }
+  }
+  if (process.env.HIDDEN === "1" && !RELEASE && hiddenPages.size) {
     const { page, cdp } = pages[0]!;
     if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
     const start = await page.evaluate(() => performance.now());

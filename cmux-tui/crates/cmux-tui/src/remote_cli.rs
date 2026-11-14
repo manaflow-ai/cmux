@@ -25,8 +25,8 @@ use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
-    ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
+    BoundDevice, ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon,
+    KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
     Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
@@ -125,6 +125,7 @@ fn run_inner(
         Some("remote-cp") => run_cp(rest),
         Some("enroll") => run_enroll(rest, load_config),
         Some("known-daemons") => run_known_daemons(rest),
+        Some("remote-device-key") => run_device_key(rest),
         Some("remote-probe") => run_probe(rest),
         Some("remote-link") => run_remote_link(rest),
         Some("remote-sidecar") => run_remote_sidecar(rest),
@@ -232,6 +233,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-cp") => client.cp_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
+        Some("remote-device-key") => client.device_key_help,
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,

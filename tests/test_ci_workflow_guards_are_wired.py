@@ -93,6 +93,10 @@ UNWIRED: set[str] = {
     # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
     # changing that step or a sparse checkout in a job that shares the builder's workspace.
     "tests/test_nightly_warm_checkout_sparse.py",
+    # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml on
+    # an empty slot beside a temp git mirror and checks the slot borrows the mirror (glaeda's borrow record and the
+    # alternates line) before its fetch; run it by hand after changing that step or glaeda's borrow record.
+    "tests/test_nightly_warm_checkout_borrows_mirror.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
@@ -100,6 +104,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
     # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
     "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks that a nightly-next loop run holds the push slot only in
+    # nightly-next-one, that the next notes start from the live feed, and the tick wake; run it by hand after
+    # changing nightly.yml's concurrency, nightly-next-one or wake-nightly-next-tick.
+    "tests/test_nightly_next_push_slot_at_build.py",
     # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group held through the
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
