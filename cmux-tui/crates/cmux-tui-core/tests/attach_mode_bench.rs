@@ -418,11 +418,11 @@ fn window(got: &Received, from: Instant, to: Instant) -> (usize, usize, Vec<(Str
     (bytes, events, names)
 }
 
-fn in_window<'a>(
-    got: &'a Received,
+fn in_window(
+    got: &Received,
     from: Instant,
     to: Instant,
-) -> impl Iterator<Item = &'a (Instant, String)> {
+) -> impl Iterator<Item = &(Instant, String)> {
     got.sample.iter().filter(move |(at, _)| *at >= from && *at < to)
 }
 
