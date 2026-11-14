@@ -3392,7 +3392,14 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         case .letterbox(let gridHeight, let offset):
             let gridBottom: CGFloat?
             if model.isTUI {
-                gridBottom = surface.superview === tuiHost ? tuiHost.convert(CGPoint(x: 0, y: gridHeight), to: view).y : nil
+                // The host's top from its constraints (bottom on the clip's
+                // bottom, `tuiHeight` tall), not its frame: in the page's
+                // layout pass (`layoutTerminal`) the clip is laid out but the
+                // host inside it is not yet, so its frame still has the old
+                // rows (the keyboard settling changes them) and the note was
+                // hidden above the terminal area, never placed again.
+                gridBottom = surface.superview === tuiHost
+                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.maxY - tuiHeight.constant + gridHeight), to: view).y : nil
             } else if let document, cell.height > 0, scrollbar.total > 0 {
                 // The Mac's screen is the mirror's last rows: its bottom is
                 // the scrollback's end, wherever the document was last measured.
