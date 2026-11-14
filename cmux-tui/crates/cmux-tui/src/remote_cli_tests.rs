@@ -1080,6 +1080,12 @@ fn enroll_create_binds_to_a_device_key_only_when_both_are_valid() {
     assert_eq!(parsed.device_key.as_deref(), Some(key.as_str()));
     assert_eq!(parsed.device_name.as_deref(), Some("agent-vm"));
 
+    // Review finding P2-F1: URL-safe base64 keys may begin with `--`.
+    let dashed = "--xB2u1TMQGQfWhu3U-iRb62JmaBNqBDnoRBUzReaEg";
+    let parsed =
+        parse_enroll_admin_args(&["create", "--device-key", dashed].map(str::to_string)).unwrap();
+    assert_eq!(parsed.device_key.as_deref(), Some(dashed));
+
     for args in [
         vec!["approve", "id", "--device-key", key.as_str()],
         vec!["create", "--device-name", "agent-vm"],

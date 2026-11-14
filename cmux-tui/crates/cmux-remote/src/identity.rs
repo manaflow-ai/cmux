@@ -2619,6 +2619,41 @@ mod tests {
         assert_eq!(error, "device enrollment is no longer active");
     }
 
+    /// Review finding P1-F1: a second, unused invitation bound to the same
+    /// key must not re-enroll a device the owner revoked.
+    #[tokio::test]
+    async fn revoking_a_device_voids_its_unused_bound_invitations() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        let other = StaticIdentity::generate().unwrap();
+        let first = bound_invitation(&auth, &device, None).await;
+        let spare = bound_invitation(&auth, &device, None).await;
+        let others = bound_invitation(&auth, &other, None).await;
+        let grant = claim(&auth, invitation_request(&first.id, &device, "agent")).await.unwrap();
+
+        auth.revoke(&grant.device_id).await.unwrap();
+
+        let error =
+            claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
+        assert_eq!(error, "invitation is unknown or expired");
+        assert!(!auth.device_is_active(&grant.device_id).await);
+        // Voided durably: a restarted daemon has no such invitation either.
+        auth.shutdown().await.unwrap();
+        drop(auth);
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let error =
+            claim(&auth, invitation_request(&spare.id, &device, "agent")).await.unwrap_err();
+        assert_eq!(error, "invitation is unknown or expired");
+        assert!(!auth.device_is_active(&grant.device_id).await);
+        // Another device's bound invitation is untouched.
+        assert!(claim(&auth, invitation_request(&others.id, &other, "other")).await.is_ok());
+        // The owner can still re-enroll the device on purpose, with a new invitation.
+        let fresh = bound_invitation(&auth, &device, None).await;
+        let regrant = claim(&auth, invitation_request(&fresh.id, &device, "agent")).await;
+        assert!(auth.device_is_active(&regrant.unwrap().device_id).await);
+    }
+
     #[tokio::test]
     async fn an_expired_bound_invitation_is_refused() {
         let directory = tempfile::tempdir().unwrap();
