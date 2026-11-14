@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::Actor;
+use crate::diagnostics::{KeptSeatClass, KeptSeatClassNow};
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
     CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
@@ -104,18 +105,76 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
 /// process of such a terminal is that terminal's from its first connection,
 /// and never the local user by the order of two events. `parent_of`: the
 /// parent of a process (`ConnectionStats::seated_terminal`).
+///
+/// With the class: the seat of a kept host, when that seat gave the class.
+/// Such a class ends with the seat ([`ClientRegistry::kept_seat_ended`]).
+fn class_of_local_peer(
+    mux: &Mux,
+    peer_key: Option<&str>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
+) -> (LocalPeer, Option<KeptSeatClass>) {
+    let Some(process) = peer_key.and_then(peer_pid) else { return (LocalPeer::Unknown, None) };
+    let Some(session) = session_for_pid(process) else { return (LocalPeer::Unknown, None) };
+    let (seated, kept_seat) =
+        mux.connection_stats().seated_terminal_from(session, parent_of).unzip();
+    match class_of_seat(seated) {
+        class @ LocalPeer::Terminal(_) => (class, kept_seat.flatten()),
+        class => (class, None),
+    }
+}
+
+/// [`class_of_local_peer`], the class alone.
+#[cfg(all(test, unix))]
 fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,
     session_for_pid: impl FnOnce(u32) -> Option<u32>,
     parent_of: impl FnOnce(u32) -> Option<u32>,
 ) -> LocalPeer {
-    let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
-    let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
-    let seated = mux.connection_stats().seated_terminal(session, parent_of);
+    class_of_local_peer(mux, peer_key, session_for_pid, parent_of).0
+}
+
+/// The class of a local peer whose process session has the seat `seated`
+/// (nil: no seat).
+fn class_of_seat(seated: Option<crate::diagnostics::SeatedTerminal>) -> LocalPeer {
     match seated.and_then(|terminal| terminal.id) {
         Some(terminal) => LocalPeer::Terminal(terminal.to_string()),
         None => LocalPeer::Other,
+    }
+}
+
+/// The class of a client that had `class` from the seat of a kept host, when
+/// that seat does not give it now. `seated`: the seat of the client's
+/// session. The client keeps its terminal only when that seat names the same
+/// terminal. In each other case it is no terminal's client.
+fn class_after_kept_seat(
+    class: &LocalPeer,
+    seated: Option<crate::diagnostics::SeatedTerminal>,
+) -> LocalPeer {
+    let seat = class_of_seat(seated);
+    if seat == *class { seat } else { LocalPeer::Other }
+}
+
+impl ClientRegistry {
+    /// A seat of a kept host ended, or its host was seated twice
+    /// (`Mux::kept_host`). Each client that has its class from a seat that
+    /// does not give it now keeps its terminal only when the seat of its
+    /// session names the same terminal, and is `Other` in each other case
+    /// ([`class_after_kept_seat`]). The look reads no process. The lock
+    /// order is the client records, then the seats.
+    pub(crate) fn kept_seat_ended(&self, connections: &crate::diagnostics::ConnectionStats) {
+        let mut state = self.state.lock().recover_poison();
+        if !state.clients.values().any(|record| record.origin.kept_seat.is_some()) {
+            return;
+        }
+        for record in state.clients.values_mut() {
+            let Some(class) = record.origin.kept_seat else { continue };
+            if let KeptSeatClassNow::Ended(seated) = connections.kept_seat_class_now(class) {
+                record.origin.kept_seat = None;
+                record.origin.local_peer = class_after_kept_seat(&record.origin.local_peer, seated);
+            }
+        }
     }
 }
 
@@ -412,21 +471,44 @@ pub(super) fn set_peer_identity_at_accept(
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 ) -> crate::diagnostics::ClientKind {
-    use crate::diagnostics::ClientKind;
     let parent_of = terminal_admission::parent_process;
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id, parent_of);
+    set_peer_identity_with(mux, client, peer_key, peer_token, peer_session_id, parent_of)
+}
+
+/// [`set_peer_identity_at_accept`] with the read of a process's session and
+/// the read of a process's parent given.
+fn set_peer_identity_with(
+    mux: &Mux,
+    client: u64,
+    peer_key: Option<String>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
+) -> crate::diagnostics::ClientKind {
+    use crate::diagnostics::ClientKind;
+    let (mut local_peer, mut kept_seat) =
+        class_of_local_peer(mux, peer_key.as_deref(), session_for_pid, parent_of);
+    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
+        .is_some_and(|path| is_bundled_mobile_host_path(&path));
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    // A class from the seat of a kept host: one look at that seat under the
+    // lock of the client records. A record has such a class only while the
+    // seat gives it (`ClientRegistry::kept_seat_ended`).
+    if let Some(class) = kept_seat
+        && let KeptSeatClassNow::Ended(seated) = mux.connection_stats().kept_seat_class_now(class)
+    {
+        (local_peer, kept_seat) = (class_after_kept_seat(&local_peer, seated), None);
+    }
     // What the peer is for the request counters, before it declares a kind.
     let kind = match &local_peer {
         LocalPeer::Terminal(_) => ClientKind::Terminal,
         LocalPeer::Other => ClientKind::Local,
         LocalPeer::Unknown => ClientKind::Unknown,
     };
-    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
-        .is_some_and(|path| is_bundled_mobile_host_path(&path));
-    let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
+        record.origin.kept_seat = kept_seat;
         record.origin.mobile_host = mobile_host;
     }
     kind
@@ -708,6 +790,10 @@ mod test_hooks {
 #[cfg(all(test, unix))]
 #[path = "origin_gate_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "kept_seat_class_tests.rs"]
+mod kept_seat_class_tests;
 
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]

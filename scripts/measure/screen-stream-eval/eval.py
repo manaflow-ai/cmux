@@ -63,6 +63,7 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
         if not rows:
             kbps[name] = fps[name] = encode[name] = decode[name] = None
             continue
+        # Missing counts remain unmeasured; valid counts are weighted by actual duration.
         elapsed_s = sum(s.get("duration_ms", 1000) for s in rows) / 1000
         byte_rows = [s.get("bytes") for s in rows]
         frame_rows = [s.get("frames") for s in rows]

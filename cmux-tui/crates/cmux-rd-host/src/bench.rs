@@ -26,7 +26,7 @@ use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
 use cmux_rd_proto::control::StreamKind;
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, Nack, HEADER_LEN, MAX_ARRIVALS,
+    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, HEADER_LEN, MAX_ARRIVALS,
     MAX_DATAGRAM_VPC,
 };
 use openh264::decoder::Decoder;
@@ -334,6 +334,10 @@ impl Viewer {
     }
 
     fn pump(&mut self, timeout_ns: u64) -> Res<()> {
+        let timeout_ns =
+            self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
+                timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
+            });
         wait_readable(&self.io.fds(), Some(timeout_ns))?;
         let mut arrived = Vec::new();
         self.io.receive(&mut arrived)?;
@@ -402,19 +406,18 @@ impl Viewer {
         let due = now.saturating_sub(self.last_feedback_ns) >= 50_000_000;
         // At least one feedback per second keeps the session alive on an idle desktop.
         let keepalive = now.saturating_sub(self.last_feedback_ns) >= 1_000_000_000;
+        let nack_due = self
+            .reassembler
+            .next_nack_us(5_000, 50_000)
+            .is_some_and(|deadline| now / 1000 >= deadline);
         if !(self.released_since_feedback
             || keepalive
+            || nack_due
             || (due && (!self.arrivals.is_empty() || self.reassembler.need_recovery())))
         {
             return Ok(());
         }
-        let nacks = self
-            .reassembler
-            .missing(now / 1000, 5_000)
-            .into_iter()
-            .take(4)
-            .map(|(frame, indexes)| Nack { frame, indexes: indexes.into_iter().take(32).collect() })
-            .collect();
+        let nacks = self.reassembler.take_nacks(now / 1000, 5_000, 50_000);
         let mut sorted = self.decode_ms.iter().rev().take(30).copied().collect::<Vec<_>>();
         sorted.sort_by(f64::total_cmp);
         // Arrivals beyond one message go in extra feedback messages first.
