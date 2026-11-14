@@ -207,12 +207,12 @@ impl TeeState {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn load_and_mark_all_ns(&self) -> (u64, u64) {
         (self.store_load_ns.load(Ordering::Relaxed), self.mark_all_ns.load(Ordering::Relaxed))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn walk_finished(&self) -> bool {
         self.walk_done.load(Ordering::Acquire)
     }

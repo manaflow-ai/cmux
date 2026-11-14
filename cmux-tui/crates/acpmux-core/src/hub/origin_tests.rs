@@ -1,6 +1,8 @@
 use super::*;
 use acpmux_book::index::{ChangedRows, SortedSnapshot};
 use std::collections::BTreeSet;
+use std::fs;
+use std::path::Path;
 
 fn remote(id: impl Into<String>, activity: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -328,7 +330,7 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
     const CHILD: &str = "V2_ORIGIN_APPEND_FAILURE_FIXTURE";
     const MODE: &str = "V2_ORIGIN_APPEND_FAILURE_MODE";
     if let Some(directory) = std::env::var_os(CHILD) {
-        let (hub, mut writer) = Hub::open(std::path::Path::new(&directory), 101, || 7).unwrap();
+        let (hub, mut writer) = Hub::open(Path::new(&directory), 101, || 7).unwrap();
         writer.takeover("peer", Source::Mirror).unwrap();
         let subscription = hub.subscribe(&Sub::new("failed-append", "list")).unwrap();
         let seq = hub.snapshot().seq();
@@ -398,7 +400,7 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
         let expected = ids(&hub);
         let expected_seq = hub.snapshot().seq();
         drop((subscription, hub, writer));
-        let (hub, _) = Hub::open(std::path::Path::new(&directory), 101, || 7).unwrap();
+        let (hub, _) = Hub::open(Path::new(&directory), 101, || 7).unwrap();
         assert_eq!(hub.snapshot().seq(), expected_seq);
         assert_eq!(ids(&hub), expected);
         return;
@@ -946,7 +948,7 @@ async fn failed_hydration_does_not_release_the_remote_mark_drain() {
     let path = directory.path().join("index.snap");
     SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-    std::fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
+    fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
     writer.process_batch();
     assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
 }

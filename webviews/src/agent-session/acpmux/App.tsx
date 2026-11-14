@@ -257,11 +257,11 @@ import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwne
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
 import {
-  queuedStartingSends,
   StartingSends,
-  startingQueueEntry,
-  withStartingPrompt,
   type StartingSend,
+  startingQueueEntry,
+  queuedStartingSends,
+  withStartingPrompt,
   startingIn,
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -548,6 +548,8 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
+  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -559,8 +561,6 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
-  cloudSendAfterCheck,
-  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -632,11 +632,11 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
-  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
-  withoutHeldRows,
   lastTurnWorkedKeys,
+  rowsToHold,
+  withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -659,6 +659,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -6822,6 +6823,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcriptFollowing = useCallback(() => followingTranscript.current, []);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
+    // Only a chat followed at its latest row lets go of its oldest records (direct.ts `shedOlderHeld`).
+    directClient.current?.setFollowing(following);
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
     // An ended turn's Worked for held open over what they read closes there too.
     if (
@@ -8317,6 +8320,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
+        client.setFollowing(followingTranscript.current);
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
@@ -9833,7 +9837,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   // A socket the pane is already asking for again is quiet in the header; only a failure said above
   // the composer is a failure.
-  const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
+  // A failure the pane clears by asking again by itself (a machine rebooting) is quiet in the
+  // header too: the one line above the composer says Reconnecting… (HostError.tsx).
+  const header = paneHeader(composerSnapshot, t, {
+    hostRecovering: !hostErrorShown || hostSelfRetrying(hostFailure, acpmuxRestartOffered),
+  });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
   const canContinue = continueAvailable;
@@ -12883,7 +12891,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={!hostRefusedTooLarge(hostFailure) && !acpmuxRestartOffered}
+        selfRetrying={hostSelfRetrying(hostFailure, acpmuxRestartOffered)}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
