@@ -5424,15 +5424,7 @@ mod unix {
                 break;
             }
             if shared.active_client_streams.load(Ordering::Acquire) == 0 {
-                let since = *orphan_since.get_or_insert(now);
-                if !orphan_ended && now.saturating_duration_since(since) >= orphan_grace {
-                    orphan_ended = true;
-                    eprintln!(
-                        "terminal-host: no client for {} s (owner daemon gone); ending the terminal",
-                        orphan_grace.as_secs()
-                    );
-                    shared.request_termination();
-                }
+                orphan_since.get_or_insert(now);
             } else {
                 orphan_since = None;
             }
@@ -5492,6 +5484,25 @@ mod unix {
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
+                    }
+                    // A replacement daemon queued at the grace boundary wins
+                    // over expiry: leave the listener event for the next loop
+                    // iteration, which accepts it before checking the timer.
+                    if fds[0].revents == 0 {
+                        let after_wait = Instant::now();
+                        if shared.active_client_streams.load(Ordering::Acquire) == 0 {
+                            let since = *orphan_since.get_or_insert(after_wait);
+                            if !orphan_ended
+                                && after_wait.saturating_duration_since(since) >= orphan_grace
+                            {
+                                orphan_ended = true;
+                                eprintln!(
+                                    "terminal-host: no client for {} s (owner daemon gone); ending the terminal",
+                                    orphan_grace.as_secs()
+                                );
+                                shared.request_termination();
+                            }
+                        }
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}

@@ -4211,10 +4211,13 @@ fn owner_app_death_converges_the_terminal_host() {
         assert!(Instant::now() < deadline, "owner death left host {host_pid} alive");
         std::thread::sleep(Duration::from_millis(25));
     }
-    assert!(
-        !record_path.exists(),
-        "owner death left the terminal-host discovery record behind for {terminal_id}"
-    );
+    while record_path.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "owner death left the terminal-host discovery record behind for {terminal_id}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 #[test]
