@@ -1281,6 +1281,14 @@ async fn dispatch_request_with_identity(
             {
                 features.push(json!(crate::link_v2::FEATURE));
             }
+            // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
+            // its index, named on every connection.
+            if hub.v2_lists_hub_rows()
+                && let Some(features) =
+                    reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
+            {
+                features.push(json!(crate::hub::list_tee::HUB_ROWS_FEATURE));
+            }
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
                 reply.set_path(
