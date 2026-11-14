@@ -400,6 +400,8 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
@@ -790,6 +792,14 @@ pub struct Hub {
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
     pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// The carrier's registration the daemon's start made from the join config
+    /// (`hub_carrier::start_kept`); a sign-out's leave drops it, which unregisters.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_serve: std::sync::Mutex<Option<crate::hub_carrier::HubServe>>,
+    /// The loopback WebSocket address the start gave the carrier, so an enroll that replaces the
+    /// join starts it again on the new join (`server/machine_enroll.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1337,6 +1347,10 @@ impl Hub {
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_serve: Default::default(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_websocket: std::sync::OnceLock::new(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
@@ -2156,6 +2170,12 @@ impl Hub {
     /// installed, which is the default for an empty `acpmux.v2` setting.
     pub(crate) fn install_v2_tee(&self, tee: Arc<list_tee::TeeHandle>) {
         self.events.install_tee(tee);
+    }
+
+    /// The v2 list holds the hub machines' rows: `initialize` names
+    /// [`list_tee::HUB_ROWS_FEATURE`] on every connection.
+    pub(crate) fn v2_lists_hub_rows(&self) -> bool {
+        self.events.tee_lists_hub_rows()
     }
 
     pub(crate) fn session_count(&self) -> usize {

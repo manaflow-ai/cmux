@@ -455,6 +455,8 @@ where
             view: Some(self.view),
             max_bytes: MAX_PAGE_BYTES as u32,
             filter,
+            edition: None,
+            fold: None,
         }
     }
 

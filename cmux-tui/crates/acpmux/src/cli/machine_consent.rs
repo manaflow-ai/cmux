@@ -42,21 +42,35 @@ impl Authority {
         self.validate_namespace()
     }
 
-    /// Persist before any remote redeem. A failed join keeps conservative gating.
+    /// Persist before any remote redeem. A failed join keeps conservative gating. A join that
+    /// is not a sign-in's ([`Self::enroll_as`] is what the joins call).
+    #[cfg(test)]
     pub(super) fn enroll(&self) -> Result<()> {
-        self.enroll_with_sync(|path| {
+        self.enroll_as(false)
+    }
+
+    /// [`Self::enroll`], saying whether signing in made this join (`enroll.rs`). Consent is as
+    /// mandatory either way for what reaches this Mac from elsewhere (`hand/requests.rs`); a
+    /// requirement that only sign-in joins made leaves the Mac's own sessions their computer use
+    /// ([`Self::required_only_by_sign_in`]): signing in never takes local tools away. Any other
+    /// join makes it the requirement it always was, for good.
+    pub(super) fn enroll_as(&self, sign_in: bool) -> Result<()> {
+        self.enroll_with_sync(sign_in, |path| {
             std::fs::File::open(path)?.sync_all()?;
             Ok(())
         })
     }
 
-    fn enroll_with_sync(&self, sync: impl Fn(&Path) -> Result<()>) -> Result<()> {
+    fn enroll_with_sync(&self, sign_in: bool, sync: impl Fn(&Path) -> Result<()>) -> Result<()> {
         self.prepare()?;
         let marker = self.root.join("enrolled.json");
         if exists(&marker)? {
             self.validate_marker()?;
+            if !sign_in && self.marker_by_sign_in() {
+                crate::config::write_atomic(&marker, MARKER)?;
+            }
         } else {
-            crate::config::write_atomic(&marker, b"{\"schema\":1}")?;
+            crate::config::write_atomic(&marker, if sign_in { MARKER_SIGN_IN } else { MARKER })?;
         }
         // Retry all durability barriers even if a previous attempt wrote the
         // marker then failed. The account home persists a newly-created .acpmux;
@@ -68,6 +82,43 @@ impl Authority {
         Ok(())
     }
 
+    /// Whether the marker says only sign-in joins made it.
+    fn marker_by_sign_in(&self) -> bool {
+        crate::config::private_state_file(&self.root.join("enrolled.json"))
+            .ok()
+            .and_then(|file| serde_json::from_reader::<_, Value>(file).ok())
+            .is_some_and(|marker| {
+                marker.get("by").and_then(Value::as_str)
+                    == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+            })
+    }
+
+    /// Whether the account's consent requirement comes only from joins signing in made, and the
+    /// person never set a consent here: the Mac's own sessions keep their computer use.
+    pub(super) fn required_only_by_sign_in(&self) -> bool {
+        self.validate_namespace().is_ok()
+            && self.marker_by_sign_in()
+            && !exists(&self.root.join("consent.json")).unwrap_or(true)
+            && !exists(&self.legacy.join("consent.json")).unwrap_or(true)
+    }
+
+    /// [`Self::status`], as the Mac's own Computer Use is gated (`local_computer_use`: the app's
+    /// helper, which serves only this Mac's own sessions) or as what reaches the Mac from
+    /// elsewhere is. A requirement only sign-in joins made ([`Self::required_only_by_sign_in`])
+    /// never gates the Mac's own use: its answer says no consent is required, and why. What
+    /// reaches the Mac from elsewhere is gated as it always was.
+    pub(super) fn status_for(&self, local_computer_use: bool) -> Value {
+        let mut status = self.status();
+        if local_computer_use
+            && self.required_only_by_sign_in()
+            && let Some(fields) = status.as_object_mut()
+        {
+            fields.insert("consentRequired".to_owned(), Value::Bool(false));
+            fields.insert("localComputerUse".to_owned(), json!("keptBySignIn"));
+        }
+        status
+    }
+
     fn validate_marker(&self) -> Result<()> {
         let file = crate::config::private_state_file(&self.root.join("enrolled.json"))?;
         let value: Value = serde_json::from_reader(file)?;
@@ -77,7 +128,11 @@ impl Authority {
 
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
         if has_own_requirement(&self.legacy)? {
-            self.enroll()?;
+            let sign_in = !exists(&self.legacy.join("consent.json"))?
+                && super::cloud_join::load_at(&self.legacy)?.is_some_and(|record| {
+                    record.joined_by.as_deref() == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+                });
+            self.enroll_as(sign_in)?;
         }
         Ok(())
     }
@@ -165,6 +220,10 @@ impl Authority {
         anyhow::bail!("consent unavailable")
     }
 }
+
+/// The enrollment marker; with `by`, only sign-in joins made it.
+const MARKER: &[u8] = b"{\"schema\":1}";
+const MARKER_SIGN_IN: &[u8] = b"{\"schema\":1,\"by\":\"sign-in\"}";
 
 /// Whether this daemon's own state (`legacy`, its `ACPMUX_HOME`) holds a machine join or a
 /// consent record, which the account-wide authority must keep requiring.

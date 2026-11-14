@@ -100,7 +100,8 @@ pub fn v1_row(summary: &Summary, origin_state: OriginState, parent: Option<&Summ
     object.insert("sessionId".into(), Value::String(summary.chat_id.clone()));
     object.insert("title".into(), Value::String(summary.title.clone()));
     object.insert("harness".into(), Value::String(summary.harness.clone()));
-    object.insert("status".into(), Value::String(summary.state.clone()));
+    object.entry("status").or_insert_with(|| Value::String(summary.state.clone()));
+    object.insert("state".into(), Value::String(summary.state.clone()));
     object.insert("unread".into(), Value::Bool(summary.unread > 0));
     object.insert("unreadTurns".into(), Value::from(summary.unread));
     object.insert("updatedMs".into(), Value::from(summary.last_activity));
@@ -1049,6 +1050,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1091,6 +1094,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1537,6 +1542,8 @@ where
                     view: sub.request.view,
                     max_bytes: wire::MAX_PAGE_BYTES as u32,
                     filter: sub.request.filter.clone(),
+                    edition: None,
+                    fold: None,
                 }
             };
             self.pages.insert(
@@ -2729,6 +2736,8 @@ tail"#;
             view: Some(ListView::Folders),
             max_bytes: wire::MAX_PAGE_BYTES as u32,
             filter: None,
+            edition: None,
+            fold: None,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({

@@ -1679,9 +1679,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The app left (false) or is coming back to (true) the foreground.
     ///
-    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". The
-    /// background releases the phone's size at once, so the Mac's grid grows;
-    /// the mirror follows it, and coming back would show the Mac's wide grid
+    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". A
+    /// background longer than the 45 s grace releases the phone's size, so the
+    /// Mac's grid grows; the mirror follows it, and coming back would show the Mac's wide grid
     /// until the reclaim's resize reset the mirror at the phone's size. The page as it was when
     /// the app left (the phone's own grid) now stays up until that reset's
     /// replay is drawn: one steady frame at phone width.
