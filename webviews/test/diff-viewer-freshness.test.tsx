@@ -339,6 +339,59 @@ test("five returns to a page of a session host without the fingerprint read are 
   }
 });
 
+test("a machine without the fingerprint read that is connected again shows no offline reason", async () => {
+  await act(async () => root.render(null));
+  const offline = "Build VM is offline. Reconnect to see its diff.";
+  let failure = Object.assign(new Error(offline), { code: "cmux.diff.machine_offline" });
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    throw failure;
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <Viewer key="older-machine-offline" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />,
+      ),
+    );
+    await settle();
+    expect(reason()).toBe(offline);
+    // The machine is connected again, and its session host is older than the read.
+    failure = Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
+    // A comment draft or the commit form is open here: nothing is loaded.
+    expect(refreshed).toBe(0);
+  } finally {
+    await act(async () => root.render(null));
+  }
+});
+
+test("a session host that gets the fingerprint read while a draft is open says that the files changed", async () => {
+  await act(async () => root.render(null));
+  let older = true;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    if (older) throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    return "a";
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="replaced-host-draft" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect(shown()).toBe("fresh");
+    // The session host was replaced by one with the read. The shown diff has no digits of its own,
+    // and a comment draft or the commit form would be lost: nothing is loaded, and the page says so.
+    older = false;
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect([shown(), refreshed]).toEqual(["stale", 0]);
+  } finally {
+    await act(async () => root.render(null));
+  }
+});
+
 test("a replaced source ignores a late offline failure from the old machine", async () => {
   let refuse: ((error: Error) => void) | undefined;
   const oldRead = () =>
