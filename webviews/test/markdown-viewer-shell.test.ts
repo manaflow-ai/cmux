@@ -9,8 +9,8 @@ afterEach(() => {
   active = null;
 });
 
-function shell() {
-  const loaded = loadShell();
+function shell(appLinkSchemes: string[] = []) {
+  const loaded = loadShell(appLinkSchemes);
   active = loaded.dom;
   return loaded;
 }
@@ -106,6 +106,26 @@ describe("markdown viewer renders untrusted markdown without active content", ()
     expect(content.querySelector("img")?.getAttribute("src")).toStartWith("cmux-local-image://image?url=");
     expect(content.querySelector("pre code.hljs")?.textContent).toContain("const a = 1 < 2;");
     expect(content.querySelector("pre code.hljs .hljs-keyword")?.textContent).toBe("const");
+  });
+});
+
+describe("app deep links", () => {
+  const workspace = "workspace/11111111-1111-4111-8111-111111111111/surface/22222222-2222-4222-8222-222222222222";
+
+  test("the host's own scheme stays a link, other custom schemes do not", () => {
+    const { render } = shell(["cmux-dev-docs"]);
+    const content = render(
+      `[pane](cmux-dev-docs://${workspace}) [PANE](CMUX-DEV-DOCS://${workspace}) [release](cmux://${workspace}) [editor](vscode://file/a)`,
+    );
+    const links = Array.from(content.querySelectorAll("a[href]"));
+    expect(links.map((link) => link.textContent)).toEqual(["pane", "PANE"]);
+    expect(links[0]?.getAttribute("href")).toBe(`cmux-dev-docs://${workspace}`);
+    expect(unsafeNodes(content)).toEqual([]);
+  });
+
+  test("without a host scheme, an app deep link has no href", () => {
+    const { render } = shell();
+    expect(render(`[pane](cmux://${workspace})`).querySelector("a[href]")).toBeNull();
   });
 });
 

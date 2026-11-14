@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxCloud
 import Foundation
 
 /// Loads the bundled markdown web renderer assets from Resources/markdown-viewer.
@@ -43,6 +44,14 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
             .replacingOccurrences(of: "{{markdownSanitizerJS}}", with: markdownSanitizerJS)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
+            .replacingOccurrences(of: "{{appLinkSchemesJSON}}", with: Self.appLinkSchemesJSON())
+    }
+
+    /// Links in this build's own scheme open cmux deep links, so the viewer keeps them clickable.
+    private static func appLinkSchemesJSON() -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [AuthEnvironment.callbackScheme]),
+              let json = String(data: data, encoding: .utf8) else { return "[]" }
+        return json
     }
 
     /// Load and cache a bundled JS asset on demand.

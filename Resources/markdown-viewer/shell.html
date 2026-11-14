@@ -275,6 +275,11 @@ html { scroll-behavior: smooth; }
     showBootError('marked/highlight/sanitizer libraries did not load');
   }
   var cmuxStrings = {{localizedStringsJSON}};
+  // The host's own deep-link schemes (cmux://workspace/...). Clicks on them
+  // go to the host, which hands them back to its own URL handler.
+  var appLinkProtocols = ({{appLinkSchemesJSON}}).map(function(scheme) {
+    return String(scheme).toLowerCase() + ':';
+  });
   function cmuxString(key, fallback, replacements) {
     var value = String((cmuxStrings && cmuxStrings[key]) || fallback || key);
     Object.keys(replacements || {}).forEach(function(name) {
@@ -906,7 +911,8 @@ html { scroll-behavior: smooth; }
           protocol === 'https:' ||
           protocol === 'file:' ||
           protocol === 'mailto:' ||
-          protocol === 'tel:';
+          protocol === 'tel:' ||
+          appLinkProtocols.indexOf(protocol) !== -1;
       }
       return protocol === 'file:' && isRelativeLocalImagePath(raw);
     } catch (e) {
