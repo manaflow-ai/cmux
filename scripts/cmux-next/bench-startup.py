@@ -1066,7 +1066,11 @@ def seed_realistic(tag, scratch, timeout):
             if not reply.get("ok"):
                 print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
                 agent = False
-        if agent and not prime.wait_for(AGENT_MARK, timeout):
+        # A fresh agent tab paints its chooser before the fixture creates a
+        # conversation. Only setup may accept that frame; measured restoration
+        # still requires real chat paint and its settled live state.
+        setup_marks = [AGENT_MARK, "agent_pane.newtab_painted"] if CHAT_FIXTURE else AGENT_MARK
+        if agent and not prime.wait_for(setup_marks, timeout, any_of=True):
             print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
             agent = False
         if agent and CHAT_FIXTURE:
