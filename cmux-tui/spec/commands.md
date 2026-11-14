@@ -1445,7 +1445,44 @@ reply. A client that applies events to a snapshot must apply every event past
 that line; an event on an earlier line is in the tree. Without the field, the
 barrier is every event read before the reply.
 
-Params: none.
+With `list-workspaces-known-v1`, a client that holds a tree sends `known`: the
+`registry_id`, `generation`, `workspace_revision`, `pane_revision`,
+`terminal_revision` and `tree_revision` of the reply it holds (`{}` when it
+holds none). When every one equals the daemon's, the result is
+`{unchanged: true, workspaces: [], registry_id, generation,
+workspace_revision, pane_revision, terminal_revision, tree_revision}`,
+answered without reading the tree (`workspaces` is empty so a typed SDK
+still decodes a `Tree`); the client keeps its tree and applies the events past
+`lines_written_before_read` as usual. Otherwise the result is the whole tree
+with its `tree_revision` added. `tree_revision` is an opaque string that
+changes with anything the tree shows (a title, an unread marker, the
+selection, a git branch a refresh reads) and never repeats across daemon
+runs; terminal output and scrolling leave it alone. A request without `known`
+(or with `known: null`) gets the result above, unchanged.
+
+With `list-workspaces-limit-v1`, `limit: N` returns only the first N
+workspaces in sidebar order (the sidebar document's order, else the personal
+order, then the workspaces neither places: the order of `workspace.list
+{order: "personal"}`), in that order, and `total`, the number of workspaces;
+only those rows are built. A client draws its first screen from it and reads
+the rest with a whole list after. A limited reply that holds fewer than
+`total` workspaces never carries `tree_revision`, so it is never a tree to
+send back as `known`; with `known`, a reply that holds them all does. `known`
+and `limit` together answer `unchanged` when the client's whole tree is
+current.
+
+A remote device's connection (`set-client-info {remote: true}`) never sees an
+incognito workspace (#31210). Its `limit` page and `total` are taken from the
+workspaces it may see, and once a workspace of the daemon was incognito, its
+`tree_revision` is a digest of the rows it is answered, so a change to an
+incognito workspace never moves it.
+
+Params:
+
+| Name | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
+| `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 
 Result:
 

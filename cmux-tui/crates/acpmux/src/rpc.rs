@@ -462,6 +462,9 @@ pub mod method {
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
+    /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
+    /// stops and it watches its own transcript (`hub/release_to_watch.rs`): `{sessionId}`.
+    pub const MUX_RELEASE_TO_WATCH: &str = "_acpmux/release_to_watch";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -557,6 +560,10 @@ pub mod method {
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.
     pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// A local session reads the current legacy Computer Use endpoint (`cua_socket::from_env`):
+    /// its spawn env holds the endpoint of the app launch it started under, which an app
+    /// relaunch replaces (`cmux mcp serve`'s `cua_recovery.rs`).
+    pub const MUX_COMPUTER_USE_ENDPOINT: &str = "_acpmux/computer_use_endpoint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
