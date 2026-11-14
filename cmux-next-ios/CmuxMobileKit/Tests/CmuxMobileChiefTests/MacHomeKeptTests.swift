@@ -75,6 +75,25 @@ import Testing
                                   macsMayExist: true, searching: false, failing: false) != .connecting)
     }
 
+    /// The first frame reads only the head: the first `firstScreenRows` of 200 kept rows. The
+    /// whole kept list follows off the main thread and takes their place.
+    @Test func theFirstFrameReadsOnlyTheHeadThenTheWholeKeptList() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-1")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: HomeKeptRowsTimingTests.rows(200))
+        writer.flush()
+
+        let relaunched = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        #expect(relaunched.firstScreen(key)?.count == MacHomeRowsCache.firstScreenRows)
+        let feed = Self.feed(relaunched, account: Account())
+        feed.showKeptRows(of: "mac-1")
+        #expect(feed.rows?.count == MacHomeRowsCache.firstScreenRows)
+        #expect(await eventually { feed.rows?.count == 200 })
+        #expect(feed.isShowingKeptRows)
+    }
+
     /// Another Mac chosen: that Mac's kept rows at once (from memory), never the last Mac's;
     /// another account's rows never show.
     @Test func aMacChosenAgainShowsItsOwnKeptRowsAtOnce() async throws {
