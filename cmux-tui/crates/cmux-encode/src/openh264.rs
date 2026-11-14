@@ -428,13 +428,16 @@ mod bitrate_tests {
             screen_content: true,
         };
         let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
-        for kbps in [16_000, 4_000, 12_000, 2_000] {
+        for kbps in [16_000, 4_000, 12_000, 200_003, 2_000] {
             enc.set_bitrate(kbps);
             for layer in [SPATIAL_LAYER_ALL, SPATIAL_LAYER_0] {
-                assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, layer), (kbps * 1000) as i32);
+                assert_eq!(
+                    read_rate(&enc, ENCODER_OPTION_BITRATE, layer),
+                    (kbps * 1000) as f32 as i32
+                );
                 assert_eq!(
                     read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer),
-                    (kbps * 1000) as i32
+                    (kbps * 1000) as f32 as i32
                 );
             }
             assert_eq!(enc.kbps(), kbps);
