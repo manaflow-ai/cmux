@@ -139,14 +139,20 @@ def stop(proc):
         return
     # Every caller creates a new session. The recorded PID is our group, and
     # the parent exiting alone cannot prove its children have stopped.
-    with contextlib.suppress(ProcessLookupError):
+    try:
         os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        # macOS may return EPERM for a zombie-only group. The readback below
+        # still refuses cleanup if any live owned process survives.
+        pass
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         pass
-    with contextlib.suppress(ProcessLookupError):
+    try:
         os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
     proc.wait(timeout=10)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
