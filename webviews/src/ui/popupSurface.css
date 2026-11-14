@@ -3,6 +3,12 @@
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
+  /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
+     popover's or card's width, a chip's height, a gap a clamp reckons with) is
+     `calc(N * var(--ui-px, 1px))`, never a bare px: the type tokens grow with Text Size, and a frame
+     that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
+     test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
+  --ui-px: calc(1px * var(--cmux-interface-scale, 1));
   --ui-popup-radius: 8px;
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the

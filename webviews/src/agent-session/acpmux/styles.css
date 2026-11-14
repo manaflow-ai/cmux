@@ -469,10 +469,10 @@
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 /* Quick open drops from the top as it opens (ui-enter, ui/popupSurface.css). */
 .acpmux-file-search{--ui-enter-y:-8px;animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both}
-.acpmux-file-search{position:absolute;z-index:20;top:max(48px,18%);left:50%;right:auto;margin:0;border:0;width:min(600px,calc(100vw - 32px));transform:translateX(-50%);padding:6px;box-sizing:border-box;border-radius:14px;background:var(--surface-popup);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2);color:var(--agent-text);font-size:14px}
-.acpmux-file-search input{display:block;width:100%;height:34px;padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-file-search{position:absolute;z-index:20;top:max(48px,18%);left:50%;right:auto;margin:0;border:0;width:min(calc(600 * var(--ui-px, 1px)),calc(100vw - 32px));transform:translateX(-50%);padding:calc(6 * var(--ui-px, 1px));box-sizing:border-box;border-radius:14px;background:var(--surface-popup);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2);color:var(--agent-text);font-size:var(--text-field);overflow:hidden}
+.acpmux-file-search input{display:block;width:100%;height:calc(34 * var(--ui-px, 1px));padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
-.acpmux-file-search [role=listbox]{max-height:min(360px,50vh);overflow:auto}
+.acpmux-file-search [role=listbox]{max-height:min(calc(360 * var(--ui-px, 1px)),50vh);overflow:auto}
 .acpmux-file-search [role=listbox]:not(:empty){margin-top:4px}
 .acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
 .acpmux-file-name{flex:none}

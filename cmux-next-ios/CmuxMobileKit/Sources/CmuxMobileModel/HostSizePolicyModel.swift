@@ -132,7 +132,6 @@ public final class HostSizePolicyModel {
     }
 
     private static func message(_ error: any Error) -> String {
-        let text = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
-        return text.isEmpty ? "The Mac didn't answer." : text
+        UserFacingError.message(error, fallback: "The Mac didn't answer.")
     }
 }

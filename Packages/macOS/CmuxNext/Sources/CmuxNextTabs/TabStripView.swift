@@ -178,7 +178,7 @@ public final class TabStripView: NSView {
     /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
     /// room the tabs could use.
     public internal(set) var isCrowded = false
-    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    /// ``isCrowded`` changed; the pane's trailing controls (``PaneToolbarView/strip``) follow it.
     public var onCrowdedChange: ((Bool) -> Void)?
     /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
     var laidOutOneTab: Bool?
