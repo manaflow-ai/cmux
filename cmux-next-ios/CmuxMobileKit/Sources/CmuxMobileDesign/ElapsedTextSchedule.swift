@@ -47,3 +47,32 @@ public struct ElapsedTextSchedule: TimelineSchedule, Sendable {
         }
     }
 }
+
+/// `.periodic(from: from, by: 1)` that stops after its first tick at or past
+/// `until`: a countdown ("Resend in 0:12") whose text no longer changes once
+/// it reaches its end ("Resend code") draws that text once, not every second.
+public struct CountdownSchedule: TimelineSchedule, Sendable {
+    public let from: Date
+    public let until: Date
+
+    public init(from: Date, until: Date) {
+        self.from = from
+        self.until = until
+    }
+
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> Entries {
+        Entries(ticks: PeriodicTimelineSchedule(from: from, by: 1).entries(from: startDate, mode: mode), until: until)
+    }
+
+    public struct Entries: Sequence, IteratorProtocol {
+        var ticks: PeriodicTimelineSchedule.Entries
+        let until: Date
+        var ended = false
+
+        public mutating func next() -> Date? {
+            guard !ended, let date = ticks.next() else { return nil }
+            if date >= until { ended = true }
+            return date
+        }
+    }
+}
