@@ -575,6 +575,7 @@ fn a_window_over_the_bound_ends_the_sub_and_a_page_over_it_does_not() {
         has_before: false,
         has_after: true,
         refused: vec![],
+        turns: false,
     };
     let page = Frame::json(FrameKind::Page, &reply).unwrap();
     let changes = chat_changes(feed(&mut client, &page));
