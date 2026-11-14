@@ -133,10 +133,14 @@ static IMP swap(Class window_class, const char *name, IMP replacement) {
     return method != NULL ? method_setImplementation(method, replacement) : NULL;
 }
 
-// The census at exit: for each suite with windows still open, how many of the windows it created
-// are open, how many on screen, their classes and a few titles. The walk reads NSApp's window list
-// once, after the run; it changes nothing.
-static void census_at_exit(void) {
+// The census: for each suite with windows still open, how many of the windows it created are
+// open, how many on screen, their classes and a few titles. The walk reads NSApp's window list
+// once; it changes nothing. It runs at exit, and on the main run loop every
+// CMUX_NEXT_TEST_WINDOW_CENSUS_SECONDS (default 300, 0 turns it off): a run the whole-run limit
+// cuts short ends on SIGTERM, which runs no atexit handler, so without the timed census the run
+// that most needs the leak names (feat 07088897, 2026-10-31: 10508 tests in 1500 s, 5.8 GB, the
+// main thread laying out sidebar rows of windows still open) printed none.
+static void census(const char *when, int at_exit) {
     id *app_slot = (id *)dlsym(RTLD_DEFAULT, "NSApp");
     if (app_slot == NULL || *app_slot == nil) return;
     id (*send)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
@@ -158,9 +162,9 @@ static void census_at_exit(void) {
         if (flag(window, sel_registerName("isVisible"))) visible++;
     }
     int length = snprintf(line, sizeof line,
-                          "cmux-next window census at exit: %ld windows open (%ld on screen), %ld more closed but still alive, "
+                          "cmux-next window census %s: %ld windows open (%ld on screen), %ld more closed but still alive, "
                           "%ld of AppKit's own, %ld suites created windows\n",
-                          open, visible, closed_alive, appkits_own, created_suite_total);
+                          when, open, visible, closed_alive, appkits_own, created_suite_total);
     if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
     for (long index = 0; index < total; index++) {
         id window = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)index);
@@ -201,10 +205,47 @@ static void census_at_exit(void) {
         for (long slot = 0; slot < created_suite_total; slot++) {
             if (strcmp(created_suites[slot], owner) == 0) created = created_counts[slot];
         }
-        length = snprintf(line, sizeof line, "cmux-next window leak: %s left %ld of the %ld windows it created open (%ld on screen): %s%s\n",
+        // At exit every test has ended: a window still open is a leak. In a timed census tests still run, so an
+        // open window may belong to a test in flight: it is named, not called a leak.
+        length = snprintf(line, sizeof line, at_exit ? "cmux-next window leak: %s left %ld of the %ld windows it created open (%ld on screen): %s%s\n"
+                                                     : "cmux-next window open now: %s has %ld of the %ld windows it created open (%ld on screen; its tests may still run): %s%s\n",
                           owner, suite_open, created, suite_visible, details, suite_open > 4 ? ", ..." : "");
         if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
     }
+    for (long slot = 0; slot < reported_count; slot++) free(reported[slot]);
+}
+
+static void census_at_exit(void) { census("at exit", 1); }
+
+static CFAbsoluteTime census_started;
+
+static void census_on_timer(CFRunLoopTimerRef timer, void *info) {
+    (void)timer;
+    (void)info;
+    char when[64];
+    snprintf(when, sizeof when, "after %.0f s", CFAbsoluteTimeGetCurrent() - census_started);
+    census(when, 0);
+}
+
+// The timed census: off with CMUX_NEXT_TEST_WINDOW_CENSUS_SECONDS=0. It reads the window list on
+// the main run loop (AppKit's lists are main-thread only), in the common modes so a test that runs
+// the loop in another mode does not hold it back.
+static void install_timed_census(void) {
+    const char *setting = getenv("CMUX_NEXT_TEST_WINDOW_CENSUS_SECONDS");
+    double seconds = 300;
+    if (setting != NULL && *setting != '\0') {
+        char *end = NULL;
+        double parsed = strtod(setting, &end);
+        if (end == setting || *end != '\0' || parsed < 0) return;
+        seconds = parsed;
+    }
+    if (seconds == 0) return;
+    census_started = CFAbsoluteTimeGetCurrent();
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault, census_started + seconds, seconds, 0, 0,
+                                                   census_on_timer, NULL);
+    if (timer == NULL) return;
+    CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
+    CFRelease(timer);
 }
 
 __attribute__((constructor)) static void cmux_next_test_window_census_install(void) {
@@ -218,4 +259,5 @@ __attribute__((constructor)) static void cmux_next_test_window_census_install(vo
     class_addMethod(window_class, sel_registerName("cmuxNextTestOwner"), (IMP)read_owner, "@@:");
     class_addMethod(window_class, sel_registerName("cmuxNextTestWasClosed"), (IMP)read_closed, "c@:");
     atexit(census_at_exit);
+    install_timed_census();
 }
