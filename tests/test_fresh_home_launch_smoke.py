@@ -2029,14 +2029,84 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_fault_of_the_request_log_read_is_never_the_launchs_verdict(self):
         self.request_log = {"empty": {"slow-requests.jsonl": [START_LINE, request_line()]}}
+        # A fault of the read of a home: the report says that this home was not judged.
         boom = "def boom(_home):\n    raise RuntimeError('no read today')\nsmoke.request_log = boom"
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", setup=boom)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["verdict"], "pass")
         self.assertNotIn("failures", report)
         self.assertIn("\nwarning: the request log was not judged (RuntimeError)\n", output)
-        self.assertEqual(report["request_log"], {"counted": False, "refused": [], "findings": []})
+        self.assertEqual(report["request_log"], {"counted": False, "refused": [], "findings": [],
+                                                 "empty": smoke.NOT_JUDGED})
         self.assert_cleaned_up(report)
+        # A fault of the judge itself: the launch's verdict and its report stand as they are.
+        boom = "def boom(*_):\n    raise RuntimeError('no judge today')\nsmoke.judge_request_log = boom"
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", setup=boom)
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["verdict"], "pass")
+        self.assertNotIn("failures", report)
+        self.assertIn("\nwarning: the request log was not judged (RuntimeError)\n", output)
+        self.assertNotIn("request_log", report)
+        self.assert_cleaned_up(report)
+
+    def test_a_fault_of_the_read_of_one_home_leaves_the_refusal_of_the_other_home_the_verdict(self):
+        # Each home has its own guard. The home whose read faulted is not judged and the report says so; the
+        # record of the other home is judged as it is, whichever of the two homes is read first.
+        root = self.dir / "root"
+        for home in (root / "h", root / "seeded" / "h"):
+            session = home / "Library" / "tui" / "s-0123456789abcdef"
+            session.mkdir(parents=True)
+            (session / "slow-requests.jsonl").write_text(START_LINE + "\n" + request_line() + "\n")
+        read = smoke.request_log
+        self.addCleanup(setattr, smoke, "request_log", read)
+        args = argparse.Namespace(arms=("empty", "seeded"))
+        for faulted, judged in (("seeded", "empty"), ("empty", "seeded")):
+            with self.subTest(faulted=faulted):
+                def one_fault(home, faulted=faulted):
+                    if (home.parent.name == "seeded") == (faulted == "seeded"):
+                        raise OSError("no read of this home")
+                    return read(home)
+
+                smoke.request_log = one_fault
+                refused = ("seeded home: " if judged == "seeded" else "") + REFUSED
+                said, report = io.StringIO(), {"verdict": "pass"}
+                with contextlib.redirect_stdout(said):
+                    status = smoke.judge_request_log(args, root, report, smoke.PASS)
+                self.assertEqual(status, smoke.FAIL, said.getvalue())
+                self.assertEqual((report["verdict"], report["failures"]), ("fail", [refused]))
+                self.assertEqual(report["request_log"][faulted], smoke.NOT_JUDGED)
+                self.assertEqual(report["request_log"][judged]["plugin"],
+                                 {"session.journal.subscribe / validation.invalid": 1})
+                self.assertEqual((report["request_log"]["counted"], report["request_log"]["refused"]),
+                                 (True, [refused]))
+                where = "seeded home: " if faulted == "seeded" else ""
+                self.assertIn(f"warning: {where}the request log was not judged (OSError)\n", said.getvalue())
+                self.assertIn(f"FAIL: {refused}\n", said.getvalue())
+
+    def test_the_logs_of_the_apps_daemon_and_of_the_chiefs_daemon_are_both_read(self):
+        # A launch has 2 daemons, each with its own session folder and its own log: the app's is under Library/
+        # and the chief's is under .cmux/. A refusal in either log is the same refusal.
+        for refused_in in ("app", "chief"):
+            with self.subTest(refused_in=refused_in):
+                root = self.dir / f"root-{refused_in}"
+                home = root / "h"
+                folders = {
+                    "app": (home / "Library" / "Application Support" / "cmux-next" / "tags" / "stub" / "tui"
+                            / "cmux-app-stub-0123456789abcdef"),
+                    "chief": (home / ".cmux" / "chief" / "isolated" / "stub" / "tui"
+                              / "cmux-chief-01234567-fedcba9876543210")}
+                for daemon, folder in folders.items():
+                    folder.mkdir(parents=True)
+                    second = request_line() if daemon == refused_in else request_line(error="")
+                    (folder / "slow-requests.jsonl").write_text(START_LINE + "\n" + second + "\n")
+                self.assertEqual(smoke.request_log(home), {
+                    "files": 2, "records": 4, "errors": 1, "plugin_restarts": 0,
+                    "plugin": {"session.journal.subscribe / validation.invalid": 1}})
+                report = {"verdict": "pass"}
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(smoke.judge_request_log(argparse.Namespace(arms=("empty",)), root, report,
+                                                             smoke.PASS), smoke.FAIL)
+                self.assertEqual((report["verdict"], report["failures"]), ("fail", [REFUSED]))
 
     def test_the_request_log_read_takes_whole_records_of_regular_files_and_says_only_plain_names(self):
         self.assertIsNone(smoke.request_log(self.dir / "no-home"))
