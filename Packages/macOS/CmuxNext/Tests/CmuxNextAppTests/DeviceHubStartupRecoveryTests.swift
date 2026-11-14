@@ -89,7 +89,7 @@ struct DeviceHubStartupRecoveryTests {
         #expect(count == 2)
     }
 
-    @Observable @MainActor private final class AccountState {
+    @Observable @MainActor final class AccountState {
         var user = "old"
     }
 

@@ -9,3 +9,5 @@ The observable hub box carries a startup error until recovery or stop. Screen Sh
 Detector: DeviceHubStartupRecoveryTests injects a failing platform loader and manual clock. It verifies debug and visible state, increasing retry delays without account changes, cancellation on sign-out, clearing on recovery, and rejection of a stale result after account replacement. Platform keys remain Secure Enclave backed; tests alone inject software keys.
 
 Capture prerequisite evidence remains separate: account auth success is not identity success, hub readiness is not a live frame, and debug connect/approve calls are not counted user clicks. The host-specific evidence in cmuxterm-hq#10775 must establish the actual host failure before changing any platform identity behavior.
+
+Observable test fixtures nested in a suite must be accessible to the macro's generated extension: do not declare the nested type private. The fleet test-target compile detects this access-control failure; an app-only compile does not compile these fixtures and is insufficient evidence.
