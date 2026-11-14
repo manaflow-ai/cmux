@@ -210,6 +210,10 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     must be a window old too. A started build is never cancelled."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
+    # Every open loop run, counted before the retry_of filter below: a retry of the head pending at the slot is
+    # still a job GitHub would replace, so it keeps a finishing holder holding (review of 4cf338e7c740).
+    every_open = {run.get("id") for run in [*head_runs, *(starts or [])]
+                  if run.get("status") != "completed" and watch.holds_push_group(run)}
     if oldest_waiting is not None:
         # A retry of nightly-next's own head while a newer commit waits rebuilds a commit that already
         # failed, and it leaves the build slot only when a newer push arrives (feat-cmux-next's
@@ -248,10 +252,14 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             open_runs.append(run)
         for run in open_runs:
             jobs = jobs_of(run)
-            # A finishing holder lets ONE run be promoted: only while no other loop run is open. A second promotion
-            # would get GitHub to replace the first one's pending nightly-next-one (a cancelled nightly).
+            # A finishing holder lets ONE run be promoted: only while no other loop run is open (a retry of the head
+            # included) and the holder still builds nightly-next's head. A head past it means a promotion went
+            # through whose push run may not be listed yet. A second promotion would get GitHub to replace the first
+            # one's pending nightly-next-one (a cancelled nightly).
+            alone = (every_open <= {run.get("id")} and len(open_runs) == 1
+                     and (run.get("head_sha") or "").lower() == head.lower())
             if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
-                    and not (len(open_runs) == 1 and finishing(jobs))):
+                    and not (alone and finishing(jobs))):
                 building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                             f"{(run.get('head_sha') or head)[:12]}")
                 break
