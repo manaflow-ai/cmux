@@ -138,7 +138,7 @@ extension SettingsSchema {
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
+        case .notifications: ["toasts.showHidden"]
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]

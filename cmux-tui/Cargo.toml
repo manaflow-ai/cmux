@@ -17,8 +17,11 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
@@ -113,6 +116,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -135,7 +139,10 @@ members = [
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
@@ -216,6 +223,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -283,6 +291,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
@@ -309,6 +318,7 @@ cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
@@ -499,6 +509,23 @@ codegen-units = 1
 
 [profile.release.package.acpmux]
 codegen-units = 1
+
+# The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
+# build here: `cargo test --profile gate -p acpmux --lib NAME -- --ignored`. It is release's
+# code generation without its link-time cost. A release test build of `acpmux`
+# does not end on an 8-vCPU CI runner: with one codegen unit rustc for the test
+# library was killed (signal 9) after 16 minutes under fat LTO, and with LTO off
+# by environment it still ran past 40 minutes, because the package override
+# above keeps `acpmux` at one unit. A gate is a ratio of two sides measured in
+# one build, so it does not need the shipped binary's size settings. Nothing
+# ships from this profile.
+[profile.gate]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+
+[profile.gate.package.acpmux]
+codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

@@ -159,19 +159,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
+    /// A missing input reply frees its slot and reports uncertain delivery.
+    var inputRequestDeadline: Duration = .seconds(10)
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
     /// Writes and answers so far: a probe fires only if none came since it was armed.
     private var inputProgress = 0
     private var tailProbe: Task<Void, Never>?
-    /// When each unanswered send went out, by batch number.
-    private var inputWrittenAt: [Int: TimeInterval] = [:]
-    /// No new send while the oldest unanswered one is older than this
-    /// (seconds): a stalled link holds typed keys in `input`, where the hold
-    /// rules apply, instead of writing up to `maxInputInFlight` of them to
-    /// arrive late. Scrolling keeps many in flight; a stall does not.
-    var inputStallLimit: TimeInterval = 0.5
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
     /// A tail probe is armed (tests).
@@ -553,7 +548,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// The Mac terminal's foreground program (`process-info`
-    /// `foreground_executable`, the foreground job leader's name), nil while
+    /// `foreground_program`, the foreground job's program: its leader, or the
+    /// script a leading shell runs, as `man` on macOS), nil while
     /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
     /// read, asked when the screen enters the alternate screen and when a drag
     /// begins there (``TerminalPanRoute``).
@@ -566,7 +562,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
                 return nil
             }
-            return TerminalProcessInfo(reply: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]).foregroundExecutable
+            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
         } catch {
             log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -1105,6 +1101,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// else on the attach channel. Keys that waited longer than
     /// `inputHoldLimit` are dropped first.
     ///
+    /// Reply age does not stop the pipeline: a high-latency link or one lost
+    /// reply must not turn typing into stop-and-wait. The bounded in-flight
+    /// window and each request's deadline bound a channel that truly stalls.
     /// The next batch goes out once this one is written, not when its reply
     /// comes (TUI fast scroll), up to `maxInputInFlight` unanswered. One
     /// small request at a time stalled a flick for the link's whole
@@ -1123,13 +1122,11 @@ public final class DaemonTerminalSession: TerminalSession {
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
-        if let oldest = inputWrittenAt.values.min(), now() - oldest > inputStallLimit { return }
         inputWriting = true
         inputInFlight += 1
         inputTarget = target
         let number = nextInputBatch
         nextInputBatch += 1
-        inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         // The person's own bytes in it: a failed batch of terminal replies
@@ -1138,12 +1135,13 @@ public final class DaemonTerminalSession: TerminalSession {
         input.removeAll()
         let surface = surface
         let onLane = target !== client
+        let deadline = inputRequestDeadline
         Task { [weak self] in
             guard let self else { return }
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()], deadline: deadline)
                 }
                 // A lane request gets written and answered within seconds or
                 // the lane is given up.
@@ -1180,7 +1178,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 if !written { inputWriting = false }
                 lastError = LinkController.reason(error)
                 inputRecovering = true
-                if written || target === abandonedInputLane {
+                if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
                     inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
                 } else {
                     // Never written: safe to send again (on the attach channel
@@ -1199,9 +1197,14 @@ public final class DaemonTerminalSession: TerminalSession {
                     handler?(.connection(connectionState))
                 }
             }
-            inputWrittenAt[number] = nil
             inputSettled()
         }
+    }
+
+    /// A write deadline/cancellation can race a partial or completed write.
+    /// Treat it like a lost reply: the Mac may have applied the keystrokes.
+    static func inputDeliveryUncertain(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? LinkError)?.code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's
@@ -1213,7 +1216,6 @@ public final class DaemonTerminalSession: TerminalSession {
         inputRecovering = true
         inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed))
         if wasWriting { inputWriting = false }
-        inputWrittenAt[number] = nil
         if inputClient === lane { dropInputLane() }
         inputSettled()
     }
@@ -1231,7 +1233,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         tailProbe?.cancel()
         tailProbe = nil
-        inputWrittenAt.removeAll()
         inputTarget = nil
         abandonedInputLane = nil
         if inputRecovering {
@@ -1278,7 +1279,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 guard !Task.isCancelled, self?.tailProbeStillDue(mark: mark, target: target) == true else { return }
                 var ids: [String] = []
                 for _ in 0..<3 where !Task.isCancelled {
-                    guard let id = try? await target.submit("ping") else { break }
+                    // Disarming a probe is ordinary progress, not a failed write:
+                    // cancellation must not close a healthy channel while its ping
+                    // write is still awaiting the link.
+                    guard let id = try? await target.submit("ping", closeChannelOnCancel: false) else { break }
                     ids.append(id)
                 }
                 // Collect the replies so none is left waiting in the client

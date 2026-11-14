@@ -131,9 +131,8 @@ fn killed_across_the_largest_record() {
 }
 
 #[test]
-fn bytes_after_the_last_record_that_are_not_a_record_are_cut_off() {
-    for junk in [vec![0u8; 1], vec![0u8; 4096], vec![0xffu8; 300], b"not a record at all".to_vec()]
-    {
+fn incomplete_headers_after_the_last_record_are_cut_off() {
+    for junk in [vec![0u8; 1], b"not a record at all".to_vec()] {
         let home = tempfile::tempdir().unwrap();
         {
             let (mut log, _) = open(home.path());
@@ -149,6 +148,28 @@ fn bytes_after_the_last_record_that_are_not_a_record_are_cut_off() {
         assert_rows(&mut log, 320);
         settle(&mut log, 321, 330);
         assert_rows(&mut log, 330);
+    }
+}
+
+#[test]
+fn complete_invalid_headers_after_the_mark_are_cut() {
+    for junk in [vec![0u8; 4096], vec![0xffu8; 300]] {
+        let home = tempfile::tempdir().unwrap();
+        {
+            let (mut log, _) = open(home.path());
+            settle(&mut log, 1, 300);
+            log.write_checkpoint(&[], &[]).unwrap();
+            settle(&mut log, 301, 320);
+        }
+        let path = segment(home.path());
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(&junk).unwrap();
+        let len = file.metadata().unwrap().len();
+        drop(file);
+        let (mut log, recovered) = open(home.path());
+        assert_eq!(recovered.truncated, junk.len() as u64);
+        assert_eq!(fs::metadata(path).unwrap().len(), len - junk.len() as u64);
+        assert_rows(&mut log, 320);
     }
 }
 
@@ -216,11 +237,16 @@ fn killed_around_a_segment_roll() {
         fs::remove_dir_all(&copy).unwrap();
     }
 
-    // A torn record in a segment that is not the last cannot come from a kill (a segment is
-    // synced before the next is made). It is reported; the owner rebuilds the book from raw.
+    // A failed record in an earlier segment cuts every later record too. With no
+    // checkpoint, all records are replayable; the raw replay restores both lost rows.
     let first = fs::read(segment(&book)).unwrap();
     fs::write(segment(&book), &first[..first.len() - 1]).unwrap();
-    assert!(matches!(Log::open(&book, options), Err(Error::Corrupt(_))));
+    let (mut log, recovered) = Log::open(&book, options).unwrap();
+    assert!(recovered.truncated > 0);
+    assert!(!second.exists());
+    assert_rows(&mut log, last - 2);
+    settle(&mut log, last - 1, last);
+    assert_rows(&mut log, last);
 }
 
 #[test]
@@ -405,7 +431,7 @@ fn raw_map_precedes_records_and_replay_repairs_a_missing_index() {
 }
 
 #[test]
-fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
+fn a_damaged_checkpoint_requests_a_rebuild_without_reading_history() {
     for damage in ["cut", "flip", "empty", "junk"] {
         let home = tempfile::tempdir().unwrap();
         {
@@ -425,16 +451,8 @@ fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
         fs::write(&path, &bytes).unwrap();
         // A temporary file a killed checkpoint write left behind is not the checkpoint.
         fs::write(home.path().join(".checkpoint.1.0.tmp"), b"half a checkp").unwrap();
-        let (mut log, recovered) = open(home.path());
-        assert_eq!((recovered.checkpoint, recovered.replayed), (false, 520), "{damage}");
-        assert!(recovered.state.is_empty());
-        assert_rows(&mut log, 520);
-        assert_eq!(ids(&log.since(511, 1 << 20).unwrap().rows), (512..=520).collect::<Vec<_>>());
-        log.write_checkpoint(b"again", &[]).unwrap();
-        drop(log);
-        let (_, recovered) = open(home.path());
-        assert_eq!((recovered.checkpoint, recovered.replayed), (true, 0));
-        assert_eq!(recovered.state, b"again");
+        assert!(matches!(Log::open(home.path(), Options::default()), Err(Error::Rebuild(_))));
+        assert_eq!(fs::read(&path).unwrap(), bytes, "damage is preserved: {damage}");
     }
 }
 
