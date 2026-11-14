@@ -99,7 +99,8 @@ pub fn v1_row(summary: &Summary, origin_state: OriginState, parent: Option<&Summ
     object.insert("sessionId".into(), Value::String(summary.chat_id.clone()));
     object.insert("title".into(), Value::String(summary.title.clone()));
     object.insert("harness".into(), Value::String(summary.harness.clone()));
-    object.insert("status".into(), Value::String(summary.state.clone()));
+    object.entry("status").or_insert_with(|| Value::String(summary.state.clone()));
+    object.insert("state".into(), Value::String(summary.state.clone()));
     object.insert("unread".into(), Value::Bool(summary.unread > 0));
     object.insert("unreadTurns".into(), Value::from(summary.unread));
     object.insert("updatedMs".into(), Value::from(summary.last_activity));
