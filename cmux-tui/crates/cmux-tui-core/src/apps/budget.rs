@@ -126,7 +126,7 @@ impl MountBudget {
 
     /// One scene batch from the app at `now`.
     pub(super) fn offer(&mut self, now: Instant, ops: Vec<Value>) -> Outcome {
-        self.batches_in += 1;
+        self.batches_in = self.batches_in.saturating_add(1);
         if self.arrivals.len() > MAX_RATE {
             self.arrivals.pop_front();
         }
@@ -174,10 +174,10 @@ impl MountBudget {
 
     fn send_or_hold(&mut self, now: Instant, outcome: &mut Outcome) {
         let interval = if self.slowed_since.is_some() { SLOWED_INTERVAL } else { FRAME };
-        let due = self.last_sent.map_or(now, |at| at + interval);
+        let due = self.last_sent.map_or(now, |at| at.checked_add(interval).unwrap_or(at));
         if now >= due {
             self.last_sent = Some(now);
-            self.batches_out += 1;
+            self.batches_out = self.batches_out.saturating_add(1);
             outcome.deliver = Some(std::mem::take(&mut self.pending));
         } else if !self.flush_armed {
             self.flush_armed = true;
@@ -258,7 +258,7 @@ impl AppLadder {
 
     /// The VM ran out of memory. The first kill restarts it; the next pauses.
     pub(super) fn memory_kill(&mut self) -> bool {
-        self.memory_kills += 1;
+        self.memory_kills = self.memory_kills.saturating_add(1);
         if self.memory_kills > 1 {
             return self.pause(PauseCause::Memory);
         }
@@ -315,7 +315,7 @@ impl Supervisor {
         let Some(record) = inner.mounts.get_mut(mount_key) else { return vec![] };
         let outcome = record.budget.offer(now, ops);
         let ladder = inner.ladders.entry(key.app.clone()).or_default();
-        ladder.batches_in += 1;
+        ladder.batches_in = ladder.batches_in.saturating_add(1);
         self.budget_outcome_locked(inner, key, mount_key, outcome)
     }
 
@@ -371,7 +371,7 @@ impl Supervisor {
         }
         if let Some(ops) = outcome.deliver {
             if let Some(ladder) = inner.ladders.get_mut(&key.app) {
-                ladder.batches_out += 1;
+                ladder.batches_out = ladder.batches_out.saturating_add(1);
             }
             let mut event =
                 json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
