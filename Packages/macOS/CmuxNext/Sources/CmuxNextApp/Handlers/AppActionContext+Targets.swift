@@ -112,8 +112,12 @@ extension AppActionContext {
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
-    func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        guard connection() != nil else { return }
+    func send(_ label: String, logFailure: ((String, any Error) -> Void)? = nil, _ body: @escaping DaemonCommandBody) {
+        guard connection() != nil else {
+            if let logFailure { logFailure(label, DaemonError.notConnected) }
+            else { services.activeDaemon.logCommandFailure(label, error: DaemonError.notConnected) }
+            return
+        }
         services.activeDaemon.send(label, body)
     }
 

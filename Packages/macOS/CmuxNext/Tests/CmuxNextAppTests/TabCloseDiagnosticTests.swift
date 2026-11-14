@@ -1,4 +1,7 @@
+import AppKit
 import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import Foundation
@@ -68,6 +71,26 @@ import Testing
                       .connectFailed(path: "/test/socket", errno: 61)])
     func lostConnectionsAreNotReportedAsRefusals(_ error: DaemonError) {
         #expect(CommandFailureDiagnostic(label: "close-surface", error: error).message.contains("error_kind=disconnected"))
+    }
+
+    @Test func anOfflineHiddenCloseLogsBeforeReturningTheExistingRefusal() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let context = AppActionContext(services: services)
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 12), kind: .browser))
+        let command = DaemonService.closeCommand(for: tab, reaps: true)
+        var lines: [String] = []
+        let expectedRefusal = services.registry.capturingRefusal { _ = context.connection() }
+        let refusal = services.registry.capturingRefusal {
+            context.send(command.label, logFailure: { label, error in
+                lines.append(CommandFailureDiagnostic(label: label, error: error).message)
+            }) { _ in Issue.record("An offline close must not send the command") }
+        }
+        #expect(expectedRefusal != nil)
+        #expect(refusal == expectedRefusal)
+        #expect(lines.count == 1)
+        #expect(lines.first?.contains("tab_kind=browser entrypoint=direct") == true)
+        #expect(lines.first?.contains("error_kind=disconnected") == true)
     }
 
     private func error(for kind: String) -> DaemonError {
