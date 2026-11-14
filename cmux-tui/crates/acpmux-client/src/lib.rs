@@ -235,6 +235,9 @@ pub struct Client<T = Summary> {
     skips: SkipCounters,
     chats: HashMap<String, chat::ChatSub>,
     blobs: VecDeque<chat::PendingBlob>,
+    /// The surfaces this connection's upgrade granted; none while not known (before the reply,
+    /// and on a handle made already connected in v2, which has what it named).
+    granted: Option<Vec<String>>,
 }
 
 /// Counts protocol values this client intentionally skips while preserving the
@@ -286,6 +289,51 @@ where
             skips: SkipCounters::default(),
             chats: HashMap::new(),
             blobs: VecDeque::new(),
+            granted: None,
+        }
+    }
+
+    /// Whether this connection serves a stream's surface: no for one its upgrade did not grant.
+    fn surface_granted(&self, stream: &wire::Stream) -> bool {
+        let surface = if stream.as_str().starts_with("chat:") { "chat" } else { stream.as_str() };
+        self.granted.as_ref().is_none_or(|granted| granted.iter().any(|name| name == surface))
+    }
+
+    /// Ends a list sub whose surface the connection does not serve: one `error` change with
+    /// method `sub` and code `surface_off`, and nothing on the wire.
+    fn end_list_surface_off(&mut self, sid: String) {
+        self.subscriptions.remove(&sid);
+        self.pages.remove(&sid);
+        self.stale_folder_pages.remove(&sid);
+        self.deferred_folder_pages.remove(&sid);
+        self.push_change(
+            Change::Error {
+                method: "sub".into(),
+                sid: Some(sid),
+                id: None,
+                code: "surface_off".into(),
+            },
+            None,
+            0,
+            false,
+        );
+    }
+
+    /// After the upgrade reply: each held sub on a surface not granted ends, the list's first,
+    /// each in order of its sid.
+    fn end_subs_not_granted(&mut self) {
+        let mut lists: Vec<String> = self
+            .subscriptions
+            .iter()
+            .filter(|(_, sub)| !self.surface_granted(&sub.request.stream))
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        lists.sort_unstable();
+        for sid in lists {
+            self.end_list_surface_off(sid);
+        }
+        if !self.surface_granted(&wire::Stream::new("chat:")) {
+            self.end_chats_surface_off();
         }
     }
 
@@ -298,6 +346,10 @@ where
     }
 
     pub fn connected(&mut self) {
+        // A handle in fallback asks for v2 again on its next connection.
+        if self.phase == Phase::Fallback {
+            self.phase = Phase::Upgrade;
+        }
         if self.phase == Phase::Upgrade {
             let id = self.next_id;
             self.next_id += 1;
@@ -310,6 +362,10 @@ where
     pub fn disconnected(&mut self) {
         if self.phase != Phase::Fallback {
             self.phase = if self.direct_v2 { Phase::Hello } else { Phase::Upgrade };
+        }
+        if !self.direct_v2 {
+            // The next upgrade reply says again what is granted.
+            self.granted = None;
         }
         self.send.clear();
         self.frame_buf.clear();
@@ -405,6 +461,9 @@ where
             };
             if value.get("error").is_some_and(Value::is_object) {
                 self.phase = Phase::Fallback;
+                // Decision 225: each chat sub ends with one change before the fallback; the
+                // list's subs stay for the caller's v1 feed.
+                self.end_chats_surface_off();
                 let rest = bytes.get(end.saturating_add(1)..).unwrap_or_default().to_vec();
                 self.push_change(Change::Fallback(rest), None, 0, false);
                 return bytes.len();
@@ -415,6 +474,15 @@ where
                 self.protocol_error("invalid upgrade reply");
                 return bytes.len();
             }
+            // Decision 223: the reply names the surfaces granted; an older daemon's names none,
+            // and it granted all the handle named.
+            let granted = value
+                .pointer("/result/surfaces")
+                .and_then(Value::as_array)
+                .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_else(|| self.surfaces.clone());
+            self.granted = Some(granted);
+            self.end_subs_not_granted();
             self.phase = Phase::Hello;
             self.queue_hello();
             let remainder = bytes.get(end.saturating_add(1)..).unwrap_or_default();
@@ -494,6 +562,11 @@ where
         if self.chats.contains_key(&sub.sid) {
             return Err(FrameError::Refused("the sid is held"));
         }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
+        }
         if sub.view == Some(ListView::Folders) {
             // A folders window is a replacement head snapshot. Cursors and
             // editions belong to resumable summary streams only.
@@ -551,6 +624,11 @@ where
         }
         if self.chats.contains_key(&sub.sid) {
             return Err(FrameError::Refused("the sid is held"));
+        }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
         }
         let sid = sub.sid.clone();
         let cursor = sub.cursor.unwrap_or_default();
@@ -1060,6 +1138,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1104,6 +1183,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1553,6 +1633,7 @@ where
                     filter: sub.request.filter.clone(),
                     edition: None,
                     fold: None,
+                    turns: false,
                 }
             };
             self.pages.insert(
@@ -2753,6 +2834,7 @@ tail"#;
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({

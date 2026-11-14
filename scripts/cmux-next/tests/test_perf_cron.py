@@ -1980,6 +1980,17 @@ class RateLimitTests(unittest.TestCase):
             self.assertTrue(ok2("a" * 40))
         self.assertEqual(len(asked), 1, "the state's verified commits need no compare call")
 
+    def test_a_commit_the_shallow_checkout_cannot_place_is_asked_of_github(self):
+        # The partial clone fetched the commit alone (cat-file finds it), with no path to the tip.
+        asked = []
+        with mock.patch.object(cron, "gh_request", lambda p, *a, **k: asked.append(p) or {"status": "ahead"}), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=0)), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False):
+            ok = cron.commit_on_branch("o/r", "f" * 40)
+            self.assertTrue(ok("a" * 40), "a bisect step older than the checkout's depth stays in the state")
+            self.assertEqual(ok.verified(), ["a" * 40])
+        self.assertEqual(len(asked), 1)
+
     def test_a_rate_limited_compare_is_raised_not_read_as_off_the_branch(self):
         with mock.patch.object(cron, "gh_request", mock.Mock(side_effect=cron.RateLimited("x"))), \
                 mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=1)):

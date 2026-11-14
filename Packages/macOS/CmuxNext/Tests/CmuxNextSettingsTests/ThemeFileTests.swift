@@ -91,6 +91,17 @@ import Testing
         #expect(Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#eeeeee" } }"##).corrected.isEmpty)
     }
 
+    /// `cmux theme export --save NAME --use` copies the settings' own edits: text they already
+    /// show under 4.5:1 stays as it is, so the generated file changes nothing.
+    @Test func textTheSettingsAlreadyShowIsNotCorrected() {
+        let edits: JSONValue = .object(["Nord/background": "#222222", "Nord/foreground": "#333333"])
+        let base: JSONValue = .object(["appearance": .object(["theme": "Nord", "themeEdits": edits])])
+        let overlay = Self.overlay(##"{ "appearance.theme": "Nord", "appearance.themeEdits": { "Nord/background": "#222222", "Nord/foreground": "#333333" } }"##, base: base)
+        #expect(overlay.corrected.isEmpty)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.applied(to: base) == base)
+    }
+
     /// The copy-paste example in skills/cmux-customization/SKILL.md ("Rice cmux") applies whole.
     @Test func theSkillExampleAppliesWithNoRefusals() {
         let overlay = Self.overlay(#"""

@@ -147,6 +147,52 @@ fn a_peer_that_cannot_connect_is_an_error_with_the_reason() {
 }
 
 #[test]
+fn a_peer_down_for_days_is_offline_with_how_to_remove_it_not_an_error() {
+    // 2026-11-14: four lane VMs, retired and stopped for a week, sat at the top of a
+    // dogfood list as "not working" with a retry countdown that never moved.
+    let mut src = sources();
+    src.peers["peers"].as_array_mut().unwrap().push(json!({
+        "name": "retired-lane", "url": "ssh://retired-lane", "state": "reconnecting",
+        "connected": false, "parked": true, "downSince": 1_794_064_328_690_u64,
+        "nextRetryAt": 1_794_690_000_000_u64,
+        "error": "peer unavailable; next automatic retry in 2519s"
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let lane = device(&listing, "peer:retired-lane");
+    assert_eq!(lane.state, State::Offline, "{lane:?}");
+    let detail = lane.detail.as_deref().unwrap_or_default();
+    assert!(detail.contains("cmux device remove retired-lane"), "{detail}");
+    assert!(!detail.contains("2519s"), "no frozen countdown: {detail}");
+    assert_eq!(device(&listing, "peer:vm-1").state, State::Error, "a fresh failure stays an error");
+}
+
+#[test]
+fn short_lived_pool_machines_fold_into_one_line_and_named_machines_stay() {
+    let mut more = nodes();
+    let node = |name: &str, n: u8| NetworkNode {
+        name: name.into(),
+        dns_name: format!("{name}.tail1234.ts.net"),
+        ips: vec![ip(&format!("100.70.1.{n}"))],
+        os: "linux".into(),
+        online: true,
+        mine: false,
+    };
+    more.push(node("ci-linux-pool-1114-162023-3fa17bde", 1));
+    more.push(node("ci-linux-pool-1114-171948-3bede61c", 2));
+    more.push(node("ci-linux-pool-1114-171948-8e3cefa4", 3));
+    more.push(node("swarm-01", 4));
+    more.push(node("swarm-02", 5));
+    more.push(node("swarm-03", 6));
+    more.push(node("release-20261114", 7));
+    let listing = model::merge(&sources(), tailscale_up(), &more);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["build-box", "release-20261114", "swarm-01", "swarm-02", "swarm-03"]);
+    assert_eq!(listing.pools.len(), 1, "{:?}", listing.pools);
+    assert_eq!(listing.pools[0].stem, "ci-linux-pool");
+    assert_eq!(listing.pools[0].count, 3);
+}
+
+#[test]
 fn a_daemon_pairing_and_its_peer_are_one_device_with_both_records() {
     let listing = listing();
     assert!(listing.devices.iter().all(|d| d.id != "paired:dv_sandbox"), "merged into the peer");
