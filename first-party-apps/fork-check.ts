@@ -3,11 +3,14 @@
 // every first-party app must work when a user forks it, with only the public app SDK beside it.
 //
 // For each app in first-party-apps/ with its own tests:
-//   1. copy the app into a temp tree with only the public SDK at its usual relative path
-//      (cmux-tui/crates/cmux-app-host/generated/: cmux-app.d.ts, the generated global, scopes);
-//   2. rewrite its id to local/fork-<name> in both manifests (what Fork in the App Store does);
-//   3. import lint: its sources may import only files inside its own folder, the SDK, node:/bun:
-//      builtins and the npm packages its own package.json pins;
+//   1. copy the app into a temp tree with only the published SDK package beside it: the
+//      cmux-extension-sdk package (cmux-tui/crates/cmux-extension-sdk/typescript) and the runtime
+//      files it ships (its runtime-files.json), at their usual relative paths, plus any other
+//      `file:` package the app's own package.json pins, the way `bun install` would deliver it;
+//   2. rewrite its id to local/fork-<name> in both manifests and its catalog ops' owner (what a fork does);
+//   3. import lint: its sources may import only files inside its own folder, the SDK's shipped
+//      types (generated/cmux-app.d.ts), node:/bun: builtins and the packages its own package.json
+//      pins (cmux-extension-sdk, cmux-extension-sdk/testing for tests);
 //   4. run its own `bun test` in the fork.
 // A failure names the private path. Apps that fail today are listed in fork-check-gaps.json with
 // the reason; the check fails on any app that fails and is not listed, and notes a listed app that
@@ -18,9 +21,15 @@ import { dirname, join, relative, resolve } from "node:path"
 
 const here = resolve(new URL(".", import.meta.url).pathname)
 const root = resolve(here, "..")
-/** The public app SDK a fork gets: the generated global and types, and the public test kit. */
-const sdk = "cmux-tui/crates/cmux-app-host/generated"
-const testKit = "cmux-tui/crates/cmux-app-host/app-test"
+/** The SDK package a fork builds against, as published. */
+const sdkPackage = "cmux-tui/crates/cmux-extension-sdk/typescript"
+/** The paths (repository-relative) the published package carries: the package and the runtime files it ships. */
+export function sdkPaths(): string[] {
+  const list = JSON.parse(readFileSync(join(root, sdkPackage, "runtime-files.json"), "utf8")) as { root: string; files: string[] }
+  return [sdkPackage, ...list.files.map((file) => relative(root, resolve(root, sdkPackage, list.root, file)))]
+}
+/** The SDK's types an app source may name with `/// <reference path>` (the generated global). */
+const sdkTypes = "cmux-tui/crates/cmux-app-host/generated"
 const args = process.argv.slice(2)
 const only = args.filter((a) => !a.startsWith("--"))
 const gaps: Record<string, string> = JSON.parse(readFileSync(join(here, "fork-check-gaps.json"), "utf8")).gaps ?? {}
@@ -35,14 +44,17 @@ function files(dir: string): string[] {
   })
 }
 
-/** Imports that leave the app folder and are not the public SDK, a builtin or a pinned package. */
-export function privateImports(appDir: string): string[] {
-  const pinned = new Set<string>()
+/** The packages the app's own package.json pins, name to version spec. */
+function pins(appDir: string): Record<string, string> {
   const pkg = join(appDir, "package.json")
-  if (existsSync(pkg)) {
-    const json = JSON.parse(readFileSync(pkg, "utf8"))
-    for (const key of ["dependencies", "devDependencies"]) for (const name of Object.keys(json[key] ?? {})) pinned.add(name)
-  }
+  if (!existsSync(pkg)) return {}
+  const json = JSON.parse(readFileSync(pkg, "utf8"))
+  return { ...(json.dependencies ?? {}), ...(json.devDependencies ?? {}) }
+}
+
+/** Imports that leave the app folder and are not the SDK's types, a builtin or a pinned package. */
+export function privateImports(appDir: string): string[] {
+  const pinned = new Set(Object.keys(pins(appDir)))
   const bad: string[] = []
   for (const file of files(appDir).filter((f) => /\.(ts|tsx|js|mjs)$/.test(f))) {
     const text = readFileSync(file, "utf8")
@@ -58,7 +70,7 @@ export function privateImports(appDir: string): string[] {
       if (spec.startsWith(".")) {
         const target = resolve(dirname(file), spec)
         if (target.startsWith(appDir + "/") || target === appDir) continue
-        if ([sdk, testKit].some((pub) => relative(root, target).startsWith(pub + "/"))) continue
+        if (relative(root, target).startsWith(sdkTypes + "/")) continue
         bad.push(`${relative(root, file)}: ${spec}`)
         continue
       }
@@ -69,11 +81,29 @@ export function privateImports(appDir: string): string[] {
   return bad
 }
 
-function forkManifest(path: string, name: string) {
-  if (!existsSync(path)) return
-  const manifest = JSON.parse(readFileSync(path, "utf8"))
-  manifest.id = `local/fork-${name}`
-  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n")
+/** Renames the app to local/fork-<name> in both manifests and in the owner (`app:<id>`) of its catalog's ops. */
+function forkIdentity(fork: string, name: string) {
+  const id = `local/fork-${name}`
+  let old: string | undefined
+  for (const file of ["cmux-app.json", "cmux-app.v2.json"]) {
+    const path = join(fork, file)
+    if (!existsSync(path)) continue
+    const manifest = JSON.parse(readFileSync(path, "utf8"))
+    old ??= manifest.id
+    manifest.id = id
+    writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n")
+  }
+  const catalog = join(fork, "catalog")
+  if (!old || !existsSync(catalog)) return
+  const rename = (value: unknown): unknown =>
+    value === `app:${old}` ? `app:${id}`
+    : Array.isArray(value) ? value.map(rename)
+    : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rename(v)]))
+    : value
+  for (const file of readdirSync(catalog).filter((f) => f.endsWith(".json"))) {
+    const path = join(catalog, file)
+    writeFileSync(path, JSON.stringify(rename(JSON.parse(readFileSync(path, "utf8"))), null, 2) + "\n")
+  }
 }
 
 function check(name: string): Result {
@@ -85,13 +115,19 @@ function check(name: string): Result {
     const fork = join(tree, "first-party-apps", name)
     mkdirSync(dirname(fork), { recursive: true })
     cpSync(appDir, fork, { recursive: true, filter: (src) => !src.includes("/node_modules") })
-    for (const pub of [sdk, testKit]) {
-      mkdirSync(join(tree, pub), { recursive: true })
+    // The SDK as published, and each other `file:` package the app pins, where `bun install` puts
+    // them for a fork that keeps the app's relative layout. Nothing else of the repository.
+    const local = Object.values(pins(appDir))
+      .filter((spec) => spec.startsWith("file:"))
+      .map((spec) => relative(root, resolve(appDir, spec.slice("file:".length))))
+      .filter((path) => path !== sdkPackage)
+    for (const pub of [...sdkPaths(), ...local]) {
+      if (pub.startsWith("..") || pub.startsWith("first-party-apps/")) throw new Error(`${name} pins ${pub}, outside the repository's packages`)
+      mkdirSync(dirname(join(tree, pub)), { recursive: true })
       cpSync(join(root, pub), join(tree, pub), { recursive: true, filter: (src) => !src.includes("/node_modules") })
     }
     if (existsSync(join(appDir, "node_modules"))) cpSync(join(appDir, "node_modules"), join(fork, "node_modules"), { recursive: true })
-    forkManifest(join(fork, "cmux-app.json"), name)
-    forkManifest(join(fork, "cmux-app.v2.json"), name)
+    forkIdentity(fork, name)
     const run = Bun.spawnSync(["bun", "test"], { cwd: fork, stdout: "pipe", stderr: "pipe", env: { ...process.env, CI: "1" } })
     if (run.exitCode !== 0) {
       const out = (run.stderr.toString() + run.stdout.toString()).split("\n").filter((l) => /error|fail|✗|Cannot find/i.test(l)).slice(0, 3)
