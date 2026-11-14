@@ -10,7 +10,7 @@ extension HermesAgentIndex {
         let cwd: String?
     }
 
-    /// The batched identity and lifecycle result from one database snapshot.
+    /// The batched identity and lifecycle result from one database read.
     struct RecoveryInspection: Equatable, Sendable {
         let existingSessionIDs: Set<String>
         let evidence: [RecoveryEvidence]
@@ -22,8 +22,8 @@ extension HermesAgentIndex {
 
     /// Determines whether Hermes can resume an exact session identifier.
     ///
-    /// A private writable snapshot is used so databases left in persistent WAL
-    /// mode remain readable without mutating Hermes's live files.
+    /// The live database is read through a read-only connection; a database left
+    /// in WAL mode without its sidecars is read from a private snapshot instead.
     ///
     /// - Parameters:
     ///   - sessionID: The exact Hermes session identifier to validate.
@@ -44,9 +44,9 @@ extension HermesAgentIndex {
         return inspection.existence(of: sessionID)
     }
 
-    /// Determines the existence of several Hermes identifiers from one database snapshot.
+    /// Determines the existence of several Hermes identifiers from one database read.
     ///
-    /// Callers that validate a hook store use this batched form so WAL snapshot work is
+    /// Callers that validate a hook store use this batched form so database work is
     /// bounded by unique Hermes homes rather than by hook-record count.
     public static func sessionExistences(
         sessionIDs: Set<String>,
@@ -68,15 +68,16 @@ extension HermesAgentIndex {
         })
     }
 
-    /// Reads all identity and lifecycle evidence needed for recovery from one
-    /// private snapshot. Callers batch every candidate that resolves to the
+    /// Reads all identity and lifecycle evidence needed for recovery in one
+    /// database read. Callers batch every candidate that resolves to the
     /// same database path so file I/O is bounded by databases, not hooks.
     static func recoveryInspection(
         sessionIDs: Set<String>,
         cwd: String?,
         startedAt: TimeInterval?,
         before upperBound: TimeInterval?,
-        stateDBPath: String
+        stateDBPath: String,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> RecoveryInspection? {
         let normalizedSessionIDs = Set(sessionIDs.compactMap(normalized))
         let cwdCandidates = cwd.map {
@@ -85,22 +86,12 @@ extension HermesAgentIndex {
         guard !normalizedSessionIDs.isEmpty || (startedAt != nil && !cwdCandidates.isEmpty) else {
             return RecoveryInspection(existingSessionIDs: [], evidence: [])
         }
-        let snapshot: HermesAgentDatabaseSnapshot
         do {
-            guard let madeSnapshot = try makeSnapshot(
+            return try withStateDatabase(
                 stateDBPath: stateDBPath,
-                prefix: "cmux-hermes-agent-recovery"
-            ) else {
-                return nil
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return nil
-        }
-        defer { snapshot.remove() }
-
-        do {
-            return try withDatabase(snapshot.databaseURL.path) { database in
+                snapshotPrefix: "cmux-hermes-agent-recovery",
+                temporaryDirectory: temporaryDirectory
+            ) { database in
                 try loadRecoveryInspection(
                     database: database,
                     sessionIDs: normalizedSessionIDs,
