@@ -256,7 +256,7 @@ test("in the stage layout the composer card at the page's foot is what the app's
     await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
     await nextTurns();
     expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
-    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
+    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710, zoom: 1 }]);
     // The page goes: the toasts stop avoiding a composer that left.
     act(() => root!.unmount());
     root = undefined;

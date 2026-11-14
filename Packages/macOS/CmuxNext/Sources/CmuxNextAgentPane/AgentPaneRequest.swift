@@ -257,7 +257,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
-    case toastAvoidance(CGRect?)
+    case toastAvoidance(AgentPaneSessionInfoOverlay?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])

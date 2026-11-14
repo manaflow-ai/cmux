@@ -15,11 +15,12 @@
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
 // never on the transcript), and sent only when it changed.
+import { PAGE_ZOOM_EVENT, onVisualViewport, pageZoom } from "../../ui/visualViewportBox";
 import { postNative } from "./native";
-import { onVisualViewport } from "../../ui/visualViewportBox";
 
-/// The bottom stack's box in the page's viewport, CSS pixels.
-export type StackBox = { left: number; top: number; right: number; bottom: number };
+/// The bottom stack's box in the page's viewport, CSS pixels, with the page zoom it was measured at
+/// once sent (ui/visualViewportBox.ts).
+export type StackBox = { left: number; top: number; right: number; bottom: number; zoom?: number };
 
 /// Parts of the dock a toast may lie over: a new chat's hero lists sit in the dock's flow but are
 /// not the stack under the transcript.
@@ -60,7 +61,14 @@ export function elementBox(element: Element | null | undefined): StackBox | unde
 }
 
 const same = (a: StackBox | undefined, b: StackBox | undefined) =>
-  a === b || (!!a && !!b && a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom);
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.right === b.right &&
+    a.bottom === b.bottom &&
+    a.zoom === b.zoom);
 
 /// Keeps the host told where `dock`'s stack is (`box` measures it: by default the union of its
 /// parts); the stop sends none, so the host's toasts stop avoiding a stack that left. `send` gets the
@@ -77,7 +85,8 @@ export function watchToastAvoidance(
   let frame = 0;
   const measure = () => {
     frame = 0;
-    const next = box(dock);
+    const measured = box(dock);
+    const next = measured && { ...measured, zoom: pageZoom(view) };
     if (same(next, sent)) return;
     sent = next;
     send(next);
@@ -102,6 +111,8 @@ export function watchToastAvoidance(
   // A trackpad pinch moves where the stack shows (onVisualViewport) without a window resize.
   view.visualViewport?.addEventListener("resize", schedule);
   view.visualViewport?.addEventListener("scroll", schedule);
+  // Cmd +/- or Interface Scale: the same CSS box sits elsewhere in the App's points.
+  view.addEventListener(PAGE_ZOOM_EVENT, schedule);
   schedule();
   return () => {
     parts.disconnect();
@@ -109,6 +120,7 @@ export function watchToastAvoidance(
     view.removeEventListener("resize", schedule);
     view.visualViewport?.removeEventListener("resize", schedule);
     view.visualViewport?.removeEventListener("scroll", schedule);
+    view.removeEventListener(PAGE_ZOOM_EVENT, schedule);
     if (frame) view.cancelAnimationFrame(frame);
     frame = 0;
     if (sent) send(undefined);

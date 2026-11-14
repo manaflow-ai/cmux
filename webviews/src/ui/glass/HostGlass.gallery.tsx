@@ -8,7 +8,9 @@
 // that glass; "clear" ships. The real material is in the Mac captures on the PR.
 // The `open-*` variants are the open and close as frames, left to right (Leo, 2026-11-09: "it loads
 // the placeholder, THEN the content... every single time"): which of the App's glass and the page's
-// content each frame shows, for each way of ordering them.
+// content each frame shows, for each way of ordering them. The `zoom-*` variants are a Cmd + as frames
+// (Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know, it doesn't follow, right?"):
+// the page's content drawn at the new zoom, and where the App's glass is in each frame.
 import { type CSSProperties, useEffect } from "react";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../../gallery/format";
@@ -17,7 +19,14 @@ type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
 /** One frame of an open or close: the App's glass under the box, and the page's part over it (its
  * content on no fill, its content on the page's own glass, or nothing). */
-type Frame = { label: string; app: boolean; page: "content" | "page-glass" | "none"; opacity?: number };
+type Frame = {
+  label: string;
+  app: boolean;
+  page: "content" | "page-glass" | "none";
+  opacity?: number;
+  /** The page zoom the content is drawn at, and the one the App draws the glass box at (1: none). */
+  zoom?: { content: number; glass: number; glassShift?: number };
+};
 /** How a surface opens and closes: the base (content waits for the App's answer), the page's glass
  * first, content and glass sent together (which the App shows as glass first), or the content first
  * and its glass a hold later (ships); and the three ways one closes. */
@@ -28,7 +37,10 @@ type Order =
   | "content-first"
   | "close-trailing"
   | "close-page-glass"
-  | "close-instant";
+  | "close-instant"
+  | "zoom-stale"
+  | "zoom-live"
+  | "zoom-measured";
 /** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme
  * surface); or an open and close as frames. */
 type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order };
@@ -78,6 +90,25 @@ const ORDERS: Record<Order, Frame[]> = {
     { label: "Close", app: false, page: "none" },
     { label: "(no fade)", app: false, page: "none" },
     { label: "Gone", app: false, page: "none" },
+  ],
+  // A Cmd + (1 to 1.15) under an open popover whose CSS box stays put.
+  "zoom-stale": [
+    { label: "Open (100%)", app: true, page: "content", zoom: { content: 1, glass: 1 } },
+    { label: "Cmd + (115%)", app: true, page: "content", zoom: { content: 1.15, glass: 1 } },
+    { label: "Next frame", app: true, page: "content", zoom: { content: 1.15, glass: 1 } },
+    { label: "Settled", app: true, page: "content", zoom: { content: 1.15, glass: 1 } },
+  ],
+  "zoom-live": [
+    { label: "Open (100%)", app: true, page: "content", zoom: { content: 1, glass: 1 } },
+    { label: "Cmd + (115%)", app: true, page: "content", zoom: { content: 1, glass: 1.15, glassShift: 14 } },
+    { label: "Page lays out", app: true, page: "content", zoom: { content: 1.15, glass: 1.15, glassShift: 14 } },
+    { label: "Report lands", app: true, page: "content", zoom: { content: 1.15, glass: 1.15 } },
+  ],
+  "zoom-measured": [
+    { label: "Open (100%)", app: true, page: "content", zoom: { content: 1, glass: 1 } },
+    { label: "Cmd + (115%)", app: true, page: "content", zoom: { content: 1, glass: 1 } },
+    { label: "Report at 115%", app: true, page: "content", zoom: { content: 1.15, glass: 1.15 } },
+    { label: "Settled", app: true, page: "content", zoom: { content: 1.15, glass: 1.15 } },
   ],
 };
 const MINI = { left: 16, top: 34, width: 200, height: 240, radius: 12 };
@@ -182,6 +213,15 @@ function Rows({ rows }: { rows: string[][] }) {
   );
 }
 
+/** `box` drawn at `zoom` from its top-left, moved left by `shift` px (a box placed from a stale report). */
+const scaled = (box: typeof MINI, zoom: number, shift: number) => ({
+  left: box.left - shift,
+  top: box.top,
+  width: box.width * zoom,
+  height: box.height * zoom,
+  radius: box.radius * zoom,
+});
+
 /** An open and close as four frames side by side, each a small stage with the chat beside its box. */
 function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
   useStage(scheme, true);
@@ -194,7 +234,11 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
             {TRANSCRIPT.slice(0, 220)}
           </div>
           {frame.app ? (
-            <AppGlass box={MINI} scheme={scheme} at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }} />
+            <AppGlass
+              box={scaled(MINI, frame.zoom?.glass ?? 1, frame.zoom?.glassShift ?? 0)}
+              scheme={scheme}
+              at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }}
+            />
           ) : null}
           {frame.page === "none" ? null : (
             <aside
@@ -211,6 +255,8 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
                 padding: "var(--ds-space-2) 0",
                 display: "grid",
                 alignContent: "start",
+                // The page's zoom scales its content from the box's top-left, as Chromium's does.
+                ...(frame.zoom ? { transform: `scale(${frame.zoom.content})`, transformOrigin: "0 0" } : {}),
                 ...(frame.opacity !== undefined ? { opacity: frame.opacity } : {}),
               }}
             >
@@ -272,7 +318,7 @@ export default componentEntry<Props>({
   title: "Host glass",
   area: "Pages",
   height: 460,
-  covers: ["ui/glass/hostGlass.ts#reportHostGlass"],
+  covers: ["ui/glass/hostGlass.ts#reportHostGlass", "ui/visualViewportBox.ts#pageZoom"],
   load: async () => HostGlassGallery,
   variants: {
     before: {
@@ -330,6 +376,22 @@ export default componentEntry<Props>({
     "close-instant": {
       note: "Variant: no close fade for a glass menu; rows, glass and blur go in one frame. Never an empty box, but it drops the close animation Leo asked for on 2026-10-24.",
       props: { look: "clear", scheme: "dark", order: "close-instant" },
+    },
+    "zoom-stale": {
+      note: "Before (Leo, 2026-11-12: 'evidently you zoom in and it doesn't really, you know, it doesn't follow, right?'): Cmd + draws the content larger, but the popover's CSS box is unchanged, so neither side sends a new report and the App's glass stays at the old size: rows run past its right edge and below its bottom.",
+      props: { look: "clear", scheme: "dark", order: "zoom-stale" },
+    },
+    "zoom-live": {
+      note: "The App lays the glass out again at its new zoom on the change, from the page's last box: it grows at once, but for a frame or two it sits where the old CSS box lands at the new zoom, off the content, until the page's new report lands.",
+      props: { look: "clear", scheme: "dark", order: "zoom-live" },
+    },
+    "zoom-measured": {
+      note: "Ships: every box carries the zoom the page measured it at, the page measures again on the zoom change, and the App draws each box at its own zoom, so the glass moves with the content in the frame the content changes. An older page's box (no zoom) is drawn at the live zoom.",
+      props: { look: "clear", scheme: "dark", order: "zoom-measured" },
+    },
+    "zoom-measured-light": {
+      note: "Ships, light theme.",
+      props: { look: "clear", scheme: "light", order: "zoom-measured" },
     },
     "open-content-first-light": {
       note: "Ships, light theme.",

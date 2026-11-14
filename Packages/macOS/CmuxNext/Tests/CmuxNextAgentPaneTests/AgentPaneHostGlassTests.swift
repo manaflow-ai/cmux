@@ -52,6 +52,29 @@ struct AgentPaneHostGlassTests {
         }
     }
 
+    /// Each box carries the zoom the page measured it at, and the App draws it there, not at the zoom it
+    /// reads when it draws (Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know, it
+    /// doesn't follow, right?"). An older page's box (no zoom) still decodes; a bad zoom is refused.
+    @Test func boxesCarryTheZoomTheyWereMeasuredAt() {
+        var zoomed = Self.box
+        zoomed["zoom"] = 1.25
+        #expect(Self.request([zoomed]) == .hostGlass([
+            AgentPaneHostGlassSurface(id: "g1", level: .popover, rect: CGRect(x: 40, y: 60, width: 200, height: 120),
+                                      radius: 12, opacity: 0.5, zoom: 1.25),
+        ]))
+        for bad: Any in [0, -1, 40, "1.2", Double.nan] {
+            var entry = Self.box
+            entry["zoom"] = bad
+            #expect(Self.request([entry]) == .unsupported("pane.glass"))
+        }
+        let overlays = AgentPaneSessionInfoOverlay.decode([["left": 0, "top": 0, "right": 10, "bottom": 10, "zoom": 1.5]])
+        #expect(overlays == [AgentPaneSessionInfoOverlay(rect: CGRect(x: 0, y: 0, width: 10, height: 10), zoom: 1.5)])
+        let toast = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
+            "rects": [["left": 20, "top": 600, "right": 880, "bottom": 690, "zoom": 0.9]],
+        ]])
+        #expect(toast == .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: 600, width: 860, height: 90), zoom: 0.9)))
+    }
+
     @Test func eachLevelDrawsItsOverlayRolesGlass() {
         #expect(AgentPaneView.hostGlassRole(.popover) == .popover)
         #expect(AgentPaneView.hostGlassRole(.menu) == .menu)
@@ -95,6 +118,15 @@ struct AgentPaneHostGlassTests {
         #expect(view.model.hostGlass.views["g1"] === glass)
         #expect(glass.frame.minX == 100)
         #expect(glass.alphaValue == 1)
+
+        // Measured at another page zoom (Cmd +): drawn at that zoom, whatever the pane reads now, so
+        // the glass covers content drawn at it.
+        var zoomed = moved
+        zoomed.zoom = 1.5
+        _ = await view.model.respond(to: .hostGlass([zoomed]))
+        #expect(glass.frame.width == 300)
+        #expect(glass.frame.height == 180)
+        #expect(glass.cornerRadius == 18)
 
         // Another surface replaces it: the first one's glass goes.
         let menu = AgentPaneHostGlassSurface(id: "g2", level: .menu, rect: CGRect(x: 10, y: 10, width: 120, height: 80))

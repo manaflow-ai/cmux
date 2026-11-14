@@ -201,7 +201,7 @@ public final class AgentPaneModel {
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
     /// CSS pixels: the window's toasts rest above it (AgentPaneView+ToastAvoidance.swift). Nil while
     /// the page reports none.
-    @ObservationIgnored public internal(set) var toastAvoidance: CGRect?
+    @ObservationIgnored public internal(set) var toastAvoidance: AgentPaneSessionInfoOverlay?
     /// Called when ``toastAvoidance`` changes: the view moves the window's toasts clear of it.
     @ObservationIgnored var onToastAvoidance: (() -> Void)?
     /// The page's floating glass the App draws under the page.

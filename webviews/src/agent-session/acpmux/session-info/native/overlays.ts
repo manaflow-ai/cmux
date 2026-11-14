@@ -12,13 +12,14 @@
 // nodes, so a streaming transcript costs nothing more than the nodes it adds) and measured each frame
 // while any is mounted, as they place and animate. The frame loop stops when the last one unmounts.
 import { useEffect } from "react";
-import { onVisualViewport, visualViewportScale } from "../../../../ui/visualViewportBox";
+import { onVisualViewport, pageZoom, visualViewportScale } from "../../../../ui/visualViewportBox";
 import { postNative } from "../../native";
 
 export const OVERLAY_SELECTOR = ".ui-popup, .ui-tooltip, [data-native-overlay]";
 
-/// A popup's box in the page's viewport, CSS pixels (where it shows under a pinch zoom), with its corner radius.
-export type OverlayRect = { left: number; top: number; right: number; bottom: number; radius: number };
+/// A popup's box in the page's viewport, CSS pixels (where it shows under a pinch zoom), with its corner radius
+/// and the page zoom it was measured at (ui/visualViewportBox.ts).
+export type OverlayRect = { left: number; top: number; right: number; bottom: number; radius: number; zoom: number };
 
 /// The most rects one report carries (the App refuses more).
 export const OVERLAY_RECTS_MAX = 16;
@@ -42,6 +43,7 @@ export function overlayRect(element: Element): OverlayRect | undefined {
     right: round(box.right),
     bottom: round(box.bottom),
     radius: round(Math.min(radius, (box.right - box.left) / 2, (box.bottom - box.top) / 2)),
+    zoom: pageZoom(view),
   };
 }
 

@@ -86,13 +86,34 @@ test("a marked surface is reported and shows its content before the App answers"
   await frames();
   expect(doc.documentElement.hasAttribute(HOST_GLASS_ROOT_ATTRIBUTE)).toBe(true);
   expect(reports.at(-1)).toEqual([
-    { id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1 },
+    { id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1, zoom: 1 },
   ]);
   // Not answered yet: it already draws its content on the App's glass, which the App put there on the report.
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   answer!();
   await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+// Leo, 2026-11-12, of the "Also working here" popover: "evidently you zoom in and it doesn't really, you
+// know, it doesn't follow, right?". Cmd +/- is a page zoom: a popover's CSS box can stay the same while
+// the App draws it larger. The report carries the zoom it was measured at, and a zoom change sends the
+// same box again at the new zoom, so the App's glass grows with the content.
+test("a zoom change sends the same box again at the new zoom", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  surface(doc);
+  await frames();
+  expect(reports.at(-1)?.map((entry) => entry.zoom)).toEqual([1]);
+  const count = reports.length;
+  doc.documentElement.style.setProperty("--cmux-ui-scale", "1.25");
+  doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("cmux-ui-scale-change"));
+  await frames();
+  expect(reports.length).toBe(count + 1);
+  expect(reports.at(-1)).toEqual([
+    { id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1, zoom: 1.25 },
+  ]);
 });
 
 test("a surface the App has not drawn by the deadline keeps the page's own glass", async () => {
@@ -580,7 +601,7 @@ test("under a trackpad pinch a surface is reported where it shows, so the App's 
   surface(doc);
   await frames();
   expect(reports.at(-1)).toEqual([
-    { id: "g1", level: "popover", left: 60, top: 80, right: 460, bottom: 320, radius: 24, opacity: 1 },
+    { id: "g1", level: "popover", left: 60, top: 80, right: 460, bottom: 320, radius: 24, opacity: 1, zoom: 1 },
   ]);
 });
 
