@@ -124,6 +124,10 @@ public final class ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> ControlCallResult? {
         switch request.method {
+        case "surface.icon.set":
+            return surfaceIcon(request.params, clear: false, context: context)
+        case "surface.icon.clear":
+            return surfaceIcon(request.params, clear: true, context: context)
         case "surface.list":
             return surfaceList(request.params, context: context)
         case "surface.current":

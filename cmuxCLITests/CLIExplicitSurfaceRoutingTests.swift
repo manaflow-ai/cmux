@@ -69,6 +69,82 @@ struct CLIExplicitSurfaceRoutingTests {
     }
 
 
+    @Test func surfaceIconRejectsMalformedArgumentsBeforeSocket() throws {
+        let target = [
+            "--workspace", "AABBCCDD-1111-2222-3333-444455556666",
+            "--surface", "AABBCCDD-1111-2222-3333-444455557777",
+            "--owner", "agent-status",
+        ]
+        let token = ["--lease-token", "AABBCCDD-1111-2222-3333-444455558888"]
+        let process = ["--pid", "12345", "--process-start", "generation-1"]
+        let cases: [(arguments: [String], diagnostic: String)] = [
+            (["set"] + target + process, "--asset-file"),
+            (["set"] + target + token, "--pid"),
+            (["set"] + target + process + token + ["--ttl", "0"], "--ttl"),
+            (["set"] + target + process + token + ["--ttl", "-1"], "--ttl"),
+            (["set"] + target + process + token + ["--ttl", "600.5"], "--ttl"),
+            (["set"] + target + process + token + ["--ttl", "9223372036854775808"], "--ttl"),
+            (["clear"] + target + token + ["--revision", "1", "--ttl", "600"], "--ttl"),
+            (["set"] + target + process + token + ["--pid", "42"], "--pid"),
+            (["set"] + target + process + token + ["--focus", "true"], "--focus"),
+            (["clear"] + target, "--lease-token"),
+            (["clear"] + target + token, "--revision"),
+            (["clear"] + target + token + ["--revision", "0"], "--revision"),
+            (["set", "--workspace", "workspace:1", "--surface", "surface:1", "--owner", "status"] + process + token, "--workspace"),
+        ]
+        for (index, testCase) in cases.enumerated() {
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: ["surface", "icon"] + testCase.arguments,
+                environment: cliEnvironment(socketPath: Self.makeSocketPath("surface-icon-invalid-\(index)")),
+                timeout: Self.processTimeout
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.stderr.contains(testCase.diagnostic), Comment(rawValue: result.stderr))
+            #expect(!result.stderr.localizedCaseInsensitiveContains("socket not found"), Comment(rawValue: result.stderr))
+        }
+    }
+
+    @Test func surfaceIconPreservesLifetimeResponseAndOptionalHeartbeatTTL() throws {
+        for ttl: Int? in [nil, 1, 4, 121, 600, Int.max] {
+            let token = "AABBCCDD-1111-2222-3333-444455558888"
+            let arguments = ["surface", "icon", "set",
+                "--workspace", "AABBCCDD-1111-2222-3333-444455556666",
+                "--surface", "AABBCCDD-1111-2222-3333-444455557777",
+                "--owner", "agent-status", "--pid", "12345", "--process-start", "generation-1",
+                "--lease-token", token, "--revision", "1"] + (ttl.map { ["--ttl", String($0)] } ?? [])
+            let execution = try runMockCommand(arguments: arguments, socketName: "icon-lifetime-\(ttl ?? 0)") { line in
+                guard let request = Self.jsonObject(line), let id = request["id"] as? String,
+                      request["method"] as? String == "surface.icon.set" else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                var result: [String: Any] = ["lease_token": token, "revision": 2, "persistent": ttl == nil]
+                if let ttl { result["ttl_seconds"] = ttl }
+                return Self.v2Response(id: id, ok: true, result: result)
+            }
+            #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+            let result = try #require(Self.jsonObject(execution.result.stdout))
+            #expect(result["persistent"] as? Bool == (ttl == nil))
+            #expect(result["ttl_seconds"] as? Int == ttl)
+            #expect(result["lease_token"] as? String == token)
+            #expect(result["revision"] as? Int == 2)
+            let requests = try execution.state.requestObjects()
+            #expect(requests.compactMap { $0["method"] as? String } == ["surface.icon.set"])
+            let request = try #require(requests.last)
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["asset"] == nil)
+            #expect(params["lease_token"] as? String == token)
+            #expect(params["expected_revision"] as? Int == 1)
+            #expect(params["owner_id"] as? String == "agent-status")
+            #expect(params["expected_agent_pid"] as? Int == 12345)
+            #expect(params["expected_process_start"] as? String == "generation-1")
+            #expect(params["ttl_seconds"] as? Int == ttl)
+            #expect(params["workspace_id"] as? String == "AABBCCDD-1111-2222-3333-444455556666")
+            #expect(params["surface_id"] as? String == "AABBCCDD-1111-2222-3333-444455557777")
+        }
+    }
+
     @Test func browserProfileMutationsRejectMalformedArgumentsBeforeSocket() throws {
         let cases: [(name: String, arguments: [String], diagnostic: String)] = [
             ("surface-missing-value", ["browser", "profiles", "delete", "--surface", "--typo", "Work"], "--surface requires a value"),

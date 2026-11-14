@@ -2827,6 +2827,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
     let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
     let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
+    /// External decorations are transient; provider identity continues updating underneath.
+    @MainActor lazy var surfaceIconLeases = SurfaceIconLeaseStore { [weak self] panelID, animation in
+        guard let self, let tabID = self.surfaceIdFromPanelId(panelID) else { return }
+        self.bonsplitController.updateTab(tabID, iconAnimation: .some(animation))
+    }
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -3335,6 +3340,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration? {
         didSet {
+            // A retained local decoration cannot cross into remote ownership.
+            // Configuration refreshes must not invalidate unrelated local state.
+            if oldValue == nil, remoteConfiguration != nil {
+                surfaceIconLeases.resetAll()
+            }
             // Window titles append the host (`hostLabel`); refresh them only when
             // an input of that label changed, not on every lease or relay update.
             guard oldValue?.destination != remoteConfiguration?.destination
@@ -3357,6 +3367,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let previous = cloudBindingState.binding
             cloudBindingState.binding = newValue
             guard previous != newValue else { return }
+            // Retire decorations and credentials from the previous ownership generation.
+            surfaceIconLeases.resetAll()
             (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?
                 .sidebarGitMetadataService
                 .clearWorkspaceGitProbes(workspaceId: id)

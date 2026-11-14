@@ -6,10 +6,11 @@ public import Foundation
 /// The app target (today `TerminalController`, the interim composition owner)
 /// conforms by reading live `TabManager` / `Workspace` / `TerminalPanel` /
 /// `BrowserPanel` state, the Ghostty surfaces, the `TerminalSurfaceRegistry`,
-/// and the `SurfaceResumeApprovalStore`. Every method is `@MainActor` because its
-/// conformer and the coordinator both live on the main actor, so these are plain
-/// in-isolation calls — the per-read `v2MainSync` hops the legacy command bodies
-/// used disappear once the domain moves onto the coordinator.
+/// and the `SurfaceResumeApprovalStore`. Most methods are `@MainActor` because
+/// their conformer and the coordinator live on the main actor, making these
+/// plain in-isolation calls. Explicitly `nonisolated` witnesses support worker
+/// parsing and rendering; ``controlSurfaceIcon(_:)`` owns its minimal final
+/// mutation hop in the app so raw SVG processing never enters the main actor.
 ///
 /// No app types cross the seam: reads return `Control*` snapshot values, mutations
 /// take pre-parsed selectors/ids and return small Sendable resolution enums, and
@@ -244,6 +245,19 @@ public protocol ControlSurfaceContext: AnyObject {
     // which the @MainActor coordinator seam cannot host. The app dispatches it
     // directly via `TerminalController.v2SurfaceReadText`.
 
+    // MARK: - icon.set / clear
+
+    /// Validates/renders a raw icon and applies its lease without changing focus.
+    ///
+    /// Called directly on the socket worker: implementations must keep SVG
+    /// validation and rasterization off-main, then revalidate the explicit target,
+    /// process generation, and lease guards at the main-actor mutation boundary.
+    /// The default implementation reports unsupported for existing conformers.
+    ///
+    /// - Parameter inputs: The shape-validated raw asset and lease inputs.
+    /// - Returns: The authoritative lease result or validation/ownership failure.
+    nonisolated func controlSurfaceIcon(_ inputs: ControlSurfaceIconInputs) -> ControlCallResult
+
     // MARK: - resume.set / get / clear
 
     /// The app-bundle-resolved localized validation strings for
@@ -439,6 +453,14 @@ public protocol ControlSurfaceContext: AnyObject {
 }
 
 public extension ControlSurfaceContext {
+    /// Reports unsupported when the app has not installed a surface-icon renderer.
+    ///
+    /// - Parameter inputs: The parsed icon lease request, unused by this default.
+    /// - Returns: An `unsupported` failure without touching app state.
+    nonisolated func controlSurfaceIcon(_ inputs: ControlSurfaceIconInputs) -> ControlCallResult {
+        .err(code: "unsupported", message: "Surface icons are not supported", data: nil)
+    }
+
     /// Backward-compatible non-forced close for app-owned callers.
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,

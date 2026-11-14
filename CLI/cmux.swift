@@ -10178,6 +10178,7 @@ struct CMUXCLI {
         command: String,
         commandArgs: [String]
     ) -> Bool {
+        if command == "surface", commandArgs.first?.lowercased() == "icon" { return true }
         guard command == "vm" || command == "cloud",
               let subcommand = commandArgs.first?.lowercased() else { return false }
         return ["dev", "layout", "env"].contains(subcommand)
@@ -11573,6 +11574,10 @@ struct CMUXCLI {
             throw CLIError(message: "surface requires a subcommand. Try: cmux surface ls, cmux surface open <resource>, cmux surface resume show --json")
         }
         switch subcommand {
+        case "icon":
+            try runSurfaceIconCommand(
+                commandArgs: Array(commandArgs.dropFirst()), client: client, jsonOutput: jsonOutput
+            )
         case "resume":
             try runSurfaceResumeCommand(
                 commandArgs: Array(commandArgs.dropFirst()),
@@ -23631,6 +23636,10 @@ struct CMUXCLI {
             print("cmux \(command) \(verb)")
             print("")
             print(verbText)
+            return true
+        }
+        if command == "surface", commandArgs.first?.lowercased() == "icon" {
+            print(Self.surfaceIconUsage)
             return true
         }
         if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {

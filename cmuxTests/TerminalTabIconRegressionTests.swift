@@ -109,6 +109,95 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test func leasedAnimationSurvivesBrandUpdatesAndRevealsLatestBrandOnClear() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let focusedPanel = workspace.focusedPanelId
+        let animation = TabIconAnimation(id: "external-test", frames: [Data([1])], durations: [0.1], loops: true)
+        let entry = try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "cc-island:test", animation: animation
+        )
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        workspace.recordAgentPID(key: "claude_code", pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)
+        workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        #expect(workspace.focusedPanelId == focusedPanel)
+        try workspace.surfaceIconLeases.clear(
+            panelID: panel.id, ownerID: "cc-island:test", token: entry.token, expectedRevision: entry.revision
+        )
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1))) func expiringAnimationRevealsLatestBrandWithoutChangingFocus() async throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let focusedPanel = workspace.focusedPanelId
+        let clock = CloudReadManualClock()
+        let (events, continuation) = AsyncStream<UUID>.makeStream()
+        workspace.surfaceIconLeases = SurfaceIconLeaseStore(clock: clock) { [weak workspace] panelID, animation in
+            guard let workspace, let tabID = workspace.surfaceIdFromPanelId(panelID) else { return }
+            workspace.bonsplitController.updateTab(tabID, iconAnimation: .some(animation))
+            if animation == nil { continuation.yield(panelID) }
+        }
+        let animation = TabIconAnimation(id: "expiring-test", frames: [Data([1])], durations: [0.1], loops: false)
+        try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "test", animation: animation, ttlSeconds: 600
+        )
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        workspace.recordAgentPID(key: "claude_code", pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)
+        workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        clock.advance(by: .seconds(600))
+        var iterator = events.makeAsyncIterator()
+        #expect(await iterator.next() == panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        #expect(workspace.focusedPanelId == focusedPanel)
+        continuation.finish()
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func ownershipTransitionClearsIndefiniteIconAndInvalidatesCredentials(cloud: Bool) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let animation = TabIconAnimation(id: "ownership-test", frames: [Data([1])], durations: [0.1], loops: true)
+        let entry = try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "local-producer", animation: animation
+        )
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        if cloud {
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "icon-test-machine", isBase: false)
+        } else {
+            workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "icon-test.invalid", port: nil, identityFile: nil, sshOptions: [],
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+                localSocketPath: nil, terminalStartupCommand: nil
+            )
+        }
+        #expect(workspace.surfaceIdFromPanelId(panel.id) == tabID)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(throws: SurfaceIconLeaseStore.LeaseError.staleToken) {
+            try workspace.surfaceIconLeases.set(
+                panelID: panel.id, ownerID: "local-producer", token: entry.token,
+                expectedRevision: entry.revision
+            )
+        }
+        #expect(throws: SurfaceIconLeaseStore.LeaseError.staleToken) {
+            try workspace.surfaceIconLeases.clear(
+                panelID: panel.id, ownerID: "local-producer", token: entry.token,
+                expectedRevision: entry.revision
+            )
+        }
+    }
+
+    @MainActor
     private func expectNoAgentMark(
         workspace: Workspace,
         panel: TerminalPanel,

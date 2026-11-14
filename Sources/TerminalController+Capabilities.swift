@@ -313,6 +313,8 @@ extension TerminalController {
             "terminal.size_counts.set",
             "terminal.participant.disconnect",
             "terminal.participants.disconnect_others",
+            "surface.icon.set",
+            "surface.icon.clear",
             "surface.resume.set",
             "surface.resume.get",
             "surface.resume.clear",
