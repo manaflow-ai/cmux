@@ -86,6 +86,10 @@ regex = "1"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+# Size over the last bit of speed (CMUX-570, bundle size): -23% of the stripped binary against
+# opt-level 3; the store bench (optchat-host tests/bench.rs, 100k messages) appends at 0.430 ms p50
+# against 0.398 ms. "z" was -31% for +31% append time. Nothing in Chief runs per frame.
+opt-level = "s"
 
 # optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
 # scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as

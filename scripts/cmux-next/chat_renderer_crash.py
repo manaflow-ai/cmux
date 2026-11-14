@@ -6,10 +6,10 @@ agent chat shared one renderer: one renderer crash or out-of-memory kill reloade
 `cmux-process-per-site-main-frame-cap=8` (the fork's cmux_process_per_site_main_frame_cap) a renderer
 holds at most 8 pages.
 
-`CMUX_BENCH_CHAT_RENDERER_CRASH=1` in bench_memory.py's environment turns it on; the fleet runs it with
-perf-10x-idle.sh's agent chats:
+`CMUX_BENCH_CHAT_RENDERER_CRASH=1` in bench_memory.py's environment turns it on; perf-10x-idle.sh sets it for
+its agent chats with `chat_renderer_crash=1`:
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/perf-10x-idle.sh \
-    --ref SHA --env CMUX_BENCH_CHAT_RENDERER_CRASH=1 --arg=counts=1 --arg=measure=10 --arg=agents=1,10,20 \
+    --ref SHA --arg=chat_renderer_crash=1 --arg=counts=1 --arg=measure=10 --arg=agents=2,11,21 \
     --artifact .build/perf-idle/agents.json
 Each chat is then pinned and hidden pages neither freeze nor hibernate, so every chat page stays live.
 At each agent count it records the chat pages per renderer (`chat_renderers`); after the last count:
