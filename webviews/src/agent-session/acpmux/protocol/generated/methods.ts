@@ -205,6 +205,7 @@ export interface AcpmuxRequests {
   "_acpmux/mac_approvers": { params: unknown; result: unknown };
   "_acpmux/new_chat_picks_set": { params: unknown; result: unknown };
   "_acpmux/workspace_roots_set": { params: unknown; result: unknown };
+  "_acpmux/pair_full_access_approve": { params: unknown; result: unknown };
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: SecretSubmitParams; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
@@ -566,6 +567,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/mac_approvers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/new_chat_picks_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_roots_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_full_access_approve", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: true },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
