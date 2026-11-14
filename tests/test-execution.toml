@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_python_socket_utf8.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cli_new_window_name.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
