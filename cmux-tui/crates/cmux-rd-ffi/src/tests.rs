@@ -268,6 +268,40 @@ fn garbage_never_panics() {
 }
 
 #[test]
+fn missing_shards_wake_the_receiver_after_the_reorder_grace() {
+    let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
+    let sent = frames(2, 4000, 0);
+    for d in &sent[0].1 {
+        push(&r, d, 0);
+    }
+    assert_eq!(pop_all(&r).len(), 1);
+    assert!(feedback(&r, 0).is_some());
+    for d in sent[1].1.iter().skip(1) {
+        push(&r, d, 25_000);
+    }
+    // A repair needs one RTT after this request. Waiting for the regular
+    // 50 ms feedback tick spends half that RTT before asking for the shard.
+    // SAFETY: live receiver.
+    assert_eq!(unsafe { cmux_rd_receiver_next_deadline_us(r.0) }, 30_000);
+    assert!(feedback(&r, 29_999).is_none());
+    let fb = decode_feedback(&feedback(&r, 30_000).expect("NACK at the reorder deadline"));
+    assert_eq!(fb.nacks.len(), 1);
+    assert_eq!(fb.nacks[0].indexes, vec![0]);
+    assert!(!fb.need_recovery);
+    assert!(feedback(&r, 30_000).is_none(), "no same-tick retry loop");
+    assert!(feedback(&r, 79_999).is_none(), "a lost request retries on the feedback cadence");
+    let retry = decode_feedback(&feedback(&r, 80_000).expect("bounded NACK retry"));
+    assert_eq!(retry.nacks[0].indexes, vec![0]);
+    // The repair arrives one 50 ms RTT after the first request, before the
+    // 100 ms on-time frame deadline; no replacement keyframe is needed.
+    push(&r, &sent[1].1[0], 80_000);
+    let ready = pop_all(&r);
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].0, 2);
+    assert!(!decode_feedback(&feedback(&r, 80_000).expect("release ack")).need_recovery);
+}
+
+#[test]
 fn loss_produces_nacks_then_recovery() {
     let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
     let sent = frames(2, 4000, 0);

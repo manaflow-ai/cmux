@@ -46,6 +46,7 @@ import path from "node:path";
 import { chromium } from "./browsers";
 import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import { installFoldProbe, measureToggle } from "../test/support/foldFrameReport";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
 import { perfRow as printRow, TARGET_MS, type PerfRow } from "./perfRow";
@@ -72,6 +73,14 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
+/// DevTools trace on: its time is not a clean measurement, its counts are.
+const PROBE = process.env.PROBE === "1";
+/// `CLOCK=cpu` times each burst in main-thread CPU time (`threadTicks`), not wall time: a busy shared runner
+/// stretches wall time by whatever else it runs (p95 swung 40% between runs), CPU time much less.
+const CPU_CLOCK = process.env.CLOCK === "cpu";
+/// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
+const INVALIDATIONS = process.env.INVALIDATIONS === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -268,6 +277,85 @@ async function metric(cdp: CDPSession, name: string): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
   return metrics.find((each) => each.name === name)?.value ?? 0;
 }
+/// INVALIDATIONS=1: what made the page restyle and lay out again while `run` played a burst, from a DevTools
+/// trace with invalidation tracking: per record, style recalcs and the elements they touched, and the most
+/// common invalidation reasons by element (`reason node`), and which rows React drew.
+async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  const events: { name: string; args?: { data?: Record<string, unknown>; elementCount?: number } }[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as typeof events));
+  cdp.on("Tracing.dataCollected", onData);
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const reasons = new Map<string, number>();
+  let styled = 0;
+  let recalcs = 0;
+  for (const event of events) {
+    if (event.name === "UpdateLayoutTree") {
+      recalcs += 1;
+      styled += event.args?.elementCount ?? 0;
+    }
+    if (!event.name.endsWith("InvalidationTracking")) continue;
+    const data = event.args?.data ?? {};
+    // A subtree invalidation names the classes and attributes its invalidation set matched: which one
+    // flipped on the node, so the whole thread restyled.
+    type InvalidationSet = { classes?: string[]; attributes?: string[]; ids?: string[]; subtree?: boolean };
+    const sets = [
+      ...((data.invalidationList as InvalidationSet[] | undefined) ?? []).flatMap((set) => [
+        ...(set.subtree ? ["subtree"] : []),
+        ...(set.classes ?? []).map((name) => `.${name}`),
+        ...(set.attributes ?? []).map((name) => `[${name}]`),
+        ...(set.ids ?? []).map((name) => `#${name}`),
+      ]),
+      ...((data.selectors as { selector?: string }[] | undefined) ?? []).map((each) => `{${each.selector ?? ""}}`),
+    ]
+      .slice(0, 4)
+      .join(" ");
+    const why =
+      (data.reason as string | undefined) ??
+      [
+        data.changedAttribute && `attr ${String(data.changedAttribute)}`,
+        data.changedClass && `class ${String(data.changedClass)}`,
+        data.changedPseudo && `pseudo ${String(data.changedPseudo)}`,
+        data.changedId && `id`,
+        data.invalidationSet && "set",
+      ]
+        .filter(Boolean)
+        .join(",");
+    const what = [why, sets].filter(Boolean).join(" ");
+    const node = String(data.nodeName ?? "").slice(0, 60);
+    const key = `${event.name.replace("InvalidationTracking", "")}: ${what || "?"} @ ${node}`;
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const rows = Object.entries(renders)
+    .filter(([name]) => name.startsWith("row:") || name.startsWith("content:"))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, count]) => `${name.slice(0, 40)}=${count}`)
+    .join(" ");
+  const per = (value: number) => Math.round((value / records) * 10) / 10;
+  const top = [...reasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Number(process.env.INVALIDATIONS_TOP) || 14)
+    .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
+    .join("");
+  return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
+}
+
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
@@ -294,6 +382,7 @@ async function openPage(ctx: Ctx, log: ReplayLog, served: number, status: string
   const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
   await page.addInitScript(instrument, start);
   await installPaintedFrames(page);
+  if (PROBE) await installFoldProbe(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
   if (PROFILE) await cdp.send("Profiler.enable");
@@ -371,6 +460,17 @@ type BurstResult = {
   totalMs?: Map<string, number>;
   /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
   dom?: { elements: number; mounted: number; animations: number };
+  /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
+  /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
+  /// elements one pass touched. Work per update that follows the rows in view shows here.
+  probe?: {
+    reads: number;
+    forced: number;
+    rowRenders: number;
+    contentRenders: number;
+    layoutObjects: number;
+    styled: number;
+  };
 };
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
@@ -477,6 +577,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     if (!play!.socket) throw new Error(`${log.name}: the pane never attached`);
     await rest(page);
     const heapBefore = await heapMb(cdp);
+    // CLOCK=cpu: the per-update rows count the renderer main thread's CPU time in its tasks, not their wall
+    // time, which also counts the time a task waits on a busy shared runner.
+    const clock = CPU_CLOCK ? ((await cpuSession(page, true)) ?? cdp) : cdp;
     const since = await page.evaluate(() => performance.now());
     const bursts: BurstResult[] = [];
     const inBurst = new Map<number, (typeof log.bursts)[number]>();
@@ -488,23 +591,51 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       if (burst) {
         await paint(page, 2);
         if (PROFILE) await cdp.send("Profiler.start");
-        const taskBefore = await metric(cdp, "TaskDuration");
+        const taskBefore = await metric(clock, "TaskDuration");
         const windowStart = await page.evaluate(() => performance.now());
-        for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
-          const event = log.events[index]!;
-          await clockTo(page, event.at);
-          play!.served = event.seq;
-          emit(event);
-          await paint(page, 1);
-        }
-        await paint(page, 2);
-        const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
+        const playBurst = async () => {
+          for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
+            const event = log.events[index]!;
+            await clockTo(page, event.at);
+            play!.served = event.seq;
+            emit(event);
+            await paint(page, 1);
+          }
+        };
         const records = burst.toSeq - burst.fromSeq + 1;
+        let probe: BurstResult["probe"];
+        if (PROBE) {
+          await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+          const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
+          const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+            string,
+            number
+          >;
+          const sum = (prefix: string) =>
+            Object.entries(renders).reduce((total, [name, count]) => total + (name.startsWith(prefix) ? count : 0), 0);
+          const per = (value: number) => Math.round((value / records) * 100) / 100;
+          probe = {
+            reads: per(cost.reads),
+            forced: per(cost.forcedLayouts ?? 0),
+            rowRenders: per(sum("row:")),
+            contentRenders: per(sum("content:")),
+            layoutObjects: cost.layoutObjectsMax ?? 0,
+            styled: cost.styleElementsMax ?? 0,
+          };
+        } else if (INVALIDATIONS) {
+          await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+          console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
+        } else {
+          await playBurst();
+          await paint(page, 2);
+        }
+        const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
         const dom = await domSize(page);
         bursts.push({
           dom,
+          ...(probe ? { probe } : {}),
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -818,6 +949,11 @@ if (import.meta.main) {
             `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
               (burst.dom
                 ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : "") +
+              (burst.probe
+                ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
+                  `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.

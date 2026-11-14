@@ -28,6 +28,17 @@ struct PaneFrame {
     since: Option<Instant>,
     /// The hold ran out and the pane drew the update live: no more wake.
     released: bool,
+    /// The terminal's synchronized update start count when the pane last
+    /// saw it in an update ([`ghostty_vt::Terminal::synchronized_update_starts`]).
+    /// Another count means a new update began since, even when the last
+    /// one ended and the next began between two draws.
+    starts: u64,
+    /// The hold that runs (or ran out) began because a new update started
+    /// after an expired one, and the pane has not drawn live since. Such a
+    /// hold ends with a live draw before another new update can hold again,
+    /// so a program that starts updates nonstop is drawn at least every
+    /// other hold.
+    restarted: bool,
 }
 
 /// Each drawn terminal's last frame and its synchronized update, if any. One
@@ -40,23 +51,43 @@ pub(crate) struct SynchronizedOutput {
 impl SynchronizedOutput {
     /// The frame to draw for `surface` now: the last drawn frame while a
     /// synchronized update holds it, else `build()`'s (kept as the last).
+    /// `update`: the update the terminal holds open now, by its start count
+    /// (`SurfaceHandle::synchronized_update`); `None` when it holds none.
     pub(crate) fn frame<E>(
         &mut self,
         surface: SurfaceId,
-        synchronized: bool,
+        update: Option<u64>,
         now: Instant,
         build: impl FnOnce() -> Result<Arc<SurfaceRenderFrame>, E>,
     ) -> Result<Arc<SurfaceRenderFrame>, E> {
         if let Some(pane) = self.panes.get_mut(&surface) {
-            if !synchronized {
-                pane.since = None;
-                pane.released = false;
-            } else {
-                let since = *pane.since.get_or_insert(now);
-                if !pane.released && now < since + SYNCHRONIZED_OUTPUT_HOLD {
-                    return Ok(pane.last.clone());
+            match update {
+                None => {
+                    pane.since = None;
+                    pane.released = false;
+                    pane.restarted = false;
                 }
-                pane.released = true;
+                Some(starts) => {
+                    // An update that began after the one whose hold ran out
+                    // holds again, even when the program ended the old one
+                    // and began this one since the last draw, unless that
+                    // hold itself was such a restart and has not drawn live
+                    // yet. One that began while a hold runs keeps that
+                    // hold's end.
+                    let expired = pane.released
+                        || pane.since.is_some_and(|since| since + SYNCHRONIZED_OUTPUT_HOLD <= now);
+                    if expired && pane.starts != starts && !pane.restarted {
+                        pane.since = None;
+                        pane.released = false;
+                        pane.restarted = true;
+                    }
+                    pane.starts = starts;
+                    let since = *pane.since.get_or_insert(now);
+                    if !pane.released && now < since + SYNCHRONIZED_OUTPUT_HOLD {
+                        return Ok(pane.last.clone());
+                    }
+                    pane.released = true;
+                }
             }
         }
         let frame = build()?;
@@ -64,8 +95,11 @@ impl SynchronizedOutput {
             last: frame.clone(),
             since: None,
             released: false,
+            starts: update.unwrap_or_default(),
+            restarted: false,
         });
         pane.last = frame.clone();
+        pane.restarted = false;
         Ok(frame)
     }
 
@@ -137,7 +171,7 @@ mod tests {
 
     fn draw(hold: &mut SynchronizedOutput, synchronized: bool, at: Instant, live: &str) -> String {
         let built = frame_of(live);
-        text(&hold.frame::<()>(1, synchronized, at, || Ok(built)).unwrap())
+        text(&hold.frame::<()>(1, synchronized.then_some(1), at, || Ok(built)).unwrap())
     }
 
     #[test]
@@ -200,6 +234,41 @@ mod tests {
         assert_eq!(hold.cap_wait(None, late), Some(Duration::ZERO), "a passed hold wakes at once");
         assert!(hold.release_expired(late));
         assert_eq!(hold.cap_wait(None, late), None, "a released hold never wakes the loop again");
+    }
+
+    /// A program that never leaves the mode at a draw but begins a new update
+    /// every few milliseconds is still drawn live: a hold a new update began
+    /// draws live at its end before another new update can hold again.
+    #[test]
+    fn a_program_that_keeps_starting_updates_is_still_drawn() {
+        let mut hold = SynchronizedOutput::default();
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        assert_eq!(draw(&mut hold, false, start, "before"), "before");
+        let bound = 2 * SYNCHRONIZED_OUTPUT_HOLD.as_millis() as u64 + 16;
+        let drawn_live = (1..=bound).step_by(8).enumerate().find(|&(starts, at)| {
+            let built = frame_of("live");
+            let shown = hold.frame::<()>(1, Some(starts as u64 + 1), ms(at), || Ok(built));
+            text(&shown.unwrap()) == "live"
+        });
+        assert!(drawn_live.is_some(), "a program always starting a new update was never drawn");
+    }
+
+    /// The next update holds again even when its output reaches the pane
+    /// past the old hold's end but before the event loop released it.
+    #[test]
+    fn an_update_that_starts_past_an_unreleased_hold_end_holds_again() {
+        let mut hold = SynchronizedOutput::default();
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        let draw_update = |hold: &mut SynchronizedOutput, starts, at, live: &str| {
+            let built = frame_of(live);
+            text(&hold.frame::<()>(1, Some(starts), at, || Ok(built)).unwrap())
+        };
+        assert_eq!(draw(&mut hold, false, start, "before"), "before");
+        assert_eq!(draw_update(&mut hold, 1, ms(1), "stuck"), "before");
+        let late = ms(1) + SYNCHRONIZED_OUTPUT_HOLD + Duration::from_millis(5);
+        assert_eq!(draw_update(&mut hold, 2, late, "half"), "before", "the next update held");
     }
 
     #[test]

@@ -42,8 +42,9 @@ it into each new extension.
    `apps/subscriptions.rs` but not declared in the catalog, so it is untyped (#41582 adds them).
 4. **Places not built:** `render: web` panes, New Tab widgets (removed 2026-11-11; a whole New Tab
    page, `cmux.newtab/1`, is built and shows only when the person sets `tabs.newTabApp`;
-   `cmux.newtab.widget/1` is not in
-   `cmux-app-manifest/src/interfaces.rs`), chat widgets, status items (validated, never drawn),
+   `cmux.newtab.widget/1` is not in `cmux-app-manifest/src/interfaces.rs`), status items
+   (validated, never drawn), chat widgets (`cmux.chat.widget/1` is validated and routed by the
+   daemon, `apps.chat_widgets.route`; the transcript does not draw them yet),
    right sidebar panels. `cmux ext new` scaffolds only a sidebar section.
 5. **Sharing.** Extensions install from a local folder only; `cmux ext add/share/search` is #42068.
 6. **Budgets.** The batch-rate ladder (Slowed, Paused) is designed but not enforced (#41554); the

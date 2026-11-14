@@ -392,4 +392,32 @@ mod apps {
         assert_eq!(h.eval("globalThis.seen"), json!("g9"));
         assert!(h.done[&3].0);
     }
+
+    /// QuickJS has no Intl, and `toLocaleTimeString(..., { timeZone })` ignores the zone, so an
+    /// extension (a world clock) reads another zone's offset from `cmux.time.zone`.
+    #[test]
+    fn cmux_time_zone_answers_any_iana_zone_with_its_offset_at_an_instant() {
+        let mut h = Harness::new("");
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("Asia/Tokyo", 0)"#),
+            json!({ "zone": "Asia/Tokyo", "offsetMinutes": 540, "abbreviation": "JST" })
+        );
+        // 2026-07-01 and 2026-01-15, 12:00 UTC: daylight time, then standard time.
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12))"#),
+            json!({ "zone": "America/New_York", "offsetMinutes": -240, "abbreviation": "EDT" })
+        );
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("America/New_York", Date.UTC(2026, 0, 15, 12))"#),
+            json!({ "zone": "America/New_York", "offsetMinutes": -300, "abbreviation": "EST" })
+        );
+        // A half-hour zone, and no instant given means now.
+        assert_eq!(h.eval(r#"cmux.time.zone("Asia/Kolkata").offsetMinutes"#), json!(330));
+        assert_eq!(
+            h.eval(
+                r#"(() => { try { cmux.time.zone("Mars/Olympus", 0); return null } catch (e) { return [e.name, e.code] } })()"#
+            ),
+            json!(["CmuxError", "zone.unknown"])
+        );
+    }
 }

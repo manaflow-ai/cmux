@@ -20,3 +20,5 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 tokio = { version = "1.52", optional = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 
+[dev-dependencies]
+acpmux-book = { path = "../acpmux-book" }

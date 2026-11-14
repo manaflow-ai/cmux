@@ -465,6 +465,120 @@ fn a_keyframe_burst_alone_is_not_overuse() {
 }
 
 #[test]
+fn split_burst_feedback_does_not_turn_tail_processing_into_queue_growth() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    cc.on_sent(0, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    let sent = 100_000u64;
+    let arrivals: Vec<_> = (1..=300u16)
+        .map(|seq| {
+            cc.on_sent(seq, sent);
+            Arrival {
+                transport_seq: seq,
+                // Serialization plus decoding the frame before reading its parity tail.
+                arrival_us: (sent
+                    + 25_000
+                    + u64::from(seq - 1) * 40
+                    + if seq > 256 { 10_000 } else { 0 }) as u32,
+            }
+        })
+        .collect();
+    cc.on_feedback(&arrivals[..128], 0.0, 155_000);
+    let target = cc.target_bps();
+    cc.on_feedback(&arrivals[128..256], 0.0, 160_000);
+    cc.on_feedback(&arrivals[256..], 0.0, 175_000);
+    assert_ne!(cc.usage(), Usage::Overuse, "one burst is not new queue-growth evidence");
+    assert_eq!(cc.target_bps(), target, "fragments must neither cut nor grow the target");
+}
+
+#[test]
+fn split_burst_feedback_still_detects_queue_growth_across_distinct_bursts() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let initial = cc.target_bps();
+    for burst in 0..4u16 {
+        let sent = u64::from(burst) * 100_000;
+        let seq = burst * 2;
+        cc.on_sent(seq, sent);
+        cc.on_sent(seq + 1, sent);
+        let delay = 25_000 + u64::from(burst) * 10_000;
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + delay) as u32 }],
+            0.0,
+            sent + delay + 25_000,
+        );
+        let target = cc.target_bps();
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq + 1, arrival_us: (sent + delay + 10_000) as u32 }],
+            0.0,
+            sent + delay + 35_000,
+        );
+        assert_eq!(cc.target_bps(), target, "one cut per independent timing sample");
+    }
+    assert_eq!(cc.usage(), Usage::Overuse);
+    assert!(cc.target_bps() < initial, "sustained queue growth must still reduce bitrate");
+}
+
+#[test]
+fn split_burst_feedback_ignores_old_tails_mixed_with_a_new_burst() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    for seq in [0, 1] {
+        cc.on_sent(seq, 0);
+    }
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(2, 100_000);
+    cc.on_feedback(
+        &[
+            Arrival { transport_seq: 1, arrival_us: 26_000 },
+            Arrival { transport_seq: 2, arrival_us: 145_000 },
+        ],
+        0.0,
+        170_000,
+    );
+    assert_eq!(cc.usage(), Usage::Overuse, "an old tail must not hide new queue growth");
+}
+
+#[test]
+fn split_burst_feedback_handles_clock_wrap_retransmits_and_path_reset() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let sent = u64::from(u32::MAX) - 30_000;
+    cc.on_sent(u16::MAX, sent);
+    cc.on_sent(0, sent);
+    cc.on_sent(1, sent);
+    cc.on_feedback(
+        &[Arrival { transport_seq: u16::MAX, arrival_us: (sent + 25_000) as u32 }],
+        0.0,
+        sent + 50_000,
+    );
+    let target = cc.target_bps();
+    cc.on_retransmitted(1);
+    cc.on_feedback(
+        &[
+            Arrival { transport_seq: 0, arrival_us: (sent + 40_000) as u32 },
+            Arrival { transport_seq: 1, arrival_us: (sent + 80_000) as u32 },
+        ],
+        0.0,
+        sent + 105_000,
+    );
+    assert_eq!(cc.target_bps(), target);
+    cc.on_sent(2, sent + 100_000);
+    cc.on_feedback(
+        &[Arrival { transport_seq: 2, arrival_us: (sent + 125_000) as u32 }],
+        0.0,
+        sent + 150_000,
+    );
+    assert_eq!(cc.usage(), Usage::Normal);
+    assert!(cc.target_bps() > target);
+    cc.on_path_changed(PathKind::DirectLan);
+    cc.on_sent(3, sent + 200_000);
+    cc.on_feedback(
+        &[Arrival { transport_seq: 3, arrival_us: (sent + 280_000) as u32 }],
+        0.0,
+        sent + 305_000,
+    );
+    assert_eq!(cc.usage(), Usage::Normal, "a path change starts a fresh delay baseline");
+}
+
+#[test]
 fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
     cc.on_sent(0, 0);
@@ -478,4 +592,46 @@ fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
         cc.on_feedback(&[], 0.0, now);
         assert_eq!(cc.target_bps(), reduced, "an ACK or NACK alone is not more congestion");
     }
+}
+
+#[test]
+fn one_frame_split_over_wire_feedback_does_not_create_congestion() {
+    use cmux_rd_proto::MAX_ARRIVALS;
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let (mut seq, mut now) = (0u16, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 3);
+    // All shards belong to one send burst. Its 12 ms serialization spans three
+    // real feedback packets; splitting the receipt is not a growing path queue.
+    let arrivals: Vec<_> = (0..300u64)
+        .map(|i| {
+            cc.on_sent(seq, now);
+            let arrival = Arrival { transport_seq: seq, arrival_us: (now + 5_000 + i * 40) as u32 };
+            seq = seq.wrapping_add(1);
+            arrival
+        })
+        .collect();
+    let before = cc.target_bps();
+    for chunk in arrivals.chunks(MAX_ARRIVALS) {
+        cc.on_feedback(chunk, 0.0, now + 50_000);
+        assert_ne!(
+            cc.usage(),
+            Usage::Overuse,
+            "another receipt of the same burst is not new queue growth"
+        );
+        assert!(cc.target_bps() >= before);
+    }
+}
+
+#[test]
+fn an_older_frame_arrival_cannot_replace_a_newer_delay_sample() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    cc.on_sent(0, 0);
+    cc.on_sent(1, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(2, 100_000);
+    cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 125_000 }], 0.0, 150_000);
+    let before = cc.target_bps();
+    cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 135_000 }], 0.0, 160_000);
+    assert_eq!(cc.target_bps(), before, "a reordered old shard is not a new path sample");
+    assert_ne!(cc.usage(), Usage::Overuse);
 }

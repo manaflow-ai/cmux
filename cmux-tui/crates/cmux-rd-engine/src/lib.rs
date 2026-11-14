@@ -20,7 +20,7 @@ use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
     Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, flags,
+    REF_NONE, flags,
 };
 
 pub use cmux_rd_core::loss::LossMeter;
@@ -210,6 +210,10 @@ impl Upstream {
             .last_feedback_us
             .is_none_or(|last| now_us.saturating_sub(last) >= UPSTREAM_FEEDBACK_US);
         self.released_since_feedback
+            || self
+                .reassembler
+                .next_nack_us(UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US)
+                .is_some_and(|deadline| now_us >= deadline)
             || (interval_passed && (!self.arrivals.is_empty() || self.reassembler.need_recovery()))
     }
 
@@ -220,16 +224,8 @@ impl Upstream {
         self.released_since_feedback = false;
         self.last_feedback_us = Some(now_us);
         let take = self.arrivals.len().min(MAX_ARRIVALS);
-        let nacks = self
-            .reassembler
-            .missing(now_us, UPSTREAM_NACK_AFTER_US)
-            .into_iter()
-            .take(MAX_NACK_FRAMES)
-            .map(|(frame, indexes)| Nack {
-                frame,
-                indexes: indexes.into_iter().take(MAX_NACK_INDEXES).collect(),
-            })
-            .collect();
+        let nacks =
+            self.reassembler.take_nacks(now_us, UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US);
         let fb = Feedback {
             acked_frame: self.reassembler.last_released(),
             decode_us: 0,
@@ -259,7 +255,14 @@ impl Upstream {
         }
         let feedback = (!self.arrivals.is_empty() || self.reassembler.need_recovery())
             .then(|| self.last_feedback_us.map_or(0, |l| l.saturating_add(UPSTREAM_FEEDBACK_US)));
-        [feedback, self.reassembler.next_expiry_us()].into_iter().flatten().min()
+        [
+            feedback,
+            self.reassembler.next_expiry_us(),
+            self.reassembler.next_nack_us(UPSTREAM_NACK_AFTER_US, UPSTREAM_FEEDBACK_US),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -623,7 +626,8 @@ impl MediaEngine {
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         let mut budget = MAX_RESENDS_PER_FEEDBACK;

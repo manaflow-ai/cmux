@@ -170,6 +170,15 @@ impl Manifest {
         self.implement("cmux.newtab/1", export, title, symbol, None)
     }
 
+    /// A chat widget (`cmux.chat.widget/1`) drawn by the script's `export`: a card in the agent
+    /// chat under each tool call whose name matches one of `tools` (`*` matches any run of
+    /// characters), and for widget parts that name this extension. With no `tools` it draws only
+    /// the widget parts.
+    pub fn chat_widget(self, export: &str, title: &str, symbol: &str, tools: &[&str]) -> Self {
+        let options = (!tools.is_empty()).then(|| json!({ "tools": tools }));
+        self.implement("cmux.chat.widget/1", export, title, symbol, options)
+    }
+
     /// Asks for `scope`; `why` is what the consent card shows the person.
     pub fn scope(mut self, scope: &str, why: &str) -> Self {
         self.insert_in("scopes", scope, json!(why));

@@ -23,9 +23,9 @@ The first run asks you to install it (a card in cmux). Then place the section fr
 edit mode and open the pane from the command palette ("Activity feed"). Edit `src/main.ts` and
 save: cmux redraws the section in place, and `ext dev` prints `reloaded in N ms`.
 
-Outside this repository, copy the folder, run `npm install` (the dependency is
-`cmux-extension-sdk`) and remove `paths` from `tsconfig.json`; in this repository `paths` points
-the import at the SDK's source so the folder builds with no install.
+Outside this repository, copy the folder and remove `paths` from `tsconfig.json`: `cmux ext dev`
+builds it on the SDK built into cmux, with no install. In this repository `paths` points the import
+at the SDK's source.
 
 ## Files
 

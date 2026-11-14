@@ -1170,9 +1170,25 @@ def cmd_report(args: argparse.Namespace) -> int:
         else:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite", "message": f"no test result at {x}: the suite did not run", "where": x})
+    agent_verdict = False
     for extra in args.extra or []:
         body, unreadable = read_input(Path(extra), "agent reviewer pass")
         findings += unreadable + [dict(f) for f in (body or [])]
+        agent_verdict = agent_verdict or isinstance(body, list)
+    # The agent pass skips by name only where it cannot run (a fork pull
+    # request has no token); the marker says why.
+    for item in args.agent_skipped:
+        body, unreadable = read_input(Path(item), "agent reviewer pass")
+        findings += unreadable
+        if isinstance(body, dict) and body.get("skipped") is True:
+            agent_verdict = True
+            findings.append({"rule": "agent.skipped", "guideline": "-", "severity": "warning",
+                             "source": "agent reviewer pass", "where": "",
+                             "message": f"the agent reviewer pass did not run: {str(body.get('reason', 'no reason given'))[:200]}"})
+    if args.expect_agent and not agent_verdict:
+        findings.append({"rule": "agent.missing", "guideline": "2.1", "severity": "blocker",
+                         "source": "agent reviewer pass", "where": "",
+                         "message": "the agent reviewer pass left no verdict (no findings and no skip marker reached the report)"})
     for log in args.suite_log:
         findings += suite_log_findings(Path(log))
     for item in args.suite_status:
@@ -1192,7 +1208,16 @@ def cmd_report(args: argparse.Namespace) -> int:
     if args.expect_lint and lint is None:
         findings.append({"rule": "lint.missing", "guideline": "2.1", "severity": "blocker", "source": "guideline lint",
                          "message": "the guideline lint left no result, so the build is unjudged", "where": ""})
-    for family in args.expect_device:
+    # A family the image has no simulator for leaves {family, skipped: true}
+    # instead of a result; it counts only for an --expect-device-or-skipped
+    # family, never for one that must be walked.
+    skipped: set[str] = set()
+    for item in args.skipped:
+        body, unreadable = read_input(Path(item), "reviewer-path suite")
+        findings += unreadable
+        if isinstance(body, dict) and body.get("skipped") is True:
+            skipped.add(str(body.get("family", "")))
+    for family in args.expect_device + [f for f in args.expect_device_or_skipped if f not in skipped]:
         if family not in tests:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite",
@@ -1266,6 +1291,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="a missing --lint result is a blocker: the gate fails closed")
     report.add_argument("--expect-device", action="append", default=[],
                         help="a device family (iphone, ipad) whose suite result must be present")
+    report.add_argument("--expect-device-or-skipped", action="append", default=[],
+                        help="a device family (duo) whose suite result or --skipped marker must be present")
+    report.add_argument("--skipped", action="append", default=[],
+                        help="{family, skipped: true}: the image had no simulator for that family")
+    report.add_argument("--expect-agent", action="store_true",
+                        help="the agent reviewer pass ran: no --extra verdict and no --agent-skipped marker blocks")
+    report.add_argument("--agent-skipped", action="append", default=[],
+                        help="{skipped: true, reason}: the agent pass could not run for this event (a fork pull request)")
     report.add_argument("--known-blockers",
                         help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
     report.add_argument("--proposed-known-blockers",

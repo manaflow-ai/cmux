@@ -155,6 +155,7 @@ impl UpstreamSender {
     /// A path change resets the delay baseline and applies relay caps.
     pub fn set_path(&mut self, path: PathKind) {
         self.cc.on_path_changed(path);
+        self.loss_meter.reset_congestion_window();
     }
 
     /// Counters for the status line.
@@ -252,7 +253,8 @@ impl UpstreamSender {
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_heard_us = Some(now_us);
         if fb.acked_frame > self.acked_frame && self.last_sent.is_some_and(|l| fb.acked_frame <= l)
         {
