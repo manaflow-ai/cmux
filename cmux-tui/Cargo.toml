@@ -21,6 +21,7 @@ members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/cmux-agent-cli-render",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
