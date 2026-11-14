@@ -23,11 +23,15 @@ required-features = ["engine"]
 default = ["engine"]
 # The VM, the process loop and the OS sandbox. The daemon's supervisor uses
 # only the wire types (`default-features = false`).
-engine = ["dep:rquickjs"]
+engine = ["dep:rquickjs", "dep:chrono", "dep:chrono-tz"]
 
 [dependencies]
 cmux-json.workspace = true
 rquickjs = { workspace = true, optional = true }
+# `cmux.time.zone`: QuickJS has no Intl, so the host answers zone offsets from
+# the IANA database built into chrono-tz (the sandbox can open no zoneinfo file).
+chrono = { workspace = true, optional = true }
+chrono-tz = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

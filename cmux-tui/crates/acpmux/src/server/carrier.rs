@@ -587,7 +587,12 @@ where
     let (mut sink, mut source) = ws.split();
     let (in_tx, in_rx) = tokio::sync::mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<String>(4096);
+    // The owner's link may carry the v2 list stream: its frames wait here, never in `out_tx`.
+    let slot = hub.link_v2.slot();
+    let writer_slot = slot.clone();
+    let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
     let reader = tokio::spawn(async move {
+        let _reader_end = reader_end;
         while let Some(Ok(frame)) = source.next().await {
             match frame {
                 Frame::Text(t) if in_tx.send(t.to_string()).await.is_err() => break,
@@ -598,9 +603,10 @@ where
     });
     let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
+        let mut streak = 0;
         loop {
             let line = tokio::select! {
-                line = out_rx.recv() => line,
+                line = crate::link_v2::next_line(&mut out_rx, writer_slot.as_deref(), &mut streak) => line,
                 _ = &mut stopped => None,
             };
             let Some(line) = line else { break };
@@ -611,7 +617,7 @@ where
         }
         let _ = sink.close().await;
     });
-    serve_attested(hub, in_rx, out_tx, who).await;
+    serve_attested_link(hub, in_rx, out_tx, who, slot).await;
     let _ = stop.send(());
     reader.abort();
     let _ = writer.await;
@@ -623,6 +629,18 @@ pub async fn serve_attested(
     inbound: tokio::sync::mpsc::Receiver<String>,
     out: tokio::sync::mpsc::Sender<String>,
     who: Attested,
+) {
+    serve_attested_link(hub, inbound, out, who, None).await;
+}
+
+/// [`serve_attested`] whose writer drains `link`, the slot of the v2 list stream on an owner's
+/// link (`link_v2.rs`).
+pub async fn serve_attested_link(
+    hub: Arc<Hub>,
+    inbound: tokio::sync::mpsc::Receiver<String>,
+    out: tokio::sync::mpsc::Sender<String>,
+    who: Attested,
+    link: Option<Arc<crate::link_v2::Slot>>,
 ) {
     let (origin, auth) = who.served_as();
     tracing::info!(
@@ -645,6 +663,7 @@ pub async fn serve_attested(
         None,
         Some(who),
         None,
+        link,
     )
     .await
 }

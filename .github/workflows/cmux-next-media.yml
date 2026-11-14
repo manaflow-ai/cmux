@@ -762,7 +762,7 @@ jobs:
           name: cmux-next-media
           path: ${{ runner.temp }}/media
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 1  # the hand-off job dispatches the publish run at once; 140 MB a run
 
       - name: Unregister the base worktree
         if: ${{ always() }}

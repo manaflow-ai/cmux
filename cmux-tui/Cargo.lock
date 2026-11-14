@@ -151,8 +151,10 @@ dependencies = [
  "acpmux-client",
  "arc-swap",
  "cmux-scope",
+ "libc",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -1139,6 +1141,8 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "cmux-json",
  "libc",
  "rquickjs",
@@ -1447,6 +1451,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1535,6 +1540,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "sha2 0.10.9",
+ "windows",
 ]
 
 [[package]]
@@ -2311,6 +2317,9 @@ dependencies = [
 name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
+ "acpmux",
+ "acpmux-client",
+ "acpmux-list-types",
  "anyhow",
  "arc-swap",
  "base64",

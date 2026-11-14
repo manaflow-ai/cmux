@@ -83,6 +83,26 @@ impl Surface {
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
+        // With the holder on, the new shell runs there as a new terminal's
+        // does: a respawn never brings back a host process per tab. The
+        // surface is active at once; the respawn's install and activation
+        // treat it as an adopted one (`activate_hosted_launch_stream`).
+        #[cfg(unix)]
+        if crate::holder_runtime::enabled() {
+            return Self::spawn_on_holder(HolderSpawn {
+                id,
+                opts,
+                mux,
+                host_root: root,
+                terminal_id: Some(terminal_id),
+                seed: seed.to_vec(),
+                terminal_public_id,
+                resource_identity: Some(resource_identity),
+                kitty_reservation,
+                initial_kitty_limits,
+                cell_pixels,
+            });
+        }
         let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let attachment = crate::terminal_host_runtime::launch_terminal_host_seeded(
             &opts,
