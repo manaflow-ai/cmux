@@ -24,7 +24,7 @@ nonisolated public struct UpdatePreferences: Equatable, Sendable {
     public var whatsNewInstall: Bool
 
     public init(installOnQuit: Bool = false, notify: UpdateNotifyMode = .badge, keepPreviousVersions: Int = 1,
-                oneClickInstall: Bool = false, whatsNewInstall: Bool = false) {
+                oneClickInstall: Bool = false, whatsNewInstall: Bool = true) {
         self.whatsNewInstall = whatsNewInstall
         self.installOnQuit = installOnQuit
         self.notify = notify
