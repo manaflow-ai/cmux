@@ -155,10 +155,10 @@ impl Pipe {
 /// read per readiness, which never blocks. A pipe at its end, or failed, is ended.
 fn read_ready(pipes: &mut [Pipe], wait: Duration) {
     use std::os::fd::AsRawFd as _;
-    let open: Vec<usize> = (0..pipes.len()).filter(|at| !pipes[*at].ended).collect();
+    let mut open: Vec<&mut Pipe> = pipes.iter_mut().filter(|pipe| !pipe.ended).collect();
     let mut polled: Vec<libc::pollfd> = open
         .iter()
-        .map(|at| libc::pollfd { fd: pipes[*at].fd.as_raw_fd(), events: libc::POLLIN, revents: 0 })
+        .map(|pipe| libc::pollfd { fd: pipe.fd.as_raw_fd(), events: libc::POLLIN, revents: 0 })
         .collect();
     let millis = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX);
     let count = libc::nfds_t::try_from(polled.len()).unwrap_or(0);
@@ -167,17 +167,16 @@ fn read_ready(pipes: &mut [Pipe], wait: Duration) {
         return;
     }
     let mut buffer = [0u8; 16 * 1024];
-    for (polled, at) in polled.iter().zip(open) {
+    for (polled, pipe) in polled.iter().zip(open.iter_mut()) {
         if polled.revents == 0 {
             continue;
         }
-        let pipe = &mut pipes[at];
         // SAFETY: a read into a live buffer of its own length from a descriptor `pipe` owns.
         let read =
             unsafe { libc::read(pipe.fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
         match usize::try_from(read) {
             Ok(0) => pipe.ended = true,
-            Ok(read) => pipe.read.extend_from_slice(&buffer[..read]),
+            Ok(read) => pipe.read.extend_from_slice(buffer.get(..read).unwrap_or(&buffer)),
             Err(_) if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {
             }
             Err(_) => pipe.ended = true,
@@ -260,7 +259,7 @@ pub(in crate::cli::cloud_start_chat) fn read_by(
         let read = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
         match usize::try_from(read) {
             Ok(0) => return String::from_utf8(bytes).map_err(|error| error.to_string()),
-            Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+            Ok(read) => bytes.extend_from_slice(buffer.get(..read).unwrap_or(&buffer)),
             Err(_) => {
                 let error = std::io::Error::last_os_error();
                 if error.kind() != std::io::ErrorKind::Interrupted {
