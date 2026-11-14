@@ -218,25 +218,29 @@ impl Folders {
     /// values arriving from a text chunk or status-only update.
     pub fn apply(&self, entry: FolderEntry) -> io::Result<(Self, Option<FolderOp>)> {
         entry.validate()?;
+        Ok(self.apply_validated(entry))
+    }
+
+    pub(crate) fn apply_validated(&self, entry: FolderEntry) -> (Self, Option<FolderOp>) {
         let mut next = self.clone();
         let old = self.by_key.get(&entry.key).cloned();
         let Some(row) = FolderRow::from_entry(&entry).map(Arc::new) else {
             if let Some(old) = old {
                 next.by_key.remove(&entry.key);
                 next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });
-                return Ok((next, Some(FolderOp::Gone(entry.key))));
+                return (next, Some(FolderOp::Gone(entry.key)));
             }
-            return Ok((self.clone(), None));
+            return (self.clone(), None);
         };
         if old.as_ref().is_some_and(|old| old.as_ref() == row.as_ref()) {
-            return Ok((self.clone(), None));
+            return (self.clone(), None);
         }
         if let Some(old) = old {
             next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });
         }
         next.ordered.insert(FolderSortKey { at: row.at, key: entry.key.clone() }, row.clone());
         next.by_key.insert(entry.key, row.clone());
-        Ok((next, Some(FolderOp::Folder(row))))
+        (next, Some(FolderOp::Folder(row)))
     }
 
     pub fn window(&self, limit: usize, max_bytes: usize) -> io::Result<FolderPage> {
@@ -261,6 +265,17 @@ impl Folders {
         self.read_page(Some(cursor), FolderReadSide::Before, false, limit, max_bytes, None)
     }
 
+    pub fn validate_page_bound(limit: usize, max_bytes: usize) -> io::Result<()> {
+        if limit == 0
+            || limit > MAX_FOLDER_ROWS
+            || max_bytes == 0
+            || max_bytes > MAX_FOLDER_PAGE_BYTES
+        {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid folders page bound"));
+        }
+        Ok(())
+    }
+
     /// Reads a bounded keyset page. `bytes_read` counts encoded row bytes, the
     /// same cost unit used by the list page gates.
     pub fn read_page(
@@ -272,13 +287,40 @@ impl Folders {
         max_bytes: usize,
         filter: Option<&ListFilter>,
     ) -> io::Result<FolderPage> {
-        if limit == 0
-            || limit > MAX_FOLDER_ROWS
-            || max_bytes == 0
-            || max_bytes > MAX_FOLDER_PAGE_BYTES
-        {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid folders page bound"));
-        }
+        self.read_page_visible(cursor, side, inclusive, (limit, max_bytes), filter, |_| true)
+    }
+
+    /// Reads a page while applying an additional visibility predicate to each
+    /// candidate. Hidden rows consume the candidate bound and continuation but
+    /// no response bytes, matching the list's origin-removal rule. `bounds`
+    /// contains the candidate limit and encoded row byte budget.
+    pub fn read_page_visible(
+        &self,
+        cursor: Option<&FolderCursor>,
+        side: FolderReadSide,
+        inclusive: bool,
+        bounds: (usize, usize),
+        filter: Option<&ListFilter>,
+        visible: impl Fn(&FolderRow) -> bool,
+    ) -> io::Result<FolderPage> {
+        self.read_page_accounted(cursor, side, inclusive, bounds, filter, (visible, |_| 0))
+    }
+
+    /// Like `read_page_visible`, but also reserves each continuation's encoded
+    /// cost. Both hidden and returned candidates carry a continuation; a key
+    /// that would exceed the budget is left for the next page.
+    pub fn read_page_accounted(
+        &self,
+        cursor: Option<&FolderCursor>,
+        side: FolderReadSide,
+        inclusive: bool,
+        bounds: (usize, usize),
+        filter: Option<&ListFilter>,
+        predicates: (impl Fn(&FolderRow) -> bool, impl Fn(&FolderRow) -> usize),
+    ) -> io::Result<FolderPage> {
+        let (visible, cursor_bytes) = predicates;
+        let (limit, max_bytes) = bounds;
+        Self::validate_page_bound(limit, max_bytes)?;
         let anchor = cursor.map(FolderCursor::sort_key);
         let (start, end) = match (anchor.as_ref(), side) {
             (Some(anchor), FolderReadSide::After) => {
@@ -289,60 +331,49 @@ impl Folders {
             }
             (None, _) => (Unbounded, Unbounded),
         };
-        let mut candidates = Vec::with_capacity(limit.saturating_add(1));
-        let matches = |row: &FolderRow| {
-            filter.is_none_or(|filter| {
-                filter.origin.as_ref().is_none_or(|origin| row.origin.as_ref() == origin)
-            })
-        };
-        match side {
+        // The list contract bounds the number of candidates visited, including
+        // rows hidden by a filter. A continuation is answered by one seek past
+        // the last candidate, rather than consuming an extra row just for the
+        // flag (which could falsely claim work remains).
+        let candidates: Box<dyn Iterator<Item = &Arc<FolderRow>> + '_> = match side {
             FolderReadSide::After => {
-                for (_, row) in self
-                    .ordered
-                    .range::<_, FolderSortKey>((start, end))
-                    .take(limit.saturating_add(1))
-                {
-                    candidates.push(row.clone());
-                }
+                Box::new(self.ordered.range::<_, FolderSortKey>((start, end)).map(|(_, row)| row))
             }
-            FolderReadSide::Before => {
-                for (_, row) in self
-                    .ordered
-                    .range::<_, FolderSortKey>((start, end))
-                    .rev()
-                    .take(limit.saturating_add(1))
-                {
-                    candidates.push(row.clone());
-                }
-            }
-        }
-        let candidate_count = candidates.len();
-        let mut visited = Vec::with_capacity(candidate_count.min(limit));
+            FolderReadSide::Before => Box::new(
+                self.ordered.range::<_, FolderSortKey>((start, end)).rev().map(|(_, row)| row),
+            ),
+        };
+        let matches = |row: &FolderRow| {
+            visible(row)
+                && filter.is_none_or(|filter| {
+                    filter.origin.as_ref().is_none_or(|origin| row.origin.as_ref() == origin)
+                })
+        };
+        let mut visited = Vec::with_capacity(limit);
         let mut rows = Vec::new();
         let mut bytes_read = 0usize;
         let mut byte_limited = false;
-        for row in &candidates {
-            if rows.len() == limit {
-                break;
-            }
-            if !matches(row) {
-                visited.push(row.clone());
-                continue;
-            }
-            let row_bytes = row.encoded_len().saturating_add(1);
-            if bytes_read.saturating_add(row_bytes) > max_bytes {
-                if rows.is_empty() {
+        let mut first_cursor_bytes: Option<usize> = None;
+        for row in candidates.take(limit) {
+            let row_bytes = if matches(row) { row.encoded_len().saturating_add(1) } else { 0 };
+            let key_bytes = cursor_bytes(row);
+            let cursors = first_cursor_bytes.unwrap_or(key_bytes).saturating_add(key_bytes);
+            if bytes_read.saturating_add(row_bytes).saturating_add(cursors) > max_bytes {
+                if visited.is_empty() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "folders page byte budget cannot fit the next row",
+                        "folders page byte budget cannot fit the next candidate",
                     ));
                 }
                 byte_limited = true;
                 break;
             }
+            first_cursor_bytes.get_or_insert(key_bytes);
             visited.push(row.clone());
             bytes_read = bytes_read.saturating_add(row_bytes);
-            rows.push(row.clone());
+            if row_bytes != 0 {
+                rows.push(row.clone());
+            }
         }
         if side == FolderReadSide::Before {
             rows.reverse();
@@ -358,7 +389,14 @@ impl Folders {
         let before_key = candidate_first.map(|row| FolderCursor::new(row.at, row.key()));
         let after_key = candidate_last.map(|row| FolderCursor::new(row.at, row.key()));
         let has_before = match side {
-            FolderReadSide::Before => candidate_count > limit || byte_limited,
+            FolderReadSide::Before => {
+                before_key.as_ref().is_some_and(|key| {
+                    self.ordered
+                        .range::<_, FolderSortKey>((Unbounded, Excluded(&key.sort_key())))
+                        .next()
+                        .is_some()
+                }) || byte_limited
+            }
             FolderReadSide::After => before_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Unbounded, Excluded(&key.sort_key())))
@@ -367,7 +405,14 @@ impl Folders {
             }),
         };
         let has_after = match side {
-            FolderReadSide::After => candidate_count > limit || byte_limited,
+            FolderReadSide::After => {
+                after_key.as_ref().is_some_and(|key| {
+                    self.ordered
+                        .range::<_, FolderSortKey>((Excluded(&key.sort_key()), Unbounded))
+                        .next()
+                        .is_some()
+                }) || byte_limited
+            }
             FolderReadSide::Before => after_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Excluded(&key.sort_key()), Unbounded))
@@ -529,13 +574,43 @@ mod tests {
                 .0
         });
         let filter = ListFilter { origin: Some("peer".into()), ..ListFilter::default() };
+        let visits = std::cell::Cell::new(0);
         let page = folders
-            .read_page(None, FolderReadSide::After, false, 20, MAX_FOLDER_PAGE_BYTES, Some(&filter))
+            .read_page_visible(
+                None,
+                FolderReadSide::After,
+                false,
+                (20, MAX_FOLDER_PAGE_BYTES),
+                Some(&filter),
+                |_| {
+                    visits.set(visits.get() + 1);
+                    true
+                },
+            )
             .unwrap();
+        assert_eq!(visits.get(), 20, "hidden candidates consume the same bound");
         assert!(page.rows.is_empty());
         assert_eq!(page.bytes_read, 0);
         assert!(page.after_key.is_some());
         assert!(page.has_after);
+    }
+
+    #[test]
+    fn hidden_prefix_preserves_continuation_before_an_oversized_matching_row() {
+        let (folders, _) = Folders::new().apply(entry("hidden", "/a", "a", 2, 1)).unwrap();
+        let (folders, _) = folders.apply(entry("visible", "/b", "b", 1, 1)).unwrap();
+        let filter = ListFilter { origin: Some("visible".into()), ..ListFilter::default() };
+        let page =
+            folders.read_page(None, FolderReadSide::After, false, 20, 1, Some(&filter)).unwrap();
+        assert!(page.rows.is_empty());
+        assert!(page.has_after);
+        let cursor = page.after_key.unwrap();
+        assert_eq!(cursor.key.origin.as_ref(), "hidden");
+        assert!(
+            folders
+                .read_page(Some(&cursor), FolderReadSide::After, false, 20, 1, Some(&filter))
+                .is_err()
+        );
     }
 
     #[test]
