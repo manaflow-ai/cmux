@@ -451,7 +451,7 @@ mod tests {
         let row = summary_from_session(&hub, &session).unwrap();
         let local: Value = serde_json::from_str(row.extra.get()).unwrap();
         assert_eq!(local["stuckSince"], 30);
-        assert_eq!(local["stuckError"], "HTTP 503 bearer [redacted]");
+        assert_eq!(local["stuckError"], "HTTP 503 [redacted]");
         let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
         let peer_extra: Value = serde_json::from_str(peer.extra.get()).unwrap();
         assert_eq!(peer_extra["stuckSince"], 30);
