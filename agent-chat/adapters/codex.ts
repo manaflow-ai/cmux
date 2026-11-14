@@ -700,6 +700,7 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
       break;
     case "fastMode":
       if (typeof value !== "boolean") throw new Error("fastMode must be boolean");
+      if (value && !fastTier(st)) throw new Error(`unsupported fast mode for ${st.model}`);
       st.fastMode = value;
       break;
     case "approvals":
@@ -756,7 +757,15 @@ function buildOptions(st: CodexState): SessionOption[] {
     },
     { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: effort.choices },
   ];
-  if (fastTier(st)) opts.push({ id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode });
+  const fast = fastTier(st);
+  opts.push({
+    id: "fastMode",
+    label: "Fast",
+    kind: "toggle",
+    value: fast ? st.fastMode : false,
+    disabled: !fast,
+    description: fast ? undefined : "This model does not support fast mode.",
+  });
   opts.push(
     { id: "approvals", label: "Approvals", kind: "select", value: st.approvals, choices: APPROVAL_CHOICES },
     { id: "sandbox", label: "Sandbox", kind: "select", value: st.sandbox, choices: SANDBOX_CHOICES },
