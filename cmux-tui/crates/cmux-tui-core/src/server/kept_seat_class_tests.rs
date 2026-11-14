@@ -64,11 +64,11 @@ fn the_class_from_a_kept_hosts_seat_ends_with_the_seat() {
 }
 
 /// An adoption gives the terminal the seat of its session before the seat of
-/// the kept host ends. The client then has the class that the seat of its
-/// session gives: the same terminal, or the public id that the terminal has
-/// from then on.
+/// the kept host ends. The client keeps the terminal when the seat of its
+/// session names that same terminal. A seat that names another terminal gives
+/// the client no class: it is no terminal's client.
 #[test]
-fn the_class_from_a_kept_hosts_seat_is_the_session_seats_after_the_adoption() {
+fn the_class_after_the_end_of_a_kept_hosts_seat_is_the_same_terminal_or_no_terminal() {
     let mux = mux("adopted");
     let (record_path, mut record, _lease) = record_fixture("kept-seat-class-adopted");
     record.host_pid = std::os::unix::process::parent_id();
@@ -77,18 +77,18 @@ fn the_class_from_a_kept_hosts_seat_is_the_session_seats_after_the_adoption() {
     assert_eq!(liveness, TerminalHostLiveness::Live);
 
     let same = accept(&mux, SESSION, record.host_pid);
-    let renamed = accept(&mux, SESSION + 1, record.host_pid);
+    let other = accept(&mux, SESSION + 1, record.host_pid);
     assert_eq!(class(&mux, same), terminal(public_id.as_str()));
-    assert_eq!(class(&mux, renamed), terminal(public_id.as_str()));
+    assert_eq!(class(&mux, other), terminal(public_id.as_str()));
 
     let connections = mux.connection_stats();
     let session_seats = (
         connections.seat_terminal(Some(SESSION), Some(public_id.as_str())),
-        connections.seat_terminal(Some(SESSION + 1), Some("terminal-new")),
+        connections.seat_terminal(Some(SESSION + 1), Some("terminal-other")),
     );
     drop(seat);
     assert_eq!(class(&mux, same), terminal(public_id.as_str()), "the same terminal");
-    assert_eq!(class(&mux, renamed), terminal("terminal-new"), "the terminal's new id");
+    assert_eq!(class(&mux, other), LocalPeer::Other, "a seat of another terminal");
     drop(session_seats);
     if let Some(root) = record_path.parent() {
         let _ = std::fs::remove_dir_all(root);
@@ -122,30 +122,65 @@ fn the_class_from_a_kept_hosts_seat_ends_when_the_host_is_seated_twice() {
     mux.shutdown();
 }
 
-/// An accept records a class from the seat of a kept host only when the seat
-/// is there at the record. For a seat that ended before the record, the
-/// accept gives the class that an end of the seat gives. The count: the
-/// accept reads the host's start one time.
+/// A record has a class from the seat of a kept host only while that seat is
+/// there. The count: the accept reads the host's start one time.
 #[test]
-fn an_accept_that_meets_the_end_of_a_kept_hosts_seat_gives_no_class_from_it() {
+fn a_record_has_the_class_from_a_kept_hosts_seat_only_while_the_seat_is_there() {
     const HOST: u32 = 4_100_001;
     static SEAT: Mutex<Option<KeptHostSeat>> = Mutex::new(None);
     static READS: AtomicU64 = AtomicU64::new(0);
-    /// The start of the host. The second read is the accept's: the seat ends
-    /// in it.
+    /// The start of the host. The test holds the seat to the second read.
     fn start_of(process: u32) -> Option<ProcessStart> {
         if READS.fetch_add(1, Ordering::SeqCst) == 1 {
             drop(SEAT.lock().unwrap_or_else(PoisonError::into_inner).take());
         }
         (process == HOST).then_some(ProcessStart(7))
     }
-    let mux = mux("meets-the-end");
+    let mux = mux("while-the-seat-is-there");
     let host = KeptHost::read_by(HOST, Some(ProcessStart(9)), start_of);
     let seat = HostSeating::of(mux.connection_stats().clone(), Some("terminal-1")).seat_kept(host);
     *SEAT.lock().unwrap_or_else(PoisonError::into_inner) = Some(seat);
 
     let client = accept(&mux, SESSION, HOST);
     assert_eq!(READS.load(Ordering::SeqCst), 2, "one read for the seat, one for the accept");
-    assert_eq!(class(&mux, client), LocalPeer::Other, "the seat ended in the accept");
+    assert_eq!(class(&mux, client), LocalPeer::Other, "the seat is not there");
+    mux.shutdown();
+}
+
+/// The class from the seat of a kept host is the class of that one seat. A
+/// later seat of the same process is another seat: it does not hold the
+/// class, also when it is there at the record.
+#[test]
+fn a_later_seat_of_the_same_process_does_not_hold_the_class_from_a_kept_hosts_seat() {
+    const HOST: u32 = 4_200_001;
+    static LATER: Mutex<Option<HostSeating>> = Mutex::new(None);
+    static SEAT: Mutex<Option<KeptHostSeat>> = Mutex::new(None);
+    static READS: AtomicU64 = AtomicU64::new(0);
+    /// The start of the host. The test holds the first seat to the second
+    /// read, and the later seat from it.
+    fn start_of(process: u32) -> Option<ProcessStart> {
+        if READS.fetch_add(1, Ordering::SeqCst) == 1 {
+            drop(SEAT.lock().unwrap_or_else(PoisonError::into_inner).take());
+            let later = LATER.lock().unwrap_or_else(PoisonError::into_inner).take();
+            let host = KeptHost::read_by(HOST, Some(ProcessStart(9)), start_of);
+            let seat = later.map(|later| later.seat_kept(host));
+            *SEAT.lock().unwrap_or_else(PoisonError::into_inner) = seat;
+        }
+        (process == HOST).then_some(ProcessStart(7))
+    }
+    let mux = mux("later-seat");
+    let connections = mux.connection_stats().clone();
+    let host = KeptHost::read_by(HOST, Some(ProcessStart(9)), start_of);
+    let seat = HostSeating::of(connections.clone(), Some("terminal-1")).seat_kept(host);
+    *SEAT.lock().unwrap_or_else(PoisonError::into_inner) = Some(seat);
+    *LATER.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(HostSeating::of(connections, Some("terminal-2")));
+
+    let client = accept(&mux, SESSION, HOST);
+    assert_eq!(READS.load(Ordering::SeqCst), 3, "one read for each seat, one for the accept");
+    assert_eq!(class(&mux, client), LocalPeer::Other, "the later seat holds no class");
+    let second = accept(&mux, SESSION + 1, HOST);
+    assert_eq!(class(&mux, second), terminal("terminal-2"), "the later seat is there");
+    drop(SEAT.lock().unwrap_or_else(PoisonError::into_inner).take());
     mux.shutdown();
 }
