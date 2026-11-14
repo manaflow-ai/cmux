@@ -340,19 +340,40 @@ impl H264Encoder for OpenH264 {
             Some(f) => f,
             None => return,
         };
-        let mut info = SBitrateInfo { iLayer: SPATIAL_LAYER_ALL, iBitrate: (kbps * 1000) as c_int };
-        // SAFETY: a valid SBitrateInfo for the duration of each call on a live encoder.
-        let rc = unsafe {
-            set(
-                self.enc,
-                ENCODER_OPTION_MAX_BITRATE,
-                (&mut info as *mut SBitrateInfo).cast::<c_void>(),
-            );
-            set(self.enc, ENCODER_OPTION_BITRATE, (&mut info as *mut SBitrateInfo).cast::<c_void>())
+        let get = match self.vtbl().GetOption {
+            Some(f) => f,
+            None => return,
         };
-        if rc == 0 {
-            self.kbps = kbps;
+        let mut current = SBitrateInfo { iLayer: SPATIAL_LAYER_0, iBitrate: 0 };
+        // SAFETY: a live encoder and a writable SBitrateInfo for this option.
+        if unsafe {
+            get(self.enc, ENCODER_OPTION_BITRATE, (&mut current as *mut SBitrateInfo).cast())
+        } != 0
+        {
+            return;
         }
+        let requested = kbps.saturating_mul(1000).min(c_int::MAX as u32) as c_int;
+        // ALL updates the aggregate maximum only. The active layer's maximum
+        // otherwise stays at startup bitrate and rejects every upward retarget.
+        // Setters mutate before validating: read the actual target, first make
+        // both ceilings safe, then move the target and finally lower the caps.
+        // This also repairs a partially applied prior update without trusting
+        // the wrapper's cached bitrate.
+        let ceiling = current.iBitrate.max(requested);
+        for (option, layer, bitrate) in [
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0, ceiling),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL, ceiling),
+            (ENCODER_OPTION_BITRATE, SPATIAL_LAYER_ALL, requested),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0, requested),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL, requested),
+        ] {
+            let mut info = SBitrateInfo { iLayer: layer, iBitrate: bitrate };
+            // SAFETY: each option accepts SBitrateInfo and the encoder is live.
+            if unsafe { set(self.enc, option, (&mut info as *mut SBitrateInfo).cast()) } != 0 {
+                return;
+            }
+        }
+        self.kbps = kbps;
     }
 
     fn kbps(&self) -> u32 {
