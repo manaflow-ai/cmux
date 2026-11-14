@@ -62,14 +62,14 @@ pub(crate) fn ids(rows: &[RowRef]) -> Vec<u64> {
 /// Every settled row of the book, read forward a window at a time: (rowId, text).
 pub(crate) fn whole_book(log: &mut Log) -> Vec<(u64, Vec<u8>)> {
     let mut all = Vec::new();
-    let mut window = log.window(Anchor::Row { id: 1, side: Side::After }, 400, 256 * 1024);
+    let mut window = log.window(Anchor::Row { id: 1, side: Side::After }, 400, 256 * 1024).unwrap();
     loop {
         let (read, _) = texts(log, &window.rows);
         all.extend(ids(&window.rows).into_iter().zip(read));
         if !window.has_after {
             return all;
         }
-        window = log.page(Edge::After(window.hi), 256 * 1024);
+        window = log.page(Edge::After(window.hi), 256 * 1024).unwrap();
     }
 }
 

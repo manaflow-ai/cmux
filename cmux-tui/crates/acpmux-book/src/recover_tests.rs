@@ -122,7 +122,7 @@ fn killed_across_the_largest_record() {
         assert!(log.row(4).is_none(), "a row whose record was cut off has not settled");
         assert_eq!(log.append_settled(4, 1, RawRange::NONE, &large).unwrap(), 4, "cut {cut}");
         if cut.is_multiple_of(5) {
-            let window = log.window(Anchor::End, 400, 1 << 20);
+            let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
             assert_eq!(ids(&window.rows), vec![1, 2, 3, 4]);
             assert!(texts(&mut log, &window.rows).0[3] == large);
         }
