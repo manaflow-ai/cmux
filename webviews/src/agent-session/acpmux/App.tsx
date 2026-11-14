@@ -13780,6 +13780,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     copy={snapshot.peerCopy}
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
+                    asked={peerMachine.asked}
                     onReconnect={reconnectPeer}
                     // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
                     // drop that heals on its own says nothing (Leo, 2026-11-14).
