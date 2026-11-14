@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43584612629",
+  "recorded_at": "2026-11-14T10:25:35Z",
+  "reason": "cmux-tui 1db4751815f2 changes the image's cmux-tui (pinned f404b9892cac)",
+  "dry_run": false,
+  "cmux_tui": "1db4751815f2862555e23e138b70d34c5986a50d",
+  "fixes": [
+    {
+      "sha": "1db4751815f2862555e23e138b70d34c5986a50d",
+      "mergedAt": "2026-11-14T01:58:17-08:00",
+      "subject": "Route screen sharing by authenticated machine identity (#42828)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T10:25:35Z",
+    "snapshot_id": "sh-9f8355d9a3c44c309c31c055906e4e37",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43584612629): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "487f46897055a71e08b9c208e63bdb511e6a4759",
+    "image": "cloud-native-auto-1db47518-43584612629-1",
+    "revision": "ci-43584612629-1",
+    "at": "2026-11-14T10:25:35Z"
+  },
+  "rolled_back": false
+}
