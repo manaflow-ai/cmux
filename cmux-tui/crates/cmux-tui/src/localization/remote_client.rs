@@ -94,9 +94,54 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemons_empty: &'static str,
     pub known_daemon_auth_enrolled: &'static str,
     pub known_daemon_auth_carrier: &'static str,
+    pub exec_help: &'static str,
+    pub cp_help: &'static str,
+    pub exec_needs_command: &'static str,
+    pub exec_cwd_absolute: &'static str,
+    pub exec_output_lost: &'static str,
+    pub(super) exec_output_truncated: &'static str,
+    pub cp_usage: &'static str,
+    pub cp_one_remote: &'static str,
+    pub(super) cp_remote_absolute: &'static str,
+    pub(super) cp_directory: &'static str,
+    pub(super) cp_not_a_file: &'static str,
+    pub(super) cp_hash_mismatch: &'static str,
+    pub(super) cp_remote_step_failed: &'static str,
+    pub(super) remote_unexpected_response: &'static str,
 }
 
 impl RemoteClientMessages {
+    pub(crate) fn exec_output_truncated(&self, reason: &str) -> String {
+        self.exec_output_truncated.replace("{reason}", reason)
+    }
+
+    pub(crate) fn cp_remote_absolute(&self, path: &str) -> String {
+        self.cp_remote_absolute.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_directory(&self, path: &str) -> String {
+        self.cp_directory.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_not_a_file(&self, path: &str) -> String {
+        self.cp_not_a_file.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_hash_mismatch(&self, path: &str) -> String {
+        self.cp_hash_mismatch.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_remote_step_failed(&self, step: &str, status: i32, stderr: &str) -> String {
+        self.cp_remote_step_failed
+            .replace("{step}", step)
+            .replace("{status}", &status.to_string())
+            .replace("{stderr}", stderr)
+    }
+
+    pub(crate) fn remote_unexpected_response(&self, request: &str) -> String {
+        self.remote_unexpected_response.replace("{request}", request)
+    }
+
     pub(crate) fn option_needs_value(&self, option: &str) -> String {
         self.option_needs_value.replace("{option}", option)
     }
@@ -368,8 +413,8 @@ for up to two relay fallbacks
     remote_mux_binding_refused: "The running remote sidecar cannot prove the requested --mux-socket. Update the sidecar or use a separate --session for this daemon [remote-mux-binding]",
     remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH] [--mux-socket PATH] [--link-socket PATH] [--agent-hooks PROVIDERS]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-    command_help: "USAGE: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
-    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
+    command_help: "USAGE: cmux remote <connect|ssh|exec|cp|forward|dial-tcp|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
     option_needs_value: "{option} needs a value",
     invalid_option_value: "{option} has an invalid value; expected {expected}",
     option_must_be_positive: "{option} must be positive",
@@ -448,6 +493,65 @@ for up to two relay fallbacks
     known_daemons_empty: "No known daemons.",
     known_daemon_auth_enrolled: "enrolled",
     known_daemon_auth_carrier: "carrier",
+    exec_help: r#"USAGE: cmux remote exec [ROUTE] [OPTIONS] -- COMMAND [ARG]...
+
+Runs COMMAND on the paired machine and streams its stdout and stderr here as
+they arrive. Local stdin goes to the command; EOF on stdin closes its stdin.
+Exits with the command's exit status, 128+N when signal N ended it, and 255
+when the connection or this CLI failed. Ctrl-C sends the command an interrupt;
+a third Ctrl-C stops waiting and exits 130. The command ends when this CLI
+does: it runs only as long as the connection that started it.
+
+OPTIONS:
+  --cwd DIR  absolute remote directory to run in (default /)
+  --env KEY=VALUE  set a variable for the command (repeatable); the rest of
+  the environment is the remote daemon's
+  --tty, -t  run under a terminal sized like this one (80x24 when stdout is
+  not a terminal), with TERM from here; puts a local terminal in raw mode
+  --timeout-seconds N  the remote daemon ends the command after N seconds
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux remote connect` are also accepted.
+
+EXAMPLES:
+  cmux remote exec box --state-dir DIR --cwd /srv/app -- git status
+  tar -C src -cf - . | cmux remote exec box -- tar -C /srv/app -xf -
+"#,
+    cp_help: r#"USAGE: cmux remote cp [ROUTE] [OPTIONS] SRC DST
+
+Copies one file between this machine and the paired machine. Exactly one of
+SRC and DST is remote:PATH, an absolute path on the remote machine. A DST that
+is a directory (or a remote path ending in /) receives the file under its own
+name. Directories are refused: copy a tree with
+`cmux remote exec -- tar` (see `cmux remote exec --help`).
+
+Downloads read the file in 4 MiB chunks, check its SHA-256 against the
+daemon's, write a temporary file beside DST and rename it into place; files
+over 128 MiB stream through `cat`. Uploads up to 8 MiB are one atomic write;
+larger files go up as 8 MiB parts beside PATH that a remote /bin/sh joins and
+renames into place. Uploads get the local file's permission bits (chmod).
+Downloads are 0755 when the remote file is executable, otherwise 0644.
+
+OPTIONS:
+  --json  print {"bytes","seconds","mib_per_s"} as one JSON line when done
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux remote connect` are also accepted.
+
+EXAMPLES:
+  cmux remote cp box ./build.tar remote:/srv/app/build.tar
+  cmux remote cp box remote:/var/log/app.log ./
+"#,
+    exec_needs_command: "exec needs the command after `--`: cmux remote exec [ROUTE] [OPTIONS] -- COMMAND [ARG]...",
+    exec_cwd_absolute: "--cwd needs an absolute remote directory",
+    exec_output_lost: "cmux: some remote output was lost (the daemon dropped it before it was read)",
+    exec_output_truncated: "cmux: remote output was cut short: {reason}",
+    cp_usage: "USAGE: cmux remote cp [ROUTE] [OPTIONS] SRC DST, where exactly one of SRC and DST is remote:PATH",
+    cp_one_remote: "exactly one of SRC and DST must be remote:PATH",
+    cp_remote_absolute: "remote path must be absolute: remote:{path}",
+    cp_directory: "{path} is a directory; cp copies files. Copy a tree with `cmux remote exec -- tar` (see `cmux remote cp --help`)",
+    cp_not_a_file: "{path} is not a regular file",
+    cp_hash_mismatch: "{path} arrived with a different SHA-256 than was sent",
+    cp_remote_step_failed: "remote {step} exited with status {status}: {stderr}",
+    remote_unexpected_response: "the daemon answered {request} with an unexpected response",
 };
 
 pub(super) const JAPANESE: RemoteClientMessages = RemoteClientMessages {
@@ -575,8 +679,8 @@ ID とセッション:
     remote_mux_binding_refused: "実行中のリモートサイドカーが指定された --mux-socket を使用していることを確認できません。サイドカーを更新するか、このデーモンに別の --session を使用してください [remote-mux-binding]",
     remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス] [--mux-socket パス] [--link-socket パス] [--agent-hooks プロバイダー]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-    command_help: "使用方法: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
-    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
+    command_help: "使用方法: cmux remote <connect|ssh|exec|cp|forward|dial-tcp|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|exec|cp|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
     option_needs_value: "{option} には値が必要です",
     invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
     option_must_be_positive: "{option} には正の値を指定してください",
@@ -655,4 +759,63 @@ ID とセッション:
     known_daemons_empty: "登録済みのデーモンはありません。",
     known_daemon_auth_enrolled: "登録済み",
     known_daemon_auth_carrier: "信頼済み搬送路",
+    exec_help: r#"使用方法: cmux remote exec [ルート] [オプション] -- コマンド [引数]...
+
+ペアリングしたマシンでコマンドを実行し、その標準出力と標準エラー出力を届いた
+順にここへ出力します。ローカルの標準入力はコマンドに渡し、標準入力の EOF で
+コマンドの標準入力を閉じます。終了コードはコマンドの終了コードです。シグナル
+N で終了したときは 128+N、接続やこの CLI が失敗したときは 255 です。Ctrl-C は
+コマンドに割り込みを送ります。3 回目の Ctrl-C で待つのをやめ、130 で終了します。
+コマンドは開始した接続の間だけ動き、この CLI の終了とともに終了します。
+
+オプション:
+  --cwd ディレクトリ  実行するリモートの絶対パス (既定値 /)
+  --env キー=値  コマンドの環境変数を設定します (複数指定可)。それ以外の
+  環境変数はリモートデーモンのものです
+  --tty, -t  この端末と同じ大きさの端末で実行します (標準出力が端末でない
+  ときは 80x24)。TERM はここの値を使い、ローカル端末を raw モードにします
+  --timeout-seconds N  リモートデーモンが N 秒後にコマンドを終了します
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+
+例:
+  cmux remote exec box --state-dir DIR --cwd /srv/app -- git status
+  tar -C src -cf - . | cmux remote exec box -- tar -C /srv/app -xf -
+"#,
+    cp_help: r#"使用方法: cmux remote cp [ルート] [オプション] コピー元 コピー先
+
+このマシンとペアリングしたマシンの間でファイルを 1 つコピーします。コピー元と
+コピー先のちょうど一方を remote:パス (リモートマシンの絶対パス) にします。
+コピー先がディレクトリ (または / で終わるリモートパス) のときは、同じ名前で
+その中に置きます。ディレクトリはコピーしません。ツリーは
+`cmux remote exec -- tar` でコピーしてください (`cmux remote exec --help`)。
+
+ダウンロードは 4 MiB ずつ読み、SHA-256 をデーモンの値と照合し、コピー先の
+隣の一時ファイルに書いてから名前を変えます。128 MiB を超えるファイルは `cat`
+で流します。8 MiB までのアップロードは 1 回のアトミックな書き込みです。それより
+大きいファイルはパスの隣に 8 MiB ずつ送り、リモートの /bin/sh が結合して名前を
+変えます。アップロードはローカルのファイルと同じパーミッションにします (chmod)。
+ダウンロードはリモートのファイルが実行可能なら 0755、そうでなければ 0644 です。
+
+オプション:
+  --json  完了時に {"bytes","seconds","mib_per_s"} を JSON 1 行で出力します
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+
+例:
+  cmux remote cp box ./build.tar remote:/srv/app/build.tar
+  cmux remote cp box remote:/var/log/app.log ./
+"#,
+    exec_needs_command: "exec には `--` の後にコマンドが必要です: cmux remote exec [ルート] [オプション] -- コマンド [引数]...",
+    exec_cwd_absolute: "--cwd にはリモートの絶対パスを指定してください",
+    exec_output_lost: "cmux: リモート出力の一部が失われました (読み取る前にデーモンが破棄しました)",
+    exec_output_truncated: "cmux: リモート出力が途中で切れました: {reason}",
+    cp_usage: "使用方法: cmux remote cp [ルート] [オプション] コピー元 コピー先 (ちょうど一方を remote:パス にします)",
+    cp_one_remote: "コピー元とコピー先のちょうど一方を remote:パス にしてください",
+    cp_remote_absolute: "リモートパスは絶対パスにしてください: remote:{path}",
+    cp_directory: "{path} はディレクトリです。cp はファイルをコピーします。ツリーは `cmux remote exec -- tar` でコピーしてください (`cmux remote cp --help`)",
+    cp_not_a_file: "{path} は通常のファイルではありません",
+    cp_hash_mismatch: "{path} の SHA-256 が送信したものと一致しません",
+    cp_remote_step_failed: "リモートの {step} が終了コード {status} で終了しました: {stderr}",
+    remote_unexpected_response: "デーモンが {request} に予期しない応答を返しました",
 };

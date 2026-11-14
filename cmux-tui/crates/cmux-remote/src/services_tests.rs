@@ -1020,6 +1020,199 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
         .await;
 }
 
+/// A reserved process stream is its owner's own output: a reader slower than
+/// the child must get every byte (the child waits), never a replay gap. Before
+/// the stream held its output, ~1 MiB of small writes outran the 512-event
+/// history and a slow reader got a replay gap after about a thousand lines
+/// (`cmux remote exec -- <10000 echo lines> | wc -l` printed 1232).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
+    const LINES: usize = 20_000;
+    const PAD: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("slow-reader", cmux_remote_protocol::SessionId([16; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0002),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0001);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // One small write per line (a shell builtin), ~1 MiB in all: the
+        // daemon reads it as thousands of small events.
+        argv: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!(
+                "i=0; while [ $i -lt {LINES} ]; do printf 'line%06d {PAD}\\n' $i; i=$((i+1)); done"
+            ),
+        ],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: None,
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0001),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let mut output = Vec::new();
+    let mut events = 0usize;
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), subscription.recv())
+            .await
+            .expect("slow-reader process stream stalled")
+            .unwrap_or_else(|error| panic!("after {} bytes: {error}", output.len()));
+        // Read slower than the child writes for the first events.
+        events += 1;
+        if events < 1_500 {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+            ProcessEvent::Stderr { data, .. } => {
+                panic!("unexpected stderr: {:?}", String::from_utf8_lossy(&data.decode().unwrap()))
+            }
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {} bytes: {reason:?}", output.len())
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {} bytes ({requested_after}, {range:?})", output.len())
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    let expected: String = (0..LINES).map(|i| format!("line{i:06} {PAD}\n")).collect();
+    assert_eq!(output.len(), expected.len(), "received bytes");
+    assert!(output == expected.as_bytes(), "output differs from what the child wrote");
+    assert_eq!(exit, Some(0));
+}
+
+/// P1-F1 (review of #43048): stdout and stderr have a reader each. A read
+/// admitted on one pipe may wait for data while the other fills the log; its
+/// chunk must have been reserved, or it publishes past the byte limit and
+/// evicts output the held reader has not taken.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader() {
+    const STDOUT: usize = 24 * 1024 * 1024;
+    const STDERR: usize = 4 * 1024 * 1024;
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("mixed-reader", cmux_remote_protocol::SessionId([17; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0011),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0011);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // The stderr reader is admitted at once and then waits in read()
+        // while stdout fills the log; its first chunk lands on a full log.
+        argv: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!("(sleep 1; head -c {STDERR} /dev/zero >&2) & head -c {STDOUT} /dev/zero; wait"),
+        ],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: None,
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0012),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let (mut stdout, mut stderr) = (0usize, 0usize);
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(120), subscription.recv())
+            .await
+            .expect("mixed process stream stalled")
+            .unwrap_or_else(|error| panic!("after {stdout}+{stderr} bytes: {error}"));
+        // Slower than the child, so the log is full when stderr writes.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => stdout += data.decode().unwrap().len(),
+            ProcessEvent::Stderr { data, .. } => stderr += data.decode().unwrap().len(),
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {stdout}+{stderr} bytes: {reason:?}")
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {stdout}+{stderr} bytes ({requested_after}, {range:?})")
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    assert_eq!((stdout, stderr), (STDOUT, STDERR));
+    assert_eq!(exit, Some(0));
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn reconnect_process_stream_reports_a_structured_replay_gap() {
