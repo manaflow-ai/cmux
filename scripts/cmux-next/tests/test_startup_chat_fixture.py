@@ -26,6 +26,29 @@ class Client:
         return {"ok": True, "result": self.state}
 
 
+class SeedClient:
+    """A create can take effect even when its acknowledgement times out."""
+    def __init__(self, error=None, state=None):
+        self.sock = mock.Mock()
+        self.error = error
+        self.state = state or {}
+        self.creates = self.sends = 0
+
+    def call(self, method, params):
+        if params["action"] == "new_chat":
+            self.creates += 1
+            self.state["sessionId"] = "new-session"
+            if self.error:
+                return {"ok": True, "result": {"pane": "chat-pane", "error": self.error}}
+        elif params["action"] == "send_prompt":
+            self.sends += 1
+            text = params["text"]
+            self.state.update(transcript=[{"kind": "user", "text": text},
+                                          {"kind": "assistant", "text": "echo: " + text}],
+                              lastAssistant={"text": "echo: " + text}, isWorking=False)
+        return {"ok": True, "result": self.state}
+
+
 class Restoration(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -62,6 +85,28 @@ class Restoration(unittest.TestCase):
     def test_old_receipt_directory_cannot_supply_a_new_run(self):
         with self.assertRaises(FileExistsError):
             ChatFixture(self.fixture.output)
+
+    def test_creation_timeout_is_reconciled_without_creating_twice(self):
+        client = SeedClient('timedOut("DevTools Runtime.evaluate (5.0 seconds)")')
+        self.fixture.seed("test", client, 1)
+        self.assertEqual(client.creates, 1)
+        self.assertEqual(client.sends, 1)
+        self.assertEqual(self.fixture.expected["test"]["sessionId"], "new-session")
+        self.assertEqual(len(self.fixture.expected["test"]["transcript"]), 2)
+
+    def test_existing_session_is_rejected_before_creating_another(self):
+        client = SeedClient(state={"sessionId": "existing-session"})
+        with self.assertRaisesRegex(RuntimeError, "existing"):
+            self.fixture.seed("test", client, 1)
+        self.assertEqual(client.creates, 0)
+        self.assertEqual(client.sends, 0)
+
+    def test_explicit_creation_error_is_not_treated_as_a_timeout(self):
+        client = SeedClient("The app refused this request.")
+        with self.assertRaisesRegex(RuntimeError, "refused"):
+            self.fixture.seed("test", client, 1)
+        self.assertEqual(client.creates, 1)
+        self.assertEqual(client.sends, 0)
 
     def test_seed_waits_for_the_selected_agent_page_before_creating_a_session(self):
         """A new-chat page paints before a conversation exists to emit chat paint."""
