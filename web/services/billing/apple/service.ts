@@ -48,6 +48,12 @@ export type AppleIapDependencies = {
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
   readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /**
+   * Records a double billing incident when the subscription's owner also has
+   * an active personal Stripe subscription (services/billing/doubleBilling.ts).
+   * Never throws; omitted, no check runs.
+   */
+  readonly reportDoubleBilling?: (userId: string) => Promise<void>;
   readonly now: () => Date;
 };
 
@@ -76,6 +82,7 @@ async function tokenOwner(token: string | null | undefined, store: AppleIapStore
 async function applyEntitlements(write: AppleSubscriptionWrite, deps: AppleIapDependencies): Promise<void> {
   await deps.applyEntitlement(write.current.userId);
   if (write.transferredFrom) await deps.applyEntitlement(write.transferredFrom);
+  await deps.reportDoubleBilling?.(write.current.userId);
 }
 
 let defaultDependencies: AppleIapDependencies | null = null;
@@ -91,6 +98,11 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    reportDoubleBilling: async (userId) => {
+      // Detection never fails a purchase; the daily scan catches a miss.
+      const report = await import("../doubleBilling").catch(() => null);
+      await report?.reportDoubleBillingForUser(userId, "apple_transaction");
+    },
     now: () => new Date(),
   };
   return defaultDependencies;

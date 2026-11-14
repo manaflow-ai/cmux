@@ -2955,6 +2955,37 @@ export const appleNotifications = pgTable("apple_notifications", {
 ]);
 
 /**
+ * One account paying for a personal plan through both Stripe and the App
+ * Store (services/billing/doubleBilling.ts). One row per (user, Stripe
+ * subscription, Apple subscription) pair; a repeat detection moves
+ * `last_detected_*`, and the daily scan sets `resolved_at` once the pair no
+ * longer bills twice. Nothing is refunded or cancelled automatically.
+ */
+export const billingDoubleSubscriptionIncidents = pgTable("billing_double_subscription_incidents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull(),
+  stripeSubscriptionId: text("stripe_subscription_id").notNull(),
+  appleOriginalTransactionId: text("apple_original_transaction_id").notNull(),
+  stripePlanId: text("stripe_plan_id").notNull(),
+  stripeStatus: text("stripe_status").notNull(),
+  applePlanId: text("apple_plan_id").notNull(),
+  appleStatus: text("apple_status").notNull(),
+  appleEnvironment: text("apple_environment").notNull(),
+  appleAutoRenewEnabled: boolean("apple_auto_renew_enabled"),
+  firstDetectedBy: text("first_detected_by").notNull(),
+  lastDetectedBy: text("last_detected_by").notNull(),
+  firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull().defaultNow(),
+  lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("billing_double_subscription_incidents_pair_unique")
+    .on(table.userId, table.stripeSubscriptionId, table.appleOriginalTransactionId),
+  index("billing_double_subscription_incidents_open_idx")
+    .on(table.lastDetectedAt)
+    .where(sql`${table.resolvedAt} is null`),
+]);
+
+/**
  * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
  * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
  * the client rotates every 30 days. No IP address, account or user agent is

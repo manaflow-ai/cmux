@@ -30,6 +30,7 @@ import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
 import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
+import { reportDoubleBillingForUser, type DoubleBillingDetector } from "./doubleBilling";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -51,6 +52,11 @@ type StripeWebhookDependencies = {
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
   defer: (task: () => Promise<void>) => void;
+  /**
+   * Records a double billing incident when the user also holds an App Store
+   * subscription that may bill. Never throws; omitted, no check runs.
+   */
+  reportDoubleBilling?: (userId: string, detectedBy: DoubleBillingDetector) => Promise<void>;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -67,6 +73,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
   defer: (task) => after(task),
+  reportDoubleBilling: (userId, detectedBy) => reportDoubleBillingForUser(userId, detectedBy),
 };
 
 export function makeStripeWebhookHandler(
@@ -315,6 +322,12 @@ async function processCheckoutCompleted(
     ? await (dependencies.recordFoundersCheckoutCompletion ?? recordFoundersCheckoutCompletionDefault)(completion)
     : await dependencies.recordCheckoutCompletion(completion);
   if (result && "skipped" in result) return { skipped: result.skipped };
+  // A Checkout session stays open for hours, so it can complete after the
+  // user bought the same plan in the App Store. Fulfillment stands (the user
+  // paid); the overlap becomes an incident for support, never a refund.
+  if (!isFounderCheckout && "scope" in result && result.scope === "user") {
+    await dependencies.reportDoubleBilling?.(result.stackUserId, "stripe_checkout");
+  }
   await sendLegacyProWelcomeIfNeeded(result, expanded, subscription, dependencies);
   const subscriptionStatus = isFounderCheckout
     ? "active"
@@ -364,6 +377,11 @@ async function reconcileSubscriptionEvent(
 ): Promise<StripeEventOutcome> {
   const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
   const result = await applySubscriptionEntitlementUpdate(subscription, dependencies);
+  // A personal subscription can start outside Checkout (an operator, an
+  // invoice); the same incident check covers it.
+  if (event.type === "customer.subscription.created" && !("skipped" in result) && result.scope === "user" && result.isActive) {
+    await dependencies.reportDoubleBilling?.(result.stackUserId, "stripe_subscription_created");
+  }
   return "skipped" in result
     ? { skipped: unmappedSkip }
     : {

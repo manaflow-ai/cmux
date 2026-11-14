@@ -26,6 +26,7 @@ import {
   type TeamBillingView,
 } from "./teamBillingView";
 import { billingTeamFromUnknown } from "./teamResolution";
+import { hasAppStoreSubscriptionThatMayBill } from "./doubleBilling";
 
 /** The personal (Pro/Max) subscription the billing screen shows. */
 export type PersonalSubscriptionJson = {
@@ -45,6 +46,12 @@ export type PersonalBillingJson = {
     /** Who bills the plan; an `apple` plan is managed in the App Store. */
     readonly billingSource: PersonalBillingSource;
     readonly manageUrl: string | null;
+    /**
+     * An App Store subscription that is paid or can still charge (billing
+     * retry with auto-renew on), even when it grants no plan right now. The
+     * screen then offers App Store management instead of checkout.
+     */
+    readonly appStoreSubscription: boolean;
     /**
      * The account owns Founder's Edition, Pro for life from a one-time
      * purchase. It is not `subscription`, so it has nothing to switch or cancel.
@@ -134,10 +141,11 @@ export async function loadDashboardBilling(
 }
 
 async function loadPersonalBilling(user: DashboardBillingUser): Promise<PersonalBillingJson> {
-  const [status, { subscription, foundersEdition }, goPlanEnabled] = await Promise.all([
+  const [status, { subscription, foundersEdition }, goPlanEnabled, appStoreSubscription] = await Promise.all([
     resolveProPlanStatus(user),
     activePersonalSubscriptions(user.id),
     isGoPlanEnabled(user.id),
+    hasAppStoreSubscriptionThatMayBill(user.id),
   ]);
   return {
     planStatus: {
@@ -146,6 +154,7 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
       billingManagement: status.billingManagement,
       billingSource: status.billingSource,
       manageUrl: status.manageUrl,
+      appStoreSubscription,
       foundersEdition,
     },
     subscription,
