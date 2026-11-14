@@ -19,6 +19,7 @@
 //! 2. starts the proxy again and retries the call, with a short backoff,
 //! 3. from the second try on, asks the app to restart its helper
 //!    (`palette.computerUse.restart`, at most once per [`HELPER_RESTART_EVERY`]),
+//!
 //! until the call runs or [`TRIES`] are spent. A missing macOS grant is not
 //! this: the setup gate (`computer_use_gate.rs`) asks the person for that,
 //! naming the grant. What reaches the agent when recovery fails says what
@@ -48,6 +49,7 @@ const BACKOFF: [Duration; TRIES - 1] = [
 /// app keeps its own restart budget, and two chats asking at once restart once.
 pub(super) const HELPER_RESTART_EVERY: Duration = Duration::from_secs(30);
 /// How long the endpoint read and the restart request may take.
+// timeout: both are local answers from a running daemon/app; a miss only skips that recovery step and the retry goes on.
 const ASK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What the `cmux-cua` proxy says when the helper does not answer on its
