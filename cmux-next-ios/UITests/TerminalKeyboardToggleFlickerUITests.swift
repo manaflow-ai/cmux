@@ -47,11 +47,15 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         checkShell(try runDemo(phase: "kbshell", name: "reading", defaults: ["CmuxMobileTerminalDemoShell": "reading"]), following: false)
     }
 
-    /// Rows streaming in move the page on their own, so only resizes and
-    /// blank frames are counted here; the video's frame splits show the rest.
+    /// Rows streaming in move the page on their own: resizes, blank frames and
+    /// the last row's distance to the composer are counted here.
     @MainActor
     func testStreamingOutputRidesTheKeyboard() throws {
-        checkShell(try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"]), motion: false)
+        let values = try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"])
+        checkShell(values, motion: false)
+        // Following the stream, the last row rides the composer through the
+        // keyboard's movement: never a row or more off for two frames.
+        XCTAssertEqual(values["drift"], "0", "frames the last row left the composer while following the stream")
     }
 
     /// An inline agent (Codex CLI's box) on the primary screen. Its document
@@ -74,6 +78,10 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["sized"], "0", "frames where the surface changed size")
         XCTAssertEqual(values["jump"], "0", "frames with the grid off the composer: largest \(values["jmax"] ?? "?") pt at \(values["jlog"] ?? "?")")
         XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
+        // The Mac's redraw lands about when the keyboard stops: at most one
+        // frame per toggle with the old grid once the composer has stopped
+        // (a band above it, or its top rows under the toolbar).
+        XCTAssertLessThanOrEqual(Int(values["late"] ?? "") ?? .max, 10, "frames with the old grid after the keyboard stopped")
     }
 
     private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {

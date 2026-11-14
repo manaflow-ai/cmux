@@ -293,14 +293,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Times `body` as the screen's main-thread work in this frame and marks
     /// it with a signpost (G-04). DEBUG only; release builds call `body`.
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T {
-        guard TerminalFrameLog.isEnabled else { return body() }
+        guard TerminalFrameLog.isEnabled || flickerTrace != nil else { return body() }
         let state = TerminalFrameLog.signposter.beginInterval(name)
         let start = CACurrentMediaTime()
         measureDepth += 1
         defer {
             measureDepth -= 1
             // Nested work is already inside the outer interval's time.
-            frameLog.work("\(name)", CACurrentMediaTime() - start, outermost: measureDepth == 0)
+            let elapsed = CACurrentMediaTime() - start
+            frameLog.work("\(name)", elapsed, outermost: measureDepth == 0)
+            if measureDepth == 0 { flickerTrace?.work("\(name)", elapsed) }
             TerminalFrameLog.signposter.endInterval(name, state)
         }
         return body()
@@ -746,6 +748,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
             sample.contentBottom = frame.minY + scrollView.contentSize.height - bounds.minY
             sample.legibleBlank = legibleRowsBlank
+            sample.cellHeight = cell.height
+            sample.offsetModel = scrollView.contentOffset.y
+            sample.offsetDrawn = bounds.minY
+            sample.insetBottom = scrollView.contentInset.bottom
+            let drawn = probe.onScreen(surface, in: view)
+            sample.surfaceTop = drawn.minY
+            sample.surfaceBottom = drawn.maxY
+            sample.following = following
         }
         return sample
     }
@@ -1197,7 +1207,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         keyboardDock.refresh()
-        layoutTerminal()
+        measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
             model.session.start { [weak self] event in self?.sessionEvent(event) }
@@ -3160,7 +3170,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // In this app's points (an iPhone app on an iPad gets the iPad's keyboard in iPad points).
         let frame = keyboardDock.keyboardFrame(notified: notified, showing: true)
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
-        dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
+        measured("keyboard-will") { dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height)) }
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
     }
 
@@ -3225,6 +3235,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidChange() {
+        measured("keyboard-did") { keyboardSettledLayout() }
+    }
+
+    private func keyboardSettledLayout() {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,

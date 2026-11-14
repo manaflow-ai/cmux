@@ -20,6 +20,11 @@ import UIKit
 /// - `blank`: frames with nothing legible: a full-screen app's grid with no
 ///   text, or a shell page showing background where it has rows.
 /// - `note`: frames that show the letterbox note ("53×25 · set by …").
+/// - `late`: frames where a full-screen app's grid is still not the area's
+///   (a band above it, or its top rows under the toolbar) though the
+///   composer has stopped for two frames.
+/// - `drift`: a shell's last row a row or more off its gap to the composer,
+///   two or more frames in a row.
 /// - `band`: frames where a full-screen app's grid leaves more than a row
 ///   of background between the toolbar and its first row (informational:
 ///   the keyboard hiding over a grid the Mac has not grown yet).
@@ -53,6 +58,14 @@ final class TerminalFlickerTrace: NSObject {
         // Shell.
         var contentBottom: CGFloat = 0
         var legibleBlank = false
+        /// The scroll view's offset (model, as drawn), bottom inset, and the
+        /// surface's top and bottom as drawn, in the page's points.
+        var offsetModel: CGFloat = 0
+        var offsetDrawn: CGFloat = 0
+        var insetBottom: CGFloat = 0
+        var surfaceTop: CGFloat = 0
+        var surfaceBottom: CGFloat = 0
+        var following = false
     }
 
     private let sample: () -> Sample?
@@ -68,6 +81,14 @@ final class TerminalFlickerTrace: NSObject {
     private let handle: FileHandle?
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
+    /// Main-thread time per frame: all of it, and the page's own measured work.
+    private let busyMeter = MainThreadBusyMeter()
+    private var ours: [String: Double] = [:]
+
+    /// The page's measured work (`TerminalViewController.measured`), by name.
+    func work(_ name: String, _ seconds: CFTimeInterval) {
+        ours[name, default: 0] += seconds * 1000
+    }
     private weak var host: UIView?
 
     private var measuring = false
@@ -82,6 +103,10 @@ final class TerminalFlickerTrace: NSObject {
     private var largestJump: CGFloat = 0
     /// Consecutive frames off their place so far.
     private var jumpRun = 0
+    /// Consecutive frames a shell's last row was a row or more off its gap.
+    private var driftRun = 0
+    /// Consecutive frames the composer stack has not moved.
+    private var stackStill = 0
     /// The last frame's placement value (pin or gap).
     private var previousValue: CGFloat = 0
     private var jumpLog: [String] = []
@@ -114,6 +139,7 @@ final class TerminalFlickerTrace: NSObject {
     }
 
     func stop() {
+        busyMeter.stop()
         link?.invalidate()
         link = nil
         if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
@@ -144,7 +170,9 @@ final class TerminalFlickerTrace: NSObject {
             line += String(format: " grid=%.2f rows=%d clip=%.2f pin=%.2f note=%d nb=%d", now.gridTop, now.gridRows, now.clipTop, pin,
                            now.noteShown ? 1 : 0, now.nonBlankRows)
         } else {
-            line += String(format: " cb=%.2f gap=%.2f blank=%d", now.contentBottom, now.stackTop - now.contentBottom, now.legibleBlank ? 1 : 0)
+            line += String(format: " cb=%.2f gap=%.2f blank=%d off=%.2f offd=%.2f inb=%.2f sft=%.2f sfb=%.2f fol=%d", now.contentBottom,
+                           now.stackTop - now.contentBottom, now.legibleBlank ? 1 : 0, now.offsetModel, now.offsetDrawn, now.insetBottom,
+                           now.surfaceTop, now.surfaceBottom, now.following ? 1 : 0)
         }
         if measuring { measure(now, t: t, interval: interval, duration: duration) }
         if measuring, now.demo.hasPrefix("done.") {
@@ -152,6 +180,12 @@ final class TerminalFlickerTrace: NSObject {
             finished = true
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
         }
+        let busy = busyMeter.take()
+        line += String(format: " busy=%.1f span=%.1f ours=%.1f", busy.busyMs, busy.longestMs, ours.values.reduce(0, +))
+        if !ours.isEmpty {
+            line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(4).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
+        }
+        ours.removeAll(keepingCapacity: true)
         handle?.write(Data((line + "\n").utf8))
         previous = now
         probe.accessibilityValue = summary(demo: now.demo)
@@ -178,6 +212,21 @@ final class TerminalFlickerTrace: NSObject {
         }
         let reference = reference ?? value
         self.reference = reference
+        if let previous { stackStill = abs(now.stackTop - previous.stackTop) < 0.1 ? stackStill + 1 : 0 }
+        if now.isTUI, stackStill >= 2, !now.held,
+           now.gridTop - now.clipTop > now.cellHeight || now.clipTop - now.gridTop > 1 {
+            // The keyboard has stopped and the grid is still not the area's:
+            // a band above it, or its top rows under the toolbar.
+            count("late")
+        }
+        if !now.isTUI, now.cellHeight > 0 {
+            if abs(value - reference) > now.cellHeight {
+                driftRun += 1
+                if driftRun == 2 { counts["drift", default: 0] += 2 } else if driftRun > 2 { count("drift") }
+            } else {
+                driftRun = 0
+            }
+        }
         if !now.held, abs(value - reference) > 1 {
             jumpRun += 1
             // A reading one frame long can be an intermediate commit the
@@ -209,7 +258,7 @@ final class TerminalFlickerTrace: NSObject {
     }
 
     private func summary(demo: String) -> String {
-        let keys = ["frames", "jump", "jump1", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
         parts.append("demo=\(demo)")
