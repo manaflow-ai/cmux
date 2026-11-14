@@ -874,6 +874,8 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
+    /// An enrolled phone's one-time, signed request to enable Full access for itself.
+    pub const MUX_PAIR_FULL_ACCESS_APPROVE: &str = "_acpmux/pair_full_access_approve";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
     pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";

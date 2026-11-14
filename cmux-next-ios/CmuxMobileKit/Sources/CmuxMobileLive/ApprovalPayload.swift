@@ -163,6 +163,35 @@ public struct ApprovalPayload: Sendable, Equatable {
     static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 }
 
+/// What a paired phone signs to enable Full access for its own pairing record.
+/// The daemon derives the device id from the authenticated link and checks this
+/// exact payload before changing the setting.
+public struct FullAccessApprovalPayload: Sendable, Equatable {
+    public static let domain = "acpmux-full-access-approval-v1"
+
+    public var instance: String
+    public var macDevice: String
+    public var approver: String
+    public var device: String
+    public var nonce: String
+    public var expiresAt: Int
+
+    public init(instance: String, macDevice: String, approver: String, device: String,
+                nonce: String, expiresAt: Int) {
+        self.instance = instance
+        self.macDevice = macDevice
+        self.approver = approver
+        self.device = device
+        self.nonce = nonce
+        self.expiresAt = expiresAt
+    }
+
+    public var message: Data {
+        ApprovalPayload.joined(Self.domain, [instance, macDevice, approver, device,
+                                             "enable", nonce, String(expiresAt)])
+    }
+}
+
 /// What the phone's approval key signs for an Allow or answer of a chat that runs on one
 /// of the Mac's acpmux peers. The peer enrolled this Mac's paired phones next to the Mac
 /// (`acpmux host enroll`, `cli/host_approvals.rs`) and checks the enrolled Mac's message

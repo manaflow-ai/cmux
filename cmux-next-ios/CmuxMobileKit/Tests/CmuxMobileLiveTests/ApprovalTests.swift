@@ -11,6 +11,13 @@ import Testing
 @Suite struct ApprovalPayloadTests {
     static func sha256(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    @Test func fullAccessPayloadMatchesAcpmux() {
+        let payload = FullAccessApprovalPayload(
+            instance: "inst", macDevice: "mac-1", approver: "phone-1", device: "dv-phone-1",
+            nonce: "n1", expiresAt: 1120)
+        #expect(Self.sha256(payload.message) == "6e73c669d8bb0a2f5c0777b77a211613a366ed3e0c0de2ac0db8ea5de6377d74")
+    }
+
     static let answers: JSONValue = .object([
         "Which?": .string("B"),
         "a\"b": .array([.string("x\ny"), .string("\u{1}")]),

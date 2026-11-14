@@ -29,6 +29,8 @@ pub const MAX_LIFETIME: u64 = 300;
 pub const DECISION_FIELD: &str = "approverDecision";
 /// The domain of an approver's decision signature.
 const DOMAIN: &str = "acpmux-approver-decision-v1";
+/// The domain of a phone's one-time Full-access approval.
+const FULL_ACCESS_DOMAIN: &str = "acpmux-full-access-approval-v1";
 
 /// One enrolled approver.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,6 +96,47 @@ impl ApproverSet {
                 "id": a.id, "name": a.name, "fingerprint": fingerprint(&a.public_key),
             })).collect::<Vec<_>>(),
         })
+    }
+
+    /// Whether `decision` is the enrolled phone's short-lived approval to turn
+    /// on Full access for its own paired credential. The signed message binds
+    /// this daemon run, this Mac, the phone id and the exact device id.
+    pub fn verifies_full_access(
+        &self,
+        instance: &str,
+        approver: &str,
+        device: &str,
+        nonce: &str,
+        decision: &Value,
+        now: u64,
+    ) -> bool {
+        let field = |f: &str| decision.get(f).and_then(Value::as_str);
+        let (Some(signed_approver), Some(signature)) = (field("approver"), field("signature"))
+        else {
+            return false;
+        };
+        if signed_approver != approver {
+            return false;
+        }
+        let Some(expires) = decision.get("expiresAt").and_then(Value::as_u64) else {
+            return false;
+        };
+        if expires < now || expires > now.saturating_add(MAX_LIFETIME) {
+            return false;
+        }
+        let Some(signature) = unhex(signature).filter(|s| s.len() == 64) else {
+            return false;
+        };
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(key) = inner.1.iter().find(|a| a.id == approver).map(|a| &a.public_key) else {
+            return false;
+        };
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, key)
+            .verify(
+                &full_access_message(instance, &inner.0, approver, device, nonce, expires),
+                &signature,
+            )
+            .is_ok()
     }
 
     /// Whether `decision` is an enrolled approver's valid, unexpired
@@ -242,6 +285,24 @@ pub fn message(p: &Parts<'_>) -> Vec<u8> {
         &expires,
         p.answers,
     ] {
+        out.push(0);
+        out.extend_from_slice(part.as_bytes());
+    }
+    out
+}
+
+/// The bytes a paired phone signs to enable Full access for itself.
+pub fn full_access_message(
+    instance: &str,
+    mac: &str,
+    approver: &str,
+    device: &str,
+    nonce: &str,
+    expires_at: u64,
+) -> Vec<u8> {
+    let expires = expires_at.to_string();
+    let mut out = FULL_ACCESS_DOMAIN.as_bytes().to_vec();
+    for part in [instance, mac, approver, device, "enable", nonce, &expires] {
         out.push(0);
         out.extend_from_slice(part.as_bytes());
     }
@@ -478,6 +539,44 @@ mod tests {
         assert!(!check(&set, &signed, now + 60, Some(&json!({"q": "B"})), now));
         assert!(!check(&set, &signed, now + 60, None, now));
         assert!(!check(&set, &good, now + 120, Some(&answers), now));
+    }
+
+    #[test]
+    fn full_access_approval_binds_the_phone_mac_and_device() {
+        let k = key();
+        let set = enrolled(&k);
+        let now = 1_000;
+        let expires = now + 120;
+        let signature = hex(k
+            .sign(
+                &ring::rand::SystemRandom::new(),
+                &full_access_message("inst", "mac-1", "phone-1", "dv-phone-1", "n1", expires),
+            )
+            .unwrap()
+            .as_ref());
+        let decision = json!({
+            "approver": "phone-1",
+            "expiresAt": expires,
+            "signature": signature,
+        });
+        assert!(set.verifies_full_access("inst", "phone-1", "dv-phone-1", "n1", &decision, now));
+        assert!(!set.verifies_full_access("inst", "phone-1", "other-device", "n1", &decision, now));
+        assert!(!set.verifies_full_access(
+            "other-run",
+            "phone-1",
+            "dv-phone-1",
+            "n1",
+            &decision,
+            now
+        ));
+        assert!(!set.verifies_full_access(
+            "inst",
+            "phone-1",
+            "dv-phone-1",
+            "n1",
+            &decision,
+            now + 121
+        ));
     }
 
     #[test]

@@ -249,9 +249,27 @@ pub(super) async fn dispatch(
             | method::MUX_MACHINE_CONSENT_REFUSED
             | method::MUX_MACHINE_CONSENT_GET
             | method::MUX_PAIR_SET
+            | method::MUX_PAIR_FULL_ACCESS_APPROVE
             | method::MUX_PAIR_REDEEM
     ) {
         return None;
+    }
+    if m == method::MUX_PAIR_FULL_ACCESS_APPROVE {
+        let phone = conn
+            .device
+            .as_deref()
+            .filter(|id| conn.auth == ConnAuth::Device && hub.pairing.is_phone(id));
+        if conn.origin != Origin::Web || phone.is_none() {
+            return Some(Err(RpcError::new(
+                -32003,
+                "Full access can be approved only by the paired iPhone",
+            )
+            .with_data(json!({"reason": "pair.full_access_phone_required"}))));
+        }
+        let Some(phone) = phone else {
+            unreachable!("the phone credential was checked above");
+        };
+        return Some(approve_full_access(hub, phone, params).await);
     }
     if conn.origin != Origin::Local || m == method::MUX_PAIR_REDEEM {
         return Some(Err(RpcError::method_not_found(&format!("{m} (local socket only)"))));
@@ -275,6 +293,62 @@ pub(super) async fn dispatch(
         method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status()),
         _ => issue(hub, conn, params),
     })
+}
+
+/// Apply a phone's one-time, signed Full-access approval. The phone id is
+/// derived from the authenticated WebSocket credential, never from a device
+/// id supplied by the request.
+async fn approve_full_access(
+    hub: &Arc<Hub>,
+    device: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let approver = params
+        .get("approver")
+        .and_then(Value::as_str)
+        .filter(|id| crate::hub::approvers::valid_id(id))
+        .ok_or_else(|| RpcError::invalid_params("approver is required"))?;
+    let nonce = params
+        .get("nonce")
+        .and_then(Value::as_str)
+        .filter(|nonce| crate::hub::approvers::valid_id(nonce))
+        .ok_or_else(|| RpcError::invalid_params("nonce is required"))?;
+    let expires = params
+        .get("expiresAt")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("expiresAt is required"))?;
+    let signature = params
+        .get("signature")
+        .and_then(Value::as_str)
+        .filter(|signature| crate::hub::approvers::valid_id(signature))
+        .ok_or_else(|| RpcError::invalid_params("signature is required"))?;
+    let decision = json!({
+        "approver": approver,
+        "expiresAt": expires,
+        "signature": signature,
+    });
+    let verified = hub.person.approvers.verifies_full_access(
+        hub.person.instance(),
+        approver,
+        device,
+        nonce,
+        &decision,
+        crate::hub::approvers::unix_now(),
+    );
+    if !verified || !hub.person.spend_decision(nonce) {
+        return Err(RpcError::new(
+            -32003,
+            "Full access approval was not accepted; approve it again on this iPhone",
+        )
+        .with_data(json!({"reason": "pair.full_access_approval_refused"})));
+    }
+    let device = hub.pairing.set_full_access(device, true)?;
+    tracing::info!(device = %device.id, name = %device.name, "a phone approved its own Full-access setting");
+    Ok(json!({
+        "device": device.to_value(),
+        "fullAccess": true,
+        "allows": crate::pairing::full_access_allows(&device.name),
+    }))
 }
 
 /// A same-user shell/PTY cannot prove the app's person key. Both grants and

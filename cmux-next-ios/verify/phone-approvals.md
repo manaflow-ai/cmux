@@ -49,6 +49,33 @@ approvals for Allow and question answers:
 
 The user approved this approach for production on 2026-10-13.
 
+## Full access for the phone's own pairing
+
+Full access remains off until the person enables it. The phone may request the
+setting through `_acpmux/pair_full_access_approve` after `initialize` reports
+the authenticated pairing `deviceId` and the `fullAccessApproval` feature.
+The server accepts this method only from a live WebSocket authenticated with a
+phone credential; it derives the device id from that credential and ignores any
+device id in request input.
+
+The phone signs these UTF-8 bytes, with one NUL between fields:
+
+```text
+acpmux-full-access-approval-v1\0<personInstance>\0<macDevice>\0<approver>\0<deviceId>\0enable\0<nonce>\0<expiresAt>
+```
+
+The request carries `approver`, `nonce`, `expiresAt`, and the lowercase hex
+ECDSA P-256 `r || s` signature. The server checks the enrolled key, exact
+daemon instance, Mac, phone pairing record, expiry (at most 300 seconds), and
+one-time nonce before setting the phone's existing Full access flag. A refused
+request is a plain sentence and includes a machine-readable reason for the
+in-place phone action to offer again.
+
+`ApprovalPayloadTests.fullAccessPayloadMatchesAcpmux` and
+`approvers::tests::full_access_approval_binds_the_phone_mac_and_device` share
+the wire vector. The latter also proves that changing the daemon run, phone,
+pairing record, or expiry invalidates the signature.
+
 ## Design
 
 ### Keys on the phone (`CmuxMobileLive/PhoneKeys.swift`)

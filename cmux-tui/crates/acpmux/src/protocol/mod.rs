@@ -391,6 +391,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MAC_APPROVERS, Request),
         untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
         untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
+        untyped(method::MUX_PAIR_FULL_ACCESS_APPROVE, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),

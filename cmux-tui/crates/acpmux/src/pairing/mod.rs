@@ -320,6 +320,16 @@ impl Pairing {
         self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
     }
 
+    /// Whether `id` is a live phone credential. The connection supplies the id;
+    /// callers never trust a device role named in request parameters.
+    pub fn is_phone(&self, id: &str) -> bool {
+        self.lock()
+            .store
+            .devices
+            .iter()
+            .any(|d| d.id == id && d.revoked_ms.is_none() && d.role == Role::Phone)
+    }
+
     /// Turn the Full-access setting of a live device (by id or name) on or off.
     pub fn set_full_access(&self, key: &str, on: bool) -> Result<Device, RpcError> {
         self.change(|s| s.set_full_access(key, on))

@@ -52,6 +52,9 @@ public final class AcpmuxHub {
     @ObservationIgnored public var approver: Approver?
     /// The daemon run that approvals bind (`initialize` `_meta.acpmux.personInstance`).
     @ObservationIgnored private var personInstance: String?
+    /// The acpmux pairing record for this phone. Full-access approvals bind
+    /// it so a signature cannot move to another credential.
+    @ObservationIgnored private var deviceID: String?
     /// This phone's Full-access setting (Settings > Devices on the Mac) covers this connection
     /// (`initialize` `_meta.acpmux.fullAccess`; false when the Mac's acpmux does not say). The
     /// mode menus then offer the harness's Full access mode too; acpmux still decides each
@@ -129,6 +132,7 @@ public final class AcpmuxHub {
         isReady = false
         lastError = nil
         fullAccess = false
+        deviceID = nil
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)
@@ -144,6 +148,7 @@ public final class AcpmuxHub {
             self.connection = nil
             self.isReady = false
             self.fullAccess = false
+            self.deviceID = nil
             self.lastError = self.lastError ?? "acpmux channel closed"
             ConnectivityTelemetry.shared.record(.hub, "channel_closed", outcome: .failure,
                                                 fields: ["last_error": .text(self.lastError ?? "")])
@@ -156,6 +161,7 @@ public final class AcpmuxHub {
                 "clientCapabilities": .object([:]),
             ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
+            deviceID = initialized["_meta"]?["acpmux"]?["deviceId"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
             // The newest page only (CMUX-563): a Mac with hundreds of chats sent its whole list
@@ -191,6 +197,7 @@ public final class AcpmuxHub {
             self.connection = nil
             isReady = false
             fullAccess = false
+            deviceID = nil
             lastError = LinkController.reason(error)
             for source in liveSources { source.linkDown() }
             await connection.close()
@@ -460,6 +467,29 @@ public final class AcpmuxHub {
     func fullAccessRefused() {
         fullAccess = false
         for source in liveSources { source.fullAccessChanged(false) }
+    }
+
+    /// Requests Full access for this iPhone with a one-time signature bound to
+    /// this daemon run, Mac and pairing record. The UI owns the action copy and
+    /// can call this from its in-place approval control.
+    public func enableFullAccess() async throws {
+        guard let approver, let instance = personInstance, let device = deviceID else {
+            throw ApproverUnsupported()
+        }
+        let sign = try await approver.authorize("Turn on Full access for this iPhone")
+        let nonce = UUID().uuidString.lowercased()
+        let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+        let payload = FullAccessApprovalPayload(
+            instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
+            device: device, nonce: nonce, expiresAt: expiresAt)
+        _ = try await request("_acpmux/pair_full_access_approve", .object([
+            "approver": .string(approver.phoneID),
+            "nonce": .string(nonce),
+            "expiresAt": .number(Double(expiresAt)),
+            "signature": .string(ApprovalPayload.hex(try sign(payload.message))),
+        ]))
+        fullAccess = true
+        for source in liveSources { source.fullAccessChanged(true) }
     }
 
     private func handle(_ notification: AcpmuxConnection.Notification) {
