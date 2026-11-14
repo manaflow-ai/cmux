@@ -23,7 +23,7 @@ import Testing
         #expect(nightly(legacy: true).keychainService == "com.cmuxterm.app.nightly.auth")
         #expect(previous.keychainService == "com.cmuxterm.app.nightly.auth.origin-0")
         #expect(previous.credentialsDirectory.path
-            == "/Users/fixture/Library/Application Support/cmux/com.cmuxterm.app.nightly/origin-0")
+            == "/Users/fixture/Library/Application Support/cmux-next/com.cmuxterm.app.nightly/origin-0")
         #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil) is ImportingTokenStore)
     }
 
