@@ -119,7 +119,7 @@ pub(super) fn wait_read(log: &V1Log<Arc<dyn Store>>, actor: &ChatActor) {
 }
 
 /// The book's settled records, in seq order: rowId, rev and the first raw place.
-pub(super) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
+pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
     let (mut log, _) = Log::open(book, Options::default()).unwrap();
     let mut cursor = 0;
     let mut rows = Vec::new();
@@ -155,15 +155,20 @@ fn book_texts(book: &Path) -> Vec<(u64, Vec<u8>)> {
 /// What `translate` gives for the chat's events as v1 holds them, read through the store a
 /// chunk at a time: each settled row and each patch, in order.
 pub(super) fn translated(store: &dyn Store) -> Vec<(u64, u32, u64)> {
+    translated_of(store, ID)
+}
+
+/// [`translated`] for chat `id`.
+pub(crate) fn translated_of(store: &dyn Store, id: &str) -> Vec<(u64, u32, u64)> {
     let mut state = State::default();
     let mut rows = Vec::new();
     let mut marks = LogMarks::default();
     let mut bytes = Vec::new();
     let mut from = 1;
     loop {
-        let stamp = store.log_stamp(ID).unwrap();
+        let stamp = store.log_stamp(id).unwrap();
         let chunk =
-            store.read_log(ID, from, LogFilter::ALL, stamp, &mut marks, &mut bytes).unwrap();
+            store.read_log(id, from, LogFilter::ALL, stamp, &mut marks, &mut bytes).unwrap();
         for line in bytes.split_inclusive(|b| *b == b'\n') {
             let seq = seq_places(line, 0).unwrap().start;
             let line = line.strip_suffix(b"\n").unwrap_or(line);
@@ -258,7 +263,7 @@ fn ready_comes_only_from_a_read_that_said_at_end_and_the_hint_finds_new_lines() 
 }
 
 /// The place of the book's saved cursor.
-pub(super) fn saved_cursor(book: &Path) -> u64 {
+pub(crate) fn saved_cursor(book: &Path) -> u64 {
     let saved = log::saved_checkpoint(book).unwrap().unwrap();
     Checkpoint::from_recovered(&saved).unwrap().cursors[0].place
 }

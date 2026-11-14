@@ -231,4 +231,4 @@ where
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

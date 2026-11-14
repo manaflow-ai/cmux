@@ -124,6 +124,7 @@ pub(crate) use idle_census::LaunchServers;
 pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
+pub(crate) mod book_tee;
 mod closed_rows;
 mod launch_roots;
 mod launchers;
@@ -807,6 +808,9 @@ pub struct Hub {
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
+    /// as it was.
+    pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
     /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
     pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
@@ -1345,6 +1349,7 @@ impl Hub {
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
+            book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
@@ -1908,6 +1913,9 @@ impl Hub {
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
+            book_hint: Arc::new(AtomicU64::new(meta.last_seq)),
+            found_at_start: meta.last_seq,
+            book_opened: Arc::default(),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
@@ -2688,6 +2696,15 @@ impl Hub {
         // sequence, which every reader skips; a caller that must keep it appends it again.
         if !stored {
             return (record, false);
+        }
+        // The line is in the store: v2's book tee marks the chat, whatever `notify` says (a mark
+        // and an atomic store, no I/O, never a wait; nothing with no tee installed).
+        if let Some(tee) = self.book_tee.get() {
+            #[cfg(test)]
+            let started = std::time::Instant::now();
+            tee.mark(session, seq);
+            #[cfg(test)]
+            book_tee::note_hook(started.elapsed());
         }
         {
             let mut m = session.meta.lock().unwrap();

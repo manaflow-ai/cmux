@@ -317,6 +317,11 @@ impl ChatHandle {
         *self.health.borrow()
     }
 
+    /// The bytes waiting in the mailbox.
+    pub fn queued(&self) -> usize {
+        self.queued.lock().map_or(0, |queued| *queued)
+    }
+
     fn send(&self, request: Request) -> Result<(), ChatError> {
         if *self.health.borrow() == crate::life::Health::Failed {
             return Err(ChatError::Failed);
