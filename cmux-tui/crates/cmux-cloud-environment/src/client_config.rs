@@ -11,6 +11,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 #[cfg(all(unix, feature = "http"))]
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(feature = "http")]
 use std::path::Path;
 #[cfg(feature = "http")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
