@@ -728,9 +728,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
             programsToRead.remove(tab.id)
             let programs = await backend.runningPrograms(of: [tab], in: workspace)
             programCache.record(tabID: tab.id, programs: programs, at: Self.uptime)
+            // Output during the read: the answer may be older than it (read again).
+            if programsToRead.contains(tab.id) { programCache.outputSince(tabID: tab.id) }
         }
         // Tabs no longer listed are not read.
-        programsToRead = []
+        let listed = Set(TabCloseGuard().terminalsToAsk(self.workspace?.tabs ?? []).map(\.id))
+        programsToRead.formIntersection(listed)
     }
 
     /// The workspace's toast (a tab that could not be opened or closed): one short line
@@ -1251,6 +1254,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func overviewScrollingChanged(_ scrolling: Bool) {
         setCardsFollow(scrolling: scrolling)
+        // Chats that changed during the scroll catch up when it ends.
+        if !scrolling, cardsFollowChats { followCards(true) }
         terminal.overviewScrollingChanged(scrolling)
     }
 

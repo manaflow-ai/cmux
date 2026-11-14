@@ -187,10 +187,11 @@ public struct TerminalCardLiveRefresh: Sendable {
         changed.remove(id)
     }
 
-    /// `id`'s read could not start (one is still out) or brought nothing: it
-    /// is read again at the next tick that runs.
-    public mutating func readAgain(_ id: String) {
-        changed.insert(id)
+    /// `id`'s read could not start (one is still out, the page is not
+    /// attached yet) or brought nothing: it is read again, and the grid keeps
+    /// ticking until it is.
+    public mutating func readAgain(_ id: String, now: Double) {
+        macOutput(id, now: now)
     }
 
     /// Whether the grid's tick should run (or keep running).

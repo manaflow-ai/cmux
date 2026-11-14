@@ -434,7 +434,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                                                     interval: live ? TerminalCardLiveRefresh.screenTextInterval : TerminalCardScreenRefresh.interval)
         else {
             // One is still out: output after it began waits for the next read.
-            if live { liveRefresh.readAgain(tab.id) }
+            if live { liveRefresh.readAgain(tab.id, now: CACurrentMediaTime()) }
             return
         }
         liveRefresh.reading(tab.id)
@@ -444,7 +444,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             guard let self else { return }
             guard let text else {
                 self.screenTextRefresh.failed(tab.id, request: request)
-                if live { self.liveRefresh.readAgain(tab.id) }
+                if live {
+                    self.liveRefresh.readAgain(tab.id, now: CACurrentMediaTime())
+                    self.wakeLiveRefresh()
+                }
                 return
             }
             // A slower older reply never replaces a newer card text (A6).
@@ -471,7 +474,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var liveRefresh = TerminalCardLiveRefresh()
     private var liveRefreshTask: Task<Void, Never>?
     /// The workspace's terminal tabs as they are now, while the grid shows.
-    private var liveTabs: (@MainActor () -> [WorkspaceTab])?
+    private var gridTabs: (@MainActor () -> [WorkspaceTab])?
     /// Sources told of the Mac's terminal output (`observeOutput`).
     private var outputObservers: [(owner: Weak, handler: @MainActor (String?, String) -> Void)] = []
     private struct Weak { weak var object: AnyObject? }
@@ -480,7 +483,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveRefresh.setVisible(visible, now: CACurrentMediaTime())
         liveRefreshTask?.cancel()
         liveRefreshTask = nil
-        liveTabs = visible ? tabs : nil
+        gridTabs = visible ? tabs : nil
         wakeLiveRefresh()
     }
 
@@ -529,7 +532,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             while !Task.isCancelled {
                 try? await ContinuousClock().sleep(for: TerminalCardLiveRefresh.tick)
                 guard !Task.isCancelled, let self else { return }
-                self.refreshLiveCards(self.liveTabs?() ?? [])
+                self.refreshLiveCards(self.gridTabs?() ?? [])
                 if !self.liveRefresh.wantsTicks(now: CACurrentMediaTime()) {
                     self.liveRefreshTask = nil
                     return
@@ -554,7 +557,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 guard let tab = known.first(where: { $0.id == id }), let model = hosts[id]?.model else { continue }
                 // A live tab not attached yet shows its connecting card.
                 if model.pageStarted, !model.connectionState.isAttached {
-                    liveRefresh.readAgain(id)
+                    liveRefresh.readAgain(id, now: CACurrentMediaTime())
                     continue
                 }
                 refreshScreenText(for: tab, model: model, live: true)

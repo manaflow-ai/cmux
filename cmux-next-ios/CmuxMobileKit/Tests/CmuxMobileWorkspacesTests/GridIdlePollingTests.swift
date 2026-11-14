@@ -14,12 +14,16 @@ import Testing
     /// One `process-info` RPC per terminal per call (`LiveWorkspaceCreation.runningPrograms`).
     @MainActor final class CountingProgramsBackend: WorkspaceCreationBackend {
         var rpcs = 0
+        /// Runs during each read (the Mac's output arriving while it is out).
+        var duringRead: (@MainActor (WorkspaceTab) -> Void)?
         func canCreate(on macID: String) -> Bool { true }
         func options(on macID: String) -> WorkspaceCreationOptions { .basic }
         func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
         func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {}
         func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] {
             rpcs += tabs.filter { $0.kind == .terminal }.count
+            for tab in tabs { duringRead?(tab) }
+            await Task.yield()
             return []
         }
     }
@@ -91,6 +95,24 @@ import Testing
         grid.terminal.handler?("term3", grid.macID)
         grid.terminal.handler?("term3", grid.macID)
         await settle()
+        grid.clock.advance(by: WorkspaceTabsSource.programPrefetchInterval)
+        await settle()
+        #expect(grid.backend.rpcs - before == 1)
+        grid.source.overviewVisibilityChanged(false)
+        grid.clock.stop()
+    }
+
+    /// Output while a terminal's read is out: the answer may predate it, so it is read again.
+    @Test func outputDuringAReadIsReadAgain() async {
+        let grid = await idleGrid()
+        grid.backend.duringRead = { [terminal = grid.terminal, macID = grid.macID] tab in
+            if tab.id == "term5" { terminal.handler?("term5", macID) }
+        }
+        grid.source.overviewVisibilityChanged(false)
+        grid.source.overviewVisibilityChanged(true)
+        await settle()
+        grid.backend.duringRead = nil
+        let before = grid.backend.rpcs
         grid.clock.advance(by: WorkspaceTabsSource.programPrefetchInterval)
         await settle()
         #expect(grid.backend.rpcs - before == 1)
