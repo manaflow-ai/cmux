@@ -81,6 +81,8 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Both phone entry points discover this action in initialize's capabilities.
+    Capability { id: "full-access-approval-v1", wire: &[method::MUX_PAIR_FULL_ACCESS_APPROVE] },
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
@@ -410,7 +412,7 @@ mod tests {
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
         assert!(
-            client.daemon_lists("fullAccessApproval"),
+            client.daemon_lists("full-access-approval-v1"),
             "the paired phone must discover its in-place Full-access action"
         );
         assert!(

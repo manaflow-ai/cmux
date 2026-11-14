@@ -52,7 +52,7 @@ import Testing
             func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
             switch method {
             case "initialize":
-                return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"fullAccess":\#(mac.fullAccess),"personInstance":"instance-1","deviceId":"device-1","capabilities":["fullAccessApproval"]}}}"#)]
+                return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"fullAccess":\#(mac.fullAccess),"personInstance":"instance-1","deviceId":"device-1","capabilities":["full-access-approval-v1"]}}}"#)]
             case "_acpmux/watch":
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"lane","harness":"claude","cwd":"/tmp/w","status":"running"}]}"#)]
             case "_acpmux/attach":

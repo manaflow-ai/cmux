@@ -615,7 +615,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// This chat rides a live acpmux connection that advertises the phone-owned
     /// Full-access approval route.
     public var supportsFullAccessApproval: Bool {
-        hub?.capabilities.contains("fullAccessApproval") == true
+        hub?.capabilities.contains("full-access-approval-v1") == true
     }
 
     public func enableFullAccess() async throws {

@@ -51,9 +51,11 @@ The user approved this approach for production on 2026-10-13.
 
 ## Full access for the phone's own pairing
 
-Full access remains off until the person enables it. The phone may request the
-setting through `_acpmux/pair_full_access_approve` after `initialize` reports
-the authenticated pairing `deviceId` and the `fullAccessApproval` feature.
+An explicit Full access off remains off until the person enables it. The phone
+may request the setting through `_acpmux/pair_full_access_approve` after
+`initialize` reports the authenticated pairing `deviceId` and the
+`full-access-approval-v1` capability. New phone records inherit the pairing store's
+default; this recovery flow does not change it.
 The server accepts this method only from a live WebSocket authenticated with a
 phone credential; it derives the device id from that credential and ignores any
 device id in request input.
@@ -75,6 +77,16 @@ in-place phone action to offer again.
 `approvers::tests::full_access_approval_binds_the_phone_mac_and_device` share
 the wire vector. The latter also proves that changing the daemon run, phone,
 pairing record, or expiry invalidates the signature.
+
+The composer consumes `returnedDraft` as a delivery event; approval retries
+from the store's retained resend record instead. It reuses the prompt id and
+withdraws the returned text after dispatch without clearing text the person
+changed meanwhile. `ChatPromptBlipTests.phoneApprovalRetriesTheHeldPromptInPlace`
+consumes the event before approving, so a test cannot pass only because it
+omitted the composer. `failedPhoneApprovalKeepsTheInPlaceRecoveryAction` checks
+that a rejected approval retains the action and that the next tap resends once.
+The daemon capability test also checks discovery through the real initialize
+response instead of relying only on the phone's mock handshake.
 
 ## Design
 

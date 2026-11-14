@@ -86,7 +86,7 @@ public final class LiveCoordinator {
     /// The focused Mac's acpmux client.
     public var acpmux: AcpmuxHub { focused.acpmux }
     /// Whether the focused paired Mac supports the phone-owned Full-access action.
-    public var supportsFullAccessApproval: Bool { acpmux.isReady && acpmux.approver != nil && acpmux.capabilities.contains("fullAccessApproval") }
+    public var supportsFullAccessApproval: Bool { acpmux.isReady && acpmux.approver != nil && acpmux.capabilities.contains("full-access-approval-v1") }
     /// Enables Full access for the focused Mac's pairing record.
     public func enableFullAccess() async throws { try await acpmux.enableFullAccess() }
     /// This phone's APNs registration (the token goes on the link device id).
