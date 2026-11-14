@@ -829,8 +829,9 @@ public final class DaemonTerminalSession: TerminalSession {
             pendingSize = nil
             outbox.removeAll { if case .release = $0 { true } else { false } }
             if attachedWithSize != nil { sizeClaimed = true }
-            // Hidden while the attach was out: the size it carried goes back.
-            if !claimsSize, sizeClaimed {
+            // Hidden while the attach was out, or its link released for a close meanwhile (the
+            // attach had already carried the size): the size it carried goes back at once.
+            if !claimsSize || stillClosing, sizeClaimed {
                 outbox.insert(.release, at: 0)
                 sizeClaimed = false
             }
