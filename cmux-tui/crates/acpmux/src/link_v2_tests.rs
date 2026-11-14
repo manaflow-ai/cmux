@@ -992,22 +992,30 @@ async fn a_reader_ending_with_the_output_open_ends_a_stuck_link() {
     let refused = request_frame(
         json!({"method":"sub","params":{"sid":"x","stream":"list","view":"live","anchor":"end"}}),
     );
+    // Refusals until the connection's reply reserve is used up: it stops reading, the link's
+    // wait to hand it a frame blocks, and the serve loop stops taking lines (the inbound
+    // queue stays full).
     let to_daemon = wire.to_daemon.clone();
     let flood = tokio::spawn(async move {
-        for _ in 0..200 {
+        for _ in 0..1_000_000 {
             if to_daemon.send(refused.clone()).await.is_err() {
                 break;
             }
         }
     });
-    tokio::time::timeout(WAIT, async {
-        while !wire.slot.holds() {
-            tokio::task::yield_now().await;
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if wire.slot.holds() && wire.to_daemon.capacity() == 0 {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                if wire.to_daemon.capacity() == 0 {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
     .await
-    .expect("a reply waits in the slot");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    .expect("the serve loop blocks handing the connection a frame");
     flood.abort();
     let Wire { to_daemon, from_daemon, stop_writer, slot, serving } = wire;
     // The reader ends; the writer stays stopped and the output open.
