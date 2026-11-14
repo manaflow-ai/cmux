@@ -71,10 +71,11 @@ trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 trap cleanup EXIT
 scratch="$(mktemp -d)"
 
-# The account's tools: steps run with a per-step HOME (as fresh-home-launch.sh).
+# The account's tools, after the step's own: steps run with a per-step HOME, and the worker puts its pinned
+# bun first on PATH, which an older ~/.bun/bin must not shadow (webviews refuses bun under its devEngines pin).
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
-  [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
+  [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$PATH:$tool_dir"
 done
 if [ -n "$account_home" ]; then
   [ -z "${RUSTUP_HOME:-}" ] && [ -d "$account_home/.rustup" ] && export RUSTUP_HOME="$account_home/.rustup"
