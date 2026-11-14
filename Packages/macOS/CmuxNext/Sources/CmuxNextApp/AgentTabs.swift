@@ -568,7 +568,7 @@ final class AgentTabStore {
         // spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
-                                                wake: wakeStates[tabKey].map { !$0.holdsOnlyPlace } ?? false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
+                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)

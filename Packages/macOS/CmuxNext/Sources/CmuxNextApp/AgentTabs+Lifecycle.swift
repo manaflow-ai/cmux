@@ -248,7 +248,7 @@ extension AgentTabStore {
     /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
     /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
     /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
-    /// and the tab gets nothing from it. A released chat's kept place rides on the adopt event, then is dropped.
+    /// and the tab gets nothing from it.
     @discardableResult
     func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool { adoptSpare(spare, key: tabKey(key), session: session, revealTurn: revealTurn) }
 
@@ -258,7 +258,7 @@ extension AgentTabStore {
             guard let window = spare?.window else { return }
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, place: wakeStates[key]?.place, moved: moved) else {
+        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, moved: moved) else {
             AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
@@ -266,7 +266,7 @@ extension AgentTabStore {
         }
         AgentPaneSpareOutcome.adopted.trace()
         standaloneViews.remove(spare)
-        (views[key], spare.model.allowsTabConversion, wakeStates[key]) = (spare, true, nil)
+        (views[key], spare.model.allowsTabConversion) = (spare, true)
         wire(spare.model, key: key.key, machine: key.machine)
         return true
     }
