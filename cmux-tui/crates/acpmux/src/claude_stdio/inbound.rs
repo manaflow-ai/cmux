@@ -173,6 +173,17 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                // Claude Code emits the chat's text as stream events (rather than
+                                // a whole `assistant` line). Mark real streamed output before the
+                                // result arrives, so a text-only turn whose result reports zero
+                                // API turns is not mistaken for resumed-process startup noise.
+                                if parent.is_none()
+                                    && d.get("text")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|text| !text.is_empty())
+                                {
+                                    self.turn_output.store(true, Ordering::SeqCst);
+                                }
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
                                 }
@@ -986,6 +997,22 @@ impl Translator {
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
             "prompt_suggestion" if parent.is_none() => {
                 out.extend(self.suggestion_update(line).map(upd))
+            }
+            // Another session's message Claude Code holds instead of giving it to the model, and
+            // how that hold ends (`hub/native_messaging.rs`). Information only: Claude Code has
+            // no host approval for it.
+            "system" if sub == "peer_message_hold" => {
+                let field = |key: &str| line.get(key).cloned().unwrap_or(Value::Null);
+                out.push(upd(json!({
+                    "sessionUpdate": crate::hub::native_messaging::HOLD_UPDATE,
+                    "state": field("state"),
+                    "messageUuid": field("message_uuid"),
+                    "lane": field("lane"),
+                    "from": field("from"),
+                    "fromName": field("from_name"),
+                    "cause": field("cause"),
+                    "outcome": field("outcome"),
+                })));
             }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {

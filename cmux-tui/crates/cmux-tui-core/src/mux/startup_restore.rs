@@ -2,6 +2,8 @@
 
 use super::*;
 
+pub(super) mod restate_parts;
+
 impl Mux {
     pub(super) fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
         let mut cursor = None;

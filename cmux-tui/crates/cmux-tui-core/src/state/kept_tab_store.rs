@@ -147,12 +147,25 @@ pub(crate) fn read_kept_tabs(
 /// The `extra.relaunch` of one tab: `{cwd}` for a kept tab (with
 /// `on_show: true` for a parked one), else null.
 pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::Result<Value> {
-    let row = connection
-        .query_row("SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
-        })
-        .optional()?;
+    let row = super::values::query_row_cached(
+        connection,
+        "SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1",
+        [tab_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0)),
+    )
+    .optional()?;
     Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
+}
+
+/// [`relaunch_value`] of each kept tab, by tab id, for a list of the
+/// session's tabs: the table is read one time, not one time for each tab.
+pub(crate) fn relaunch_values(connection: &Connection) -> anyhow::Result<HashMap<String, Value>> {
+    let mut statement = connection.prepare("SELECT tab_id, cwd, on_show FROM kept_tabs")?;
+    let rows = statement.query_map([], |row| {
+        let (cwd, on_show) = (row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)? != 0);
+        Ok((row.get::<_, String>(0)?, relaunch_json(cwd.as_deref(), on_show)))
+    })?;
+    Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
 }
 
 /// `{cwd}`, with `on_show: true` for a tab parked by `park-tabs`.

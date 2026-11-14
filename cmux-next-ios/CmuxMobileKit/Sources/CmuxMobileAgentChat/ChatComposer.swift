@@ -28,8 +28,6 @@ struct ChatComposer: View {
     /// Window y the slash-command list may not rise above (under the chat's header and
     /// what the bottom stack shows over the composer); nil when the host does not say.
     var suggestionsCeiling: CGFloat?
-    /// A Retry uses the same send path, including queue/steer and draft clearing.
-    var retryCount = 0
     /// The cmux commands this chat offers (`/status`, `/fork`, `/continue`), listed before the
     /// agent's own, and what runs one when it is sent alone: nil when it ran, else the refusal
     /// shown over the composer (the draft stays). Empty: none offered.
@@ -102,7 +100,6 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
@@ -130,7 +127,8 @@ struct ChatComposer: View {
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history
@@ -242,9 +240,8 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    // The menu is there whenever the agent offers models, even when the
-                    // current one is not among them (a default the account lacks, D4).
-                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty { modelPill }
+                    if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
+                        || store.effortOption?.options.isEmpty == false { pickerMenu }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
@@ -255,10 +252,18 @@ struct ChatComposer: View {
                 if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, collapsed ? 6 : 8)
-            .padding(.top, collapsed ? 6 : 0)
+            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
+            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
+            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
+            // keeps its 44 pt targets and grows with Dynamic Type.
+            .padding(.bottom, collapsed ? 2 : 8)
+            .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
+        // Its own height whatever it is offered: a min-height frame offered
+        // less takes the offer, and the grown draft ran outside the rounded
+        // card (user report 2026-11-12, the same rule as the terminal composer).
+        .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, collapsed ? 20 : 12)
     }
@@ -349,42 +354,21 @@ struct ChatComposer: View {
         .accessibilityLabel("Add")
     }
 
-    private var modelPill: some View {
+    /// The one picker button after +: its menu holds three nested submenus, the harness with
+    /// its models ("Claude > Opus 5.5", as the Mac's model menu nests them), Mode and Effort, each
+    /// row naming its current value. The button names the model and, when they fit, the effort.
+    private var pickerMenu: some View {
         Menu {
-            // Checkmark buttons rather than inline pickers: an inline picker
-            // inside a menu section drops the section's header.
-            if !store.models.isEmpty {
-                Section("Model") {
-                    ForEach(store.models) { model in
-                        checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
-                    }
-                }
-            }
-            // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
-            // modes that still ask before running tools, and the harness's Full access mode
-            // when this phone's Full-access setting covers it (`ACPMode.phoneChoices`); a
-            // refused one comes back as the chat's error line.
-            if !store.modes.isEmpty {
-                Section("Mode") {
-                    ForEach(store.modes) { mode in
-                        checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
-                    }
-                }
-            }
-            if let effort = store.effortOption {
-                Section(effort.name ?? "Effort") {
-                    ForEach(effort.options, id: \.value) { option in
-                        checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
-                            store.setConfig(effort.id, value: option.value)
-                        }
-                    }
-                }
-            }
+            // The model row is there whenever the agent offers models, even when the current one
+            // is not among them (a default the account lacks, D4).
+            if store.currentModelID != nil || !store.models.isEmpty { modelSubmenu }
+            if !store.modes.isEmpty { modeSubmenu }
+            if let effort = store.effortOption, !effort.options.isEmpty { effortSubmenu(effort) }
         } label: {
             // Model and effort when they fit; at large text sizes the model alone.
             ViewThatFits(in: .horizontal) {
-                modelPillLabel(withEffort: true)
-                modelPillLabel(withEffort: false)
+                pickerLabel(withEffort: true)
+                pickerLabel(withEffort: false)
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
@@ -397,40 +381,115 @@ struct ChatComposer: View {
             .contentShape(.rect)
         }
         .padding(.vertical, -5)
-        // Source order (Model, Mode, Effort; modes in the agent's order), the same as the
-        // title menu, not the reversed order of a menu opened near the bottom of the screen.
+        // Ahead of the Spacer and the context ring: at large text sizes the button keeps its
+        // width (its name truncates) instead of being squeezed to nothing.
+        .layoutPriority(1)
+        // Source order (model, Mode, Effort), not the reversed order of a menu opened near the
+        // bottom of the screen.
         .menuOrder(.fixed)
-        .accessibilityLabel(store.currentModelName == nil ? "Mode" : "Model")
-        .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
-            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
-        }].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityLabel(store.currentModelName == nil && store.currentModelID == nil ? "Mode" : "Model")
+        .accessibilityValue(Text([store.currentModelName ?? store.currentModelID, currentModeName, currentEffortName]
+            .compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityIdentifier("agentChat.composer.model")
     }
 
-    private func modelPillLabel(withEffort: Bool) -> some View {
+    private func pickerLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
             Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
-            if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
+            // A mode other than the agent's first (Plan, Full access) stays in sight, as before.
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let mode = currentModeName,
+               store.currentModeID != store.modes.first?.id {
                 Text(mode).foregroundStyle(.secondary)
             }
-            if withEffort, let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
-                Text(value.name ?? value.value).foregroundStyle(.secondary)
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let effort = currentEffortName {
+                Text(effort).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: withEffort, vertical: false)
+    }
+
+    /// The harness the chat runs ("Claude", "Codex"): the model submenu's title, as on the Mac.
+    private var harnessName: String { store.summary.harnessDisplayName }
+
+    /// The harness as a submenu of its models, with the current model as the row's subtitle.
+    /// With no list (only a current model reported) the submenu would be empty, so the row
+    /// names the model alone.
+    @ViewBuilder private var modelSubmenu: some View {
+        if store.models.isEmpty {
+            Button {} label: {
+                Text(harnessName)
+                if let name = store.currentModelName ?? store.currentModelID { Text(name) }
+            }
+            .disabled(true)
+        } else {
+            Menu {
+                // Checkable toggles (`checkButton`) rather than an inline picker: an inline picker
+                // inside a menu section drops the section's header.
+                ForEach(store.models) { model in
+                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+                }
+            } label: {
+                // Two texts, no icon: iOS draws the second as the row's subtitle (a Label with
+                // an icon drops it).
+                Text(harnessName)
+                // The model in force, named as the button names it (its id when the list lacks it).
+                if let name = store.currentModelName ?? store.currentModelID { Text(name) }
+            }
+            .menuOrder(.fixed)
+            .accessibilityIdentifier("agentChat.composer.model.harness")
+        }
+    }
+
+    /// ACP `session/set_mode` over the link. The Mac accepts from the phone only the modes that
+    /// still ask before running tools, and the harness's Full access mode when this phone's
+    /// Full-access setting covers it (`ACPMode.phoneChoices`); a refused one comes back as the
+    /// chat's error line.
+    private var modeSubmenu: some View {
+        Menu {
+            ForEach(store.modes) { mode in
+                checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
+            }
+        } label: {
+            Text("Mode")
+            if let name = currentModeName { Text(name) }
+        }
+        // The agent's order.
+        .menuOrder(.fixed)
+        .accessibilityIdentifier("agentChat.composer.mode")
+    }
+
+    /// The agent's thought-level option, always called Effort (an agent may name it "Reasoning").
+    private func effortSubmenu(_ effort: ACPConfigOption) -> some View {
+        Menu {
+            ForEach(effort.options, id: \.value) { option in
+                checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
+                    store.setConfig(effort.id, value: option.value)
+                }
+            }
+        } label: {
+            Text("Effort")
+            if let name = currentEffortName { Text(name) }
+        }
+        .menuOrder(.fixed)
+        .accessibilityIdentifier("agentChat.composer.effort")
+    }
+
+    private var currentEffortName: String? {
+        store.effortOption.flatMap { effort in
+            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
+        }
     }
 
     private var currentModeName: String? {
         store.modes.first { $0.id == store.currentModeID }?.name
     }
 
+    /// A menu row checked when it is the value in force. A Toggle, not a Button with a checkmark
+    /// image: iOS draws a menu Toggle's own checkmark at every text size, while it drops a row's
+    /// image at accessibility sizes (the Effort submenu then showed no check at all). Choosing
+    /// the checked row again changes nothing.
     private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            if checked {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
+        Toggle(title, isOn: Binding(get: { checked }, set: { on in if on { action() } }))
     }
 
     private enum PrimaryState { case empty, send, stop, queue }
@@ -448,12 +507,13 @@ struct ChatComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
             Image(systemName: "waveform")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: 36, height: 36)
-                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .background(style.fillColor, in: .circle)
                 .padding(4)
                 .contentShape(.circle)
                 .padding(-4)
@@ -890,6 +950,15 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+extension ComposerVoiceStyle {
+    var fillColor: Color {
+        switch fill {
+        case .accent: .cmuxMobileAccent
+        case .neutral: .cmuxMobileFill
+        case .plain: .clear
+        }
     }
 }
 #endif

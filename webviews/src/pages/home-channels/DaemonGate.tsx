@@ -14,10 +14,19 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { useLasting } from "../../ui/lasting";
 import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
+
+/** The host's refusal when this daemon's page listener cannot serve the page (a configured
+ *  credential, an origin it does not admit): final until cmux-tui restarts. */
+export const PAGE_LISTENER_REFUSED = "cmux.daemon.page_listener";
+/** The daemon (or the host's daemon) is too old for this page: the host's or `connect.tooOld`. */
+const TOO_OLD = "cmux.daemon.too_old";
+/** The host's daemon is starting or restarting: retried, with the host's own sentence. */
+const HOST_UNAVAILABLE = "cmux.protocol.unavailable";
 
 /** The endpoint is this page's own origin (same host and port, ws for http, wss for https). */
 function sameOrigin(url: string): boolean {
@@ -60,8 +69,9 @@ type Phase =
   | { kind: "form"; error?: string }
   | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
-  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry loop. */
-  | { kind: "blocked"; error: string }
+  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry
+   *  loop. `restart` when restarting cmux-tui is the fix. */
+  | { kind: "blocked"; error: string; restart?: boolean }
   | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
@@ -82,13 +92,30 @@ export function afterConnectFailure(code: string | undefined, source: "url" | "h
 export function DaemonGate({
   source,
   strings,
+  restart,
   children,
 }: {
   source: DaemonSource;
   strings: Strings;
+  /** Restart cmux-tui (the app's own confirm), when the host can: the blocked state's action. */
+  restart?: () => void;
   children: (daemon: DaemonSocket, pages?: string, owner?: DaemonSocket) => ReactNode;
 }) {
   const { t, format } = strings;
+  // What a failure says: one plain sentence by code, never the daemon's own text. The host words
+  // a restart in progress and a daemon too old for the page for the person (HomeChannelsPage.swift);
+  // a socket that did not answer is retried, so it reads as connecting.
+  const say = (error: unknown) =>
+    userMessage(error, {
+      auth_rejected: t("connect.authRejected"),
+      unreachable: t("connect.connecting"),
+      disconnected: t("connect.connecting"),
+      unresponsive: t("connect.connecting"),
+      timeout: t("connect.connecting"),
+      [PAGE_LISTENER_REFUSED]: t("connect.listenerRefused"),
+      [HOST_UNAVAILABLE]: OWNER_SENTENCE,
+      [TOO_OLD]: OWNER_SENTENCE,
+    });
   const url = source.kind === "url" ? source.url : "";
   const [phase, setPhase] = useState<Phase>(() =>
     source.kind === "host" || sessionStorage.getItem(storageKey(url)) || sameOrigin(url)
@@ -115,7 +142,7 @@ export function DaemonGate({
       // `connect` read its identity, the probe that it answers at all.
       if (!daemon.identity.capabilities?.includes("ws-conversations-v1")) {
         daemon.close();
-        throw new Error(t("connect.tooOld"));
+        throw Object.assign(new Error(t("connect.tooOld")), { code: TOO_OLD });
       }
       return { daemon, closed: () => closed };
     });
@@ -165,7 +192,7 @@ export function DaemonGate({
           owner?.close();
           if (reason === "authentication failed" && source.kind === "url") {
             sessionStorage.removeItem(storageKey(url));
-            setPhase({ kind: "form", error: reason });
+            setPhase({ kind: "form", error: t("connect.authRejected") });
           } else retry();
         };
         daemon.onClose(lost);
@@ -177,9 +204,9 @@ export function DaemonGate({
         const next = afterConnectFailure(error.code, source.kind);
         if (next === "forget") {
           sessionStorage.removeItem(storageKey(url));
-          setPhase({ kind: "form", error: error.message });
-        } else if (next === "retry") retry(error.message);
-        else setPhase({ kind: "form", error: error.message });
+          setPhase({ kind: "form", error: say(error) });
+        } else if (next === "retry") retry(say(error));
+        else setPhase({ kind: "form", error: say(error) });
       });
   };
 
@@ -192,8 +219,9 @@ export function DaemonGate({
         // The host says why it has no endpoint. A final answer (an external daemon too old for the
         // listener) stops here with the reason; anything else (a restart in progress) retries.
         .catch((error: Error & { retryable?: boolean }) => {
-          if (error.retryable !== false) return retry(error.message);
-          if (live.current.mounted) setPhase({ kind: "blocked", error: error.message });
+          if (error.retryable !== false) return retry(say(error));
+          const listener = (error as { code?: unknown }).code === PAGE_LISTENER_REFUSED;
+          if (live.current.mounted) setPhase({ kind: "blocked", error: say(error), restart: listener && !!restart });
         });
       return;
     }
@@ -246,11 +274,7 @@ export function DaemonGate({
   if (phase.kind === "connecting")
     return (
       <section className="hc-gate" aria-busy="true">
-        {lasting && (
-          <output className="hc-gate-line">
-            {phase.note ? format("connect.failed", phase.note) : t("connect.connecting")}
-          </output>
-        )}
+        {lasting && <output className="hc-gate-line">{phase.note ?? t("connect.connecting")}</output>}
       </section>
     );
   return (
@@ -260,17 +284,30 @@ export function DaemonGate({
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
       {phase.kind === "blocked" && (
         <>
-          <p className="hc-gate-error">{format("connect.failed", phase.error)}</p>
+          <p className="hc-gate-error">{phase.error}</p>
           <div className="hc-gate-actions">
-            <button
-              type="button"
-              onClick={() => {
-                setPhase({ kind: "connecting" });
-                resume();
-              }}
-            >
-              {t("connect.button")}
-            </button>
+            {phase.restart && restart ? (
+              // The fix is a restart (the app asks first); the page reconnects once cmux-tui is back.
+              <button
+                type="button"
+                onClick={() => {
+                  restart();
+                  retry();
+                }}
+              >
+                {t("connect.restart")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase({ kind: "connecting" });
+                  resume();
+                }}
+              >
+                {t("connect.button")}
+              </button>
+            )}
           </div>
         </>
       )}
@@ -311,7 +348,7 @@ export function DaemonGate({
               {t("connect.pair")}
             </button>
           </div>
-          {phase.error && <p className="hc-gate-error">{format("connect.failed", phase.error)}</p>}
+          {phase.error && <p className="hc-gate-error">{phase.error}</p>}
         </form>
       )}
     </section>

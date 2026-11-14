@@ -1,7 +1,7 @@
 // Home's pinned Needs you section (FeedNeedsYouView): the Feed's open requests, the ones its list
 // pins on top, read from the same owner (no second store). Rows: what it is, who asked and its
 // one-click answers at the end; cards: the Feed's request cards; bar: one line with the count and
-// the first request. Past the limit the rest are counted and the count opens the Feed. It draws
+// the first request (a click opens it). Past the limit the rest are only counted. It draws
 // nothing while nothing waits.
 import { cx } from "../../ui/cx";
 import { isPending, type FeedProps } from "./context";
@@ -21,11 +21,7 @@ export function NeedsYouView(props: FeedProps) {
     const first = requests[0]!;
     return (
       <section className="feed-needs" data-style="bar" aria-label={`${t("group.needsYou")}, ${total}`}>
-        <button
-          type="button"
-          className="feed-needs-opener"
-          onClick={() => (total === 1 ? store.open(first.id) : store.showFeed())}
-        >
+        <button type="button" className="feed-needs-opener" onClick={() => store.open(first.id)}>
           <Glyph item={{ ...first, row: { ...first.row, urgent: false } }} />
           <span className="feed-needs-text">
             <span className="feed-needs-headline">{`${t("group.needsYou")} ${total}`}</span>
@@ -42,11 +38,7 @@ export function NeedsYouView(props: FeedProps) {
       <div className="feed-needs-header">
         <span className="feed-needs-title">{t("group.needsYou")}</span>
         <span className="feed-needs-count feed-num">{total}</span>
-        {more > 0 ? (
-          <button type="button" className="feed-needs-more" onClick={() => store.showFeed()}>
-            {format("needsYou.more", String(more))}
-          </button>
-        ) : null}
+        {more > 0 ? <span className="feed-needs-more">{format("needsYou.more", String(more))}</span> : null}
       </div>
       {shown.map((item) =>
         style === "cards" ? (

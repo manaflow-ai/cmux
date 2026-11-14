@@ -259,7 +259,9 @@ extension SidebarViewComponents {
         // Inset like the rows' pills (one gutter, Leo 2026-10-13), so its ends line up with theirs.
         let inset = list.inset
         aboveLine.frame = NSRect(x: inset, y: aboveY - width, width: max(0, bounds.width - inset * 2), height: width)
-        aboveLine.isHidden = !(look.drawsBandLines && showsAbove)
+        // No line under a band that ends in Home's section (Lawrence 2026-11-13: "get rid of line under "home"").
+        let endsInHome = aboveRegion.layoutResult.sectionIDs.last == SidebarLayoutDocument.topSectionID
+        aboveLine.isHidden = !(look.drawsBandLines && showsAbove) || endsInHome
         performWithTheme { aboveLine.backgroundColor = Palette.separator.cgColor }
         CATransaction.commit()
     }
@@ -274,8 +276,10 @@ extension SidebarViewComponents {
     /// A space switch (R99): the list shows the new space's rows at rest in the frame of the switch, as a
     /// browser shows a tab (Lawrence 2026-11-10: a press on a space "instantly switches"). After a swipe the
     /// list takes the page's place. Nothing slides: a dot, a key, the wheel, the palette and the CLI all end here.
-    func showSpace() {
+    /// `left` is the space the list showed, `shown` the model's now: a space shown again takes the rows the list
+    /// kept for it (`SidebarListView.showSpace`).
+    func showSpace(leaving left: ProfileKey?, entering shown: ProfileKey?) {
         spacePaging.modelDidSwitch()
-        list.reload(animated: false)
+        list.showSpace(leaving: left, entering: shown)
     }
 }

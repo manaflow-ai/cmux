@@ -21,6 +21,19 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
 
+    /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
+    /// composer's model menu nests the models under it, as the Mac's does.
+    public var harnessDisplayName: String {
+        switch harness.lowercased() {
+        case "claude": "Claude"
+        case "claude-cr": "Claude (CodeRouter)"
+        case "codex": "Codex"
+        case "opencode": "OpenCode"
+        case "": "Agent"
+        default: harness.prefix(1).uppercased() + harness.dropFirst()
+        }
+    }
+
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
         macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
@@ -90,6 +103,14 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
     /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
     case earlierPage([AgentSessionEvent], hasEarlier: Bool)
+    /// A reattach after a long time away read the newest records first (tail-first): the
+    /// records between what the chat already had and them are still on the Mac. Sent in the
+    /// reattach's batch just before the newest records, whose first turn is `beforeTurnID`.
+    case gapOpened(beforeTurnID: String)
+    /// Records of that gap, oldest first, read in the background after the newest ones
+    /// showed: they go in before `beforeTurnID`, continuing the turn the chat had last.
+    /// `done`: the gap is filled.
+    case gapPage([AgentSessionEvent], done: Bool)
     /// Whether the source is still reading the chat's history from the Mac (true) or has caught
     /// up with it (false). While it reads, the chat shows what it already has (kept rows) or a
     /// loading state, never the empty new-chat screen (``AgentChatStore/isLoadingHistory``).
@@ -256,6 +277,9 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
+    /// update it made, or nil when the source can't read it (the person opens it again to retry).
+    func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
     /// The source reads the chat's history before its first records arrive (a chat that exists
     /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
@@ -291,6 +315,7 @@ public protocol AgentSessionSource: AnyObject {
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
 }

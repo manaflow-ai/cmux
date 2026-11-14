@@ -66,6 +66,7 @@ use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
 use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+pub(crate) use kitty_budget_state::KittyImageAdoptionExpectation;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
@@ -192,6 +193,7 @@ mod agent_chat_notices;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
+pub(crate) mod chat_index;
 mod client_resize;
 mod cloud_conversations;
 mod construct;
@@ -258,7 +260,9 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{
+    DeltaMutation, GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind,
+};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -516,6 +520,15 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The index `delta` steps from `active` in a ring of `len` items (`len > 0`,
+/// `active < len`). `delta` comes from a client and can be any `isize`: it is
+/// reduced into the ring first, so the sum is below `2 * len` and never overflows.
+pub(crate) fn ring_step(active: usize, delta: isize, len: usize) -> usize {
+    let len_signed = isize::try_from(len).unwrap_or(isize::MAX);
+    let step = usize::try_from(delta.rem_euclid(len_signed)).unwrap_or(0);
+    active.saturating_add(step) % len
+}
+
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -554,6 +567,9 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
+    /// The route generations of `state`'s routing tables, read without the session lock
+    /// (`crate::route_table::RouteGenerations`).
+    pub(crate) route_generations: crate::route_table::RouteGenerations,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -637,6 +653,10 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a browser target adoption after its commit failed and before
+    /// its rollback closes the adopted tab (tests).
+    #[cfg(test)]
+    browser_adopt_before_rollback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Runs in a state mutation after its apply step (inside its open
@@ -648,6 +668,10 @@ pub struct Mux {
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a session journal stream that caught up on its database
+    /// reader, just before it moves to the shared ring (tests).
+    #[cfg(test)]
+    pub(crate) journal_stream_before_ring_switch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -703,6 +727,10 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -833,9 +861,9 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// The laps of this owner's open (registry, restore, adoption), until
-    /// the owner's start takes them for `startup-timings.jsonl`.
-    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// The laps of this owner's open (registry, restore, adoption), until the owner's start
+    /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
+    startup_timings: startup_record::StartupLaps,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -861,6 +889,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// One whole-tree `list-workspaces` build for concurrent readers.
+    pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -1081,17 +1111,6 @@ impl Mux {
     #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
-    }
-
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
     }
 
     pub fn surface_count(&self) -> usize {

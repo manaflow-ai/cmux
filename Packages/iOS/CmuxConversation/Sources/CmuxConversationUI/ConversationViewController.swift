@@ -104,8 +104,6 @@ public final class ConversationViewController: UIViewController {
     /// bottom in landscape.
     private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
-    /// Opt-in material above both transcript rows and reply-thread copies.
-    let headerMaterial = ConversationHeaderMaterial()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
     weak var detailsController: ConversationDetailsViewController?
@@ -265,6 +263,9 @@ public final class ConversationViewController: UIViewController {
     /// A rotation or resize is under way (iOS 27 hides and reshows the
     /// keyboard around one).
     private var isTransitioningSize = false
+    /// The scene left the foreground since the keyboard last showed
+    /// (`ConversationKeyboardFocusPolicy.KeyboardHidden.sceneLeftSinceKeyboardShown`).
+    private var sceneLeftSinceKeyboardShown = false
     var effects = ConversationEffectsState()
 
     /// The app's keyboard notifications (`MobileKeyboardDock`).
@@ -332,10 +333,8 @@ public final class ConversationViewController: UIViewController {
         header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
-        if #available(iOS 26.0, *), options.header.scrollEdge == .system {
-            view.insertSubview(headerMaterial, belowSubview: composerContainer)
-        }
         view.addSubview(header)
+        applyHeaderVisibility()
 
         let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
         keyboardDock.trackInteractiveDismissal(of: collectionView)
@@ -417,15 +416,53 @@ public final class ConversationViewController: UIViewController {
         installCatchUp()
         observeKeyboardFrames()
         installTranslation()
-        store.onChange = { [weak self] change in self?.storeDidChange(change) }
+        store.claimPrimary(self) { [weak self] change in self?.storeDidChange(change) }
         store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
         rebuild(change: .reset)
     }
 
+    /// The conversation draws its own header, so it hides its navigation
+    /// controller's bar. False when it is shown inside another screen that
+    /// keeps its bar (New Message's existing conversation under To:).
+    public var hidesNavigationBar = true
+    /// Gives the store's updates back, for a screen shown inside another one and removed before
+    /// the next screen over the same store takes them; a newer screen's claim is left alone.
+    public func releaseStore() {
+        store.releasePrimary(self)
+    }
+    /// False hides the conversation's own header and its top fade (New
+    /// Message shows the conversation under its To: field, which names it).
+    public var showsHeader = true {
+        didSet { applyHeaderVisibility() }
+    }
+
+    private func applyHeaderVisibility() {
+        guard isViewLoaded else { return }
+        header.isHidden = !showsHeader
+        topEdgeFade.isHidden = !showsHeader
+        if #available(iOS 26.0, *), !showsHeader {
+            // Shown under another screen's field (New Message's To:): the system's soft edge
+            // effect at the top, as under a navigation bar, instead of the header's own fade.
+            collectionView.topEdgeEffect.isHidden = false
+            collectionView.topEdgeEffect.style = .soft
+        }
+        updateInsets()
+    }
+
+    /// Where the transcript starts while the header is hidden (``showsHeader``): the bottom of the
+    /// host's own top element (New Message's To: field), in this view's coordinates.
+    public var embeddedTopInset: CGFloat = 0 {
+        didSet { if isViewLoaded, !showsHeader { updateInsets() } }
+    }
+
+    /// The transcript's scroll view, for a host that hangs its own element over the top edge
+    /// (`UIScrollEdgeElementContainerInteraction`, `setContentScrollView`).
+    public var transcriptScrollView: UIScrollView { collectionView }
+
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(true, animated: animated)
+        if hidesNavigationBar { navigationController?.setNavigationBarHidden(true, animated: animated) }
         // In front: the theme takes this conversation's text size.
         ConversationThemeOwners.appeared(self)
     }
@@ -503,8 +540,6 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - contentTop - 3.3)
         layoutReplyOverlay()
-        headerMaterial.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: view.bounds.width,
-                                      height: header.frame.maxY - view.bounds.minY + ConversationTopEdgeGeometry.extent)
         if store.background != nil, !wantsSystemTopPocket {
             collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
         }
@@ -572,8 +607,9 @@ public final class ConversationViewController: UIViewController {
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
         let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
-        let top = headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY + max(0, spacing)
-        collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
+        let top = !showsHeader ? embeddedTopInset + max(0, spacing)
+            : headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY + max(0, spacing)
+        collectionView.edgeTopInset = options.header.scrollEdge == .system || !showsHeader ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -665,6 +701,10 @@ public final class ConversationViewController: UIViewController {
         center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
         }
+        center.addObserver(self, selector: #selector(keyboardShowsAfterSceneTrip), name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardShowsAfterSceneTrip), name: UIResponder.keyboardDidShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneWillDeactivate(_:)), name: UIScene.willDeactivateNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
             let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated {
@@ -697,6 +737,24 @@ public final class ConversationViewController: UIViewController {
         }
     }
 
+    @objc private func keyboardShowsAfterSceneTrip() {
+        sceneLeftSinceKeyboardShown = false
+    }
+
+    @objc private func sceneWillDeactivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        sceneLeftSinceKeyboardShown = true
+    }
+
+    /// Back in front with the keyboard still up (Control Center, a banner or
+    /// an alert never hid it): no late hide is coming, so a later dismissal
+    /// resigns as usual.
+    @objc private func sceneDidActivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene, isViewLoaded else { return }
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        if keyboardDock.guide.layoutFrame.minY < restingGuideTop - 0.5 { sceneLeftSinceKeyboardShown = false }
+    }
+
     /// Keyboard hidden means the composer is not first responder (see
     /// `ConversationKeyboardFocusPolicy`), whichever path hid it, so a
     /// single tap on the field always brings the keyboard back.
@@ -707,7 +765,8 @@ public final class ConversationViewController: UIViewController {
             keyboardGuideAtRest: keyboardDock.guide.layoutFrame.minY >= restingGuideTop - 0.5,
             hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
             sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
-            isTransitioningSize: isTransitioningSize
+            isTransitioningSize: isTransitioningSize,
+            sceneLeftSinceKeyboardShown: sceneLeftSinceKeyboardShown
         )
         guard ConversationKeyboardFocusPolicy.composerResigns(after: state) else { return }
         composer.textView.resignFirstResponder()
@@ -2037,7 +2096,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .systemEvent(_, text): return SystemEventCell.height(text, width: width)
         case let .unavailability(_, messageID): return UnavailabilityCell.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return LoadingCell.height
-        case .conversationStart: return ConversationStartCell.height
+        // No service line (a conversation with people): only the room above the first timestamp.
+        case .conversationStart:
+            return options.serviceTitle.isEmpty && options.serviceSubtitle.isEmpty
+                ? ConversationStartCell.topInset : ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)
         }
     }

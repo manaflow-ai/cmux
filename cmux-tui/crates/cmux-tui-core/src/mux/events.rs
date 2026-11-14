@@ -225,6 +225,12 @@ pub enum MuxEvent {
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
+    /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
+    /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
+    /// `subscribe` clients do not get it.
+    ChatsChanged {
+        revision: u64,
+    },
     /// Every workspace is gone.
     Empty,
 }
@@ -329,4 +335,16 @@ pub struct TreeDelta {
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,
+    /// The `origin` and `mutation_id` of the registry event at
+    /// `workspace_revision`, read once when the delta is published (under the
+    /// registry guard), so a subscriber never reads the registry for them.
+    pub mutation: Option<Arc<DeltaMutation>>,
+}
+
+/// Who made a revisioned workspace delta: its registry event's `origin` and
+/// `mutation_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaMutation {
+    pub origin: String,
+    pub mutation_id: String,
 }
