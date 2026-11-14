@@ -73,9 +73,10 @@ impl Presenter {
         self.conn.map_window(win)?;
         let gc = self.conn.generate_id()?;
         self.conn.create_gc(gc, win, &CreateGCAux::new())?;
-        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4)?);
+        // Kept before the segment: a failed segment must not make every later frame make a new window.
         self.window = Some((win, gc));
         self.size = (w, h);
+        self.shm = Some(ShmSeg::new(&self.conn, w * h * 4)?);
         self.conn.sync()?;
         Ok(())
     }
@@ -87,28 +88,30 @@ impl Presenter {
             self.resize(w, h)?;
         }
         let (Some((win, gc)), Some(shm)) = (self.window, self.shm.as_mut()) else {
-            return Ok(());
+            return Err("--present: no shared memory segment for the window".into());
         };
         i420_to_bgrx(yuv, shm.as_mut_slice(), w, h);
-        self.conn.shm_put_image(
-            win,
-            gc,
-            w as u16,
-            h as u16,
-            0,
-            0,
-            w as u16,
-            h as u16,
-            0,
-            0,
-            24,
-            ImageFormat::Z_PIXMAP.into(),
-            false,
-            shm.seg,
-            0,
-        )?;
-        // A round trip: the server has copied the segment into the window when it answers.
-        self.conn.sync()?;
+        self.conn
+            .shm_put_image(
+                win,
+                gc,
+                w as u16,
+                h as u16,
+                0,
+                0,
+                w as u16,
+                h as u16,
+                0,
+                0,
+                24,
+                ImageFormat::Z_PIXMAP.into(),
+                false,
+                shm.seg,
+                0,
+            )?
+            // A checked round trip: the server has copied the segment into the window when it
+            // answers, and an X error from the put comes back here instead of the event queue.
+            .check()?;
         Ok(())
     }
 }
