@@ -31,7 +31,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 299)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 118).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
