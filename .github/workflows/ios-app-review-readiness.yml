@@ -51,9 +51,12 @@ jobs:
           # One refused read must not turn the push run red with no verdict (run
           # 43618862433): each call gets 5 tries a minute apart. A dispatch whose
           # reply was lost and is sent again makes at most one extra gate run.
+          # gh api prints a refused call's error body to stdout, so only the
+          # successful try's output is passed on.
           ghr() {
+            local out
             for try in 1 2 3 4 5; do
-              gh api "$@" && return 0
+              out="$(gh api "$@")" && { printf '%s\n' "$out"; return 0; }
               echo "::warning::gh api $1 failed (try $try of 5)" >&2
               [[ $try -lt 5 ]] && sleep 60
             done
