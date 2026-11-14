@@ -122,6 +122,8 @@ await requireBrowserLane("group-hover-card-glass-scroll-browser.test.ts", async 
             backgroundImage: style.backgroundImage,
             backdrop: style.backdropFilter,
             over: popup.hasAttribute("data-glass-over"),
+            keepsUnderlay: popup.hasAttribute("data-glass-keeps-underlay"),
+            rect: popup.getBoundingClientRect().toJSON(),
             hostGlass: popup.getAttribute("data-host-glass"),
             tint: style.getPropertyValue("--glass-tint").trim(),
             shared,
@@ -132,12 +134,12 @@ await requireBrowserLane("group-hover-card-glass-scroll-browser.test.ts", async 
         }, POPUP);
         const info = JSON.stringify(glass);
         expect(glass.seeThrough, info).toBe(true);
+        // The tint alone (78%), never the tint over the theme surface's underlay (93%).
+        expect(glass.alpha, info).toBeLessThan(0.9);
         expect(glass.over, info).toBe(true);
         expect(glass.hostGlass, info).toBe("popover");
         expect(glass.tint, info).toBe(glass.shared);
         expect(glass.blurred, info).toBeGreaterThan(0);
-        // The tint alone (78%), never the tint over the theme surface's underlay (93%).
-        expect(glass.alpha, info).toBeLessThan(0.9);
 
         // 2. Taller than the window allows: its height stops inside the window and it scrolls.
         const size = await page.evaluate((selector) => {

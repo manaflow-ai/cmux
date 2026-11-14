@@ -144,14 +144,16 @@ function longSnapshot() {
   return chat(
     [
       user("Keep me posted on the helper re-sign.", 9),
-      assistant("Watching it; the lanes will report here.", 8.8),
+      // A long reply first, so the row sits low in the pane, as in Leo's capture: its card opens
+      // above it over the transcript, never over the composer.
+      assistant(
+        Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the reply under the card.`).join("\n\n"),
+        8.8,
+      ),
       summary(8.7, { status: "completed", durationMs: 12_000, toolCount: 0 }),
       received(LONG_SENDERS[0]!, 6),
       received(LONG_SENDERS[1]!, 5.5),
-      assistant(
-        Array.from({ length: 12 }, (_, index) => `Line ${index + 1} of the reply under the card.`).join("\n\n"),
-        5,
-      ),
+      assistant("Both reports are in; the pin bump is next.", 5),
       summary(4.9, { status: "completed", durationMs: 30_000, toolCount: 0 }),
     ],
     {
