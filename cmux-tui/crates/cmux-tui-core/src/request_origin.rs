@@ -136,14 +136,16 @@ pub(crate) struct ConnectionOrigin {
     /// `token:<pid>.<pidversion>` of the socket peer, read at accept.
     /// The install-key proof never changes it (request-origin.md).
     pub(crate) peer_key: Option<String>,
-    /// Kernel-bound local peer class, set at accept. It never widens after
-    /// the peer exits, changes session, or passes its connected descriptor.
-    /// A class from the seat of a kept host ends with that seat
-    /// (`kept_seat`).
+    /// Kernel-bound local peer class, set at accept. An exit of the peer, a
+    /// change of its session, or a pass of its connected descriptor does not
+    /// change it. One thing changes it: the end of the seat of a kept host
+    /// that gave it (`kept_seat`). The record then keeps its terminal only
+    /// when the seat of the peer's session names the same terminal, and has
+    /// `Other` in each other case.
     pub(crate) local_peer: LocalPeer,
     /// The seat of a kept host that gave `local_peer`, while that seat gives
-    /// it. At the seat's end the record gets the class that the seats give
-    /// at that moment, and this is nil (`ClientRegistry::kept_seat_ended`).
+    /// it. At the seat's end `local_peer` is the same terminal or `Other`,
+    /// and this is nil (`ClientRegistry::kept_seat_ended`).
     pub(crate) kept_seat: Option<crate::diagnostics::KeptSeatClass>,
     /// The socket peer at accept was this build's own bundled
     /// `cmux-mobile-host` (the executable beside the daemon's): a phone's

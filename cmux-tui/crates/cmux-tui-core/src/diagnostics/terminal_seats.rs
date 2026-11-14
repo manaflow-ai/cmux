@@ -46,9 +46,9 @@
 //!
 //! The class that a client has from a kept host's seat ends with that seat
 //! ([`KeptSeatClass`]). The client's record keeps which seat gave the class,
-//! and at the seat's end the record gets the class that the seats give at
-//! that moment: the terminal of the seat of the client's session, when the
-//! session has one.
+//! and at the seat's end the record keeps its terminal only when the seat of
+//! the client's session names the same terminal. In each other case the
+//! client is no terminal's.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
@@ -95,7 +95,8 @@ struct KeptSeats {
     /// The number of this entry. A later entry for the same process has
     /// another.
     entry: u64,
-    /// A lookup gave this entry's terminal ([`KeptSeatClass`]).
+    /// A lookup read this entry for a client ([`KeptSeatClass`]), also one
+    /// that then gave no terminal or kept no class.
     gave_class: bool,
 }
 

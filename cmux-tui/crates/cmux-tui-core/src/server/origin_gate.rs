@@ -144,13 +144,25 @@ fn class_of_seat(seated: Option<crate::diagnostics::SeatedTerminal>) -> LocalPee
     }
 }
 
+/// The class of a client that had `class` from the seat of a kept host, when
+/// that seat does not give it now. `seated`: the seat of the client's
+/// session. The client keeps its terminal only when that seat names the same
+/// terminal. In each other case it is no terminal's client.
+fn class_after_kept_seat(
+    class: &LocalPeer,
+    seated: Option<crate::diagnostics::SeatedTerminal>,
+) -> LocalPeer {
+    let seat = class_of_seat(seated);
+    if seat == *class { seat } else { LocalPeer::Other }
+}
+
 impl ClientRegistry {
     /// A seat of a kept host ended, or its host was seated twice
     /// (`Mux::kept_host`). Each client that has its class from a seat that
-    /// does not give it now gets the class that the seats give at this
-    /// moment: its terminal by the seat of its session, when the session
-    /// has one. The look reads no process. The lock order is the client
-    /// records, then the seats.
+    /// does not give it now keeps its terminal only when the seat of its
+    /// session names the same terminal, and is `Other` in each other case
+    /// ([`class_after_kept_seat`]). The look reads no process. The lock
+    /// order is the client records, then the seats.
     pub(crate) fn kept_seat_ended(&self, connections: &crate::diagnostics::ConnectionStats) {
         let mut state = self.state.lock().recover_poison();
         if !state.clients.values().any(|record| record.origin.kept_seat.is_some()) {
@@ -160,7 +172,7 @@ impl ClientRegistry {
             let Some(class) = record.origin.kept_seat else { continue };
             if let KeptSeatClassNow::Ended(seated) = connections.kept_seat_class_now(class) {
                 record.origin.kept_seat = None;
-                record.origin.local_peer = class_of_seat(seated);
+                record.origin.local_peer = class_after_kept_seat(&record.origin.local_peer, seated);
             }
         }
     }
@@ -480,13 +492,12 @@ fn set_peer_identity_with(
         .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
     // A class from the seat of a kept host: one look at that seat under the
-    // lock of the client records. An end of the seat before this look is
-    // seen here; an end after it finds the record
-    // (`ClientRegistry::kept_seat_ended`).
+    // lock of the client records. A record has such a class only while the
+    // seat gives it (`ClientRegistry::kept_seat_ended`).
     if let Some(class) = kept_seat
         && let KeptSeatClassNow::Ended(seated) = mux.connection_stats().kept_seat_class_now(class)
     {
-        (local_peer, kept_seat) = (class_of_seat(seated), None);
+        (local_peer, kept_seat) = (class_after_kept_seat(&local_peer, seated), None);
     }
     // What the peer is for the request counters, before it declares a kind.
     let kind = match &local_peer {

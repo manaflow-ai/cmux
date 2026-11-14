@@ -150,8 +150,8 @@ fn host_read_before_the_answer(
 /// The default is no seat.
 ///
 /// A client can have its class from the seat. At each end of the seat (the
-/// drop of this value), the clients that have their class from it get the
-/// class that the seats give at that moment
+/// drop of this value), a client that has its class from it keeps its
+/// terminal only when the seat of its session names the same terminal
 /// (`ClientRegistry::kept_seat_ended`). The owner drops this value with no
 /// lock held.
 #[cfg(any(unix, windows))]
