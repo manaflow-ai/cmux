@@ -62,7 +62,7 @@ fn fixture(folders: usize, chats: usize) -> (Hub, ListSubscription) {
     let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
         panic!("100 retained steps must fit one frame")
     };
-    let json = format!("[{}]", String::from_utf8(span.bytes).unwrap());
+    let json = format!("[{}]", std::str::from_utf8(&span.bytes).unwrap());
     let ops: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
     assert_eq!(ops.len(), 100);
     assert_eq!(hub.snapshot().folders().len(), folders);

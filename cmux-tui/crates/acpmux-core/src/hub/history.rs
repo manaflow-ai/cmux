@@ -956,7 +956,7 @@ mod tests {
         assert!(one.is_valid());
         assert_eq!(one.last_seq, 1);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(one.into_bytes()).unwrap()).as_bytes(),
+            format!("[{}]", std::str::from_utf8(&one.bytes).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(parsed.len(), 1);
@@ -964,7 +964,7 @@ mod tests {
         assert!(both.is_valid());
         assert_eq!(both.last_seq, 2);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(both.into_bytes()).unwrap()).as_bytes(),
+            format!("[{}]", std::str::from_utf8(&both.bytes).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(parsed.len(), 2);
@@ -1005,11 +1005,9 @@ mod tests {
             let span = history.after_frame(cursor, last, 256 * 1024).unwrap();
             assert!(span.is_valid());
             assert!(span.bytes.len() <= 256 * 1024);
-            let ops: Vec<serde_json::Value> = serde_json::from_str(&format!(
-                "[{}]",
-                String::from_utf8(span.into_bytes()).unwrap()
-            ))
-            .unwrap();
+            let ops: Vec<serde_json::Value> =
+                serde_json::from_str(&format!("[{}]", std::str::from_utf8(&span.bytes).unwrap()))
+                    .unwrap();
             for (offset, op) in ops.iter().enumerate() {
                 assert_eq!(op["seq"], cursor + offset as u64 + 1);
             }
@@ -1066,7 +1064,7 @@ mod tests {
         let span = history.after_frame(0, 4, usize::MAX).unwrap();
         assert!(span.is_valid());
         let values: Vec<serde_json::Value> = serde_json::from_slice(
-            format!("[{}]", String::from_utf8(span.into_bytes()).unwrap()).as_bytes(),
+            format!("[{}]", std::str::from_utf8(&span.bytes).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(values.len(), 2);

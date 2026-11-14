@@ -72,9 +72,10 @@ fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
         panic!("span")
     };
     assert_eq!(span.last_seq, subscription.cursor + 1);
-    let decoded: Vec<serde_json::Value> =
-        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
-            .unwrap();
+    let decoded: Vec<serde_json::Value> = serde_json::from_slice(
+        format!("[{}]", std::str::from_utf8(&span.bytes).unwrap()).as_bytes(),
+    )
+    .unwrap();
     assert_eq!(decoded.len(), 2);
     assert!(
         decoded
@@ -98,9 +99,10 @@ fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
     let RawRead::Span(span) = fresh.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
         panic!("fresh folder subscribers replay the retained tail")
     };
-    let decoded: Vec<serde_json::Value> =
-        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
-            .unwrap();
+    let decoded: Vec<serde_json::Value> = serde_json::from_slice(
+        format!("[{}]", std::str::from_utf8(&span.bytes).unwrap()).as_bytes(),
+    )
+    .unwrap();
     assert_eq!(decoded.len(), 2);
     let seqs: Vec<u64> = decoded
         .iter()
@@ -353,9 +355,10 @@ fn folder_tail_replays_unread_steps_in_one_frame() {
     let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
         panic!("expected retained folder tail")
     };
-    let decoded: Vec<serde_json::Value> =
-        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
-            .unwrap();
+    let decoded: Vec<serde_json::Value> = serde_json::from_slice(
+        format!("[{}]", std::str::from_utf8(&span.bytes).unwrap()).as_bytes(),
+    )
+    .unwrap();
     assert_eq!(decoded.len(), 100);
     assert!(decoded.windows(2).all(|ops| {
         ops[1].get("seq").and_then(serde_json::Value::as_u64)
