@@ -771,10 +771,16 @@ text and blob column plus 64 bytes a row), the rate they were written at
 (`bytes_per_day`), the kind's entry in the daemon's disk budget table and
 whether the rate is over it. `segments` sums the sealed segments by codec,
 compressed and uncompressed, and counts the segments holding each kind.
+A codec's `uncompressed_bytes` is exact while the codec has at most 8
+segments. With more it is an estimate: `compressed_bytes` times the ratio
+of the codec's newest 8 segments, because a segment stores that size behind
+its content.
 Cost: one directory listing (at most 20000 entries), a few header pragmas,
 two rowid seeks and the newest 1024 rows on a read-only connection with no
-registry lock, never a scan of the journal; segment sums are kept between
-requests and add only segments sealed since the last one. `journal` and
+registry lock, never a scan of the journal; the list of segments is kept
+between requests, so a request reads one row for each segment sealed since
+the last one and no segment content, except the content of a codec's newest
+8 segments, once, for their size. `journal` and
 `segments` are `null` and `error` says why when the registry cannot be
 read. It is present only for a registry on disk.
 

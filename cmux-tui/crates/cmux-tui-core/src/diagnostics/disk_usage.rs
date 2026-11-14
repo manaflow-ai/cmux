@@ -9,12 +9,15 @@
 //!   pragmas, the first and last journal sequence (two rowid seeks), and the
 //!   newest [`JOURNAL_TAIL_SAMPLE_ROWS`] journal rows, never a scan of the
 //!   live journal;
-//! - sealed segments are summed once per daemon, then only the segments
-//!   sealed since the last request (a range of the `start_sequence` index;
-//!   `length(content)` reads no overflow page). An output cleanup that
-//!   rewrites the registry file sums them again once.
+//! - sealed segments are listed once per daemon, one row each, then only
+//!   the segments sealed since the last request (a range of the
+//!   `start_sequence` index). A segment's `content` is megabytes on overflow
+//!   pages, and only the size of the newest [`SIZED_SEGMENTS_PER_CODEC`]
+//!   segments of a codec reads them, once (`SEGMENT_ROWS_SQL`,
+//!   `SEGMENT_SIZE_SQL`). An output cleanup that rewrites the registry file
+//!   lists them again once.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -78,6 +81,35 @@ pub const MAX_DIRECTORY_ENTRIES: u64 = 20_000;
 const LISTED_FILES: usize = 32;
 /// Journal kinds and segment kinds the section lists.
 const LISTED_KINDS: usize = 16;
+/// Segments of a codec whose size before compression is read: its newest.
+/// Reading that size reads the segment's content pages (`SEGMENT_SIZE_SQL`).
+pub const SIZED_SEGMENTS_PER_CODEC: u64 = 8;
+
+/// One row for each segment past `?1`.
+///
+/// It must read no content page. So it has no `GROUP BY` (no index gives
+/// the groups, and SQLite then sorts the rows with `content` in the sorter),
+/// and it names only columns the row stores before `content`;
+/// `length(content)` comes from the row header.
+const SEGMENT_ROWS_SQL: &str = "SELECT start_sequence, codec, record_count, length(content)
+     FROM journal_segments WHERE start_sequence > ?1";
+
+/// The kinds of the segments in `(?1, ?2]`, one row for each kind of each
+/// segment. `segment_id` is stored before `content`.
+const SEGMENT_KINDS_SQL: &str = "SELECT segments.start_sequence, kinds.kind
+     FROM journal_segments AS segments
+     JOIN journal_segment_kinds AS kinds ON kinds.segment_id = segments.segment_id
+     WHERE segments.start_sequence > ?1 AND segments.start_sequence <= ?2";
+
+/// How many segments through `?1` the registry has, and the oldest of them:
+/// answered from the `start_sequence` index, with no row read.
+const SEGMENTS_KEPT_SQL: &str =
+    "SELECT COUNT(*), MIN(start_sequence) FROM journal_segments WHERE start_sequence <= ?1";
+
+/// The size before compression of the segment at `?1`. The row stores it
+/// after `content`, so this read walks that segment's overflow pages.
+const SEGMENT_SIZE_SQL: &str =
+    "SELECT uncompressed_bytes FROM journal_segments WHERE start_sequence = ?1";
 /// The bytes one `session_journal` row stores, as SQL over its columns:
 /// every text and blob column, plus 64 bytes for the integer columns,
 /// `class`, `replay_policy`, `sensitivity` and the record header.
@@ -162,6 +194,7 @@ pub struct SegmentDiskSnapshot {
     pub segments: u64,
     pub records: u64,
     pub compressed_bytes: u64,
+    /// The sum of the codecs' `uncompressed_bytes`: an estimate when one is.
     pub uncompressed_bytes: u64,
     pub by_codec: Vec<SegmentCodecSnapshot>,
     /// Kinds by the number of segments that hold them, at most 16.
@@ -174,6 +207,9 @@ pub struct SegmentCodecSnapshot {
     pub segments: u64,
     pub records: u64,
     pub compressed_bytes: u64,
+    /// Exact while the codec has at most [`SIZED_SEGMENTS_PER_CODEC`]
+    /// segments. With more it is an estimate: `compressed_bytes` times the
+    /// ratio of the codec's newest [`SIZED_SEGMENTS_PER_CODEC`] segments.
     pub uncompressed_bytes: u64,
 }
 
@@ -183,21 +219,85 @@ pub struct SegmentKindSnapshot {
     pub segments: u64,
 }
 
-/// Segment sums kept between requests, so a request sums only the segments
-/// sealed since the last one.
+/// The sealed segments kept between requests, so a request reads only the
+/// segments sealed since the last one.
 #[derive(Default)]
 pub struct DiskUsageCache {
-    segments: Option<SegmentTotals>,
+    segments: Option<SegmentList>,
 }
 
-struct SegmentTotals {
-    /// The registry file these sums are of (an output cleanup swaps it).
+struct SegmentList {
+    /// The registry file the list is of (an output cleanup swaps it).
     file: Option<(u64, u64)>,
-    /// Segments counted, and the largest `start_sequence` among them.
-    counted: u64,
-    through_start: i64,
-    by_codec: BTreeMap<String, SegmentCodecSnapshot>,
-    kinds: BTreeMap<String, u64>,
+    /// Every segment the registry had at the last request, oldest first:
+    /// about 100 bytes each. Kept by segment, not as sums, so that a segment
+    /// that is gone can leave the sums.
+    rows: VecDeque<SegmentRow>,
+    codecs: Names,
+    kinds: Names,
+}
+
+impl SegmentList {
+    fn new(file: Option<(u64, u64)>) -> Self {
+        Self { file, rows: VecDeque::new(), codecs: Names::default(), kinds: Names::default() }
+    }
+}
+
+struct SegmentRow {
+    start_sequence: i64,
+    /// An index of the list's `codecs`.
+    codec: u32,
+    records: u64,
+    compressed_bytes: u64,
+    /// Read once, while the segment is among the newest
+    /// [`SIZED_SEGMENTS_PER_CODEC`] of its codec.
+    uncompressed_bytes: Option<u64>,
+    /// Indexes of the list's `kinds`.
+    kinds: Vec<u32>,
+}
+
+/// Codec or kind names by number, so a listed segment holds numbers.
+#[derive(Default)]
+struct Names {
+    ids: BTreeMap<String, u32>,
+    names: Vec<String>,
+}
+
+impl Names {
+    fn id(&mut self, name: &str) -> u32 {
+        if let Some(id) = self.ids.get(name) {
+            return *id;
+        }
+        let id = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
+        self.ids.insert(name.to_owned(), id);
+        self.names.push(name.to_owned());
+        id
+    }
+}
+
+/// One codec's sums over the listed segments, and over its sized ones.
+#[derive(Clone, Default)]
+struct CodecSums {
+    segments: u64,
+    records: u64,
+    compressed_bytes: u64,
+    sized_segments: u64,
+    sized_compressed_bytes: u64,
+    sized_uncompressed_bytes: u64,
+}
+
+impl CodecSums {
+    /// The codec's size before compression: the sum when every segment is
+    /// sized, else `compressed_bytes` at the ratio of the sized segments.
+    fn uncompressed_bytes(&self) -> u64 {
+        if self.segments <= self.sized_segments {
+            return self.sized_uncompressed_bytes;
+        }
+        u128::from(self.compressed_bytes)
+            .saturating_mul(u128::from(self.sized_uncompressed_bytes))
+            .checked_div(u128::from(self.sized_compressed_bytes))
+            .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(u64::MAX))
+    }
 }
 
 /// Reads the `disk` section of the registry at `database_path`.
@@ -328,70 +428,122 @@ fn read_segments(
     file: Option<(u64, u64)>,
     cache: &mut DiskUsageCache,
 ) -> anyhow::Result<SegmentDiskSnapshot> {
-    // One read transaction: the count check and the sums see one snapshot.
+    // One read transaction: every statement below sees one snapshot.
     let snapshot = connection.unchecked_transaction()?;
-    let totals = match cache.segments.take() {
-        Some(totals) if totals.file == file => {
-            let counted: i64 = snapshot.query_row(
-                "SELECT COUNT(*) FROM journal_segments WHERE start_sequence <= ?1",
-                [totals.through_start],
-                |row| row.get(0),
-            )?;
-            // Segments are only ever appended past the last one; a count that
-            // moved means the file was rewritten (output cleanup), so sum again.
-            if u64::try_from(counted).ok() == Some(totals.counted) { Some(totals) } else { None }
-        }
-        _ => None,
+    let mut list = match cache.segments.take() {
+        Some(list) if list.file == file => list,
+        _ => SegmentList::new(file),
     };
-    let mut totals = totals.unwrap_or(SegmentTotals {
-        file,
-        counted: 0,
-        through_start: 0,
-        by_codec: BTreeMap::new(),
-        kinds: BTreeMap::new(),
-    });
     let to_u64 = |value: i64| u64::try_from(value).unwrap_or(0);
-    let mut through = totals.through_start;
-    {
-        let mut statement = snapshot.prepare(
-            "SELECT codec, COUNT(*), SUM(record_count), SUM(length(content)),
-                    SUM(uncompressed_bytes), MAX(start_sequence)
-             FROM journal_segments WHERE start_sequence > ?1 GROUP BY codec",
-        )?;
-        let mut rows = statement.query([totals.through_start])?;
-        while let Some(row) = rows.next()? {
-            let codec: String = row.get(0)?;
-            let entry = totals.by_codec.entry(codec.clone()).or_insert_with(|| {
-                SegmentCodecSnapshot { codec, ..SegmentCodecSnapshot::default() }
-            });
-            let segments = to_u64(row.get(1)?);
-            entry.segments += segments;
-            entry.records += to_u64(row.get(2)?);
-            entry.compressed_bytes += to_u64(row.get(3)?);
-            entry.uncompressed_bytes += to_u64(row.get(4)?);
-            totals.counted += segments;
-            through = through.max(row.get::<_, i64>(5)?);
+    if let Some(through) = list.rows.back().map(|row| row.start_sequence) {
+        let (kept, oldest): (i64, Option<i64>) =
+            snapshot
+                .query_row(SEGMENTS_KEPT_SQL, [through], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        // Segments are only ever appended past the last one, and a later
+        // change can delete old segments, the oldest first: those leave the list.
+        let oldest = oldest.unwrap_or(i64::MAX);
+        while list.rows.front().is_some_and(|row| row.start_sequence < oldest) {
+            list.rows.pop_front();
+        }
+        // Anything else (the file rewritten in place): list every segment again.
+        if usize::try_from(kept).ok() != Some(list.rows.len()) {
+            list = SegmentList::new(file);
         }
     }
+    let through = list.rows.back().map_or(0, |row| row.start_sequence);
+    let mut added: Vec<SegmentRow> = Vec::new();
     {
-        let mut statement = snapshot.prepare(
-            "SELECT kinds.kind, COUNT(*)
-             FROM journal_segments AS segments
-             JOIN journal_segment_kinds AS kinds ON kinds.segment_id = segments.segment_id
-             WHERE segments.start_sequence > ?1 AND segments.start_sequence <= ?2
-             GROUP BY kinds.kind",
-        )?;
-        let mut rows = statement.query(params![totals.through_start, through])?;
+        let mut statement = snapshot.prepare(SEGMENT_ROWS_SQL)?;
+        let mut rows = statement.query([through])?;
         while let Some(row) = rows.next()? {
-            *totals.kinds.entry(row.get(0)?).or_default() += to_u64(row.get(1)?);
+            added.push(SegmentRow {
+                start_sequence: row.get(0)?,
+                codec: list.codecs.id(row.get_ref(1)?.as_str()?),
+                records: to_u64(row.get(2)?),
+                compressed_bytes: to_u64(row.get(3)?),
+                uncompressed_bytes: None,
+                kinds: Vec::new(),
+            });
+        }
+    }
+    added.sort_unstable_by_key(|row| row.start_sequence);
+    if let Some(last) = added.last().map(|row| row.start_sequence) {
+        let mut statement = snapshot.prepare(SEGMENT_KINDS_SQL)?;
+        let mut rows = statement.query(params![through, last])?;
+        while let Some(row) = rows.next()? {
+            let start: i64 = row.get(0)?;
+            let kind = list.kinds.id(row.get_ref(1)?.as_str()?);
+            let segment = added
+                .binary_search_by_key(&start, |row| row.start_sequence)
+                .ok()
+                .and_then(|index| added.get_mut(index));
+            if let Some(segment) = segment {
+                segment.kinds.push(kind);
+            }
+        }
+    }
+    list.rows.extend(added);
+
+    // The sums, from the list, newest segment first; the newest segments of
+    // each codec that have no size yet get it read, once.
+    let mut codecs = vec![CodecSums::default(); list.codecs.names.len()];
+    let mut kind_segments = vec![0u64; list.kinds.names.len()];
+    {
+        let mut size = snapshot.prepare(SEGMENT_SIZE_SQL)?;
+        for row in list.rows.iter_mut().rev() {
+            for kind in &row.kinds {
+                let count =
+                    usize::try_from(*kind).ok().and_then(|kind| kind_segments.get_mut(kind));
+                if let Some(count) = count {
+                    *count = count.saturating_add(1);
+                }
+            }
+            let codec = usize::try_from(row.codec).ok().and_then(|codec| codecs.get_mut(codec));
+            let Some(codec) = codec else { continue };
+            codec.segments = codec.segments.saturating_add(1);
+            codec.records = codec.records.saturating_add(row.records);
+            codec.compressed_bytes = codec.compressed_bytes.saturating_add(row.compressed_bytes);
+            if codec.sized_segments < SIZED_SEGMENTS_PER_CODEC {
+                let uncompressed = match row.uncompressed_bytes {
+                    Some(bytes) => bytes,
+                    None => {
+                        let bytes: i64 = size.query_row([row.start_sequence], |row| row.get(0))?;
+                        let bytes = to_u64(bytes);
+                        row.uncompressed_bytes = Some(bytes);
+                        bytes
+                    }
+                };
+                codec.sized_segments = codec.sized_segments.saturating_add(1);
+                codec.sized_compressed_bytes =
+                    codec.sized_compressed_bytes.saturating_add(row.compressed_bytes);
+                codec.sized_uncompressed_bytes =
+                    codec.sized_uncompressed_bytes.saturating_add(uncompressed);
+            }
         }
     }
     snapshot.commit()?;
-    totals.through_start = through;
-    let by_codec: Vec<SegmentCodecSnapshot> = totals.by_codec.values().cloned().collect();
-    let mut kinds: Vec<SegmentKindSnapshot> = totals
-        .kinds
+
+    let mut by_codec: Vec<SegmentCodecSnapshot> = list
+        .codecs
+        .names
         .iter()
+        .zip(&codecs)
+        .filter(|(_, sums)| sums.segments > 0)
+        .map(|(codec, sums)| SegmentCodecSnapshot {
+            codec: codec.clone(),
+            segments: sums.segments,
+            records: sums.records,
+            compressed_bytes: sums.compressed_bytes,
+            uncompressed_bytes: sums.uncompressed_bytes(),
+        })
+        .collect();
+    by_codec.sort_by(|a, b| a.codec.cmp(&b.codec));
+    let mut kinds: Vec<SegmentKindSnapshot> = list
+        .kinds
+        .names
+        .iter()
+        .zip(&kind_segments)
+        .filter(|(_, segments)| **segments > 0)
         .map(|(kind, segments)| SegmentKindSnapshot { kind: kind.clone(), segments: *segments })
         .collect();
     kinds.sort_by(|a, b| b.segments.cmp(&a.segments).then(a.kind.cmp(&b.kind)));
@@ -404,7 +556,7 @@ fn read_segments(
         by_codec,
         kinds,
     };
-    cache.segments = Some(totals);
+    cache.segments = Some(list);
     Ok(section)
 }
 
