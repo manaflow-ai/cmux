@@ -61,12 +61,13 @@ runner may take one (evidence only, never the verdict).
 Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
 arm; report.json's `arm` names the one the report describes), or a plain
 launch (no caller hook is set) that passed all else has a request that the
-daemon refused as invalid, of a client that declares the kind `plugin`
-(report.json's `request_log`; no crash). 2: usage. 3: the smoke could not
-run (no app, no GUI session, a signing keychain still present). A caller
-judges by the report too: the nightly's publish gate holds a build only when
-the app ended or its daemon was not connected in both of its attempts, and
-warns for each other exit that is not 0.
+daemon refused as invalid, of a client of kind `plugin` (the daemon's own
+plugin, or a client that declares that kind; report.json's `request_log`;
+no crash). 2: usage. 3: the smoke could not run (no app, no GUI session, a
+signing keychain still present). A caller judges by the report too: the
+nightly's publish gate holds a build only when each of its 2 attempts has
+a crash (the app exited with a status that is not 0, wrote a crash report
+or recorded an uncaught exception) or a daemon that was not connected.
 """
 from __future__ import annotations
 
