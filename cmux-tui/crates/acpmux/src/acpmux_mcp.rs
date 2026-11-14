@@ -611,12 +611,37 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
+    ls_via(daemon, args, crate::cli::list_read::Via::daemon()).await
+}
+
+/// [`ls`], read `via` the v2 list (the live view's rows, or with `status: closed` the closed
+/// rows of the whole view, each fetched as the list writes it) or the v1 list.
+pub(crate) async fn ls_via(
+    daemon: &Arc<Client>,
+    args: &Value,
+    via: crate::cli::list_read::Via,
+) -> Value {
+    use crate::cli::list_read;
     // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
-    let params = match arg(args, "status") {
-        Some("closed") => json!({}),
-        _ => json!({"excludeStatus": ["closed"]}),
+    let closed = arg(args, "status") == Some("closed");
+    let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
+    let source = match via.open(daemon).await {
+        Ok(source) => source,
+        Err(e) => return refusal(e),
     };
-    match daemon.whole_list(method::MUX_SESSIONS, params).await {
+    let listed = match source {
+        Some(mut source) => {
+            let view = if closed {
+                acpmux_client::wire::ListView::All
+            } else {
+                acpmux_client::wire::ListView::Live
+            };
+            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
+        }
+        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
+    };
+    match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
             // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.

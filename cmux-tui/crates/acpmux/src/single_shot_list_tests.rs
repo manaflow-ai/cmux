@@ -160,6 +160,14 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
     ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions` and its test; no caller"),
+    // Row 7b part one's callers, moved to `cli/list_read.rs`: each v1 read is the fallback for a
+    // daemon without the list surface or `info-rows-v1` (`Via::open` gave none).
+    ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
+    ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
+    ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
+    ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
+    // v1 read kept: `ls --cursor C` reads one v1 page.
+    ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "v1 read kept: moves before the v1 list is deleted"),
     // Part two of row 7b: callers that want one chat, which then read no list.
     ("acpmux_mcp_send.rs", "method::MUX_SESSIONS", 1, "7b part two: MCP send's tag read"),
     ("cli/orchestrate.rs", "method::MUX_SESSIONS", 1, "7b part two: ensure by name"),
@@ -192,10 +200,12 @@ fn unnamed_v1_list_uses(
     }
     let mut wrong = Vec::new();
     for ((file, method), lines) in &found {
-        let allowed = named
+        // A file may name one method in several rows, each a use with its own reason.
+        let allowed: usize = named
             .iter()
-            .find(|(f, m, _, _)| f == file && m == method)
-            .map_or(0, |(_, _, n, _)| *n);
+            .filter(|(f, m, _, _)| f == file && m == method)
+            .map(|(_, _, n, _)| *n)
+            .sum();
         if lines.len() != allowed {
             wrong.push(format!(
                 "src/{file}:{lines:?} uses {method} {} time(s); the table names {allowed}",
