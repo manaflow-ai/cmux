@@ -177,17 +177,19 @@ public final class TabCloseSelection {
                 became: (String) -> String? = { _ in nil }) {
         if !expected.isEmpty, let made = expected[pane], !tabs.contains(made.opener) {
             // The opener a new tab is expected from was a stand-in: the expectation follows it to its tab.
-            if let now = became(made.opener), tabs.contains(now) { expected[pane]?.opener = now } else { expected[pane] = nil }
+            if let now = became(made.opener) { expected[pane]?.opener = now } else { expected[pane] = nil }
         }
         guard !home.isEmpty else { return }
         let held = home.filter { $0.value == pane }.map(\.key)
         guard !held.isEmpty else { return }
         let live = Set(tabs).union(old)
+        // The store's tab counts even while the strip hides it (a new daemon tab waits for its answer, `NewTabSuccession`).
+        var swapped: Set<String> = []
         for item in held {
             let shown = shownAs[item] ?? item
-            if !live.contains(shown), let now = became(shown), tabs.contains(now) { adopt(now, inPlaceOf: shown) }
+            if !live.contains(shown), let now = became(shown) { adopt(now, inPlaceOf: shown); swapped.insert(item) }
         }
-        let gone = held.filter { !live.contains(shownAs[$0] ?? $0) }
+        let gone = held.filter { !swapped.contains($0) && !live.contains(shownAs[$0] ?? $0) }
         if !gone.isEmpty {
             let pending = closing()
             for item in gone where !pending.contains(shownAs[item] ?? item) { left(item) }
