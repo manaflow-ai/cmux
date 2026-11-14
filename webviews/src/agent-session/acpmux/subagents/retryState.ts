@@ -239,7 +239,9 @@ export type RetryDeps = {
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
 /// good (the chat closed, the subagent resumed, replaced, ended or forgotten), else nothing failed.
-export function refusalNote(error: unknown): RetryNote {
+/// `unsupported`: a daemon without the method, or one that cannot retry a subagent; a failed turn's
+/// Retry then sends its prompt again (turnRetry.ts), a subagent's says `retry.failed`.
+export function refusalNote(error: unknown): RetryNote | "unsupported" {
   const value = (error ?? {}) as { code?: unknown; reason?: unknown; data?: { why?: unknown } };
   const codes = [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
   const has = (code: string) => codes.includes(code);
@@ -252,7 +254,7 @@ export function refusalNote(error: unknown): RetryNote {
     return "retry.nothingFailed";
   }
   if (has("retry.stopped") || has("retry.unknown_subagent")) return "retry.gone";
-  // Any other, an older acpmux without the method or one that cannot retry a subagent included.
+  if (has("retry.subagent_unsupported") || has("-32601")) return "unsupported";
   return "retry.failed";
 }
 
@@ -268,7 +270,8 @@ export async function runRetry(agent: RetryTarget, chat: string, deps: RetryDeps
     await deps.request(RETRY_METHOD, params);
     return undefined;
   } catch (error) {
-    return refusalNote(error);
+    const note = refusalNote(error);
+    return note === "unsupported" ? "retry.failed" : note;
   }
 }
 
