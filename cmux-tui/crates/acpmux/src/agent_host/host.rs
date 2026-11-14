@@ -136,8 +136,8 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         Some(fd) => !pidfd_exited(fd),
         None => {
             // SAFETY: signal 0 only checks existence.
-            unsafe { libc::kill(pid as i32, 0) == 0 }
-            &&(adopt.harness_start.is_none() || start_time(pid) == adopt.harness_start)
+            let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
+            exists && (adopt.harness_start.is_none() || start_time(pid) == adopt.harness_start)
         }
     };
     if !alive {
