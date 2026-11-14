@@ -21,6 +21,8 @@ export const FRESHNESS_INTERVAL = 4000;
 export const UNFOCUSED_FRESHNESS_INTERVAL = 30_000;
 /** The baseline of a shown diff that was loaded from a session host without the read: no digits equal it. */
 const NO_DIGITS = "";
+/** Read at each use: the page can become hidden while a read is in flight. */
+const pageHidden = () => document.visibilityState === "hidden";
 
 /** Reads the fingerprint of the diff `shown` compares; undefined where the host can't say. */
 export function diffFingerprintReader(
@@ -90,7 +92,7 @@ export function usePrecomputedFingerprint(): [
 /// Cloud machine that is not connected), the page asks again at the interval of the checks until the
 /// machine answers, so the reason of `onUnavailable` does not stay after the machine is connected
 /// again. That answer ends the timer, and it is the return's answer (it runs the `refresh` that the
-/// return could not).
+/// return could not). The timer also ends when the page is hidden, and none starts in a hidden page.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -202,7 +204,8 @@ export function useDiffFreshness(
         if (error.code.startsWith("cmux.diff.machine_")) {
           latest.current.onUnavailable?.(error.message);
           // An older session host has no timer that asks again: one runs until its machine answers.
-          if (unsupported.current)
+          // Not in a page that was hidden while this read was in flight: the return asks again.
+          if (unsupported.current && !pageHidden())
             setRetryEvery(document.hasFocus() ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
         }
         // Other repository failures retry on the next check as before.
@@ -234,7 +237,8 @@ export function useDiffFreshness(
       if (document.visibilityState === "visible") void check(true);
       else {
         away.current = true;
-        // A hidden page wakes nothing; the return asks again.
+        // A hidden page wakes nothing (a late machine error starts no timer in it); the return
+        // asks again.
         setRetryEvery(undefined);
       }
     };
