@@ -9,6 +9,9 @@
     whats-new-clips.py write-tours --plan PLAN --tours DIR              a plan's tours, from this checkout
     whats-new-clips.py tours --plan PLAN --role ROLE --dir DIR [--before SHA]  the planned tours of one role
     whats-new-clips.py publish-auto --plan PLAN --results DIR           render those, upload them
+    whats-new-clips.py iphone-runs --plan PLAN                          the planned iPhone clips, one per line
+    whats-new-clips.py record-iphone ID --simctl-set DIR --udid U --bundle-id B --app APP --out DIR
+                                                                        one on a booted simulator (fleet step)
 
 Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even
 showing anything properly off. It's just sort of weird." The nightly reel (reel.py) strings whole
@@ -60,6 +63,16 @@ and puts it at whats-new/ID/clip-auto-ROLE.webp, where release-notes.py finds it
 to the highlight. Those publish after the nightly is cut, so the highlight rides along with the
 next one (release-notes.py late_pictures).
 
+An iPhone highlight has no Mac window to tour: its spec says `"app": "iphone"` and its scene is the
+iPhone app's own DEBUG launch arguments and demo drivers (`launch_args`, e.g. `-cmux-mobile-demo`
+NAME, and `env`, CMUX_MOBILE_* variables), on mock data. Its steps take only `title`, `wait`, `clip`
+and `openurl` (a link the simulator opens), since nothing taps the screen; the demo driver moves it.
+`crop` is a part of the phone's screen. `plan` writes no tour for it: the media workflow's
+iphone-clips job hands each one to a fleet simulator step (cmux-next-ios-sim.sh clips: the app at
+the tip and, for an improvement, at its before commit, one simulator), which runs `record-iphone`:
+`simctl io recordVideo` while the app runs the scene, and a tour folder like tour.py's (manifest.json
+with each step's time, capture.mp4), so `publish-auto` renders and publishes it the same way.
+
 Encoding needs ffmpeg and img2webp (Homebrew `webp`, apt `webp`).
 """
 
@@ -88,7 +101,18 @@ BRANCH = "pr-media"
 URL_PREFIX = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/whats-new/"
 CLIP_LINE = re.compile(r"^clip:\s*(?P<url>\S+)\s*\|\s*(?P<sha256>[0-9a-f]{64})\s*$", re.M)
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
-SPEC_KEYS = {"caption", "frameInterval", "settings", "launch_args", "steps", "crop", "hold", "lead"}
+SPEC_KEYS = {"caption", "frameInterval", "settings", "launch_args", "steps", "crop", "hold", "lead", "app", "env",
+             "appearance"}
+# What a clip records: the Mac app (a tour.py tour on the media Mac) or the iPhone app (a fleet simulator step).
+APPS = ("mac", "iphone")
+# An iPhone step: nothing taps the simulator's screen, so a step waits while the demo driver moves the app,
+# or opens a link.
+IPHONE_STEP_KEYS = {"title", "wait", "clip", "openurl"}
+IPHONE_MAX_WAIT = 30
+IPHONE_ENV = re.compile(r"CMUX_MOBILE_[A-Z0-9_]+")
+OPENURL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
+# Seconds `simctl io recordVideo` has to say it started before the clip is given up.
+RECORD_START_TIMEOUT = 20
 MIN_SECONDS, MAX_SECONDS = 3.0, 8.0
 HOLD, LEAD = 1.2, 0.6
 # ReleaseMediaStore.maxImageBytes: the app drops a larger picture.
@@ -163,6 +187,48 @@ def spec_problems(spec: Any) -> list[str]:
         value = spec.get(key, default)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 3:
             out.append(f"{key}: 0 to 3 seconds")
+    app = spec.get("app", "mac")
+    if app not in APPS:
+        out.append('app: "mac" (the default) or "iphone"')
+    elif app == "iphone":
+        out += iphone_problems(spec)
+    elif "env" in spec or "appearance" in spec:
+        out.append("env, appearance: an iPhone spec's (\"app\": \"iphone\")")
+    return out
+
+
+def is_iphone(spec: dict) -> bool:
+    return spec.get("app", "mac") == "iphone"
+
+
+def iphone_problems(spec: dict) -> list[str]:
+    """What an iPhone spec cannot have: its scene is launch arguments and environment, its steps waits."""
+    out = []
+    if "settings" in spec:
+        out.append("settings: an iPhone spec sets its scene with launch_args and env")
+    args = spec.get("launch_args", [])
+    if not isinstance(args, list) or not all(isinstance(a, str) and a for a in args):
+        out.append("launch_args: a list of the iPhone app's launch arguments")
+    env = spec.get("env", {})
+    if not isinstance(env, dict) or not all(isinstance(k, str) and IPHONE_ENV.fullmatch(k) and isinstance(v, str)
+                                            for k, v in env.items()):
+        out.append("env: CMUX_MOBILE_* names to strings")
+    if spec.get("appearance", "dark") not in ("dark", "light"):
+        out.append('appearance: "dark" or "light"')
+    for step in spec.get("steps") if isinstance(spec.get("steps"), list) else []:
+        if not isinstance(step, dict):
+            continue
+        title = step.get("title")
+        extra = sorted(set(step) - IPHONE_STEP_KEYS)
+        if extra:
+            out.append(f"step {title!r}: an iPhone step takes only {sorted(IPHONE_STEP_KEYS)}, not {extra}")
+        if not isinstance(title, str) or not title.strip():
+            out.append("steps: each has a title")
+        wait = step.get("wait", 1)
+        if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= IPHONE_MAX_WAIT:
+            out.append(f"step {title!r}: wait 0 to {IPHONE_MAX_WAIT} seconds")
+        if "openurl" in step and not (isinstance(step["openurl"], str) and OPENURL.fullmatch(step["openurl"])):
+            out.append(f"step {title!r}: openurl is one link, scheme://...")
     return out
 
 
@@ -309,6 +375,10 @@ def render(clip_id: str, capture: Path, out: Path) -> dict:
 
 def record(clip_id: str, sha: str | None, job: str | None, out: Path) -> dict:
     spec = load_spec(clip_id)
+    if is_iphone(spec):
+        raise ClipError("an iPhone clip records on a fleet simulator: cmux-ci run --class simulator --script "
+                        f"scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg clips --arg id={clip_id} "
+                        "--artifact artifacts/ios-sim/whats-new-clips.zip")
     if not os.environ.get("CMUX_HQ"):
         raise ClipError("set CMUX_HQ to a manaflow-ai/cmuxterm-hq checkout (cmux-ci capture needs it)")
     with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
@@ -457,19 +527,23 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             continue
         try:
             spec = load_spec(clip_id, root / "release-notes/next/clips")
+            iphone = is_iphone(spec)
             roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
                      if not exists(auto_url(clip_id, role))]
-            if "before" in roles and before != base and before not in others and len(others) >= extra_befores:
+            # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
+            if not iphone and "before" in roles and before != base and before not in others \
+                    and len(others) >= extra_befores:
                 roles.remove("before")  # no app for its commit this tour; a later tour records it
             if not roles:
                 continue
             if len(rows) >= limit:
                 waiting += 1
                 continue
-            tours.mkdir(parents=True, exist_ok=True)
-            tour = tours / f"{clip_id}.json"
-            tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
-            validate(tour)
+            if not iphone:
+                tours.mkdir(parents=True, exist_ok=True)
+                tour = tours / f"{clip_id}.json"
+                tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
+                validate(tour)
         except ClipError as error:
             if "no spec" not in str(error):
                 print(f"::warning title=What's New clip::{clip_id}: {error}")
@@ -479,9 +553,11 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
             continue
         row = {"id": clip_id, "category": category, "roles": roles}
+        if iphone:
+            row["app"] = "iphone"
         if "before" in roles:
             row["before"] = before
-            if before != base:
+            if before != base and not iphone:
                 others.add(before)
         rows.append(row)
     if waiting:
@@ -491,11 +567,14 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
 
 def write_tours(rows: list[dict], tours: Path, root: Path = ROOT) -> list[dict]:
     """Writes the tours of a plan another job made (the route job plans on Linux) from this checkout's
-    specs; a row whose spec no longer makes a tour is left out."""
+    specs; a row whose spec no longer makes a tour is left out, and so is an iPhone row (the iphone-clips
+    job records those on a simulator), so the rows it returns are the Mac tour's."""
     validate = tour_module().load_tour
     kept = []
     for row in rows:
         clip_id = row.get("id", "")
+        if row_app(row) == "iphone":
+            continue
         try:
             spec = load_spec(clip_id, root / "release-notes/next/clips")
             meta = front_matter((root / "release-notes/next/highlights" / f"{clip_id}.md").read_text())
@@ -509,6 +588,93 @@ def write_tours(rows: list[dict], tours: Path, root: Path = ROOT) -> list[dict]:
             continue
         kept.append(row)
     return kept
+
+
+def row_app(row: dict) -> str:
+    return row.get("app", "mac")
+
+
+def iphone_runs(rows: list[dict]) -> list[str]:
+    """One line per planned iPhone clip, `ID ROLES BEFORE` (roles comma-joined, BEFORE `-` when no before
+    is planned): the arguments of its simulator step."""
+    return [f"{row['id']} {','.join(row['roles'])} {row.get('before', '-') if 'before' in row['roles'] else '-'}"
+            for row in rows if row_app(row) == "iphone" and ID.fullmatch(row.get("id", "")) and row.get("roles")]
+
+
+def record_iphone(clip_id: str, simctl: list[str], udid: str, bundle_id: str, app: Path, out: Path,
+                  popen=subprocess.Popen, call=subprocess.run, clock=None, sleep=None, ready=None) -> dict:
+    """Records an iPhone spec on a booted simulator: a clean install of APP, the spec's appearance, then
+    `simctl io recordVideo` while the app launches into the spec's scene and each step waits (or opens its
+    link). Writes OUT/<tour folder>/manifest.json and capture.mp4, the shape tour.py gives a Mac tour, with
+    each step's time from the moment the recorder said it started, so publish-auto renders it the same way."""
+    import select
+    import signal
+    import time
+    clock = clock or time.monotonic
+    sleep = sleep or time.sleep
+    ready = ready or (lambda stream, timeout: bool(select.select([stream], [], [], timeout)[0]))
+    spec = load_spec(clip_id)
+    if not is_iphone(spec):
+        raise ClipError(f"{clip_id} is not an iPhone spec (\"app\": \"iphone\")")
+    folder = out / tour_module().slug(clip_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    quiet = {"capture_output": True, "text": True}
+    call([*simctl, "terminate", udid, bundle_id], **quiet)
+    call([*simctl, "uninstall", udid, bundle_id], **quiet)
+    if call([*simctl, "install", udid, str(app)], **quiet).returncode != 0:
+        raise ClipError(f"could not install {app.name}")
+    # Setup marked complete, as cmux-next-ios-sim.sh shots does: a scene opens on its screen, not onboarding.
+    call([*simctl, "spawn", udid, "defaults", "write", bundle_id, "cmuxMobile.setupComplete", "-bool", "YES"], **quiet)
+    call([*simctl, "ui", udid, "appearance", spec.get("appearance", "dark")], **quiet)
+    video = folder / "capture.mp4"
+    recorder = popen([*simctl, "io", udid, "recordVideo", "--codec", "h264", "--force", str(video)],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    manifest: dict[str, Any] = {"title": clip_id, "app": "iphone", "steps": []}
+    try:
+        deadline = clock() + RECORD_START_TIMEOUT
+        started = False
+        while not started and clock() < deadline:
+            if not ready(recorder.stderr, max(0.0, deadline - clock())):
+                break
+            line = recorder.stderr.readline()
+            if not line:
+                break
+            started = "Recording started" in line
+        if not started:
+            raise ClipError("simctl io recordVideo did not start")
+        t0 = clock()
+        env = {**os.environ, "SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH": "1",
+               **{f"SIMCTL_CHILD_{key}": value for key, value in spec.get("env", {}).items()}}
+        if call([*simctl, "launch", udid, bundle_id, *spec.get("launch_args", [])], env=env, **quiet).returncode != 0:
+            raise ClipError("simctl launch failed")
+        for index, step in enumerate(spec["steps"], 1):
+            at = round(clock() - t0, 3)
+            status = "ok"
+            if "openurl" in step and call([*simctl, "openurl", udid, step["openurl"]], **quiet).returncode != 0:
+                status = "failed"
+            sleep(float(step.get("wait", 1)))
+            manifest["steps"].append({"index": index, "title": step["title"], "status": status, "at": at})
+    except ClipError as error:
+        manifest["error"] = str(error)
+    finally:
+        # recordVideo finishes the file on SIGINT.
+        recorder.send_signal(signal.SIGINT)
+        try:
+            recorder.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+            recorder.wait()
+            manifest.setdefault("error", "simctl io recordVideo did not finish its file")
+        call([*simctl, "terminate", udid, bundle_id], **quiet)
+    if "error" not in manifest:
+        if not video.is_file() or video.stat().st_size == 0:
+            manifest["error"] = "no video"
+        else:
+            manifest["video"] = video.name
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if "error" in manifest:
+        raise ClipError(manifest["error"])
+    return manifest
 
 
 def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> list[Path]:
@@ -659,8 +825,31 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("publish-auto")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
+    i = sub.add_parser("iphone-runs")
+    i.add_argument("--plan", type=Path, required=True)
+    c = sub.add_parser("count")
+    c.add_argument("--plan", type=Path, required=True)
+    c.add_argument("--app", choices=APPS, required=True)
+    x = sub.add_parser("record-iphone")
+    x.add_argument("id")
+    x.add_argument("--simctl-set", type=Path, required=True, help="the step's own simulator device set")
+    x.add_argument("--udid", required=True)
+    x.add_argument("--bundle-id", required=True)
+    x.add_argument("--app", type=Path, required=True)
+    x.add_argument("--out", type=Path, required=True, help="the role's folder (RESULTS/ROLE)")
     a = ap.parse_args(argv)
     try:
+        if a.command == "iphone-runs":
+            for line in iphone_runs(json.loads(a.plan.read_text())):
+                print(line)
+            return 0
+        if a.command == "count":
+            print(sum(1 for row in json.loads(a.plan.read_text()) if row_app(row) == a.app))
+            return 0
+        if a.command == "record-iphone":
+            simctl = ["xcrun", "simctl", "--set", str(a.simctl_set)]
+            print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
+            return 0
         if a.command == "plan":
             rows = plan(a.base, a.head, a.tours, a.limit)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
@@ -674,10 +863,13 @@ def main(argv: list[str] | None = None) -> int:
         if a.command == "tours":
             rows = json.loads(a.plan.read_text())
             if a.other_befores:
-                for sha in dict.fromkeys(r["before"] for r in rows if "before" in r["roles"] and r.get("before") != a.before):
+                for sha in dict.fromkeys(r["before"] for r in rows if "before" in r["roles"] and r.get("before") != a.before
+                                           and row_app(r) != "iphone"):
                     print(sha)
                 return 0
             for row in rows:
+                if row_app(row) == "iphone":
+                    continue  # recorded on a simulator step, not by the Mac tour
                 if a.role in row["roles"] and (a.before is None or a.role != "before" or row.get("before") == a.before):
                     print(a.dir / f"{row['id']}.json")
             return 0
