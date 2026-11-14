@@ -4,9 +4,11 @@ on:
   workflow_call:
     inputs:
       retention_days:
+        # 1, not 3: these were the org's largest Actions artifacts (about 2,450 per target in 3 days, 120-190 MB
+        # each, 2026-11-14), and the binaries that outlive the run are in R2 (cmux-tui-artifacts.yml's publish).
         description: Days the uploaded build artifacts are kept. Every in-run consumer reads them within the run; release callers pass more for tui-publish-npm/pypi, which download by run id.
         required: false
-        default: 3
+        default: 1
         type: number
       version:
         description: "npm package version, or the shared stable X.Y.Z version"
