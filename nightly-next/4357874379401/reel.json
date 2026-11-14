@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4357874379401",
+  "notes": "notes/4357874379401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42938,
+      "title": "ci(ios): sanitize owner-access proof output (#42731 prerequisite)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42937,
+      "title": "test(home): BindingOpenCloseTests waits for the transcript read, not a non-empty transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42936,
+      "title": "CMUX-570: pair engine snapshots in installed-size proofs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42918,
+      "title": "base red (cmux-next checks): check-scrollbars back under its ceiling",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
