@@ -286,7 +286,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     await page.evaluate(() => {
       const samples: Sample[] = [];
       (window as any).turnEndSamples = samples;
-      const started = performance.now();
+      let frames = 0;
       window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const view = scroller.getBoundingClientRect();
@@ -310,7 +310,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
           worked: Boolean(scroller.querySelector("button.cv-worked")),
           folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
         });
-        return performance.now() - started < 1_200;
+        frames += 1;
+        return frames < 90;
       });
     });
     endTurn!();

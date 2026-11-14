@@ -83,6 +83,7 @@ cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
+cmux-scope.workspace = true
 # `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
 # bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
 cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }

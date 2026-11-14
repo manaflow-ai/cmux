@@ -2,8 +2,7 @@ public import Foundation
 
 /// A phone connection that can be used: it listed a non-empty workspace set
 /// and subscribed to workspace state and terminal output with its client id.
-/// The App publishes it as the `mobile.rpc.ready` event the iOS dogfood
-/// launcher waits for (payload keys match the old app's event).
+/// Whoever serves the connection reports it through `onUsable`.
 public struct MobileUsableSession: Sendable, Equatable {
     public var connectionID: String
     public var clientID: String

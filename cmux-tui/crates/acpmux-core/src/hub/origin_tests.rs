@@ -2,6 +2,7 @@ use super::*;
 use acpmux_book::index::{ChangedRows, SortedSnapshot};
 use std::collections::BTreeSet;
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 
 fn remote(id: impl Into<String>, activity: u64) -> Summary {
