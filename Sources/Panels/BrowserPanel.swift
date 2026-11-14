@@ -10530,39 +10530,49 @@ enum BrowserDataImporter {
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        // A profile and its containers share one cookie database, so read each
+        // database once and keep the rows of every selected container.
+        var databases: [(url: URL, containerIDs: Set<Int>)] = []
+        var databaseIndexByPath: [String: Int] = [:]
+        for profile in sourceProfiles {
+            let url = profile.rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
+            let containerID = profile.containerID ?? 0
+            if let index = databaseIndexByPath[url.standardizedFileURL.path] {
+                databases[index].containerIDs.insert(containerID)
+            } else if fileManager.fileExists(atPath: url.path) {
+                databaseIndexByPath[url.standardizedFileURL.path] = databases.count
+                databases.append((url: url, containerIDs: [containerID]))
+            }
+        }
 
-        for databaseURL in databaseURLs {
+        for (databaseURL, containerIDs) in databases {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: "SELECT host, name, value, path, expiry, isSecure FROM moz_cookies"
+                    makeSQL: { database in
+                        BrowserImportedCookie.firefoxCookiesQuery(
+                            columns: sqliteColumnNames(database, table: "moz_cookies")
+                        )
+                    }
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
                     let name = sqliteColumnText(statement, index: 1) ?? ""
-                    let value = sqliteColumnText(statement, index: 2) ?? ""
-                    let path = sqliteColumnText(statement, index: 3) ?? "/"
-                    let expiry = sqliteColumnInt64(statement, index: 4)
-                    let isSecure = sqliteColumnInt64(statement, index: 5) != 0
-
                     guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
-
-                    var properties: [HTTPCookiePropertyKey: Any] = [
-                        .domain: host,
-                        .path: path.isEmpty ? "/" : path,
-                        .name: name,
-                        .value: value,
-                    ]
-                    if isSecure {
-                        properties[.secure] = "TRUE"
-                    }
-                    if expiry > 0 {
-                        properties[.expires] = Date(timeIntervalSince1970: TimeInterval(expiry))
-                    }
-                    if let cookie = HTTPCookie(properties: properties) {
+                    guard let imported = BrowserImportedCookie.firefox(
+                        host: host,
+                        name: name,
+                        value: sqliteColumnText(statement, index: 2) ?? "",
+                        path: sqliteColumnText(statement, index: 3) ?? "/",
+                        expiry: sqliteColumnInt64(statement, index: 4),
+                        isSecure: sqliteColumnInt64(statement, index: 5) != 0,
+                        isHTTPOnly: sqliteColumnInt64(statement, index: 6) != 0,
+                        sameSite: sqliteColumnInt64(statement, index: 7),
+                        originAttributes: sqliteColumnText(statement, index: 8) ?? "",
+                        schemaVersion: sqliteColumnInt64(statement, index: 9),
+                        containerIDs: containerIDs
+                    ) else { return }
+                    if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)
                     }
                 }
@@ -10603,7 +10613,11 @@ enum BrowserDataImporter {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: "SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value FROM cookies"
+                    makeSQL: { database in
+                        BrowserImportedCookie.chromiumCookiesQuery(
+                            columns: sqliteColumnNames(database, table: "cookies")
+                        )
+                    }
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
                     let name = sqliteColumnText(statement, index: 1) ?? ""
@@ -10612,6 +10626,9 @@ enum BrowserDataImporter {
                     let expiresUTC = sqliteColumnInt64(statement, index: 4)
                     let isSecure = sqliteColumnInt64(statement, index: 5) != 0
                     let encryptedValue = sqliteColumnData(statement, index: 6)
+                    let isHTTPOnly = sqliteColumnInt64(statement, index: 7) != 0
+                    let sameSite = sqliteColumnInt64(statement, index: 8)
+                    let topFrameSiteKey = sqliteColumnText(statement, index: 9) ?? ""
 
                     guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
@@ -10629,19 +10646,18 @@ enum BrowserDataImporter {
                         }
                     }
 
-                    var properties: [HTTPCookiePropertyKey: Any] = [
-                        .domain: host,
-                        .path: path.isEmpty ? "/" : path,
-                        .name: name,
-                        .value: usableValue,
-                    ]
-                    if isSecure {
-                        properties[.secure] = "TRUE"
-                    }
-                    if let expiresDate = chromiumDate(fromWebKitMicroseconds: expiresUTC) {
-                        properties[.expires] = expiresDate
-                    }
-                    if let cookie = HTTPCookie(properties: properties) {
+                    guard let imported = BrowserImportedCookie.chromium(
+                        host: host,
+                        name: name,
+                        value: usableValue,
+                        path: path,
+                        expiresUTC: expiresUTC,
+                        isSecure: isSecure,
+                        isHTTPOnly: isHTTPOnly,
+                        sameSite: sameSite,
+                        topFrameSiteKey: topFrameSiteKey
+                    ) else { return }
+                    if let cookie = imported.makeHTTPCookie() {
                         cookies.append(cookie)
                     }
                 }
@@ -10682,7 +10698,11 @@ enum BrowserDataImporter {
         var rows: [HistoryRow] = []
         var warnings: [String] = []
 
-        let databaseURLs = sourceProfiles.map {
+        // A profile and its containers share one history, so read each profile once.
+        var seenProfileRoots = Set<String>()
+        let databaseURLs = sourceProfiles.filter {
+            seenProfileRoots.insert($0.rootURL.standardizedFileURL.path).inserted
+        }.map {
             $0.rootURL.appendingPathComponent("places.sqlite", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
@@ -10970,6 +10990,16 @@ enum BrowserDataImporter {
         sql: String,
         rowHandler: (OpaquePointer) throws -> Void
     ) throws {
+        try querySQLiteRows(sourceDatabaseURL: sourceDatabaseURL, makeSQL: { _ in sql }, rowHandler: rowHandler)
+    }
+
+    /// Runs the query `makeSQL` builds against the open snapshot, for a query
+    /// that depends on which columns the source browser's schema has.
+    private static func querySQLiteRows(
+        sourceDatabaseURL: URL,
+        makeSQL: (OpaquePointer) -> String,
+        rowHandler: (OpaquePointer) throws -> Void
+    ) throws {
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-browser-import-\(UUID().uuidString)",
@@ -11004,7 +11034,7 @@ enum BrowserDataImporter {
         defer { sqlite3_close(database) }
 
         var statement: OpaquePointer?
-        let prepareCode = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+        let prepareCode = sqlite3_prepare_v2(database, makeSQL(database), -1, &statement, nil)
         guard prepareCode == SQLITE_OK, let statement else {
             let message = sqliteMessage(from: database) ?? "unknown SQLite prepare failure"
             sqlite3_finalize(statement)
@@ -11028,6 +11058,26 @@ enum BrowserDataImporter {
                 NSLocalizedDescriptionKey: message,
             ])
         }
+    }
+
+    /// The column names of `table` in the open database, or an empty set when
+    /// they cannot be read.
+    private static func sqliteColumnNames(_ database: OpaquePointer, table: String) -> Set<String> {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info(?1)", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, table, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        var names: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let name = sqliteColumnText(statement, index: 0) {
+                names.insert(name)
+            }
+        }
+        return names
     }
 
     private static func sqliteMessage(from database: OpaquePointer?) -> String? {

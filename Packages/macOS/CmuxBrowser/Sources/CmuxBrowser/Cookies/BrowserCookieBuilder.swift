@@ -21,6 +21,7 @@ public struct BrowserCookieBuilder: Sendable {
     ///   - secure: Whether the cookie is restricted to secure transports.
     ///   - expires: The cookie expiration date, or `nil` for a session cookie.
     ///   - httpOnly: Whether the cookie should be hidden from page JavaScript.
+    ///   - sameSitePolicy: The cookie's SameSite policy, or `nil` for none.
     /// - Returns: The constructed cookie, or `nil` when the fields are invalid.
     public func makeCookie(
         name: String,
@@ -30,7 +31,8 @@ public struct BrowserCookieBuilder: Sendable {
         path: String,
         secure: Bool,
         expires: Date?,
-        httpOnly: Bool
+        httpOnly: Bool,
+        sameSitePolicy: HTTPCookieStringPolicy? = nil
     ) -> HTTPCookie? {
         guard Self.headerComponentIsSafe(name),
               Self.headerComponentIsSafe(value) else {
@@ -52,6 +54,9 @@ public struct BrowserCookieBuilder: Sendable {
         }
         if let expires {
             properties[.expires] = expires
+        }
+        if let sameSitePolicy {
+            properties[.sameSitePolicy] = sameSitePolicy.rawValue
         }
 
         guard let cookie = HTTPCookie(properties: properties) else {
@@ -78,6 +83,7 @@ public struct BrowserCookieBuilder: Sendable {
               Self.sameDomainScope(parsedCookie.domain, cookie.domain),
               parsedCookie.path == cookie.path,
               parsedCookie.isSecure == cookie.isSecure,
+              parsedCookie.sameSitePolicy == cookie.sameSitePolicy,
               parsedCookie.isHTTPOnly else {
             return nil
         }
@@ -98,6 +104,9 @@ public struct BrowserCookieBuilder: Sendable {
                 return nil
             }
             header += "; Expires=\(httpDate)"
+        }
+        if let sameSitePolicy = cookie.sameSitePolicy {
+            header += sameSitePolicy == .sameSiteStrict ? "; SameSite=Strict" : "; SameSite=Lax"
         }
         return header
     }
@@ -145,7 +154,7 @@ private extension BrowserCookieBuilder {
 
     static func normalizedDomain(_ domain: String) -> String {
         domain
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".[]"))
             .lowercased()
     }
 
@@ -179,7 +188,9 @@ private extension BrowserCookieBuilder {
     static func cookieURL(scheme: String, host: String) -> URL? {
         var components = URLComponents()
         components.scheme = scheme
-        components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let bareHost = host.trimmingCharacters(in: CharacterSet(charactersIn: ".[]"))
+        // URLComponents accepts an IPv6 literal host only in brackets.
+        components.host = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
         components.path = "/"
         return components.url
     }
