@@ -115,7 +115,7 @@ class FakeApi(px.Api):
         self.calls.append(path)
         if path.startswith("actions/artifacts?"):
             name = path.split("name=")[1].split("&")[0]
-            return {"artifacts": [a for tree, items in self.packs.items() for a in items if px.pack_name(tree) == name]}
+            return {"artifacts": [a for items in self.packs.values() for a in items if a["name"] == name]}
         if path.startswith("actions/workflows/"):
             assert f"branch={px.BRANCH}" in path
             return {"workflow_runs": self.listed}
@@ -331,6 +331,14 @@ class TakesOnlyTrustedIntactPacks(unittest.TestCase):
     def test_a_pack_missing_an_export_is_refused(self):
         files = {rel: b"x" for rel in NAMES[:-1]}
         self.assert_miss(self.api_with(pack_zip(self.tree, 7, self.sha, files)), "exactly the exports")
+
+    def test_a_previous_recipe_pack_is_not_downloaded(self):
+        old = artifact(self.tree, 7, 70)
+        old["name"] = old["name"].replace("-v2-", "-v1-")
+        self.assertNotEqual(old["name"], px.pack_name(self.tree))
+        api = self.api_with(pack_zip(self.tree, 7, self.sha), art=old)
+        self.assert_miss(api, "none is coming")
+        self.assertFalse(any(call.startswith("https://") for call in api.calls))
 
     def test_a_manifest_of_another_tree_or_run_is_refused(self):
         self.assert_miss(self.api_with(pack_zip(oid(999), 7, self.sha)), "another tree")
