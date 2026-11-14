@@ -359,10 +359,16 @@ extension RemoteTmuxControlConnection {
             // tmux's real prompt cursor — otherwise echoed input lands a line below
             // the prompt. The `.paneState` seed then repositions the cursor within
             // the visible screen.
-            let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
-            if let data = painted.data(using: .utf8) {
-                installPaneSeedCapture(paneId: paneId, seedID: seedID, data: data)
-            }
+            // A full-history seed read its history rows ahead of this capture; they
+            // are painted between the clear and these rows (see installPaneSeedCapture).
+            installPaneSeedCapture(
+                paneId: paneId,
+                seedID: seedID,
+                screenClear: Data("\u{1b}[H\u{1b}[2J".utf8),
+                data: Data(lines.joined(separator: "\r\n").utf8)
+            )
+        case let .capturePaneHistory(paneId, seedID):
+            appendPaneSeedHistory(paneId: paneId, seedID: seedID, lines: lines)
         case let .paneState(paneId, seedID):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
             // onto the mirror surface, applied after the capture paint. The scroll
