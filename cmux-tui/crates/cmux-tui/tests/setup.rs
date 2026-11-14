@@ -2320,3 +2320,23 @@ fn cmux_setup_mcp_replaces_an_entry_whose_launcher_script_is_gone() {
         ]
     );
 }
+
+/// A relative launcher script (`node cmux.js mcp serve`) with no `cwd` to
+/// find it in: where it runs is unknown, so setup keeps the entry rather than
+/// replacing it on doubt.
+#[test]
+fn cmux_setup_mcp_keeps_an_entry_with_a_relative_script_and_no_cwd() {
+    let world = World::new("mcprelative").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    World::executable(&world.bin.join("node"), "#!/bin/sh\nexit 0\n");
+    let entry =
+        json!({"command": "node", "args": ["node_modules/cmux/bin/cmux.js", "mcp", "serve"]});
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": entry}}).to_string(),
+    )
+    .unwrap();
+    let result = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(result["state"], "ok", "{result}");
+    assert!(world.take_mcp_calls().is_empty(), "setup replaced an entry it could not judge");
+}
