@@ -196,7 +196,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3c",
         name: "v2.pr03c.queue_window",
         done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
