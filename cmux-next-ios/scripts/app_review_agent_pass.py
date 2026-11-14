@@ -13,7 +13,9 @@ reading files.
       --setup cmux-next-ios/AppStoreReview/reviewer-setup.md --out DIR --findings out.json
 
 Findings are warnings in the gate report (an agent's judgement), except a
-crash or a step it could not get past, which it marks blocking.
+crash or a step it could not get past, which it marks blocking. A pass that
+judged nothing (axe or claude missing, the agent failed or wrote no findings
+array, or it took no screenshot) is itself a blocker and exits 1.
 """
 
 from __future__ import annotations
@@ -82,7 +84,17 @@ def bundle_id(app: Path) -> str:
     return out.strip()
 
 
-def main() -> int:
+def unjudged(findings: Path, rule: str, message: str, where: str = "") -> int:
+    """The pass judged nothing: a blocker the report shows, and a red step.
+    It used to be a warning and exit 0, so a pass with no axe on the runner
+    looked green for weeks (job 132387096997 and every run after it)."""
+    findings.write_text(json.dumps([{"severity": "blocker", "guideline": "2.1", "rule": rule,
+                                     "source": "agent reviewer pass", "message": message, "where": where}], indent=2))
+    print(f"::error::agent reviewer pass: {message}", file=sys.stderr)
+    return 1
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--udid", required=True)
     parser.add_argument("--app", required=True)
@@ -90,38 +102,50 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--findings", required=True)
     parser.add_argument("--max-turns", default="80")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     findings = Path(args.findings)
     app = Path(args.app)
+    missing = [tool for tool in ("axe", "claude") if not shutil.which(tool)]
+    if missing:
+        return unjudged(findings, "agent.unavailable", f"the agent pass could not run: {' and '.join(missing)} not installed")
     bid = bundle_id(app)
-    if not shutil.which("axe") or not shutil.which("claude"):
-        findings.write_text(json.dumps([{"severity": "warning", "guideline": "-", "rule": "agent.unavailable",
-                                         "source": "agent reviewer pass",
-                                         "message": "the agent pass could not run (axe or claude missing)", "where": ""}]))
-        return 0
     subprocess.run(["xcrun", "simctl", "uninstall", args.udid, bid], check=False)
     subprocess.run(["xcrun", "simctl", "install", args.udid, str(app)], check=True)
     subprocess.run(["xcrun", "simctl", "launch", args.udid, bid], check=False)
 
     prompt = PROMPT.format(udid=args.udid, bundle_id=bid, out=out, findings=findings,
                            setup=setup_text(Path(args.setup)))
-    proc = subprocess.run(
-        ["claude", "-p", prompt,
-         "--allowedTools", "Bash(axe:*)", "Bash(xcrun simctl:*)", "Read", "Write",
-         "--max-turns", args.max_turns, "--output-format", "json"],
-        capture_output=True, text=True, timeout=45 * 60, cwd=out,
-        env=dict(os.environ),
-    )
+    # A findings file left from an earlier run is never this run's verdict.
+    findings.unlink(missing_ok=True)
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", prompt,
+             "--allowedTools", "Bash(axe:*)", "Bash(xcrun simctl:*)", "Read", "Write",
+             "--max-turns", args.max_turns, "--output-format", "json"],
+            capture_output=True, text=True, timeout=45 * 60, cwd=out,
+            env=dict(os.environ),
+        )
+    except subprocess.TimeoutExpired:
+        return unjudged(findings, "agent.no-verdict", "the agent ran past 45 minutes with no verdict", str(out))
     (out / "transcript.json").write_text(proc.stdout or "")
     (out / "stderr.txt").write_text(proc.stderr or "")
     try:
         items = json.loads(findings.read_text())
         assert isinstance(items, list)
     except (OSError, json.JSONDecodeError, AssertionError):
-        items = [{"severity": "warning", "guideline": "-", "message": "the agent pass wrote no findings file; read its transcript", "where": str(out)}]
+        items = None
+    if proc.returncode != 0 or items is None:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
+        return unjudged(findings, "agent.no-verdict",
+                        f"the agent exited {proc.returncode} with {'no findings array' if items is None else 'findings'}"
+                        f" ({detail[0][:200]}); read transcript.json and stderr.txt", str(out))
+    screens = len(list(out.glob("step-*.png")))
+    if not screens:
+        return unjudged(findings, "agent.no-walk",
+                        "the agent wrote a verdict without one screenshot of the app, so it never looked at it", str(out))
     normalized = []
     for item in items:
         normalized.append({
@@ -133,7 +157,7 @@ def main() -> int:
             "where": str(item.get("where", "")),
         })
     findings.write_text(json.dumps(normalized, indent=2))
-    print(f"agent pass: {len(normalized)} findings, {len(list(out.glob('step-*.png')))} screenshots")
+    print(f"agent pass: {len(normalized)} findings, {screens} screenshots")
     return 0
 
 

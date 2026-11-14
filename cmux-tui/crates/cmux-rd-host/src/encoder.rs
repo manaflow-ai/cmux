@@ -145,6 +145,20 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.kbps,
             cfg.profile == "baseline",
         )?)),
+        #[cfg(any(feature = "vp9", feature = "av1"))]
+        "vp9" | "av1" => {
+            let codec = cmux_encode::Codec::parse(cfg.codec).ok_or("codec")?;
+            let enc_cfg = cmux_encode::EncCfg {
+                width: cfg.width,
+                height: cfg.height,
+                fps: cfg.fps,
+                kbps: cfg.kbps,
+                threads: cfg.threads,
+                screen_content: cfg.screen_content,
+            };
+            cmux_codecs::open_encoder(codec, &enc_cfg)?
+                .ok_or_else(|| format!("codec {} not available in this build", cfg.codec).into())
+        }
         other => Err(format!("codec {other} not available in this build").into()),
     }
 }
