@@ -57,6 +57,9 @@ func reads(_ x: Int, _ y: Int, _ cell: Int) -> Bool {
     return true
 }
 
+// The marker sits at the top of the host's display, so it shows in the top part of the viewer's, below
+// at most a letterbox band: scanning the top third keeps a locate well under a second.
+let scanHeight = height / 3
 // Every cell size from 4 px (a 32 px host cell shown at an eighth) to 128 px; the size with the most
 // clean positions is the true one, since a wrong size drifts off the cells within 20 of them.
 var best: (count: Int, cell: Int, xs: [Int], ys: [Int]) = (0, 0, [], [])
@@ -65,7 +68,7 @@ for cell in 4 ... 128 {
     guard span < width else { break }
     var xs: [Int] = [], ys: [Int] = []
     var y = 0
-    while y + cell <= height {
+    while y + cell <= scanHeight {
         var x = 0
         while x + span <= width {
             if reads(x, y, cell) {
@@ -82,8 +85,11 @@ guard best.count > 0 else { fail("no marker visible on the display", 1) }
 // One marker: the positions that read it form one block about a cell wide and high (every x from
 // half a cell left of the first cell's edge to half a cell right of it). Its middle is that edge,
 // the origin observe takes.
+// Only the block of the topmost, then leftmost, hit: a stray clean read elsewhere in the same rows must
+// not widen it.
 let minY = best.ys.min()!
-let block = zip(best.xs, best.ys).filter { $0.1 < minY + best.cell }
+let minX = zip(best.xs, best.ys).filter { $0.1 == minY }.map { $0.0 }.min()!
+let block = zip(best.xs, best.ys).filter { $0.1 < minY + best.cell && abs($0.0 - minX) <= best.cell }
 let originX = (block.map { $0.0 }.min()! + block.map { $0.0 }.max()!) / 2
 let originY = (block.map { $0.1 }.min()! + block.map { $0.1 }.max()!) / 2
 let cell = best.cell

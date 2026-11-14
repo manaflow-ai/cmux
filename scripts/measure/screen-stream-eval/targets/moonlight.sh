@@ -61,7 +61,8 @@ EOF
         curl -sk -o /dev/null -u "eval:$pass" -X POST https://127.0.0.1:47990/api/pin \
           -d "{\"pin\":\"$pin\",\"name\":\"cmux-screen-eval\"}" || true
         sleep 1 # the PIN offer's period, until host-stop
-      done) &
+      # Off the harness's capture of host-start's output, which would otherwise wait for this loop.
+      done) >/dev/null 2>&1 &
       echo $! >"$EVAL_STATE/pin.pid"
       return 0
     fi
@@ -99,7 +100,9 @@ viewer_start() {
     sleep 0.1 # bounded wait for the pairing (60 s)
   done
   stop_pid "$EVAL_STATE/pair.pid"
-  "$moonlight" stream "$host" Desktop --display-mode borderless >"$EVAL_STATE/viewer.log" 2>&1 &
+  # Absolute mouse: Moonlight's default relative mode would put observe's click wherever the host's
+  # cursor is, not on the marker's pad.
+  "$moonlight" stream "$host" Desktop --display-mode borderless --absolute-mouse >"$EVAL_STATE/viewer.log" 2>&1 &
   echo $! >"$EVAL_STATE/viewer.pid"
 }
 

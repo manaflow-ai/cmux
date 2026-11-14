@@ -29,8 +29,13 @@ gv_build() {
   swiftc -O -o "$EVAL_BIN/screen-eval-marker-locate" "$here/marker-locate.swift"
 }
 
-# gv_pid NAME: the viewer's process id (exit 1 when it is not running).
-gv_pid() { pgrep -nx "$1"; }
+# gv_pid NAME: the viewer's process id: the one the target started ($EVAL_STATE/viewer.pid), else the
+# newest process of that name (exit 1 when it is not running).
+gv_pid() {
+  local pid
+  pid=$(cat "$EVAL_STATE/viewer.pid" 2>/dev/null || true)
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then echo "$pid"; else pgrep -nx "$1"; fi
+}
 
 # gv_wait_window NAME SECONDS: the viewer's largest on-screen window id, once it has one.
 gv_wait_window() {
@@ -134,7 +139,9 @@ while time.time() < start + seconds:
     now = time.time()
     if now >= second_end:
         total = received()
-        bytes_ = total - last_bytes if total is not None and last_bytes is not None else None
+        # Per second: the gap between two nettop reads is a little over 1 s, and eval.py reads each row as 1 s.
+        interval = now - (second_end - 1)
+        bytes_ = round((total - last_bytes) / interval) if total is not None and last_bytes is not None and interval > 0 else None
         series.append({"unix_ms": int(now * 1000), "bytes": bytes_, "frames": None, "sampled_changes": changes,
                        "decode_ms": None, "encode_ms": None})
         last_bytes, changes, second_end = total, 0, second_end + 1
