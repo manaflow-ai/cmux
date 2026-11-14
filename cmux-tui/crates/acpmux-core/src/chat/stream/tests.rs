@@ -381,9 +381,7 @@ fn another_edition_gets_stale_edition_on_a_page_and_a_fresh_window_on_a_resume()
         assert_eq!(error["code"], "stale_edition", "{error}");
         // The actor goes; its subscriber is told `dropped`. Another boot gives another edition.
         assert!(chat.registry.evict("chat"));
-        let dropped =
-            client.until(&mut Vec::new(), |f| (f.kind == FrameKind::Dropped).then_some(())).await;
-        let _ = dropped;
+        client.until(&mut Vec::new(), |f| (f.kind == FrameKind::Dropped).then_some(())).await;
         chat.config.lock().unwrap().boot_id ^= 1;
         client.sub("s", json!({"cursor": window.cursor, "edition": window.edition})).await;
         let fresh = client.window("s").await;
