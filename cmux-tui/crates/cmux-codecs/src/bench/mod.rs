@@ -220,6 +220,13 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
     // Matched-rate rows: the engine still runs its congestion control, but the
     // encoder never gets more than `max_kbps`.
     let cap = |kbps: u32| cfg.max_kbps.map_or(kbps, |m| kbps.min(m));
+    // The libvpx frame-drop threshold this row ran with (src/vp9.rs), so rows say which they are.
+    let vp9_drop = (cfg.codec == Codec::Vp9).then(|| {
+        std::env::var("CMUX_VP9_DROPFRAME_THRESH")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(30)
+    });
     let enc_cfg = EncCfg {
         width: cfg.width,
         height: cfg.height,
@@ -443,6 +450,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         "loss_pct": cfg.loss_pct,
         "burst_len": cfg.burst_len,
         "max_kbps": cfg.max_kbps,
+        "vp9_dropframe_thresh": vp9_drop,
         "rtt_ms": cfg.rtt_ms,
         "link_mbps": cfg.link_mbps,
         "size": format!("{}x{}", cfg.width, cfg.height),

@@ -110,6 +110,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .iter()
                         .map(|x| (*x > 0.0).then(|| (kbps * x).round().max(50.0) as u32))
                         .collect(),
+                    // No H.264 row to match: skip rather than print unmatched rows.
+                    _ if !factors.is_empty() => {
+                        eprintln!(
+                            "{} {} {loss_name}%: no H.264 rate to match",
+                            codec.wire_name(),
+                            scene.name()
+                        );
+                        vec![]
+                    }
                     _ => vec![None],
                 };
                 for max_kbps in caps {
