@@ -711,7 +711,19 @@ fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
             })
             .cloned()
     };
-    let doc = v2(&mux, &app, "sidebar.get", json!({}), "get-1")["result"].clone();
+    let sidebar = |key: &str| -> Value {
+        // A read carries no idempotency key.
+        let params = json!({"machine": "current", "session": "current"});
+        let request = resource_request(key, "sidebar.get", params, None);
+        assert!(handle_connection_message(&mux, app.0, &request, &app.1, &app.3));
+        let reply = pop_json(&app.2);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let result = &reply["result"];
+        let doc = if result["value"]["items"].is_array() { &result["value"] } else { result };
+        assert!(doc["items"].is_array(), "no sidebar items: {reply}");
+        doc.clone()
+    };
+    let doc = sidebar("get-1");
     let missing: Vec<Value> = names
         .iter()
         .filter(|name| item_of(&doc, name).is_none())
@@ -729,7 +741,7 @@ fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
     assert_eq!(again["unchanged"], true, "{again}");
 
     // The Mac drags its last visible workspace to the top of its section.
-    let doc = v2(&mux, &app, "sidebar.get", json!({}), "get-2")["result"].clone();
+    let doc = sidebar("get-2");
     let last = item_of(&doc, &names[2]).unwrap_or_else(|| panic!("no item: {doc}"));
     let moved = v2(
         &mux,
