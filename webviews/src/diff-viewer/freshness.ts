@@ -1,15 +1,20 @@
 // The viewer notices edits made after it loaded (cx-9ce.34, dogfood run hq #1893): with the
 // viewer open on a repository, an agent's edit there left the old diff on screen until the tab
-// was reopened. The host fingerprints the shown scope's diff (`cmux.diff.git.fingerprint`, a hash,
-// so no diff crosses the bridge); the page takes one per load and compares while it is visible.
-// Coming back to the viewer refreshes it when nothing would be lost; while the reader is in it, an
-// inline notice offers Refresh, since a refresh starts the diff from the top.
+// was reopened. The session host fingerprints the shown scope's diff (`cmux.diff.git.fingerprint`:
+// digits made from the changed files, so no diff is made or crosses the bridge); the page takes one
+// per load and compares while it is visible. Coming back to the viewer refreshes it when nothing
+// would be lost; while the reader is in it, an inline notice offers Refresh, since a refresh starts
+// the diff from the top. A session host older than the read cannot say: the page then wakes no
+// timer, and each time the reader comes back it asks one time more and reloads the diff
+// (FINGERPRINT_UNSUPPORTED).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
 
 export const DIFF_FINGERPRINT_OP = "cmux.diff.git.fingerprint";
+/** The host's answer for a session host older than `git.fingerprint`; it sent that host nothing. */
+export const FINGERPRINT_UNSUPPORTED = "native.unsupported";
 /** How often a focused viewer compares, in ms. */
 export const FRESHNESS_INTERVAL = 4000;
 /** Keep a visible background window current without running git every four seconds. */
@@ -66,6 +71,16 @@ export function usePrecomputedFingerprint(): [
 /// reconcile failed; the precomputed diff is still shown, so it is the baseline again (no second
 /// reconcile), and a tree that differs shows the notice. `id` tells one precompute from the next: two
 /// with the same fingerprint (the tree came back to it) each get their first comparison.
+///
+/// A session host older than the read (a machine that was not updated) answers
+/// `FINGERPRINT_UNSUPPORTED`. Nothing can be compared then, so this page wakes no timer, and while
+/// the reader stays in the viewer it gives no notice of a change. Each return to the viewer asks one
+/// time more (the host sends such a session host nothing) and runs `refresh` (when `canRefresh`),
+/// so the reader does not look at an old diff after coming back. One return is one `refresh`: the
+/// page was away before it (it lost the focus or was hidden, or the window has no focus yet). When
+/// the session host has the read at a return (it was replaced), that return runs `refresh` one time
+/// and each later return compares again; the timer starts again when the page next loses or gets
+/// the focus. Refresh in the toolbar works as before.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -91,6 +106,11 @@ export function useDiffFreshness(
   const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
   const precomputedFingerprint = precomputed?.fingerprint;
   const reconcileFailed = precomputed?.failedGeneration === generation;
+  // Set by a FINGERPRINT_UNSUPPORTED answer, until the session host answers with digits: a page
+  // shows one machine's repository, and the host answers that code for the whole session host.
+  const unsupported = useRef(false);
+  // An older session host: the page was away since the last `refresh` that a return ran.
+  const away = useRef(true);
   useEffect(() => {
     let first = precomputedKey !== undefined && consumed.current !== precomputedKey;
     baseline.current = first || reconcileFailed ? precomputedFingerprint : undefined;
@@ -99,13 +119,27 @@ export function useDiffFreshness(
     if (!read) return;
     let current = true;
     let busy = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const check = async (returning: boolean) => {
       if (busy || document.visibilityState === "hidden") return;
+      // An older session host is asked again only when the reader comes back.
+      if (unsupported.current && !returning) return;
       busy = true;
       try {
         const now = await read();
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
+        if (unsupported.current) {
+          // The session host has the read now. The shown diff has no digits of its own, so it is
+          // loaded one time more, and `now` is the baseline of the next checks. No timer starts
+          // here: the next `schedule` (the page loses or gets the focus, or is shown) starts it.
+          unsupported.current = false;
+          if (first) consumed.current = precomputedKey;
+          first = false;
+          baseline.current = now;
+          if (latest.current.canRefresh()) latest.current.refresh();
+          return;
+        }
         const reconcile = first ? latest.current.reconcile : undefined;
         if (first) consumed.current = precomputedKey;
         first = false;
@@ -118,22 +152,31 @@ export function useDiffFreshness(
           else setStale({ generation, read });
         }
       } catch (error) {
+        if (!current || !isPageError(error)) return;
+        if (error.code === FINGERPRINT_UNSUPPORTED) {
+          // Nothing was sent: stop the timer, and reload when this is a return from time away.
+          unsupported.current = true;
+          clearInterval(timer);
+          timer = undefined;
+          if (returning && away.current && latest.current.canRefresh()) {
+            away.current = !document.hasFocus();
+            latest.current.refresh();
+          }
+          return;
+        }
         // Keep the patch and drafts while the machine is unavailable; a successful read clears
         // the host's localized reason, even when its fingerprint has not changed.
-        if (current && isPageError(error) && error.code.startsWith("cmux.diff.machine_")) {
-          latest.current.onUnavailable?.(error.message);
-        }
+        if (error.code.startsWith("cmux.diff.machine_")) latest.current.onUnavailable?.(error.message);
         // Other repository failures retry on the next check as before.
       } finally {
         busy = false;
       }
     };
     void check(false);
-    let timer: ReturnType<typeof setInterval> | undefined;
     const schedule = (focused: boolean) => {
       clearInterval(timer);
       timer = undefined;
-      if (document.visibilityState === "hidden") return;
+      if (unsupported.current || document.visibilityState === "hidden") return;
       timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
     };
     schedule(document.hasFocus());
@@ -141,10 +184,14 @@ export function useDiffFreshness(
       schedule(true);
       void check(true);
     };
-    const blur = () => schedule(false);
+    const blur = () => {
+      away.current = true;
+      schedule(false);
+    };
     const visible = () => {
       schedule(document.hasFocus());
       if (document.visibilityState === "visible") void check(true);
+      else away.current = true;
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", blur);
