@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 import { TOKEN_MINT_DEADLINE_MS, tokenMintDeadline } from "../src/http.ts"
+import { stackTeamsOf } from "../src/stack-team-heal.ts"
 import { selectTeam } from "../src/team-select.ts"
 import { listUserTeams } from "../src/user-teams.ts"
 import { call, PROJECT, stackWorld, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
@@ -242,6 +243,21 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
       expect(r.status, JSON.stringify(r.json)).toBe(503)
       expect(errorOf(r)).toMatchObject({ code: "owner.unreachable", retryable: true })
     }
+  })
+
+  // Review F1 on cmux#42958: two checks at once both missed the window and asked for a pace token; with only one
+  // granted, the other got no teams and refused a real member while the first one's Stack read ran.
+  it("two checks at once share one pace token and one Stack read", async () => {
+    const s = await setup("Concurrent")
+    const user = s.user
+    let tokens = 1
+    let asked = 0
+    const pace = async () => (asked++, await Promise.resolve(), tokens-- > 0)
+    const deps = { stack: s.w.fake, pace, now: () => Date.now() }
+    const [a, b] = await Promise.all([stackTeamsOf(workerEnv, user, s.me, deps), stackTeamsOf(workerEnv, user, s.me, deps)])
+    expect([...a.keys()]).toContain(s.team)
+    expect([...b.keys()]).toContain(s.team)
+    expect(asked).toBe(1)
   })
 
   it("a member TeamDO already knows mints without asking Stack", async () => {
