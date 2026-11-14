@@ -40,6 +40,14 @@
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One transient role for notices, window toasts and recoverable error cards. The values remain
+     sourced from the generated surface-role and design-scale tokens; these aliases prevent drift. */
+  --transient-surface-radius: var(--surface-toast-radius, 9px);
+  --transient-surface-veil: var(--surface-toast-veil);
+  --transient-surface-shadow: var(--elevation-2);
+  --transient-surface-gap: var(--ds-space-2);
+  --transient-action-fill: var(--ds-color-accent);
+  --transient-action-ink: var(--ds-color-on-accent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */

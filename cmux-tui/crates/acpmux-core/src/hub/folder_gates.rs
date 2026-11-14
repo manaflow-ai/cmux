@@ -86,7 +86,15 @@ fn folder_page_budget() -> u32 {
         at: 10_000,
         count: 1,
     };
-    (8192 + "folders".len() + 3 * (row.encoded_len() + 1)) as u32
+    let key = FolderPosition {
+        at: row.at,
+        origin: row.origin.to_string(),
+        folder: row.folder.to_string(),
+    };
+    (8192
+        + serde_json::to_vec("folders").unwrap().len()
+        + 2 * serde_json::to_vec(&key).unwrap().len()
+        + 3 * (row.encoded_len() + 1)) as u32
 }
 
 fn measure_window(hub: &Hub, request: &Sub) -> Vec<Vec<u128>> {
