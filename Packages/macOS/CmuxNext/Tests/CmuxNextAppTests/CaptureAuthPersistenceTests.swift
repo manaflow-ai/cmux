@@ -3,6 +3,20 @@ import Testing
 @testable import CmuxNextCloud
 
 struct CaptureAuthPersistenceTests {
+    @Test func fileProbeDistinguishesAbsenceFromUnreadablePathAndSymlink() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let blocker = home.appendingPathComponent("file")
+        try Data().write(to: blocker)
+        let dangling = home.appendingPathComponent("dangling")
+        try FileManager.default.createSymbolicLink(at: dangling, withDestinationURL: home.appendingPathComponent("missing"))
+        let adapter = CaptureAuthPersistence()
+        #expect(adapter.captureFileStatus(home.appendingPathComponent("missing").path) == "absent")
+        #expect(adapter.captureFileStatus(blocker.appendingPathComponent("credentials.json").path) == "error")
+        #expect(adapter.captureFileStatus(dangling.path) == "present")
+    }
+
     @Test func invalidLeaseIsRejectedBeforeStoreAccess() {
         let configuration = CloudConfiguration.unavailable
         let result = CaptureAuthPersistence().run(configuration: configuration, phase: .prepare,
