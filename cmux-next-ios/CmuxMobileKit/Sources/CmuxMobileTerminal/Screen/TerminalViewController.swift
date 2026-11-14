@@ -1904,20 +1904,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // and a still of the whole page cost 10-15 ms on the frame the
         // keyboard stopped (the held replay's reset, step f97802b9).
         let areaStill = model.isTUI && !pageWide && !output.leavesAlternateScreen
-        let source: UIView = areaStill ? tuiClip : view
-        guard let snapshot = measured("hold-frame-snapshot", { source.snapshotView(afterScreenUpdates: false) }) else { return }
+        let source: UIView = areaStill ? tuiHost : view
+        // The grid's host, whose height is the grid's (not the clip's, which
+        // animates with the keyboard: a still of it mid-animation is drawn at
+        // the clip's end size, its grid a few points off the moving composer),
+        // widened by the side padding a panned or wider surface reaches into.
+        let wide = CGRect(x: -Self.sidePadding, y: 0, width: tuiHost.bounds.width + 2 * Self.sidePadding, height: tuiHost.bounds.height)
+        guard let snapshot = measured("hold-frame-snapshot", {
+            areaStill ? tuiHost.resizableSnapshotView(from: wide, afterScreenUpdates: false, withCapInsets: .zero)
+                : view.snapshotView(afterScreenUpdates: false)
+        }) else { return }
         snapshot.isUserInteractionEnabled = false
         if source === view {
             snapshot.frame = view.bounds
             view.insertSubview(snapshot, belowSubview: bottomBacking)
         } else {
-            // A still of the whole area (the surface reaches into the side
-            // padding when panned or wider than the phone), placed in the
-            // grid's own host, bottoms together: the host is pinned to the
-            // composer and rides the keyboard's animation, so the still does
-            // too (added to the clip mid-animation, it stood where the clip
-            // ends, 12-21 pt off the moving composer).
-            snapshot.frame.origin = CGPoint(x: -Self.sidePadding, y: tuiHost.bounds.height - snapshot.bounds.height)
+            // In the grid's own host, where it was taken: the host is pinned
+            // to the composer and rides the keyboard's animation, so the still
+            // does too (added to the clip mid-animation, it stood where the
+            // clip ends, 12-21 pt off the moving composer).
+            snapshot.frame = wide
             snapshot.autoresizingMask = [.flexibleTopMargin]
             tuiHost.addSubview(snapshot)
         }
