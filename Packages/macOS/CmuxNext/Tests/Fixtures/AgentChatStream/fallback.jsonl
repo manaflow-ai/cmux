@@ -1,0 +1,6 @@
+{"surfaces":["chat"]}
+{"step":"upgrade"}
+{"call":"subscribe_chat","reply":{"sid":"rows.1"},"request":{"chat":"chat-a","sid":"rows.1"}}
+{"call":"connected"}
+{"feed":[0,78]}
+"{\"bytes\":[],\"kind\":\"fallback\"}"
