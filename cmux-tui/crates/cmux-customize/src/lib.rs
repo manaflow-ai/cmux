@@ -23,6 +23,7 @@ mod engine;
 mod paths;
 pub mod profile;
 pub mod redact;
+pub mod schema;
 mod store;
 mod tree;
 mod validate;

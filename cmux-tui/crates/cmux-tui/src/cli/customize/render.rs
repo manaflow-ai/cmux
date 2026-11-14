@@ -3,6 +3,7 @@
 //! remember the verbs.
 
 use cmux_customize::profile::{Listed, Saved};
+use cmux_customize::schema::{Schema, Section};
 use cmux_customize::{
     Applied, Begun, Change, FileDiff, Generation, History, Restored, Roots, Status, count,
 };
@@ -36,6 +37,7 @@ pub(in crate::cli) enum Answer {
     },
     Profiles(Vec<Listed>),
     Paths(Roots),
+    Schema(Schema, Option<Section>, super::SchemaFormat),
 }
 
 fn value(of: &impl serde::Serialize) -> Value {
@@ -80,6 +82,17 @@ impl Answer {
                 json!({ "profile": name, "begun": begun, "status": status_json(status) })
             }
             Answer::Profiles(profiles) => json!({ "profiles": profiles }),
+            Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
+                schema.to_json(*section)
+            }
+            Answer::Schema(schema, _, super::SchemaFormat::TypeScript) => json!({
+                "language": "typescript",
+                "source": cmux_customize::schema::typescript(schema),
+            }),
+            Answer::Schema(schema, _, super::SchemaFormat::Rust) => json!({
+                "language": "rust",
+                "source": cmux_customize::schema::rust(schema),
+            }),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
@@ -202,6 +215,15 @@ impl Answer {
                         profile.name, profile.settings, profile.files, profile.description
                     ));
                 }
+            }
+            Answer::Schema(schema, _, super::SchemaFormat::TypeScript) => {
+                out.push_str(&cmux_customize::schema::typescript(schema));
+            }
+            Answer::Schema(schema, _, super::SchemaFormat::Rust) => {
+                out.push_str(&cmux_customize::schema::rust(schema));
+            }
+            Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
+                schema_lines(&mut out, schema, *section);
             }
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
@@ -337,4 +359,95 @@ pub(super) fn ago(now_ms: u64, at_ms: u64) -> String {
         3600..=86_399 => format!("{}h ago", seconds / 3600),
         _ => format!("{}d ago", seconds / 86_400),
     }
+}
+
+/// At most this many choices on a line; the JSON has them all.
+const SHOWN_CHOICES: usize = 6;
+
+/// `cmux customize schema`: one line per key, grouped by part.
+fn schema_lines(out: &mut String, schema: &Schema, only: Option<Section>) {
+    let shows = |section: Section| only.is_none_or(|only| only == section);
+    if shows(Section::Settings) {
+        out.push_str(&format!(
+            "Settings ({}; `cmux settings set KEY VALUE`, or edit cmux-next.json):\n",
+            schema.settings.len()
+        ));
+        let width = schema.settings.iter().map(|s| s.key.len()).max().unwrap_or(0);
+        for setting in &schema.settings {
+            let mut what = setting.kind.to_owned();
+            if !setting.choices.is_empty() {
+                let mut shown: Vec<&str> =
+                    setting.choices.iter().take(SHOWN_CHOICES).map(String::as_str).collect();
+                let more = setting.choices.len().saturating_sub(SHOWN_CHOICES);
+                let more = format!("+{more}");
+                if setting.choices.len() > SHOWN_CHOICES {
+                    shown.push(&more);
+                }
+                what.push_str(&format!(" {}", shown.join("|")));
+            }
+            if let Some(range) = &setting.range {
+                what.push_str(&format!(" {}..{}", range.min, range.max));
+                if !range.unit.is_empty() {
+                    what.push_str(&format!(" {}", range.unit));
+                }
+            }
+            if let Some(default) = &setting.default {
+                let default = default.to_string();
+                if default.len() <= 40 {
+                    what.push_str(&format!("  default {default}"));
+                }
+            }
+            if !setting.agent_settable {
+                what.push_str("  (the person sets it)");
+            }
+            if setting.theme_file {
+                what.push_str("  [theme]");
+            }
+            out.push_str(&format!("  {:width$}  {what}\n", setting.key));
+        }
+        out.push('\n');
+    }
+    if shows(Section::Theme) {
+        let theme = &schema.theme;
+        out.push_str(&format!(
+            "Theme files ({}/NAME.json, picked by {}): the settings marked [theme], plus {}\n",
+            theme.folder,
+            theme.file_setting,
+            theme.file_keys.join(", ")
+        ));
+        out.push_str(&format!("  colors: {}\n", theme.colors.join(" ")));
+        out.push_str("Theme tokens (each theme derives them; change the colors they come from):\n");
+        let width = theme.tokens.iter().map(|t| t.name.len()).max().unwrap_or(0);
+        for token in &theme.tokens {
+            let formula = token.formula.split(';').next().unwrap_or_default().trim();
+            out.push_str(&format!("  {:width$}  {formula}\n", token.name));
+        }
+        out.push('\n');
+    }
+    if shows(Section::Views) {
+        out.push_str(
+            "View slots (where your view goes; `cmux apps place 'local/customize#cmux.section/1'`):\n",
+        );
+        let width = schema.views.iter().map(|v| v.interface.len()).max().unwrap_or(0);
+        for slot in &schema.views {
+            let places = match &slot.place_option {
+                Some(option) => format!("{option}: {}", slot.places.join("|")),
+                None => String::new(),
+            };
+            out.push_str(&format!("  {:width$}  {places}\n", slot.interface));
+        }
+        out.push('\n');
+    }
+    if shows(Section::ExtensionPoints) {
+        out.push_str("Extension points (`implements` in cmux-app.json):\n");
+        let width = schema.extension_points.iter().map(|p| p.interface.len()).max().unwrap_or(0);
+        for point in &schema.extension_points {
+            let docs = point.docs.split(". ").next().unwrap_or_default().trim_end_matches('.');
+            out.push_str(&format!("  {:width$}  {docs}\n", point.interface));
+        }
+        out.push('\n');
+    }
+    out.push_str(
+        "Next:\n  cmux customize schema settings --json   every key with its JSON Schema, range and default\n  cmux customize schema --typescript       the same as TypeScript types (cmux-extension-sdk/customize)\n  cmux customize 'make the sidebar compact'   ask an agent to change it\n",
+    );
 }
