@@ -593,13 +593,17 @@ describe("the cap", () => {
     send(op({ op: "row", row: row(tail, { rev: 2, body: { text: "ab" } }) }));
     snapshot = store.snapshot("c")!;
     expect(snapshot.apart.map((entry) => entry.id)).toEqual([tail + 1]);
-    // A page after that says nothing follows: the open rows join the rows, and appends follow.
-    const last = store.edge("c", "after")!;
-    expect(host.page("c", "after")).toBe(true);
-    send({
-      kind: "chatPage",
-      page: { sid: "c", edition: 1, rows: range(tail - last, last + 1), hasBefore: true, hasAfter: false },
-    });
+    // Pages after, until one says nothing follows: the open rows join the rows, and appends follow.
+    while (store.snapshot("c")!.hasAfter) {
+      const last = store.edge("c", "after")!;
+      const count = Math.min(400, tail - last);
+      expect(host.page("c", "after")).toBe(true);
+      send({
+        kind: "chatPage",
+        page: { sid: "c", edition: 1, rows: range(count, last + 1), hasBefore: true, hasAfter: last + count < tail },
+      });
+      if (last + count < tail) expect(store.snapshot("c")!.apart.map((entry) => entry.id)).toEqual([tail + 1]);
+    }
     snapshot = store.snapshot("c")!;
     expect(snapshot.apart).toEqual([]);
     expect(snapshot.hasAfter).toBe(false);
