@@ -360,6 +360,17 @@ phone_after_mac_restart() {
 }
 
 # --- main ---------------------------------------------------------------------
+# HEAD is the head of its branch on origin, or on a remote-tracking branch already fetched.
+head_pushed() {
+  local branch remote_head
+  branch="$(git branch --show-current 2>/dev/null || true)"
+  if [[ -n "$branch" ]]; then
+    remote_head="$(git ls-remote origin "refs/heads/$branch" 2>/dev/null | awk '{ print $1 }')"
+    [[ "$remote_head" == "$SHA" ]] && return 0
+  fi
+  [[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ]]
+}
+
 main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -380,13 +391,19 @@ main() {
   cd "$REPO_ROOT"
   SHA="$(git rev-parse HEAD)"
   [[ -z "$(git status --porcelain --ignore-submodules=untracked)" ]] || die "commit every change first: the fleet builds the pushed HEAD"
-  [[ -n "$(git branch -r --contains "$SHA" 2>/dev/null)" ]] || die "push HEAD ($SHA) first: the fleet builds the pushed commit"
+  head_pushed || die "push HEAD ($SHA) first: the fleet builds the pushed commit"
 
   # The personal profile (physical iPhones); never the agent one, never printed.
   cmux_dev_secrets_load --profile personal >/dev/null || die "the personal sign-in profile is incomplete (scripts/setup-team-dev.sh)"
   PERSONAL_EMAIL="$CMUX_UITEST_STACK_EMAIL" PERSONAL_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" PERSONAL_ACCOUNT="$CMUX_DEV_AUTH_ACCOUNT"
   unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
+  STATE="$HOME/Library/Application Support/cmux-dev/cnx-ios-builds/$SLUG/$SHA"
+  review_run
+}
 
+# Everything after the preflight (main): phones, fleet, Mac, each phone, the Mac relaunch, the report.
+# Exits 1 when anything failed. Needs SLUG, SHA, STATE, BUNDLE_ID and the PERSONAL_* values.
+review_run() {
   local default_file
   default_file="$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"
   DEFAULT_DEVICE_ID="$(head -n 1 "$default_file" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -396,7 +413,6 @@ main() {
   fi
   echo "==> installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
 
-  STATE="$HOME/Library/Application Support/cmux-dev/cnx-ios-builds/$SLUG/$SHA"
   mkdir -p "$STATE"
   fleet_start_sim
   local mac_ok=1 ios_ok=1
