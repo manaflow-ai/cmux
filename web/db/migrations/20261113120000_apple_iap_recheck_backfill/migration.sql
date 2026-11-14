@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS "apple_notification_history_cursors" (
   "window_start_at" timestamp with time zone,
   "window_end_at" timestamp with time zone,
   "pagination_token" text,
+  "retryable_runs" integer DEFAULT 0 NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "apple_notification_history_cursors_pkey" PRIMARY KEY ("bundle_id", "environment")
 );

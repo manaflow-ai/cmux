@@ -22,6 +22,18 @@ export const APPLE_HISTORY_RETENTION_MS = 179 * 24 * HOUR;
 const APPLE_HISTORY_LIMIT_MS = 180 * 24 * HOUR;
 /** Pages (up to 20 notifications each) one cron run reads per history. */
 const PAGES_PER_SOURCE = 5;
+/**
+ * A window spans at most this much history. The catch-up from Apple's limit
+ * then moves in steps that each finish (and move the cursor) long before
+ * their start ages out of Apple's 180 days, so progress is never lost.
+ */
+export const APPLE_HISTORY_WINDOW_MS = 7 * 24 * HOUR;
+/**
+ * Consecutive runs a history may stop on a retryable verification failure
+ * (about a day at two runs an hour) before that page's still-unverifiable
+ * payloads are counted as rejected, so one payload cannot stall the history.
+ */
+export const APPLE_HISTORY_MAX_RETRYABLE_RUNS = 48;
 
 export type AppleHistoryCounts = Record<AppleNotificationOutcome | "rejected", number>;
 
@@ -67,17 +79,19 @@ function later(a: Date, b: Date): Date {
  * covered once) to now.
  */
 function historyWindow(cursor: AppleNotificationHistoryCursor | null, now: Date): HistoryWindow {
-  const oldest = new Date(now.getTime() - APPLE_HISTORY_RETENTION_MS);
   const resumable = new Date(now.getTime() - APPLE_HISTORY_LIMIT_MS);
   if (cursor?.paginationToken && cursor.windowStartAt && cursor.windowEndAt && cursor.windowStartAt > resumable) {
     return { startDate: cursor.windowStartAt, endDate: cursor.windowEndAt, paginationToken: cursor.paginationToken };
   }
-  const base = cursor?.nextStartAt ?? oldest;
-  return {
-    startDate: later(new Date(base.getTime() - APPLE_HISTORY_OVERLAP_MS), oldest),
-    endDate: now,
-    paginationToken: null,
-  };
+  return windowFrom(cursor?.nextStartAt ?? null, now);
+}
+
+/** A new window from `nextStartAt` minus the overlap, at most APPLE_HISTORY_WINDOW_MS long, ending no later than now. */
+function windowFrom(nextStartAt: Date | null, now: Date): HistoryWindow {
+  const oldest = new Date(now.getTime() - APPLE_HISTORY_RETENTION_MS);
+  const startDate = later(new Date((nextStartAt ?? oldest).getTime() - APPLE_HISTORY_OVERLAP_MS), oldest);
+  const endDate = new Date(Math.min(now.getTime(), startDate.getTime() + APPLE_HISTORY_WINDOW_MS));
+  return { startDate, endDate, paginationToken: null };
 }
 
 function emptyCounts(): AppleHistoryCounts {
@@ -111,6 +125,7 @@ async function ingestPage(
   source: AppleNotificationHistorySource,
   counts: AppleHistoryCounts,
   deps: AppleIapDependencies,
+  skipRetryable: boolean,
 ): Promise<void> {
   for (const signedPayload of signedPayloads) {
     const uuid = claimedNotificationUuid(signedPayload);
@@ -121,11 +136,19 @@ async function ingestPage(
     try {
       counts[await receiveAppleNotification(signedPayload, deps)] += 1;
     } catch (error) {
-      if (!(error instanceof AppleVerificationError) || error.reason === "retryable") throw error;
+      if (!(error instanceof AppleVerificationError)) throw error;
+      if (error.reason === "retryable" && !skipRetryable) throw error;
       counts.rejected += 1;
-      console.warn("apple_iap.history_notification_rejected", { ...source, reason: error.reason });
+      const log = error.reason === "retryable" ? console.error : console.warn;
+      log("apple_iap.history_notification_rejected", { ...source, reason: error.reason, notificationUuid: uuid });
     }
   }
+}
+
+type CursorFields = Omit<AppleNotificationHistoryCursor, "bundleId" | "environment">;
+
+function isRetryableVerification(error: unknown): boolean {
+  return error instanceof AppleVerificationError && error.reason === "retryable";
 }
 
 async function backfillSource(
@@ -141,42 +164,70 @@ async function backfillSource(
   const result = (complete: boolean, error: string | null): AppleHistorySourceResult =>
     ({ ...source, pages, notifications: counts, complete, error });
   const cursor = await deps.store.notificationHistoryCursor(source.bundleId, source.environment);
-  const window = historyWindow(cursor, now);
-  let paginationToken = window.paginationToken;
-  const save = (fields: Omit<AppleNotificationHistoryCursor, "bundleId" | "environment">) =>
-    deps.store.saveNotificationHistoryCursor({ ...source, ...fields });
+  let window = historyWindow(cursor, now);
+  // What is persisted; a retryable stop keeps it and only counts the run.
+  let saved: CursorFields = cursor ?? {
+    nextStartAt: window.startDate, windowStartAt: null, windowEndAt: null, paginationToken: null, retryableRuns: 0,
+  };
+  const save = async (fields: Omit<CursorFields, "retryableRuns">) => {
+    saved = { ...fields, retryableRuns: 0 };
+    await deps.store.saveNotificationHistoryCursor({ ...source, ...saved });
+  };
+  const skipRetryable = saved.retryableRuns >= APPLE_HISTORY_MAX_RETRYABLE_RUNS;
   try {
     while (pages < pagesPerSource && Date.now() < deadlineMs) {
-      const page = await serverApi.notificationHistory({ ...source, ...window, paginationToken });
+      const page = await serverApi.notificationHistory({ ...source, ...window });
       pages += 1;
-      await ingestPage(page.signedPayloads, source, counts, deps);
-      if (!page.hasMore) {
-        await save({ nextStartAt: window.endDate, windowStartAt: null, windowEndAt: null, paginationToken: null });
-        return result(true, null);
+      await ingestPage(page.signedPayloads, source, counts, deps, skipRetryable);
+      if (page.hasMore) {
+        if (!page.paginationToken) throw new Error("Apple reported more history without a pagination token");
+        window = { ...window, paginationToken: page.paginationToken };
+        await save({ nextStartAt: window.startDate, windowStartAt: window.startDate, windowEndAt: window.endDate, paginationToken: page.paginationToken });
+        continue;
       }
-      if (!page.paginationToken) throw new Error("Apple reported more history without a pagination token");
-      paginationToken = page.paginationToken;
-      await save({
-        nextStartAt: window.startDate,
-        windowStartAt: window.startDate,
-        windowEndAt: window.endDate,
-        paginationToken,
-      });
+      await save({ nextStartAt: window.endDate, windowStartAt: null, windowEndAt: null, paginationToken: null });
+      // A catch-up window ended before now: the next one starts in the same run.
+      if (window.endDate.getTime() >= now.getTime()) return result(true, null);
+      window = windowFrom(window.endDate, now);
     }
     return result(false, null);
   } catch (error) {
-    if (error instanceof AppleHistoryPaginationError) {
-      // Re-read the same window from its start on the next run.
-      await save({ nextStartAt: window.startDate, windowStartAt: null, windowEndAt: null, paginationToken: null });
-      return result(false, null);
-    }
-    console.error("apple_iap.history_backfill_failed", {
-      metric: "apple_iap.history_backfill_failed",
-      ...source,
-      error: errorText(error),
-    });
-    return result(false, errorText(error));
+    return await backfillFailure(error, source, saved, window, deps, () => result(false, errorText(error)), () => result(false, null));
   }
+}
+
+async function backfillFailure(
+  error: unknown,
+  source: AppleNotificationHistorySource,
+  saved: CursorFields,
+  window: HistoryWindow,
+  deps: AppleIapDependencies,
+  failed: () => AppleHistorySourceResult,
+  incomplete: () => AppleHistorySourceResult,
+): Promise<AppleHistorySourceResult> {
+  if (error instanceof AppleHistoryPaginationError) {
+    // Re-read the same window from its start on the next run.
+    await deps.store.saveNotificationHistoryCursor({
+      ...source, nextStartAt: window.startDate, windowStartAt: null, windowEndAt: null, paginationToken: null, retryableRuns: 0,
+    });
+    return incomplete();
+  }
+  if (isRetryableVerification(error)) {
+    // The page is read again next run; after APPLE_HISTORY_MAX_RETRYABLE_RUNS
+    // stopped runs its unverifiable payloads are counted as rejected instead.
+    const retryableRuns = saved.retryableRuns + 1;
+    await deps.store.saveNotificationHistoryCursor({ ...source, ...saved, retryableRuns });
+    console.error("apple_iap.history_backfill_stalled", {
+      metric: "apple_iap.history_backfill_stalled", ...source, retryableRuns,
+    });
+    return failed();
+  }
+  console.error("apple_iap.history_backfill_failed", {
+    metric: "apple_iap.history_backfill_failed",
+    ...source,
+    error: errorText(error),
+  });
+  return failed();
 }
 
 /**

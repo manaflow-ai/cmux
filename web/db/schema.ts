@@ -2980,6 +2980,8 @@ export const appleNotificationHistoryCursors = pgTable("apple_notification_histo
   windowStartAt: timestamp("window_start_at", { withTimezone: true }),
   windowEndAt: timestamp("window_end_at", { withTimezone: true }),
   paginationToken: text("pagination_token"),
+  /** Consecutive runs stopped by a retryable verification failure on the current page. */
+  retryableRuns: integer("retryable_runs").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.bundleId, table.environment] }),

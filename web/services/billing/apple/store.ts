@@ -500,6 +500,7 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
           windowStartAt: appleNotificationHistoryCursors.windowStartAt,
           windowEndAt: appleNotificationHistoryCursors.windowEndAt,
           paginationToken: appleNotificationHistoryCursors.paginationToken,
+          retryableRuns: appleNotificationHistoryCursors.retryableRuns,
         })
         .from(appleNotificationHistoryCursors)
         .where(and(
@@ -520,6 +521,7 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
             windowStartAt: values.windowStartAt,
             windowEndAt: values.windowEndAt,
             paginationToken: values.paginationToken,
+            retryableRuns: values.retryableRuns,
             updatedAt: values.updatedAt,
           },
         });
