@@ -157,9 +157,11 @@ test("a second link pasted right after a chip keeps both chips, a space between"
   const { md } = await composer(`See ${WORKSPACE}`);
   await act(async () => md.setCaret(`See ${WORKSPACE}`.length));
   await act(async () => md.pasteText(WORKSPACE));
-  expect(md.plainText()).toBe(`See ${WORKSPACE} ${WORKSPACE}`);
+  // The space before the second link keeps the first a chip; the one after it is the space every
+  // pasted link gets (MarkdownField.tsx `spaceAfterPastedLink`), so the caret is past it.
+  expect(md.plainText()).toBe(`See ${WORKSPACE} ${WORKSPACE} `);
   expect(chips().length).toBe(2);
-  expect(md.caret()).toBe(`See ${WORKSPACE} ${WORKSPACE}`.length);
+  expect(md.caret()).toBe(`See ${WORKSPACE} ${WORKSPACE} `.length);
 });
 
 test("text pasted or typed right after a chip, or before it, never turns it back into its URL", async () => {
