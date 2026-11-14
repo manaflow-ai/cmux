@@ -157,6 +157,49 @@ struct SidebarStickyHeaderTests {
         #expect(same.start == first.start && same.length == first.length)
     }
 
+    @Test func aDropOnTheStuckHeaderLandsOnTheHeaderNotTheRowUnderIt() throws {
+        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        defer { bench.close() }
+        _ = bench.frame(to: 2_000)
+        let (view, header) = try Self.header(bench)
+        let top = Self.top(bench)
+        let covered = try #require(bench.list.displayed.row(at: top + 2), "a member row sits under the stuck header")
+        #expect(covered.key != header.key)
+        // On the band, a drop point is the middle of the header's own place; below it, itself.
+        #expect(bench.list.dropY(top + 2) == header.y + header.height / 2)
+        #expect(bench.list.dropY(top + header.height + 4) == top + header.height + 4)
+        // A tab let go on the stuck header goes where the header takes it, highlighted where the header draws.
+        let point = CGPoint(x: bench.list.bounds.midX, y: top + header.height / 2)
+        let windowPoint = bench.list.convert(point, to: nil)
+        let (proposal, rect) = try #require(bench.list.externalDragMoved(windowPoint: windowPoint, sourceMachine: nil))
+        defer { bench.list.externalDragExited() }
+        // The middle of a group header takes a tab into its group, at rest and stuck alike.
+        guard case let .intoGroup(id) = proposal else {
+            Issue.record("a tab on the stuck header drops into its group, not \(proposal) (the row under the veil is \(covered.key))")
+            return
+        }
+        #expect(id == Self.group)
+        #expect(rect == view.frame, "highlighted where the stuck header draws")
+    }
+
+    @Test func rowsUnderTheStuckHeaderLeaveVoiceOverAndTheKeyLoopWhileCovered() throws {
+        let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
+        defer { bench.close() }
+        _ = bench.frame(to: 2_000)
+        let (view, header) = try Self.header(bench)
+        let top = Self.top(bench)
+        let covered = try #require(bench.list.displayed.row(at: top + header.height / 2))
+        let coveredView = try #require(bench.list.rowViews[covered.key])
+        #expect(coveredView.isVeiled && !coveredView.isAccessibilityElement() && (coveredView.accessibilityChildren() ?? []).isEmpty)
+        #expect(!view.isVeiled && view.isAccessibilityElement(), "the header is the element there")
+        let below = try #require(bench.list.displayed.row(at: top + header.height + 40))
+        #expect(bench.list.rowViews[below.key].map { !$0.isVeiled } ?? true)
+        // Back at the top nothing is covered.
+        _ = bench.frame(to: 0)
+        #expect(bench.list.veiledRows.isEmpty)
+        #expect(!coveredView.isVeiled || bench.list.rowViews[covered.key] !== coveredView)
+    }
+
     @Test func underReduceTransparencyTheVeilIsTheOpaqueSidebarToneWithNoBlur() throws {
         let bench = Self.sticky(SidebarScrollBench(count: 300, shape: .oneGroup))
         defer { bench.close() }
