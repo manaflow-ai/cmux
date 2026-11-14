@@ -665,6 +665,19 @@ try {
           live: w.__firstLoad.liveLatestAt,
         };
       });
+      if (TRACE)
+        console.log(
+          `reopen-spare rows in view at the end:\n  ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .slice(-14)
+                .map(
+                  (row) =>
+                    `${row.dataset.rowId} ${row.getBoundingClientRect().top.toFixed(0)}+${row.getBoundingClientRect().height.toFixed(0)} "${(row.textContent ?? "").trim().slice(0, 60)}"`,
+                ),
+            )
+          ).join("\n  ")}`,
+        );
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
         .map((frame) => ({ ...frame, t: frame.t - start.at }));
