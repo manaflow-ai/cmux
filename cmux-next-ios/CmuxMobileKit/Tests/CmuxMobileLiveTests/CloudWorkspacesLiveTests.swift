@@ -278,7 +278,8 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         }
         #expect(store.workspaces.contains { $0.macID == vm })
         // It runs again: the same session dials again, and its terminal is no longer offline.
-        live.applyCloudMachines([machine(.running)])
+        // Running again, as a list read says (only a read lifts the hold its close placed).
+        live.applyCloudMachines([machine(.running)], fromRead: true)
         await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live && live.sessions[vm]?.link.phase.isConnected == true }
         #expect(live.sessions[vm] === session)
         #expect(cloud.dials(vm) == 2)

@@ -137,11 +137,15 @@ extension LiveCoordinator {
     /// and link dial it now. The old one may be in `signedOut`, which never dials again.
     public func retryCloud(_ machineID: String) {
         cloudRefusals[machineID] = nil
-        // The person asked: no quick-drop wait from before (a read still decides it runs).
+        // The person asked: no quick-drop or failed-dial wait from before.
         cloudHoldNotBefore[machineID] = nil
         cloudQuickDrops[machineID] = nil
         cloudDialFailures[machineID] = nil
         closeSession(machineID)
+        // Retry is the person's own ask to dial now: the close above holds nothing for it (any
+        // hold from before goes too), as opening a machine needs no read to dial.
+        cloudDropHolds[machineID] = nil
+        cloudStaleHolds[machineID] = nil
         publishCloudMachines()
         touch(machineID)
     }
