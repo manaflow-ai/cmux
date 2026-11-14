@@ -79,6 +79,8 @@ const PROBE = process.env.PROBE === "1";
 /// `CLOCK=cpu` times each burst in main-thread CPU time (`threadTicks`), not wall time: a busy shared runner
 /// stretches wall time by whatever else it runs (p95 swung 40% between runs), CPU time much less.
 const CPU_CLOCK = process.env.CLOCK === "cpu";
+/// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
+const INVALIDATIONS = process.env.INVALIDATIONS === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -275,6 +277,70 @@ async function metric(cdp: CDPSession, name: string): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
   return metrics.find((each) => each.name === name)?.value ?? 0;
 }
+/// INVALIDATIONS=1: what made the page restyle and lay out again while `run` played a burst, from a DevTools
+/// trace with invalidation tracking: per record, style recalcs and the elements they touched, and the most
+/// common invalidation reasons by element (`reason node`), and which rows React drew.
+async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  const events: { name: string; args?: { data?: Record<string, unknown>; elementCount?: number } }[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as typeof events));
+  cdp.on("Tracing.dataCollected", onData);
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const reasons = new Map<string, number>();
+  let styled = 0;
+  let recalcs = 0;
+  for (const event of events) {
+    if (event.name === "UpdateLayoutTree") {
+      recalcs += 1;
+      styled += event.args?.elementCount ?? 0;
+    }
+    if (!event.name.endsWith("InvalidationTracking")) continue;
+    const data = event.args?.data ?? {};
+    const what =
+      (data.reason as string | undefined) ??
+      [
+        data.changedAttribute && `attr ${data.changedAttribute}`,
+        data.changedClass && `class ${data.changedClass}`,
+        data.changedPseudo && `pseudo ${data.changedPseudo}`,
+        data.changedId && `id`,
+        data.invalidationSet && "set",
+      ]
+        .filter(Boolean)
+        .join(",");
+    const node = String(data.nodeName ?? "").slice(0, 60);
+    const key = `${event.name.replace("InvalidationTracking", "")}: ${what || "?"} @ ${node}`;
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const rows = Object.entries(renders)
+    .filter(([name]) => name.startsWith("row:") || name.startsWith("content:"))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, count]) => `${name.slice(0, 40)}=${count}`)
+    .join(" ");
+  const per = (value: number) => Math.round((value / records) * 10) / 10;
+  const top = [...reasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 14)
+    .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
+    .join("");
+  return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
+}
+
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
@@ -541,6 +607,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
             layoutObjects: cost.layoutObjectsMax ?? 0,
             styled: cost.styleElementsMax ?? 0,
           };
+        } else if (INVALIDATIONS) {
+          await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+          console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
         } else {
           await playBurst();
           await paint(page, 2);
