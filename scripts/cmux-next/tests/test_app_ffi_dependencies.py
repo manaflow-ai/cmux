@@ -31,18 +31,20 @@ unix = { path = "../unix" }
 generator = { path = "../generator" }
 [dev-dependencies]
 test-only = { path = "../test-only" }
-[target.'cfg(unix)'.dev-dependencies]
-target-test-only = { path = "../target-test-only" }
+[dev-dependencies.table-test-only]
+path = "../table-test-only"
+[target.'cfg(target_os = "some.os")'.dev-dependencies.target-test-only]
+path = "../target-test-only"
 ''',
-                "client": '''[dependencies.shared]
-workspace = true
+                "client": '''[dependencies]
+shared.workspace = true
 [dependencies.test-only]
 path = "../test-only"
 [dev-dependencies]
 book = { path = "../book" }
 ''',
                 "builder": "", "unix": "", "generator": "", "shared": "",
-                "test-only": "", "target-test-only": "", "book": "",
+                "test-only": "", "table-test-only": "", "target-test-only": "", "book": "",
             }
             for name, manifest in manifests.items():
                 (crates / name).mkdir()
