@@ -62,6 +62,50 @@ NOT_BUILT = ("tests", "benches", "examples")
 _LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 
 
+def library_manifest(text: str) -> str:
+    """Keep the existing path reader's input except Cargo dev-dependency tables.
+
+    A target-specific table can use a quoted cfg expression. Check the table
+    suffix, so dots inside that expression do not change the dependency kind.
+    """
+    lines = []
+    keep = True
+    for line in text.splitlines(keepends=True):
+        header = re.match(r"^\s*\[([^\n]+)\]\s*(?:#.*)?$", line)
+        if header:
+            keep = re.search(r"(?:^|\.)dev-dependencies(?:\.[^\]]+)?$", header.group(1)) is None
+        if keep:
+            lines.append(line)
+    return "".join(lines)
+
+
+def library_crates(root: Path) -> list[str]:
+    """Path crates compiled into the app library, excluding test-only dependencies."""
+    root = root.resolve()
+    workspace_file = root / "cmux-tui/Cargo.toml"
+    workspace = {}
+    if workspace_file.is_file():
+        for line in library_manifest(workspace_file.read_text(encoding="utf-8")).splitlines():
+            named = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"', line)
+            if named:
+                workspace[named.group(1)] = root / "cmux-tui" / named.group(2)
+    seen: set[str] = set()
+    pending = [root / "cmux-tui/crates/cmux-app-ffi"]
+    while pending:
+        crate = pending.pop().resolve()
+        if not crate.is_relative_to(root) or not (crate / "Cargo.toml").is_file():
+            continue
+        relative = crate.relative_to(root).as_posix()
+        if relative in seen:
+            continue
+        seen.add(relative)
+        text = library_manifest((crate / "Cargo.toml").read_text(encoding="utf-8"))
+        pending += [crate / path for path in re.findall(r'path\s*=\s*"([^"]+)"', text)]
+        names = re.findall(r'^\s*([A-Za-z0-9_-]+)\s*(?:\.workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)', text, re.M)
+        pending += [workspace[name] for name in names if name in workspace]
+    return sorted(seen)
+
+
 def not_built(root: Path, inputs: list[str]) -> list[str]:
     """The tests/, benches/ and examples/ directories of the crates among INPUTS (directories with a Cargo.toml),
     present or not (a pull request may add one), that no other file of those crates names. Sorted, no trailing /."""
@@ -361,6 +405,9 @@ def main(argv: list[str]) -> int:
             path = Path(argv[1]) if len(argv) >= 2 else PACKAGE / "Package.swift"
             pin = Path(argv[2]) if len(argv) == 3 else path.with_name("app-ffi-pin.json")
             check_manifest(path.read_text(encoding="utf-8"), read(pin.read_text(encoding="utf-8"))[1])
+            return 0
+        if argv[:1] == ["library-crates"] and len(argv) == 2:
+            print("\n".join(library_crates(Path(argv[1]))))
             return 0
         if argv[:1] == ["not-built"] and len(argv) >= 2:
             for directory in not_built(Path(argv[1]), argv[2:]):

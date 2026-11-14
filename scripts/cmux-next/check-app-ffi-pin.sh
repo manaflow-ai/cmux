@@ -75,24 +75,10 @@ asset="CCmuxAppFFI.xcframework.zip"
 # dependencies (cmux-rd-ffi pulls cmux-remote-browser, which a hand list
 # missed on 2026-10-07), then the toolchain and the build script. Derived
 # from the Cargo.toml files at HEAD, so a new path dependency is never missed.
-ffi_crates() {
-  local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
-  while [[ -n "${queue// /}" ]]; do
-    dir="$(awk '{print $1}' <<<"$queue")"
-    queue=" ${queue#*" $dir "} "
-    [[ "$seen" == *" $dir "* || ! -f "$root/$dir/Cargo.toml" ]] && continue
-    seen+="$dir "
-    while IFS= read -r dep; do
-      # [lib] and [[bin]] paths name files; only a directory with a Cargo.toml is a crate.
-      resolved="$(cd "$root/$dir/$dep" 2>/dev/null && pwd -P)" || continue
-      [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
-      queue+="${resolved#"$root"/} "
-    done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/')
-  done
-  tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
-}
+# Normal and build dependencies reach the archive; dev-dependencies do not.
+crates="$(python3 -I "$code/scripts/ci/app_ffi_pin.py" library-crates "$root")" || exit 2
 paths=()
-while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
+while IFS= read -r crate; do paths+=("$crate"); done <<<"$crates"
 # Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
 # which cmux-motion's build.rs reads for its token table. A theme edit there
 # must not mark the pin stale; the app passes its own token values to the
