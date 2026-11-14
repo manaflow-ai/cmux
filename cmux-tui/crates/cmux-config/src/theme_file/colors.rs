@@ -53,8 +53,8 @@ pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: 
         .keys()
         .filter_map(|key| key.rsplit_once('/').map(|(theme, _)| theme.to_string()))
         .collect();
-    let mut edits =
-        value_at(base, &edits_path).and_then(Value::as_object).cloned().unwrap_or_default();
+    let shown = value_at(base, &edits_path).and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut edits = shown.clone();
     edits.extend(own_edits);
     if !colors.is_empty() {
         let theme_path = key_path(THEME_KEY);
@@ -84,7 +84,7 @@ pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: 
         return;
     }
     for name in &themes {
-        guard_contrast(reader, &mut edits, name);
+        guard_contrast(reader, &mut edits, &shown, name);
     }
     reader.values.retain(|(path, _)| *path != edits_path);
     reader.values.push((edits_path, Value::Object(edits)));
@@ -188,7 +188,14 @@ fn read_ghostty(reader: &mut Reader<'_>, value: &Value, colors: &mut BTreeMap<St
 
 /// A foreground under 4.5:1 on its background takes the app theme's text
 /// color for them (`AppTheme::derive`, the contract every chrome token meets).
-fn guard_contrast(reader: &mut Reader<'_>, edits: &mut Map<String, Value>, theme: &str) {
+/// A pair the settings already show (`shown`, their own edits) stays as it is:
+/// a file that copies the settings changes nothing.
+fn guard_contrast(
+    reader: &mut Reader<'_>,
+    edits: &mut Map<String, Value>,
+    shown: &Map<String, Value>,
+    theme: &str,
+) {
     let color = |edits: &Map<String, Value>, token: &str| {
         edits.get(&format!("{theme}/{token}")).and_then(Value::as_str).and_then(parse_color)
     };
@@ -197,6 +204,11 @@ fn guard_contrast(reader: &mut Reader<'_>, edits: &mut Map<String, Value>, theme
     else {
         return;
     };
+    if color(shown, "background") == Some(background)
+        && color(shown, "foreground") == Some(foreground)
+    {
+        return;
+    }
     let ratio = foreground.contrast(background);
     if ratio >= TEXT_MINIMUM {
         return;
