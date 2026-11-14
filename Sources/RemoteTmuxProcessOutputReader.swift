@@ -182,7 +182,8 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     private func finishOnQueue() {
         guard !closed else { return }
         closed = true
-        pendingBytes = 0
+        // Chunks already yielded stay counted until their consumer releases them, so output the
+        // stream delivered before it ended still reads as undelivered (``hasUndeliveredOutput``).
         let sourceToCancel = source
         source = nil
         sourceToCancel?.cancel()
