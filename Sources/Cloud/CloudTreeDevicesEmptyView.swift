@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxFoundation
+import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
 
@@ -23,12 +24,13 @@ struct CloudTreeDevicesEmptyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if section.count == 0 {
-                Text(String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet"))
+                Text(DeviceListEmptyRowText.title(section.emptyClaim))
                     .cmuxFont(size: style.detailSize, design: style.fontDesign)
                     .foregroundStyle(.secondary)
                     .padding(.leading, scaled(textInset))
                     .padding(.trailing, scaled(style.rowGrid.trailingPadding))
                     .frame(height: scaled(style.emptyStateRowHeight))
+                    .accessibilityIdentifier(DeviceListEmptyStatusIdentifier.identifier(section.emptyClaim))
             }
             actionRow(
                 section.discoveryControl,
@@ -96,5 +98,32 @@ struct CloudTreeDevicesEmptyView: View {
 
     private func scaled(_ value: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(value, percent: magnification)
+    }
+}
+
+/// Sidebar wording for an empty My Devices row. Connecting and failure
+/// copy comes from the settings catalog; the settled empty sentence is the
+/// sidebar's own.
+enum DeviceListEmptyRowText {
+    static func title(_ claim: DeviceListEmptyClaim) -> String {
+        switch claim {
+        case .discovering:
+            DeviceListEmptyStatusCopy.discovering
+        case .unreachable:
+            DeviceListEmptyStatusCopy.unreachable
+        case .empty, .hidden:
+            String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet")
+        }
+    }
+}
+
+/// Accessibility ids for the empty My Devices row.
+enum DeviceListEmptyStatusIdentifier {
+    static func identifier(_ claim: DeviceListEmptyClaim) -> String {
+        switch claim {
+        case .discovering: "DevicesListDiscovering"
+        case .unreachable: "DevicesListUnreachable"
+        case .empty, .hidden: "DevicesListEmpty"
+        }
     }
 }
