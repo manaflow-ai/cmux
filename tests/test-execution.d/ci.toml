@@ -760,6 +760,10 @@ path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflows_pin_no_fleet_pool.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workload_profiles.py"
 lane = "linux-guard"
 
