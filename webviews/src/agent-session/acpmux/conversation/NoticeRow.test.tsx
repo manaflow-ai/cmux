@@ -196,7 +196,9 @@ for (const [how, message] of [
   ["with its title again as its body", () => senderNotice(SPEND, SPEND)],
 ] as const)
   test(`a sender's one-line notice ${how} opens to its text, never "No message text"`, async () => {
-    const container = await render(<IncomingMessageLine id="n-1" message={message()} onOpen={() => undefined} />);
+    const container = await render(
+      <IncomingMessageLine id={`spend-${how}`} message={message()} onOpen={() => undefined} />,
+    );
     const line = container.querySelector(".cv-received.cv-notice")!;
     expect(line.classList.contains("is-warn")).toBe(true);
     expect(line.querySelector(".cv-received__from")?.textContent).toBe("spend-watch");
@@ -214,9 +216,9 @@ for (const [how, message] of [
 test("a notice of a title alone says it once to Find, on its line; one with a body opens to the body", async () => {
   const container = await render(
     <>
-      <IncomingMessageLine id="n-1" message={senderNotice(SPEND)} onOpen={() => undefined} />
+      <IncomingMessageLine id="spend-find-alone" message={senderNotice(SPEND)} onOpen={() => undefined} />
       <IncomingMessageLine
-        id="n-2"
+        id="spend-find-body"
         message={senderNotice(SPEND, "Its share yields to the pool at 120/h.")}
         onOpen={() => undefined}
       />
