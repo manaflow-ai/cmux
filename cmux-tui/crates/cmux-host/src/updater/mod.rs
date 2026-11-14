@@ -103,6 +103,9 @@ pub struct State {
     /// ([`look`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<look::Look>,
+    /// The pre-ready check survives the exec into the channel build. Absent on older images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_ready: Option<look::FirstReady>,
 }
 
 /// An update whose new build has not proved itself yet.

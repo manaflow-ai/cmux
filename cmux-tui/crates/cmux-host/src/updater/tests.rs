@@ -2317,6 +2317,59 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     assert_eq!(io.armed, vec![2]);
     assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
     assert!(load_state(&paths).last.unwrap().starts_with("before the first ready: updating"));
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], true);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], new_tui);
+    assert_eq!(timing["channel_commit"], COMMIT);
+    assert_eq!(timing["outcome"], "updated");
+    assert!(timing["update_ms"].as_u64().unwrap() > 0);
+    // The next process reloads the same durable observation before its first report.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)));
+    assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_current_image_reports_no_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    assert_eq!(
+        first_ready::before_ready(&paths, TARGET, deadline, &mut io),
+        first_ready::First::Current(COMMIT.to_owned())
+    );
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], false);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], OLD_TUI);
+    assert_eq!(timing["update_ms"], 0);
+    assert_eq!(timing["outcome"], "current");
+    assert!(load_pending(&paths).is_none());
+    assert!(io.restarted.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_failed_channel_is_unknown_not_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    io.read = Box::new(|| Err("unavailable".to_owned()));
+    let first = first_ready::before_ready(&paths, TARGET, std::time::Instant::now(), &mut io);
+    assert!(matches!(first, first_ready::First::OnImage(_)));
+    let report = look::report(&paths).unwrap();
+    let timing = report.get("first_ready").unwrap();
+    assert_eq!(timing["image_behind"], serde_json::Value::Null);
+    assert_eq!(timing["update_ms"], serde_json::Value::Null);
+    assert_eq!(timing["to_version"], serde_json::Value::Null);
+    assert_eq!(timing["outcome"], "on_image");
 }
 
 /// Once the step flipped, nothing flips after the ready on this path: the exec'd
