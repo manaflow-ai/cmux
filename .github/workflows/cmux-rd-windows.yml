@@ -120,7 +120,7 @@ jobs:
   live-macos-viewer:
     name: macOS live viewer (tailnet)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
     environment: ios-e2e
     permissions:
