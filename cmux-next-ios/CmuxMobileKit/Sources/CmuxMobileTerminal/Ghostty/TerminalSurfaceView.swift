@@ -166,8 +166,8 @@ final class TerminalSurfaceView: UIView {
         observeHostThemes()
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
+        // Also its focus: focused while seen (`updateOcclusion`).
         updateOcclusion()
-        ghostty_surface_set_focus(surface, true)
         syncSize()
         let queued = pendingOutput
         pendingOutput.removeAll()
@@ -184,6 +184,12 @@ final class TerminalSurfaceView: UIView {
     private var appStateObservers: [any NSObjectProtocol] = []
     /// The last value given to `ghostty_surface_set_occlusion` (true = draws).
     private(set) var drawsFrames: Bool?
+    /// The surface can be seen: in a window, with the app in the foreground.
+    /// Kept before the Ghostty surface exists too.
+    private(set) var isShown = false
+    /// `isShown` changed. The screen paces a hidden page's output by it
+    /// (`TerminalViewController.feedsHidden`).
+    var onShownChange: ((Bool) -> Void)?
 
     /// Ghostty draws only while this surface can be seen: in a window, with
     /// the app in the foreground (the Mac app's `WindowDrawPolicy` pauses
@@ -192,12 +198,24 @@ final class TerminalSurfaceView: UIView {
     /// shown again, Ghostty draws its current content. A warm tab behind
     /// another and every terminal in the background drew a frame per output
     /// batch before (renderer audit 2026-10-26).
+    ///
+    /// Its focus follows: a surface nobody can see is not focused, so a
+    /// program that asked for focus reports (DECSET 1004) hears that the
+    /// phone's page left, and Ghostty's renderer stops its cursor blink
+    /// timer. It was set focused once at creation and never cleared.
     private func updateOcclusion() {
-        guard let surface else { return }
         let visible = window != nil && !appInBackground
-        guard visible != drawsFrames else { return }
+        if visible != isShown {
+            isShown = visible
+            onShownChange?(visible)
+        }
+        guard let surface, visible != drawsFrames else { return }
         drawsFrames = visible
         ghostty_surface_set_occlusion(surface, visible)
+        ghostty_surface_set_focus(surface, visible)
+        // Seen again: a frame of what was parsed while hidden (no batch asks
+        // for one then, `setNeedsTerminalDraw`).
+        if visible { ghostty_surface_refresh(surface) }
     }
 
     private func observeAppState() {
@@ -572,9 +590,10 @@ final class TerminalSurfaceView: UIView {
     /// Frames asked of the renderer through `setNeedsTerminalDraw`. For tests and benches.
     private(set) var drawRequests = 0
 
-    /// Asks the renderer for a frame.
+    /// Asks the renderer for a frame. None while the surface cannot be seen:
+    /// it draws nothing then, and shown again it asks for one (`updateOcclusion`).
     func setNeedsTerminalDraw() {
-        guard let surface else { return }
+        guard let surface, drawsFrames != false else { return }
         drawRequests += 1
         ghostty_surface_refresh(surface)
     }

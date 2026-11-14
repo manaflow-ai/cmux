@@ -106,14 +106,38 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// Going to the background: each live page's frame goes to disk, so a
-    /// later cold launch restoring the tab shows it at once.
+    /// later cold launch restoring the tab shows it at once. Captured here,
+    /// encoded off the main thread (`writeFrame`); a JPEG of a phone page
+    /// takes tens of milliseconds, well inside the background task's 2 s.
     private func saveFrames() {
         guard let frameStore else { return }
         for (id, host) in hosts where liveTabs.contains(id) {
             guard let key = hostFrameKeys[id] else { continue }
             host.model.captureSnapshot()
-            if let data = host.model.frameForSaving()?.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: key) }
+            if let frame = host.model.frameForSaving() { writeFrame(frame, to: frameStore, key: key) }
         }
+    }
+
+    /// Frames being encoded and written (`writeFrame`), by key: a tab shown
+    /// again before its frame is on disk takes it from here.
+    private var framesBeingWritten: [TerminalFrameKey: UIImage] = [:]
+
+    /// Writes `frame` as the tab's JPEG, encoded on a utility task (as
+    /// `TerminalModel.saveFrameSoon` does), not on the main thread: one
+    /// encode per live tab going to the background, one per cooled tab. The
+    /// ticket is taken now, so a later frame or a removal wins over this one.
+    private func writeFrame(_ frame: UIImage, to store: TerminalFrameStore, key: TerminalFrameKey) {
+        let ticket = store.ticket(for: key)
+        framesBeingWritten[key] = frame
+        Task.detached(priority: .utility) { [weak self] in
+            if let data = frame.jpegData(compressionQuality: 0.7) { store.save(data, for: key, ticket: ticket) }
+            await self?.frameWritten(frame, key: key)
+        }
+    }
+
+    private func frameWritten(_ frame: UIImage, key: TerminalFrameKey) {
+        guard framesBeingWritten[key] === frame else { return }
+        framesBeingWritten[key] = nil
     }
 
     /// The tab's slot, made on first read (not observed state itself).
@@ -229,7 +253,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.linkOpener = previous?.model.linkOpener
         // The placeholder's page carries over only through the frame gate: a
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
-        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous?.model.frameToKeep()
+        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
         if live != nil, let frameStore, let key {
@@ -269,6 +293,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         warm.remove(id)
         frameLifecycle.release(tabID: id, hostFrameKey: key) { frameKey in
             lastFrames[frameKey] = nil
+            framesBeingWritten[frameKey] = nil
             frameStore?.remove(frameKey)
         }
         upgrade.removed(tabID: id)
@@ -297,6 +322,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
+        framesBeingWritten = [:]
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
@@ -332,8 +358,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // landed (written to disk only after live output, so a blank page never goes there).
         var frameState = "none"
         if let key, let frame = host.model.frameToKeep() {
-            if let frameStore, host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) {
-                frameStore.save(data, for: key)
+            if let frameStore, host.model.drewLiveOutput {
+                writeFrame(frame, to: frameStore, key: key)
                 frameState = "on disk"
             } else if let frameStore, FileManager.default.fileExists(atPath: frameStore.url(for: key).path) {
                 frameState = "on disk"
