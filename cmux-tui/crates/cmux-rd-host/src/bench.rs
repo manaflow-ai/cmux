@@ -40,6 +40,10 @@ const KEY_A: u32 = 0x0007_0004;
 /// The bench's upstream stream id (any id the host does not use for a display).
 const UP_STREAM: u16 = 100;
 
+#[cfg(all(test, any(feature = "vp9", feature = "av1")))]
+#[path = "bench_eval_tests.rs"]
+mod eval_tests;
+
 /// How the bench reaches the host: the development sockets, or a device hub
 /// session's secure link (`--link`, the same path `cmux-rd serve` serves).
 enum ViewerIo {
@@ -282,6 +286,20 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(true) => {
+                                self.decoded_frames += 1;
+                                if let Some(log) = self.eval_decode.as_mut() {
+                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                                }
+                                if let Some(quality) = self.eval_quality.as_mut() {
+                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                        quality.decoded(
+                                            u64::from(frame.frame),
+                                            frame.body.t_capture_us,
+                                            &frame.body.access_unit,
+                                            &pixels,
+                                        );
+                                    }
+                                }
                                 let read = marker::decode_luma_at(
                                     &pic.y,
                                     pic.width,

@@ -8,7 +8,7 @@ work=$(mktemp -d)
 finish() {
   [[ ! -f "$work/bench-after.rs" ]] || cp "$work/bench-after.rs" "$crate/src/bench.rs"
   if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
-    for file in metrics-before.log hello-before.log cleanup-before.log tcp-before.log; do
+    for file in metrics-before.log hello-before.log cleanup-before.log tcp-before.log alternate-before.log; do
       [[ ! -f "$work/$file" ]] || cp "$work/$file" "$FAST_CHECKS_OUT/$file"
     done
   fi
@@ -48,6 +48,25 @@ cargo test --manifest-path "$crate/Cargo.toml" --no-default-features --features 
 cargo build --manifest-path "$crate/Cargo.toml" --no-default-features --features bench
 export CMUX_RD_EVAL_BIN="${CARGO_TARGET_DIR:-$crate/target}/debug/cmux-rd"
 python3 "$eval_dir/test_netem.py"
+# The merged codec adapter must contribute successful decodes to the passive
+# first-frame gate. The same branch handles VP9 and AV1; exercise it via the
+# AV1 feature without requiring a system codec library.
+cargo test --manifest-path "$crate/Cargo.toml" --no-default-features --features bench,av1 bench::eval_tests
+cp "$crate/src/bench.rs" "$work/bench-after.rs"
+git fetch --no-tags --depth=1 origin 2d4c0800300a0e3e52ec9ced6c3aa99e61fdb147
+git show 2d4c0800300a0e3e52ec9ced6c3aa99e61fdb147:cmux-tui/crates/cmux-rd-host/src/bench.rs >"$crate/src/bench.rs"
+cat >>"$crate/src/bench.rs" <<'EOF'
+
+#[cfg(all(test, any(feature = "vp9", feature = "av1")))]
+#[path = "bench_eval_tests.rs"]
+mod eval_tests;
+EOF
+if cargo test --manifest-path "$crate/Cargo.toml" --no-default-features --features bench,av1 bench::eval_tests >"$work/alternate-before.log" 2>&1; then
+  echo 'FAIL: unintegrated alternate decoder unexpectedly passed' >&2
+  exit 1
+fi
+cat "$work/alternate-before.log"
+cp "$work/bench-after.rs" "$crate/src/bench.rs"
 # Restore the one changed native caller to reproduce the real Hello bypass.
 cp "$crate/src/bench.rs" "$work/bench-after.rs"
 git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:cmux-tui/crates/cmux-rd-host/src/bench.rs >"$crate/src/bench.rs"
