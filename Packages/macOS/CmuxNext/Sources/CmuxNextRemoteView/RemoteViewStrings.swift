@@ -120,7 +120,7 @@ nonisolated enum RemoteViewStrings {
         return target.requiresConfirmation ? detail + "\n\n" + confirmSafety : detail
     }
     static func confirmMetadata(_ target: RemoteConnectionTarget) -> String? {
-        let values = [target.status, target.region].compactMap { value in
+        let values: [String] = [target.status, target.region].compactMap { value -> String? in
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return value
         }
