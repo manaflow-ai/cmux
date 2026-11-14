@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(reply.hidden_sections, ["projects"]);
         assert!(reply.hidden_workspaces.is_empty());
         assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.hidden[1]"));
-        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.hidden[2]"));
+        assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.hidden[1]"));
         assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.sections.order[0]"));
         assert!(reply.problems.iter().any(|problem| problem.path == "sidebar.workspaces.unknown"));
         assert!(reply.problems.iter().any(|problem| problem.path.ends_with("workspace_ids[1]")));
