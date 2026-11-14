@@ -15,6 +15,8 @@ export type ExtensionSetting = {
   minimum: number | null;
   maximum: number | null;
   maxLength: number | null;
+  /** `x-cmux-devOnly`: shown only in DEV builds (a prototype's switch). */
+  devOnly: boolean;
   default: unknown;
 };
 
@@ -73,6 +75,7 @@ function readSettings(schema: unknown): ExtensionSetting[] {
         minimum: number(property.minimum),
         maximum: number(property.maximum),
         maxLength: number(property.maxLength),
+        devOnly: property["x-cmux-devOnly"] === true,
         default: property.default ?? null,
       },
     ];

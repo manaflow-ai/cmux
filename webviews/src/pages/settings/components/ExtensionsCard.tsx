@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { Input } from "../../../ui/Input";
-import { useStore } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { NumberField } from "../editors/NumberField";
@@ -38,9 +38,15 @@ export function ExtensionsCard() {
       live = false;
     };
   }, [store]);
+  // A DEV-only setting (`x-cmux-devOnly`, a prototype's switch) shows only in DEV builds.
+  const devBuild = useSettingsState().host?.dev_build === true;
+  const shown = apps?.flatMap((app) => {
+    const settings = devBuild ? app.settings : app.settings.filter((setting) => !setting.devOnly);
+    return settings.length === 0 ? [] : [{ ...app, settings }];
+  });
 
   if (apps === null && !unavailable && !error) return null;
-  if (unavailable || error || !apps || apps.length === 0) {
+  if (unavailable || error || !shown || shown.length === 0) {
     const [marker, message] = unavailable
       ? ["data-extensions-unavailable", t("settingsPage.extensions.unavailable")]
       : error
@@ -59,7 +65,7 @@ export function ExtensionsCard() {
   return (
     <div className="extension-settings" data-card="extensions">
       <p className="row-help">{t("settingsPage.extensions.help")}</p>
-      {apps.map((app) => (
+      {shown.map((app) => (
         <ExtensionGroup
           key={app.app}
           app={app}
