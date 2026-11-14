@@ -340,13 +340,15 @@ pub fn harness(agent: Option<&str>) -> Option<&'static str> {
 pub struct ToggleFacts {
     /// A terminal tab: `agent` and `session` are its agent's report.
     pub terminal: bool,
-    /// An agent chat tab: `agent` and `session` are the outside session it resumes, if any.
+    /// An agent chat tab: `agent` and `session` are the outside session it resumes, or for a
+    /// chat started in cmux its own harness and conversation id, if any.
     pub chat: bool,
     pub agent: Option<String>,
     pub session: Option<String>,
     /// A chat: another live terminal reports its session.
     pub running: bool,
-    /// A chat: its turn is still running.
+    /// A chat: its turn is still running. It no longer refuses the toggle: the new terminal
+    /// waits for the turn (`acpmux resume-here`, which asks acpmux `_acpmux/release_to_watch`).
     pub busy: bool,
     /// A chat: the session's hand-off to a terminal an earlier Toggle started, if any.
     pub hand_off: Option<HandOff>,
@@ -382,13 +384,16 @@ pub enum TerminalChatToggle {
     ToChat { harness: String, session: String },
     /// The chat shows the live terminal running the session it resumes.
     ToTerminal { harness: String, session: String },
-    /// No terminal runs the chat's session: its acpmux run stops and a new
-    /// terminal resumes it in place of the chat.
+    /// No terminal runs the chat's session: a new terminal resumes it beside the chat, at
+    /// once, even mid-turn. Its `acpmux resume-here` shows the running turn, waits for it
+    /// to end (never cut off), then runs the harness's resume command while the same chat
+    /// goes on as a View Only watch of the terminal (acpmux `_acpmux/release_to_watch`).
     ResumeInTerminal { harness: String, session: String },
     /// An earlier Toggle is handing the session to a terminal: that terminal
     /// shows (`tab`), or nothing while the chat's run stops.
     HandingOff { tab: Option<String> },
-    /// The chat is mid-turn: stopping it would cut the turn off.
+    /// Not returned since the mid-turn hand-off: a chat mid-turn resumes in a terminal too.
+    /// Kept so an app built against the older route still decodes every answer.
     Busy,
 }
 
@@ -406,7 +411,7 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
     if !facts.chat {
         return TerminalChatToggle::NotAgentTab;
     }
-    // A chat resumes only sessions acpmux adopts, so any other harness ran in no terminal.
+    // Only Claude Code and Codex conversations resume in a terminal.
     let TerminalChat::Adopt { harness, session } = terminal_chat(agent, session) else {
         return TerminalChatToggle::NoSession;
     };
@@ -414,17 +419,19 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
     if facts.running {
         return TerminalChatToggle::ToTerminal { harness, session };
     }
-    // A hand-off ends at its deadline or when its terminal closed: a second
-    // Toggle meanwhile must not resume the session twice.
-    if let Some(hand_off) = &facts.hand_off
-        && facts.now < hand_off.deadline
-        && (hand_off.tab.is_none() || facts.hand_off_open)
-    {
-        return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
+    // A second Toggle meanwhile must not resume the session twice. Before its terminal
+    // exists the hand-off ends at its deadline; once it exists, it lasts while that terminal
+    // is open: a turn the hand-off waits for may run longer than any deadline.
+    if let Some(hand_off) = &facts.hand_off {
+        let lasts = match hand_off.tab {
+            None => facts.now < hand_off.deadline,
+            Some(_) => facts.hand_off_open,
+        };
+        if lasts {
+            return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
+        }
     }
-    if facts.busy {
-        return TerminalChatToggle::Busy;
-    }
+    // Mid-turn too: the new terminal waits for the turn instead of cutting it off.
     TerminalChatToggle::ResumeInTerminal { harness, session }
 }
 

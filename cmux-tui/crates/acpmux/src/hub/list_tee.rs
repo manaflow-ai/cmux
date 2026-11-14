@@ -7,7 +7,8 @@ use acpmux_book::index::{OriginState, ReadSide, RowKey, SortKey, Summary};
 use acpmux_core::hub::Source;
 use acpmux_core::life::V2;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use summary::{summary_from_remote, summary_from_session};
+use summary::summary_from_remote;
+pub(crate) use summary::summary_from_session;
 use tokio::sync::Notify;
 
 const BATCH: usize = 256;

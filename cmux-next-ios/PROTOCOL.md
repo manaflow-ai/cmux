@@ -791,7 +791,25 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
   of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
   Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
-  older Mac) stands in with `theme`'s colors.
+  older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
+  `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
+  phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
+  `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`,
+  `blocks`), "hue"?: appearance.hue (0...1, 0.5 keeps the theme's), "saturation"?:
+  appearance.saturation (0...2, 1 keeps it), "glass_transparency"?:
+  appearance.glassTransparency (0...1), "sidebar_surface"?: appearance.sidebarSurface
+  (`same` | `separate`), "terminal_font"?: {"family"?, "size"?} (the face and points the
+  terminals draw in: terminal.fontFamily and terminal.fontSize over the Ghostty config's;
+  size 4...96), "chat"?: {"sent"?, "sent_text"?, "received"?, "received_text"?}
+  (home.bubbleColors.*, `#rrggbb`), "groups"?: {"palette"?: sidebar.groupPalette (`glass`,
+  `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial`), "gradient"?:
+  sidebar.groupGradient (`sunset`, `aurora`, `lagoon`, `twoTone`)}}`. The Mac app sends the
+  same object on its stdin line (`MobileHostAppearance.Look`); hostd (`appearance.rs`
+  `sanitize_look`) checks each field on its own and drops a bad one (an unknown value, a
+  number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
+  over 120 characters) while the rest and the theme still serve; a nested object with
+  nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
+  bytes an older Mac sends. The phone does not draw these yet.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
