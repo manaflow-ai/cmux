@@ -7175,6 +7175,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        if (first && newTabNow.current === undefined) acpmuxPerf.markLaunch("rowsDrawn");
+        if (settledNow) acpmuxPerf.markLaunch("settledDrawn");
         void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
           () => undefined,
         );

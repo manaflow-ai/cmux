@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
+import class CmuxNextBrowser.CEFTab
 import Darwin
 import os
 import CmuxNextCompat
@@ -75,6 +76,7 @@ enum DebugTimings {
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0, at: $1) }
+        CEFTab.onFirstContentfulPaint = { markLaunch("browser.first_paint") }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
