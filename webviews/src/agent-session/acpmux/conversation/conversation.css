@@ -369,6 +369,7 @@
 .cv-user__video-play svg {
   transform: translateX(1px);
 }
+.cv-user__video-length,
 .cv-user__video-unplayable {
   position: absolute;
   right: 6px;
@@ -8025,7 +8026,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .acpmux-done-mark__time,
 .acpmux-bg__time,
 .acpmux-bg-card__time,
-.acpmux-agents-list__time {
+.acpmux-agents-list__time,
+.acpmux-queued-video-time {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }

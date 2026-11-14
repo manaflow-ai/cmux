@@ -3,13 +3,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import {
-  gridLength,
-  MARK_FOOTER_ROW,
-  MARK_STATUS,
-  TRANSCRIPT_FOOTER_CONTROL,
-  transcriptGap,
-} from "../src/agent-session/acpmux/transcriptGrid";
+import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -75,11 +69,13 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     });
   // The virtual stack owns every gap between rows (#27580, design/grid.md 5.5): the same agent's next
   // reply takes the block gap, a prompt the turn gap, and a reply's footer row sits the footer gap
-  // under it. Another agent's line is a status row (model.ts isStatusRow), so it sits the run gap
+  // under it; every finished reply keeps that row, those before the first prompt too. Another agent's
+  // line under a footer row keeps the block gap (transcriptGrid.ts footer-to-received); after a bare
+  // reply it is a status row (model.ts isStatusRow) and sits the run gap
   // from the reply over it (#31879, design/transcript-spacing.md rule 4). The half gap between one
   // agent's replies (#26755) and the footer's centring drop inside its row (#29860) went with #27580;
   // rows carry no padding of their own.
-  test("the same assistant's next reply takes the block gap, another agent's line the run gap; a prompt keeps the turn gap", async () => {
+  test("each finished reply keeps its action row; the same assistant's next reply and another agent's line take the block gap; a prompt keeps the turn gap", async () => {
     const page = await open();
     await page.waitForFunction(
       () => document.querySelector('[data-row-id="continuation-b"]')!.getBoundingClientRect().top > 0,
@@ -91,7 +87,8 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
       { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
     ]);
-    expect(actual.peer).toBeCloseTo(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS), 1);
+    // Under a reply's footer row another agent's line keeps the block gap (transcriptGrid.ts footer-to-received).
+    expect(actual.peer).toBeCloseTo(gridLength("gap-block"), 1);
     expect(actual.footerUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
     expect(actual.user).toBeCloseTo(gridLength("gap-turn"), 1);
     expect(actual.paddings).toEqual([0, 0, 0, 0]);
