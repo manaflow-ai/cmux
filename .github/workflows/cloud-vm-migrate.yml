@@ -1,5 +1,14 @@
 name: Cloud VM DB migration
 
+# Merging main deploys web/ to production, and deploys never migrate. So a
+# pull request's migration must reach staging and then production BEFORE it
+# merges, and the required "Migration ledger" check refuses the merge until it
+# has. Dispatch this workflow from main with source_ref set to the pull
+# request's head SHA (or number): the migrator, its connection policy and this
+# workflow stay main's reviewed code, and only the pull request's new
+# migration folders are copied in (stage-migration-source.mjs). The run
+# summary shows that SQL to the cloud-vm-production reviewer before approval.
+
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +18,13 @@ on:
         default: staging
         type: choice
         options: [staging, production]
+      source_ref:
+        description: >-
+          Pull request head SHA or number whose new migrations to apply before
+          it merges. Empty (or main) applies main's migrations.
+        required: false
+        default: ""
+        type: string
       cleanup_iroh_challenges:
         description: Prune expired, consumed, and duplicate Iroh registration challenges after migration
         required: false
@@ -17,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   # Production also migrates staging. One group prevents two runs from
@@ -27,23 +44,88 @@ concurrency:
 jobs:
   preflight:
     outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
+      main_sha: ${{ steps.source.outputs.main_sha }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
     steps:
+      - name: Require a dispatch from main
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Dispatch this workflow from main. To apply a pull request's migrations before it merges, pass source_ref=<head SHA or PR number>."
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
-      - name: Pin migration source
+          ref: ${{ github.sha }}
+      - name: Resolve migration source
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          main_sha="$(git rev-parse HEAD)"
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+          source_ref="$(printf '%s' "$SOURCE_REF" | tr -d '[:space:]')"
+          if [ -z "$source_ref" ] || [ "$source_ref" = "main" ]; then
+            echo "source_sha=" >> "$GITHUB_OUTPUT"
+            echo "Applying main at $main_sha." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$source_ref" =~ ^[0-9]+$ ]]; then
+            pr="$source_ref"
+            source_sha="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
+          elif [[ "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            source_sha="$source_ref"
+            pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$source_sha/pulls" \
+              --jq "[.[] | select(.state == \"open\" and .base.ref == \"main\" and .head.sha == \"$source_sha\")][0].number // empty")"
+          else
+            echo "::error::source_ref must be a pull request number or a full 40-character commit SHA."
+            exit 1
+          fi
+          if [ -z "${pr:-}" ]; then
+            echo "::error::$source_sha is not the head of an open pull request against main. Push, then pass the new head SHA."
+            exit 1
+          fi
+          read -r state base head < <(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,headRefOid --jq '"\(.state) \(.baseRefName) \(.headRefOid)"')
+          if [ "$state" != "OPEN" ] || [ "$base" != "main" ] || [ "$head" != "$source_sha" ]; then
+            echo "::error::Pull request #$pr must be open against main with head $source_sha (found $state, base $base, head $head)."
+            exit 1
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Applying main at $main_sha plus the new migrations of #$pr at $source_sha." >> "$GITHUB_STEP_SUMMARY"
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.14"
+      - name: Stage pull request migrations
+        if: ${{ steps.source.outputs.source_sha != '' }}
+        env:
+          MAIN_SHA: ${{ steps.source.outputs.main_sha }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          bun scripts/cloud-vm/stage-migration-source.mjs --repo .. --base "$MAIN_SHA" --source "$SOURCE_SHA"
+          {
+            echo ""
+            echo "### SQL this run adds beyond main"
+            added="$(git status --porcelain --untracked-files=all -- db/migrations | awk '{print $2}' | grep '/migration.sql$' || true)"
+            if [ -z "$added" ]; then echo "None."; fi
+            for file in $added; do
+              echo ""
+              echo "\`${file#web/}\`"
+              echo '```sql'
+              cat "../$file"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Cloud VM migration preflight
@@ -68,11 +150,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.preflight.outputs.source_sha }}
+          ref: ${{ needs.preflight.outputs.main_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.14"
+      - name: Stage pull request migrations
+        if: ${{ needs.preflight.outputs.source_sha != '' }}
+        env:
+          MAIN_SHA: ${{ needs.preflight.outputs.main_sha }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          bun scripts/cloud-vm/stage-migration-source.mjs --repo .. --base "$MAIN_SHA" --source "$SOURCE_SHA"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -90,6 +181,8 @@ jobs:
         run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
+      - name: Verify staging ledger (read only)
+        run: bun run cloud-vm:ledger -- staging --mode gate
       - name: Clean up staging Iroh challenges
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:cleanup-iroh -- staging --apply
@@ -110,11 +203,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.preflight.outputs.source_sha }}
+          ref: ${{ needs.preflight.outputs.main_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.14"
+      - name: Stage pull request migrations
+        if: ${{ needs.preflight.outputs.source_sha != '' }}
+        env:
+          MAIN_SHA: ${{ needs.preflight.outputs.main_sha }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          bun scripts/cloud-vm/stage-migration-source.mjs --repo .. --base "$MAIN_SHA" --source "$SOURCE_SHA"
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Validate PlanetScale credentials
@@ -132,6 +234,8 @@ jobs:
         run: bun run cloud-vm:migrate -- production --check
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
+      - name: Verify production ledger (read only)
+        run: bun run cloud-vm:ledger -- production --mode gate
       - name: Clean up production Iroh challenges
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:cleanup-iroh -- production --apply
