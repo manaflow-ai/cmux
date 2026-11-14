@@ -59,7 +59,7 @@ fn fixture(local: usize, origins: usize, held: usize) -> Fixture {
 
 /// One sample: a unit changing 10 of the first origin's first 20 rows, queued, then
 /// written and published by one writer turn.
-fn sample(fixture: &mut Fixture) -> u128 {
+fn sample(fixture: &mut Fixture, sync: &mut Vec<u128>) -> u128 {
     let cursor = fixture.next;
     fixture.next += 1;
     let changes = (0..UNIT_CHANGES)
@@ -77,6 +77,7 @@ fn sample(fixture: &mut Fixture) -> u128 {
     fixture.hub.submit_unit(Source::Mirror, unit).expect("unit");
     fixture.writer.process_batch();
     let elapsed = started.elapsed().as_nanos().max(1);
+    sync.push(fixture.writer.turn_measure.sync_ns);
     assert_eq!(fixture.hub.mirror_mark("peer-00").map(|mark| mark.cursor), Some(cursor));
     elapsed
 }
@@ -90,17 +91,40 @@ fn pr08_mirror_apply() {
     let mut small_rounds = Vec::new();
     let mut god_rounds = Vec::new();
     let mut pooled = Vec::new();
+    let (mut small_sync, mut god_sync) = (Vec::new(), Vec::new());
+    let (mut small_all, mut god_all_samples) = (Vec::new(), Vec::new());
     for _ in 0..ROUNDS {
         // Rounds alternate so a noisy stretch of the machine hits both sides.
-        let mut samples: Vec<u128> = (0..SAMPLES).map(|_| sample(&mut small)).collect();
+        let mut samples: Vec<u128> =
+            (0..SAMPLES).map(|_| sample(&mut small, &mut small_sync)).collect();
+        small_all.extend_from_slice(&samples);
         small_rounds.push(p95(&mut samples));
-        let mut samples: Vec<u128> = (0..SAMPLES).map(|_| sample(&mut god)).collect();
+        let mut samples: Vec<u128> =
+            (0..SAMPLES).map(|_| sample(&mut god, &mut god_sync)).collect();
+        god_all_samples.extend_from_slice(&samples);
         pooled.extend_from_slice(&samples);
         god_rounds.push(p95(&mut samples));
     }
     let small_p95 = small_rounds.into_iter().min().unwrap_or(1);
     let god_p95 = god_rounds.into_iter().min().unwrap_or(1);
     let god_all = p95(&mut pooled);
+    // Where a turn's time goes: the log's sync, and the rest (apply, append, publish).
+    let p50 = |values: &mut Vec<u128>| {
+        values.sort_unstable();
+        values.get(values.len() / 2).copied().unwrap_or(0)
+    };
+    let rest = |all: &[u128], sync: &[u128]| -> Vec<u128> {
+        all.iter().zip(sync).map(|(all, sync)| all.saturating_sub(*sync)).collect()
+    };
+    let mut small_rest = rest(&small_all, &small_sync);
+    let mut god_rest = rest(&god_all_samples, &god_sync);
+    eprintln!(
+        "mirror_apply split p50 ns: sync small {} god {}; rest small {} god {}",
+        p50(&mut small_sync),
+        p50(&mut god_sync),
+        p50(&mut small_rest),
+        p50(&mut god_rest)
+    );
     let counts = god.hub.mirror_counts();
     let units = counts.applied - marks_before.applied;
     let mark_bytes = (counts.mark_bytes - marks_before.mark_bytes) / units.max(1);
