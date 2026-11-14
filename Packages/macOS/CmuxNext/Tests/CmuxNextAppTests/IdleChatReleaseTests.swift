@@ -195,7 +195,7 @@ import Testing
                                    wake: wake.map { !$0.holdsOnlyPlace } ?? false).adopted(chiefKeeps: { _ in false })
         }
         #expect(adoption(placeOnly) == "s-1", "a released chat with only its place built a page from nothing")
-        #expect(adoption(AgentPaneWakeState(shellText: "make", scrollAnchor: anchor)) == nil)
+        #expect(adoption(AgentPaneWakeState(shell: true, shellText: "make", scrollAnchor: anchor)) == nil)
         let detail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: placeOnly.place)
         #expect(detail.contains("row-3"), "the adopt event lost the released chat's place: \(detail)")
     }
