@@ -1456,7 +1456,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
         // A public page, or no Mac to open it on (the workspace went away, the Mac is
         // offline or doesn't let this iPhone open tabs): Safari, never nothing.
-        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
+        guard WebLinkPlace(url) == .mac, canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
             await openOnPhone(url)
             return
         }
