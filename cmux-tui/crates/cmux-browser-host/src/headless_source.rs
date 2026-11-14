@@ -48,15 +48,19 @@ impl std::ops::Deref for Live {
 }
 
 impl Live {
-    /// Launches Chromium and takes it over; its events go to the source
-    /// `me` names.
+    /// Launches Chromium (on the profile of the `dead` one, after a crash)
+    /// and takes it over; its events go to the source `me` names.
     pub(crate) fn start(
         options: &crate::cdp::pipe::HeadlessOptions,
         agent_source: Arc<str>,
         me: &Arc<std::sync::OnceLock<Weak<HeadlessSource>>>,
+        dead: Option<&Live>,
     ) -> Result<Live, DriverError> {
-        let chromium = HeadlessChromium::launch(options)
-            .map_err(|e| DriverError::closed(format!("engine_unavailable: headless: {e}")))?;
+        let chromium = match dead {
+            Some(dead) => dead.chromium.relaunch(options),
+            None => HeadlessChromium::launch(options),
+        }
+        .map_err(|e| DriverError::closed(format!("engine_unavailable: headless: {e}")))?;
         let sink_me = me.clone();
         let driver = CdpDriver::attach_browser(
             chromium.connection().clone(),
@@ -95,11 +99,11 @@ pub struct HeadlessSource {
     pub(crate) agent_source: Arc<str>,
     /// This source, for the event sink and hooks of a relaunched browser.
     pub(crate) me: Arc<std::sync::OnceLock<Weak<HeadlessSource>>>,
-    /// One relaunch at a time.
-    pub(crate) relaunching: Mutex<()>,
-    /// True while a relaunch reopens tabs: the new browser's events are
-    /// not the sessions'.
-    pub(crate) quiet: std::sync::atomic::AtomicBool,
+    /// One relaunch at a time, and how the last one went.
+    pub(crate) relaunches: Mutex<crate::headless_relaunch::Relaunches>,
+    /// The browser a relaunch is reopening tabs in: its events are not the
+    /// sessions' yet.
+    pub(crate) reopening: Mutex<Option<Arc<Live>>>,
     /// Tab ids across relaunches (`crate::headless_relaunch`).
     pub(crate) ids: Mutex<crate::headless_relaunch::TabIds>,
     pub(crate) profile: String,
@@ -146,14 +150,14 @@ impl HeadlessSource {
         profile: &str,
     ) -> Result<Arc<HeadlessSource>, DriverError> {
         let me: Arc<std::sync::OnceLock<Weak<HeadlessSource>>> = Arc::default();
-        let live = Live::start(options, agent_source.clone(), &me)?;
+        let live = Live::start(options, agent_source.clone(), &me, None)?;
         let source = Arc::new(HeadlessSource {
             live: Mutex::new(Arc::new(live)),
             options: options.clone(),
             agent_source,
             me: me.clone(),
-            relaunching: Mutex::default(),
-            quiet: std::sync::atomic::AtomicBool::new(false),
+            relaunches: Mutex::default(),
+            reopening: Mutex::default(),
             ids: Mutex::default(),
             profile: profile.to_owned(),
             subscribers: Subscribers::default(),
@@ -364,7 +368,7 @@ impl HeadlessSource {
     /// takes a dialog or download, the host answers it and logs it (D2).
     pub(crate) fn publish(&self, mut event: DriverEvent) {
         use crate::headless_routes::{Route, unrouted_entry};
-        if self.quiet.load(Ordering::SeqCst) {
+        if self.answer_while_reopening(&event) {
             return;
         }
         self.ids().to_stable(&mut event.payload);

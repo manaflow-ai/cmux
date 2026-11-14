@@ -112,6 +112,8 @@ struct ProxyStore {
 pub struct Configs {
     sessions: HashMap<u64, SessionConfig>,
     stores: HashMap<String, ProxyStore>,
+    /// Stores of a browser that crashed: their tabs and cookies are gone.
+    dead: std::collections::HashSet<String>,
     next_store: u64,
 }
 
@@ -153,9 +155,36 @@ impl HeadlessSource {
     /// private store, else None (the profile's).
     pub(crate) fn cookie_store_of(&self, session: u64) -> Result<Option<String>, DriverError> {
         if self.session_incognito(session) {
-            return self.incognito_store(session).map(Some);
+            return self.live_incognito_store(session).map(Some);
         }
-        Ok(self.configs().sessions.get(&session).and_then(|c| c.store.clone()))
+        let store = self.configs().sessions.get(&session).and_then(|c| c.store.clone());
+        self.live_store(store)
+    }
+
+    /// The session's incognito store; a crashed browser's is made again in
+    /// the running one (an incognito store starts empty either way).
+    fn live_incognito_store(&self, session: u64) -> Result<String, DriverError> {
+        let store = self.incognito_store(session)?;
+        {
+            let mut configs = self.configs();
+            if !configs.dead.contains(&store) {
+                return Ok(store);
+            }
+            if let Some(config) = configs.sessions.get_mut(&session) {
+                config.incognito_store = None;
+            }
+        }
+        self.incognito_store(session)
+    }
+
+    /// A store of a browser that crashed fails as the browser did.
+    fn live_store(&self, store: Option<String>) -> Result<Option<String>, DriverError> {
+        match store {
+            Some(store) if self.configs().dead.contains(&store) => {
+                Err(DriverError::closed(crate::headless_relaunch::CLOSED))
+            }
+            store => Ok(store),
+        }
     }
 
     /// The session's incognito store, made on first use.
@@ -391,9 +420,10 @@ impl HeadlessSource {
             fields.remove("incognito");
         }
         if asked.unwrap_or(incognito_session) {
-            let store = self.incognito_store(session)?;
+            let store = self.live_incognito_store(session)?;
             return self.driver().open_tab(&params, Some(&store), overrides);
         }
+        let context = self.live_store(context)?;
         self.driver().open_tab(&params, context.as_deref(), overrides)
     }
 
@@ -467,21 +497,26 @@ impl HeadlessSource {
         self.configs().stores.get(context).is_some_and(|store| store.kept)
     }
 
-    /// After a relaunch: each session's options on its reopened tabs.
-    pub(crate) fn configure_relaunched(&self) {
-        let sessions: Vec<(u64, TabOverrides)> = self
-            .configs()
-            .sessions
-            .iter()
-            .filter_map(|(session, config)| Some((*session, config.overrides()?)))
-            .collect();
+    /// A relaunch: the host's stores died with the browser; the options
+    /// of each session's tabs, by tab, for the reopened ones.
+    pub(crate) fn relaunch_configs(&self) -> HashMap<String, TabOverrides> {
+        let sessions: Vec<(u64, TabOverrides)> = {
+            let mut configs = self.configs();
+            let stores: Vec<String> = configs.stores.keys().cloned().collect();
+            configs.dead.extend(stores);
+            configs
+                .sessions
+                .iter()
+                .filter_map(|(session, config)| Some((*session, config.overrides()?)))
+                .collect()
+        };
+        let mut by_tab = HashMap::new();
         for (session, overrides) in sessions {
             for target in self.routes_tabs_of(session) {
-                let _ = self
-                    .driver()
-                    .set_tab_overrides(&self.real_id(&target), Some(overrides.clone()));
+                by_tab.insert(target, overrides.clone());
             }
         }
+        by_tab
     }
 
     /// The session ended: its options leave its tabs, its proxy stores
@@ -498,6 +533,7 @@ impl HeadlessSource {
                 .collect();
             for context in &closing {
                 configs.stores.remove(context);
+                configs.dead.remove(context);
             }
             (config, closing)
         };
