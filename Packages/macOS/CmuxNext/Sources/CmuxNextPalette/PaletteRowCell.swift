@@ -100,6 +100,8 @@ final class PaletteTableRowView: NSTableRowView {
     override func layout() {
         super.layout()
         fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+        // Read again here, so a density change while the palette is open reshapes a reused row.
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
