@@ -14,11 +14,12 @@ export const loopPlace = defineExperiment({
     quiet: {
       label: "Quiet row",
       description:
-        "The clock and \"Checking back in 7 min.\" after the mode in the quiet row under the composer; the loop adds no row over the composer.",
+        'The clock and "Checking back in 7 min." after the mode in the quiet row under the composer; the loop adds no row over the composer.',
     },
     short: {
       label: "Quiet row, time only",
-      description: "The clock and \"in 7 min.\" in the quiet row; the whole sentence and the loop's prompt in the tooltip.",
+      description:
+        'The clock and "in 7 min." in the quiet row; the whole sentence and the loop\'s prompt in the tooltip.',
     },
     stack: {
       label: "Own row (before)",

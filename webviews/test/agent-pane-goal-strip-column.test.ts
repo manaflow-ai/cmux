@@ -120,7 +120,9 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
     };
     for (const width of [900, 420]) {
       const bare = await open("claude-chat", width, ".acpmux-composer-foot");
-      const bareDock = await bare.evaluate(() => document.querySelector(".acpmux-dock")!.getBoundingClientRect().height);
+      const bareDock = await bare.evaluate(
+        () => document.querySelector(".acpmux-dock")!.getBoundingClientRect().height,
+      );
       await bare.close();
       for (const [variant, reads] of Object.entries(LOOPS)) {
         const page = await open(variant, width, ".acpmux-composer-foot > .acpmux-loop-quiet");
@@ -138,9 +140,11 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
           });
           const where = `${variant} @ ${width}px`;
           if (!reads.test(m.text)) offenders.push(`${where}: the line reads "${m.text}"`);
-          if (/b2mqa7gwr|github\.com|Steps:/.test(m.text)) offenders.push(`${where}: the wake prompt paints in the row`);
+          if (/b2mqa7gwr|github\.com|Steps:/.test(m.text))
+            offenders.push(`${where}: the wake prompt paints in the row`);
           if (m.stackRow) offenders.push(`${where}: the loop still stands as a row over the composer`);
-          if (Math.abs(m.dock - bareDock) > 1) offenders.push(`${where}: the stack is ${m.dock}px, ${bareDock}px with no loop`);
+          if (Math.abs(m.dock - bareDock) > 1)
+            offenders.push(`${where}: the stack is ${m.dock}px, ${bareDock}px with no loop`);
           if (!m.inside) offenders.push(`${where}: the line leaves the composer's edges`);
         } finally {
           await page.close();
