@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import Testing
 
@@ -59,6 +60,60 @@ struct TextBoxSelectionReplacementTests {
         #expect(createdTextView === textView)
         #expect(textView.string == "hello x")
         #expect(textView.selectedRange() == NSRange(location: 7, length: 0))
+    }
+
+    @Test("Cmd+A selects the TextBox draft instead of falling through to the terminal")
+    func commandASelectsAllTextBoxText() throws {
+        let draft = "select this draft, not the scrollback"
+        var createdTextView: TextBoxInputTextView?
+
+        let hostingView = NSHostingView(
+            rootView: TextBoxSelectionReplacementHarness(
+                externalText: draft,
+                refreshToken: 0,
+                onPublishedText: { _ in },
+                onTextViewCreated: { textView in
+                    createdTextView = textView
+                    textView.string = draft
+                }
+            )
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 360, height: 60)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        hostingView.layoutSubtreeIfNeeded()
+        let textView = try #require(createdTextView)
+        #expect(window.makeFirstResponder(textView))
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let commandA = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: UInt16(kVK_ANSI_A)
+            )
+        )
+
+        #expect(textView.performKeyEquivalent(with: commandA))
+        #expect(textView.selectedRange() == NSRange(location: 0, length: (draft as NSString).length))
     }
 }
 
