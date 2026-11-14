@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextCookieImport
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
@@ -106,7 +107,8 @@ enum OnboardingHandlers {
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
             importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
-            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) })
+            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) },
+            classicWorkspaces: { try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().plan(.manual, outline: true).plan?.workspaces.count })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
@@ -137,7 +139,7 @@ enum ClassicImportStrings {
     static var previewButton: String {
         String(localized: "classicImport.preview.button", defaultValue: "Import", bundle: .module)
     }
-    static func previewLines(_ plan: ClassicImportPlan) -> [String] {
+    static func previewLines(_ plan: ClassicImportPreview) -> [String] {
         let format = String(
             localized: "classicImport.preview.summary",
             defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
@@ -146,27 +148,36 @@ enum ClassicImportStrings {
         // The localized text uses fixed field labels; only the values vary.
         // Format those numbers for the person's locale before substitution.
         let text = String(
-            format: format, source(plan), plan.workspaces.count.formatted(.number),
-            plan.browserTabs.formatted(.number), plan.localFilePages.formatted(.number),
-            plan.sshWorkspaces.formatted(.number), plan.agentChats.formatted(.number),
-            plan.skippedCloudVMs.formatted(.number)
+            format: format, source(plan), plan.counts.workspaces.formatted(.number),
+            plan.counts.browserTabs.formatted(.number), plan.counts.localFilePages.formatted(.number),
+            plan.counts.sshWorkspaces.formatted(.number), plan.counts.agentChats.formatted(.number),
+            plan.counts.skippedCloudVMs.formatted(.number)
         )
         let cleanupFormat = String(
             localized: "classicImport.preview.cleanup",
             defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
             bundle: .module
         )
-        let cleanup = String(format: cleanupFormat, plan.cleanupWorkspaces.formatted(.number))
+        let cleanup = String(format: cleanupFormat, plan.counts.cleanupWorkspaces.formatted(.number))
         return text.components(separatedBy: "\n") + [cleanup]
     }
     /// The classic app the plan reads and when it saved (the newest save across classic's channels), and whether it is still open.
-    static func source(_ plan: ClassicImportPlan) -> String {
+    static func source(_ plan: ClassicImportPreview) -> String {
         let saved = Date(timeIntervalSince1970: plan.savedAt).formatted(date: .abbreviated, time: .shortened)
         let format = plan.classicRunning
             ? String(localized: "classicImport.preview.sourceOpen",
                      defaultValue: "%1$@ (classic), still open: its autosave from %2$@. Quit it first to bring its latest state.", bundle: .module)
             : String(localized: "classicImport.preview.source", defaultValue: "%1$@ (classic), saved %2$@", bundle: .module)
-        return String(format: format, plan.source.appName, saved)
+        return String(format: format, appName(plan.bundleID), saved)
+    }
+    /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it.
+    static func appName(_ bundle: String) -> String {
+        let channel = { (name: String) in bundle == name || bundle.hasPrefix(name + ".") }
+        if bundle == "com.cmuxterm.app" { return "cmux" }
+        if channel("com.cmuxterm.app.nightly") { return "cmux NIGHTLY" }
+        if channel("com.cmuxterm.app.rc") { return "cmux RC" }
+        if channel("com.cmuxterm.app.staging") { return "cmux STAGING" }
+        return "cmux DEV"
     }
     /// The first launch's toast when cmux-next already had workspaces, so classic's were only recorded.
     static var inUseBefore: String {

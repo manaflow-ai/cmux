@@ -101,7 +101,7 @@ body {
   --ds-radius-lg: 8px; /* popups and small cards */
   --ds-radius-xl: 12px; /* cards and the composer (grid.md's decided 12) */
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
-  --ds-radius-control: 6px;
+  --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
@@ -675,7 +675,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
-  --cmux-motion-send: 180ms;
+  --cmux-motion-send: 0ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;

@@ -113,10 +113,7 @@ enum AppStoreHandlers {
 
     /// Why an app action cannot run while the supervisor is unreachable.
     static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
-        switch reason {
-        case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
-        case .notConnected, .notReady, .turnedOff: ActionFailure(message: reason.text)
-        }
+        ActionFailure(message: reason.text)
     }
 
     /// `app.open`'s refusal: the unavailable reason, else why this app did not open.

@@ -309,18 +309,24 @@ pub(crate) struct WriterThread {
 }
 
 impl WriterThread {
-    /// Waits up to `within` for the thread to end (its queue closed first); true when it did.
-    pub(crate) fn join_within(self, within: std::time::Duration) -> bool {
+    /// Waits up to `within` for the thread to end (its queue closed first). A writer still
+    /// running then comes back, for a later [`WriterThread::join`].
+    pub(crate) fn join_within(self, within: std::time::Duration) -> Result<(), Self> {
         match self.ended.recv_timeout(within) {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = self.handle.join();
-                true
+                Ok(())
             }
             _ => {
                 tracing::warn!("ledger: the writer did not finish within {within:?}");
-                false
+                Err(self)
             }
         }
+    }
+
+    /// Waits for the thread to end, however long it takes (its queue closed first).
+    pub(crate) fn join(self) {
+        let _ = self.handle.join();
     }
 }
 
