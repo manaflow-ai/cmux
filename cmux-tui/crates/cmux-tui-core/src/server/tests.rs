@@ -552,6 +552,8 @@ mod incognito_remote;
 mod input_lane;
 mod journal_follower_at_rest;
 mod layout_receipts_shutdown;
+#[cfg(unix)]
+mod list_request_shares;
 mod list_workspaces_cost;
 mod list_workspaces_shared_text;
 mod long_connections;
