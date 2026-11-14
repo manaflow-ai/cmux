@@ -199,6 +199,10 @@ enum SidebarStyle {
     /// display), 10 rows a side made a scroll cost grow with the workspace count
     /// (sidebar-scroll-perf-DESIGN.md).
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// How far past each edge, in screens of the list, the rows responsive scrolling asks for are realized
+    /// (`SidebarListView.realizationRect`): half a screen, so the list holds at most twice the rows it shows
+    /// (SidebarScrollCostTests), and a flick through a 120 ms main-thread turn (about 300 pt) stays on drawn rows.
+    static let prepareScreens: CGFloat = 0.5
     /// Extra distance past the realization rect before a row view is parked, so a row at the
     /// edge does not park and come back on every small scroll.
     static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
