@@ -27,10 +27,11 @@ import xml.etree.ElementTree as ET
 
 RECORD_GRACE_S = 180  # after --time-limit, xctrace processes and saves the recording
 EXPORT_TIMEOUT_S = 300
-# Thread states that mean "on a core or about to be": a change into Running from any other state is a
-# wakeup; Running after Preempted or Runnable is the same run going on.
+# Thread states: a thread that was waiting and then runs (directly or through Runnable) woke once; a
+# preempted thread that runs again is the same run going on.
 ON_CORE = ("running",)
-READY = ("runnable", "preempted")
+PREEMPTED = ("preempted",)
+READY = ("runnable",)
 SYSTEM_FRAMES = re.compile(r"^(?:thread_start|_pthread_start|start_wqthread|_pthread_wqthread|"
                            r"std::sys::pal::unix::thread::Thread::new::thread_start|"
                            r"std::sys::.*thread_start|core::ops::function::FnOnce::call_once.*|"
@@ -96,7 +97,7 @@ def table_rows(path):
 
 def count_wakes(path, pid=None):
     """{tid: {"name", "wakes", "runs", "running_ns"}} from an exported thread-state table: `wakes` counts the
-    intervals in Running whose previous state was a wait (Blocked, Waiting, Suspended...) or that open the
+    intervals in Running that follow a wait (Blocked, Waiting, Suspended..., with or without Runnable between) or open the
     thread's record; `runs` every Running interval. Threads of other processes are left out when `pid` is
     given."""
     threads, last = {}, {}
@@ -112,13 +113,19 @@ def count_wakes(path, pid=None):
         entry = threads.setdefault(tid, {"name": thread.get("name") or "", "wakes": 0, "runs": 0, "running_ns": 0})
         if not entry["name"] and thread.get("name"):
             entry["name"] = thread["name"]
+        # `last` is the thread's state before it became ready: a wait (Blocked → Runnable → Running is
+        # one wakeup) or running (Running → Preempted → Running is the same run going on).
         if state.startswith(ON_CORE):
             entry["runs"] += 1
             duration = row.get("duration") or row.get("@duration") or 0
             entry["running_ns"] += duration if isinstance(duration, int) else 0
-            if not last.get(tid, "").startswith(ON_CORE + READY):
+            if not last.get(tid, "").startswith(ON_CORE):
                 entry["wakes"] += 1
-        last[tid] = state
+            last[tid] = "running"
+        elif state.startswith(PREEMPTED):
+            last[tid] = "running"
+        elif not state.startswith(READY):
+            last[tid] = state
     return threads
 
 

@@ -75,8 +75,19 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import thread_wakes  # noqa: E402  (per-thread wakeups and names, --attribute-trace)
+
+
+def _thread_wakes():
+    """thread_wakes.py beside this file (thread names and --attribute-trace), or None: a sparse checkout
+    that copies only this script (cmux-next-frame-pacing.yml) still runs everything but those."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import thread_wakes
+    except ImportError:
+        return None
+    return thread_wakes
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -269,7 +280,8 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
         if os.path.exists(path):
             os.remove(path)
     threads = [line.strip() for line in text.splitlines() if re.match(r"^\s{4}\d+ Thread_\d+", line)]
-    by_tid = thread_wakes.sample_threads(text)
+    wakes_lib = _thread_wakes()
+    by_tid = wakes_lib.sample_threads(text) if wakes_lib else {}
     top, in_top = [], False
     for line in text.splitlines():
         if line.startswith("Sort by top of stack"):
@@ -315,16 +327,20 @@ class Attribution:
         timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
         pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
         stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
+        thread_wakes = _thread_wakes()
         # Each thread named: its pthread name, else its sample header or first frames (by thread id).
         for key, rows in threads.items():
             sampled = stacks.get(key, {}).get("by_tid") or {}
             for row in rows:
-                row["label"] = thread_wakes.label(row["name"], sampled.get(row["thread"]))
+                row["label"] = thread_wakes.label(row["name"], sampled.get(row["thread"])) if thread_wakes else row["name"]
         # --attribute-trace: per-thread wakeups from a System Trace after the window (so it is not in
         # the rusage window), each thread named the same way.
         wakes = {}
         for pid, kind in (pids.items() if self.trace_s > 0 else ()):
             key = f"{kind}:{pid}"
+            if thread_wakes is None:
+                wakes[key] = {"error": "no thread_wakes.py beside bench_memory.py"}
+                continue
             got = thread_wakes.record(pid, self.trace_s)
             sampled = stacks.get(key, {}).get("by_tid") or {}
             if got.get("error"):
@@ -333,7 +349,7 @@ class Attribution:
             wakes[key] = thread_wakes.summarize(got, sampled)
         for stack in stacks.values():
             stack.pop("by_tid", None)
-        return {"thread_wakes": wakes,"window_s": round(seconds, 1), "threads": threads,
+        return {"thread_wakes": wakes, "window_s": round(seconds, 1), "threads": threads,
                 "ledger": [{k: e.get(k) for k in ("owner", "reason", "count")} for e in ledger[:25]],
                 "frame_clients": wakeups.get("active_frame_clients"),
                 "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],

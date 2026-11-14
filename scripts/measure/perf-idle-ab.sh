@@ -9,7 +9,7 @@
 #   base=SHA, head=SHA  the two commits (40 hex)
 #   rounds=N            launches per arm and chat count (default 5, at most 8)
 #   chats=0,1,10        idle chat counts: 0 is one terminal workspace (no chat); N is N agent chats on the
-#                       acpmux test agent, each answered once (perf-10x-idle.sh agents=)
+#                       acpmux test agent, each answered once, plus the launch workspace (no chat)
 #   measure=S           seconds of each idle window (default 60)
 #   trace=S             seconds of System Trace per attributed process after each window: each thread's
 #                       wakeups per second with its name (bench_memory.py --attribute-trace); 0 for none
@@ -130,7 +130,8 @@ IFS=, read -r -a chat_counts <<< "$chats"
 agent_counts=""
 terminal=false
 for n in "${chat_counts[@]}"; do
-  if [ "$n" = 0 ]; then terminal=true; else agent_counts="${agent_counts:+$agent_counts,}$n"; fi
+  # bench_memory counts workspaces, and the launch workspace has no chat: N chats is N+1 workspaces.
+  if [ "$n" = 0 ]; then terminal=true; else agent_counts="${agent_counts:+$agent_counts,}$((n + 1))"; fi
 done
 attribute=(--attribute --attribute-kinds "$kinds" --attribute-trace "$trace")
 status=0
@@ -175,7 +176,8 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
     for s in data.get("samples", []):
         if not s["label"].startswith("idle-") or s["label"] == "idle-launch":
             continue
-        chats = 0 if mode == "terminal" else int(s["label"][5:])
+        # N+1 workspaces, the launch one without a chat (run_arm): N chats.
+        chats = 0 if mode == "terminal" else int(s["label"][5:]) - 1
         for kind, e in s["kinds"].items():
             if e.get("wakeups_per_s") is None:
                 continue

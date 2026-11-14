@@ -32,6 +32,17 @@ TABLE = """<?xml version="1.0"?>
 <row><start-time fmt="00:01.003">4000</start-time><duration fmt="20 us">20000</duration><thread ref="3"/><thread-state ref="7"/></row>
 <row><start-time fmt="00:00.000">0</start-time><duration fmt="1 ms">1000000</duration>
  <thread id="10" fmt="Main Thread 0x10 (cmux DEV, pid: 42)"><tid id="11">16</tid><process ref="5"/></thread><thread-state ref="7"/></row>
+<row><start-time fmt="00:00.000">0</start-time><duration fmt="1 s">1000000000</duration>
+ <thread id="20" fmt="0x309 (cmux DEV, pid: 42)"><tid id="21">777</tid><process ref="5"/></thread><thread-state ref="8"/></row>
+<row><start-time fmt="00:01.000">1000</start-time><duration fmt="2 us">2000</duration><thread ref="20"/>
+ <thread-state id="22" fmt="Runnable">Runnable</thread-state></row>
+<row><start-time fmt="00:01.001">1001</start-time><duration fmt="10 us">10000</duration><thread ref="20"/><thread-state ref="7"/></row>
+<row><start-time fmt="00:01.002">1002</start-time><duration fmt="1 s">1000000000</duration><thread ref="20"/><thread-state ref="8"/></row>
+<row><start-time fmt="00:02.002">2002</start-time><duration fmt="2 us">2000</duration><thread ref="20"/><thread-state ref="22"/></row>
+<row><start-time fmt="00:02.003">2003</start-time><duration fmt="10 us">10000</duration><thread ref="20"/><thread-state ref="7"/></row>
+<row><start-time fmt="00:02.004">2004</start-time><duration fmt="5 us">5000</duration><thread ref="20"/><thread-state ref="9"/></row>
+<row><start-time fmt="00:02.005">2005</start-time><duration fmt="2 us">2000</duration><thread ref="20"/><thread-state ref="22"/></row>
+<row><start-time fmt="00:02.006">2006</start-time><duration fmt="10 us">10000</duration><thread ref="20"/><thread-state ref="7"/></row>
 <row><start-time fmt="00:00.000">0</start-time><duration fmt="1 ms">1000000</duration>
  <thread id="12" fmt="0x99 (other, pid: 7)"><tid id="13">153</tid><process id="14" fmt="other (7)"><pid id="15">7</pid></process></thread><thread-state ref="7"/></row>
 </node></trace-query-result>
@@ -73,6 +84,12 @@ class CountWakes(unittest.TestCase):
         self.assertEqual(worker["name"], "")
         self.assertEqual(threads[16]["name"], "Main Thread")
 
+    def test_wake_through_runnable(self):
+        # Blocked, Runnable, Running (a wakeup), Blocked, Runnable, Running (a wakeup), Preempted,
+        # Runnable, Running (the same run).
+        worker = thread_wakes.count_wakes(self.path, pid=42)[777]
+        self.assertEqual((worker["wakes"], worker["runs"]), (2, 3))
+
     def test_other_processes_are_left_out(self):
         self.assertNotIn(153, thread_wakes.count_wakes(self.path, pid=42))
         self.assertIn(153, thread_wakes.count_wakes(self.path))
@@ -81,10 +98,10 @@ class CountWakes(unittest.TestCase):
         threads = thread_wakes.count_wakes(self.path, pid=42)
         sampled = thread_wakes.sample_threads(SAMPLE)
         got = thread_wakes.summarize({"seconds": 2, "threads": threads}, sampled)
-        self.assertEqual(got["total_wakes_per_s"], 1.5)
-        first = got["threads"][0]
-        self.assertEqual((first["thread"], first["wakes_per_s"]), (4146258, 1.0))
-        self.assertEqual(first["label"], "~AppHealth.arm() > DemandTimer.fire()")
+        self.assertEqual(got["total_wakes_per_s"], 2.5)
+        # Most wakeups first, ties by thread id.
+        self.assertEqual([(r["thread"], r["wakes_per_s"]) for r in got["threads"]], [(777, 1.0), (4146258, 1.0), (16, 0.5)])
+        self.assertEqual(got["threads"][1]["label"], "~AppHealth.arm() > DemandTimer.fire()")
 
 
 class SampleNames(unittest.TestCase):
