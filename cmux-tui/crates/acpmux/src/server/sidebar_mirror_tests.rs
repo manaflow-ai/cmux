@@ -267,7 +267,7 @@ impl Ffi {
         let mut changes = Vec::new();
         let mut offset = 0;
         while offset < bytes.len() {
-            let end = bytes.len().min(offset + chunk);
+            let end = bytes.len().min(offset.saturating_add(chunk));
             let consumed = self.received(&bytes[offset..end]);
             let more = self.changes();
             if consumed == 0 && more.is_empty() {
