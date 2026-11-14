@@ -93,25 +93,40 @@ public final class DaemonHealthSink: Sendable {
 }
 
 /// One ensure's progress for app health: its first progress write is the start (``DaemonHealthSink/Signal/started``),
-/// then each write is ``DaemonHealthSink/Signal/restoring``. ``end(_:)`` sends the ensure's outcome.
+/// then each write is ``DaemonHealthSink/Signal/restoring``, until ``end(_:)`` sends the ensure's outcome.
+///
+/// The writes arrive on the stdout watch's own queue, so the ensure's last one (its JSON result) can be
+/// seen after the ensure returned. A write after the end is dropped: noted late, it read as a restore
+/// that never progressed, and app health showed "Session service isn't responding" (2026-11-13).
 final class EnsureProgressNote: Sendable {
+    private enum Phase { case waiting, started, ended }
+
     private let sink: DaemonHealthSink
-    private let started = Mutex(false)
+    // Lock carve-out: the stdout watch's synchronous DispatchSource handler and the ensure's end race
+    // on this phase; the note is sent under it so no progress lands after the outcome.
+    private let phase = Mutex(Phase.waiting)
 
     init(_ sink: DaemonHealthSink) { self.sink = sink }
 
     func progressed() {
-        let first = started.withLock { started in
-            defer { started = true }
-            return !started
+        phase.withLock { phase in
+            switch phase {
+            case .ended: return
+            case .waiting:
+                phase = .started
+                sink.note(.started)
+            case .started: break
+            }
+            sink.note(.restoring)
         }
-        if first { sink.note(.started) }
-        sink.note(.restoring)
     }
 
     /// The ensure ended: `outcome` is ``DaemonHealthSink/Signal/ready(pid:)``, ``DaemonHealthSink/Signal/exited``,
-    /// or nil for a refused replace (which stopped nothing).
+    /// or nil for a refused replace (which stopped nothing). Later writes are dropped.
     func end(_ outcome: DaemonHealthSink.Signal?) {
-        if let outcome { sink.note(outcome) }
+        phase.withLock { phase in
+            phase = .ended
+            if let outcome { sink.note(outcome) }
+        }
     }
 }

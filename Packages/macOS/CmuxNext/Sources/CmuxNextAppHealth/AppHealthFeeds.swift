@@ -20,7 +20,7 @@ public import Foundation
 /// - the session daemon connection (`acpmux`, "Connection to the session service"): connected or not,
 ///   answering its heartbeat and its requests or not (`DaemonHealthSink`: the first
 ///   timed-out request shows it at once). Repairs: Retry Now, then a reconnect with a fresh drop budget;
-///   never a kill;
+///   never a kill. A connection that is up and answering also tells `sessionDaemon` its owner is ready;
 /// - the page host (`pageHost`): page loads and the daemon's page listener (asked for when a page
 ///   found no listener credential). Repair: `DaemonService.ensurePageListener()`.
 @MainActor
@@ -199,9 +199,14 @@ enum AppHealthConnectionFeed {
         switch link {
         case .starting:
             break
-        case .up:
+        case .up(let pid):
             health.event(AppHealth.acpmuxID, .connected)
             health.visibility(AppHealth.acpmuxID, visible: false)
+            // An owner that is connected and answers is serving: it is not restoring and not in a
+            // start loop, whatever an earlier ensure or replace left (a progress line seen after its
+            // end, a replace refused after it wrote). Without this a stale restore read as stalled
+            // and showed "Session service isn't responding" until the next launch (2026-11-13).
+            health.noteDaemonReady(pid: pid ?? 0)
         case .down:
             health.visibility(AppHealth.acpmuxID, visible: true)
             health.event(AppHealth.acpmuxID, .disconnected)
