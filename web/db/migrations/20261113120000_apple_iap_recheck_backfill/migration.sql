@@ -24,4 +24,7 @@ CREATE TABLE IF NOT EXISTS "apple_notification_history_cursors" (
   "retryable_runs" integer DEFAULT 0 NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "apple_notification_history_cursors_pkey" PRIMARY KEY ("bundle_id", "environment")
-);
+);--> statement-breakpoint
+
+-- For a database that ran an earlier copy of this migration without the column.
+ALTER TABLE "apple_notification_history_cursors" ADD COLUMN IF NOT EXISTS "retryable_runs" integer DEFAULT 0 NOT NULL;

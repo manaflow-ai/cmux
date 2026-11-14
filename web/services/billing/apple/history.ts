@@ -16,9 +16,9 @@ import { AppleVerificationError } from "./verifier";
 const HOUR = 60 * 60 * 1000;
 /** Each window starts this much before the previous one ended. */
 export const APPLE_HISTORY_OVERLAP_MS = HOUR;
-/** Apple keeps 180 days; a new window starts at most 179 days back... */
-export const APPLE_HISTORY_RETENTION_MS = 179 * 24 * HOUR;
-/** ...so a partly read window stays resumable for a day before it falls off Apple's limit. */
+/** Apple keeps 180 days; a new window starts at most 178 days back... */
+export const APPLE_HISTORY_RETENTION_MS = 178 * 24 * HOUR;
+/** ...so even the oldest partly read window stays resumable for two days. */
 const APPLE_HISTORY_LIMIT_MS = 180 * 24 * HOUR;
 /** Pages (up to 20 notifications each) one cron run reads per history. */
 const PAGES_PER_SOURCE = 5;
@@ -27,11 +27,13 @@ const PAGES_PER_SOURCE = 5;
  * then moves in steps that each finish (and move the cursor) long before
  * their start ages out of Apple's 180 days, so progress is never lost.
  */
-export const APPLE_HISTORY_WINDOW_MS = 7 * 24 * HOUR;
+export const APPLE_HISTORY_WINDOW_MS = 24 * HOUR;
 /**
  * Consecutive runs a history may stop on a retryable verification failure
  * (about a day at two runs an hour) before that page's still-unverifiable
  * payloads are counted as rejected, so one payload cannot stall the history.
+ * Only on the page that stalled, and only when another payload on it
+ * verified; a page where nothing verifies is an outage and keeps stalling.
  */
 export const APPLE_HISTORY_MAX_RETRYABLE_RUNS = 48;
 
@@ -127,21 +129,37 @@ async function ingestPage(
   deps: AppleIapDependencies,
   skipRetryable: boolean,
 ): Promise<void> {
+  // UUIDs that failed as retryable while skipping is allowed; dropped only if
+  // something else on the page verified (otherwise it is an outage).
+  const unverifiable: (string | null)[] = [];
+  let verified = 0;
   for (const signedPayload of signedPayloads) {
     const uuid = claimedNotificationUuid(signedPayload);
     if (uuid && await deps.store.notification(uuid)) {
       counts.duplicate += 1;
+      verified += 1;
       continue;
     }
     try {
       counts[await receiveAppleNotification(signedPayload, deps)] += 1;
+      verified += 1;
     } catch (error) {
       if (!(error instanceof AppleVerificationError)) throw error;
-      if (error.reason === "retryable" && !skipRetryable) throw error;
+      if (error.reason === "retryable") {
+        if (!skipRetryable) throw error;
+        unverifiable.push(uuid);
+        continue;
+      }
       counts.rejected += 1;
-      const log = error.reason === "retryable" ? console.error : console.warn;
-      log("apple_iap.history_notification_rejected", { ...source, reason: error.reason, notificationUuid: uuid });
+      console.warn("apple_iap.history_notification_rejected", { ...source, reason: error.reason, notificationUuid: uuid });
     }
+  }
+  if (unverifiable.length === 0) return;
+  // Nothing on the page verified: Apple's check is down, keep stalling.
+  if (verified === 0) throw new AppleVerificationError("retryable");
+  for (const notificationUuid of unverifiable) {
+    counts.rejected += 1;
+    console.error("apple_iap.history_notification_rejected", { ...source, reason: "retryable", notificationUuid });
   }
 }
 
@@ -178,7 +196,8 @@ async function backfillSource(
     while (pages < pagesPerSource && Date.now() < deadlineMs) {
       const page = await serverApi.notificationHistory({ ...source, ...window });
       pages += 1;
-      await ingestPage(page.signedPayloads, source, counts, deps, skipRetryable);
+      // Only the page the stall counter was earned on (the run's first page).
+      await ingestPage(page.signedPayloads, source, counts, deps, skipRetryable && pages === 1);
       if (page.hasMore) {
         if (!page.paginationToken) throw new Error("Apple reported more history without a pagination token");
         window = { ...window, paginationToken: page.paginationToken };
