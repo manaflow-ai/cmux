@@ -366,10 +366,16 @@ async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Resu
     };
     let spawned = client.spawn_process_with_events(process, request).await?;
     let _raw = if parsed.tty { RawMode::enter() } else { None };
-    let input = tokio::spawn(forward_stdin(client.clone(), process));
-    let status = stream_process(&client, spawned, parsed.tty).await;
-    input.abort();
-    status
+    // Input runs beside the output loop in this future (no task to own): the
+    // command's status ends both, and an input side that finished waits.
+    let input = async {
+        forward_stdin(&client, process).await;
+        std::future::pending::<anyhow::Result<i32>>().await
+    };
+    tokio::select! {
+        status = stream_process(&client, spawned, parsed.tty) => status,
+        status = input => status,
+    }
 }
 
 enum StdinChunk {
@@ -406,7 +412,7 @@ fn spawn_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<StdinChunk
 /// time, and EOF at local EOF. It runs beside the output loop so a command
 /// blocked on a full stdout can never stall its own input. A write the
 /// daemon refuses (the command closed stdin or exited) stops forwarding.
-async fn forward_stdin(client: Arc<WorkspaceClient>, process: ProcessId) {
+async fn forward_stdin(client: &WorkspaceClient, process: ProcessId) {
     let Ok(mut input) = spawn_stdin_reader() else { return };
     let mut write_id = 0_u64;
     loop {
