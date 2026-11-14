@@ -6,8 +6,9 @@
 //! for one origin leave the queue in the order they came. Rows of another
 //! source for the same origin wait in the row slots and are refused by
 //! ownership when the writer reaches them, so no row slot can carry a change
-//! the mark claims. At most one unit per origin is unapplied: the slot or the
-//! writer's storage retry holds it, and a second one is refused as full.
+//! the mark claims. At most two units per origin are unapplied: one in the
+//! writer's storage retry and one the slot took meanwhile, joined into one
+//! append; another is refused as full.
 use super::*;
 use acpmux_book::index::{IndexRecord, MarkRecord, MirrorMark};
 use std::collections::HashSet;
@@ -88,11 +89,20 @@ pub(super) struct WriterMirror {
     pub counters: Arc<Counters>,
     units: HashMap<String, RetryUnit>,
     off: HashSet<String>,
+    /// Unit appends a test makes fail before they write.
+    #[cfg(test)]
+    pub fail_appends: usize,
 }
 
 impl WriterMirror {
     pub(super) fn new(counters: Arc<Counters>) -> Self {
-        Self { counters, units: HashMap::new(), off: HashSet::new() }
+        Self {
+            counters,
+            units: HashMap::new(),
+            off: HashSet::new(),
+            #[cfg(test)]
+            fail_appends: 0,
+        }
     }
 
     pub(super) fn retry_pending(&self) -> bool {
@@ -249,8 +259,18 @@ impl HubWriter {
             records.push(record);
         }
         let mark = MarkRecord { seq, origin: origin.to_owned(), mark: unit.mark };
+        #[cfg(test)]
+        let injected = self.mirror.fail_appends.checked_sub(1).map(|left| {
+            self.mirror.fail_appends = left;
+        });
+        #[cfg(not(test))]
+        let injected: Option<()> = None;
         if let Some(log) = self.log.as_mut() {
-            match log.append_unit(&records, &mark) {
+            let appended = match injected {
+                Some(()) => Err(std::io::Error::other("injected append failure")),
+                None => log.append_unit(&records, &mark),
+            };
+            match appended {
                 Ok(_) => {
                     counters.mark_bytes.fetch_add(mark.encoded_len(), Ordering::Relaxed);
                     self.log_dirty = true;

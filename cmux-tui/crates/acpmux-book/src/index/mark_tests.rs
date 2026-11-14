@@ -267,3 +267,34 @@ fn a_removed_origin_drops_its_mark() {
     drop(log);
     assert_eq!(replay_log(&path, SummaryIndex::new()).unwrap().mirror_mark(ORIGIN), None);
 }
+
+/// A mark with no rows carries the sequence of a record that is not its own
+/// (here a local row), and a write-off after it carries the same one. The
+/// opener keeps both and the replay applies them in order.
+#[test]
+fn a_mark_sharing_another_records_sequence_is_kept_by_the_opener() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.log");
+    let mut log = IndexLog::open(&path).unwrap();
+    let local = log.append(Summary::new("mine")).unwrap();
+    let walked = MarkRecord {
+        seq: local.seq,
+        origin: ORIGIN.to_owned(),
+        mark: Some(MirrorMark { cursor: 7, edition: 2, whole: true }),
+    };
+    log.append_mark(&walked).unwrap();
+    let after = log.offset();
+    let reopened = replay_log(&path, SummaryIndex::new()).unwrap();
+    assert_eq!(reopened.mirror_mark(ORIGIN), walked.mark);
+    log.append_mark(&MarkRecord { mark: None, ..walked.clone() }).unwrap();
+    log.sync().unwrap();
+    let length = log.offset();
+    assert!(length > after);
+    drop(log);
+    let log = IndexLog::open(&path).unwrap();
+    assert_eq!(log.offset(), length, "the opener cut nothing");
+    assert_eq!(log.next_seq(), local.seq);
+    let replayed = replay_log(&path, SummaryIndex::new()).unwrap();
+    assert_eq!(replayed.mirror_mark(ORIGIN), None);
+    assert_eq!(replayed.len(), 1);
+}

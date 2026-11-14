@@ -175,3 +175,154 @@ fn removals_and_closed_rows_follow_the_remote_row_rules() {
     assert!(index.get_row(&RowKey::new(ORIGIN, "never-live")).is_none());
     assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(2));
 }
+
+fn log_path(writer: &HubWriter) -> std::path::PathBuf {
+    writer.log.as_ref().expect("disk log").path().to_owned()
+}
+
+/// A frame that only moves the cursor, or turns `whole` true after a walk's
+/// last page, is written: its mark alone, carrying the sequence of a record
+/// that is not its own row. The opener keeps it, and a takeover's write-off
+/// after it, without cutting the log.
+#[test]
+fn a_unit_with_no_rows_writes_its_mark_alone_and_reopens_whole() {
+    let directory = tempfile::tempdir().unwrap();
+    let path;
+    {
+        let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+        hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+        writer.process_batch();
+        hub.submit(row("local", "mine", 3)).unwrap();
+        writer.process_batch();
+        let seq = hub.snapshot().seq();
+        let walked = MirrorUnit {
+            origin: ORIGIN.to_owned(),
+            changes: Vec::new(),
+            mark: MirrorMark { cursor: 2, edition: 4, whole: true },
+        };
+        hub.submit_unit(Source::Mirror, walked).unwrap();
+        writer.process_batch();
+        writer.sync_batch().unwrap();
+        assert_eq!(hub.snapshot().seq(), seq, "a mark takes no sequence");
+        assert_eq!(
+            hub.mirror_mark(ORIGIN),
+            Some(MirrorMark { cursor: 2, edition: 4, whole: true })
+        );
+        path = log_path(&writer);
+    }
+    let length = std::fs::metadata(&path).unwrap().len();
+    {
+        let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), length, "the opener cut nothing");
+        assert_eq!(
+            hub.mirror_mark(ORIGIN),
+            Some(MirrorMark { cursor: 2, edition: 4, whole: true })
+        );
+        hub.takeover(ORIGIN, Source::Mirror).unwrap();
+        writer.process_batch();
+        writer.sync_batch().unwrap();
+    }
+    let length = std::fs::metadata(&path).unwrap().len();
+    let (hub, _writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), length, "the write-off was kept");
+    assert_eq!(hub.mirror_mark(ORIGIN), None);
+    assert!(hub.snapshot().get_row(&RowKey::new("local", "mine")).is_some());
+}
+
+/// At most two units per origin are unapplied: one in the writer's storage
+/// retry and one more the slot took while that append failed. A third is
+/// refused with nothing applied. The two are written as one append, rows of
+/// both and then the newer mark, so no cut leaves the newer mark over the
+/// older unit's rows alone.
+#[test]
+fn the_bound_is_two_frames_joined_into_one_append() {
+    let directory = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    hub.submit_unit(Source::Mirror, unit(1, &["a", "b"])).unwrap();
+    let batch = hub.updates.take_batch();
+    // The slot is free while the writer holds the first unit.
+    hub.submit_unit(Source::Mirror, unit(2, &["c"])).unwrap();
+    writer.mirror.fail_appends = 1;
+    for (key, update) in batch {
+        assert!(writer.dispatch_update(key, update).is_err(), "the append failed");
+    }
+    assert_eq!(hub.mirror_counts().storage, 1);
+    let refused = hub.submit_unit(Source::Mirror, unit(3, &["d"]));
+    assert!(matches!(refused, Err(HubError::UnitQueueFull)), "{refused:?}");
+    assert_eq!(hub.mirror_counts().full, 1);
+    assert!(titles(&hub).is_empty());
+    assert_eq!(hub.mirror_mark(ORIGIN), None);
+    let start = writer.log.as_ref().unwrap().offset();
+    writer.process_batch();
+    writer.sync_batch().unwrap();
+    assert_eq!(titles(&hub), ["a at 1", "b at 1", "c at 2"]);
+    assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(2));
+    assert_eq!(hub.mirror_counts().applied, 1, "one append for both");
+    // The slot is free again.
+    hub.submit_unit(Source::Mirror, unit(3, &["d"])).unwrap();
+    let path = log_path(&writer);
+    let end = writer.log.as_ref().unwrap().offset();
+    drop((hub, writer));
+    let bytes = std::fs::read(&path).unwrap();
+    for cut in start..=end {
+        let copy = tempfile::tempdir().unwrap();
+        std::fs::write(copy.path().join("index.log"), &bytes[..cut as usize]).unwrap();
+        let (hub, _writer) = Hub::open(copy.path(), 101, || 7).unwrap();
+        if hub.mirror_mark(ORIGIN).is_some() {
+            assert_eq!(cut, end, "the mark is the append's last bytes");
+            assert_eq!(titles(&hub), ["a at 1", "b at 1", "c at 2"]);
+        }
+    }
+}
+
+/// A kill between a unit's last row and its mark: the rows are on disk, the
+/// mark is the older one, and the resumed frame brings the same rows again.
+/// The writer drops the equal rows, so a subscriber gets nothing the first
+/// apply did not already send.
+#[test]
+fn a_kill_before_the_mark_resumes_with_no_second_op() {
+    let directory = tempfile::tempdir().unwrap();
+    let path;
+    {
+        let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+        hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+        writer.process_batch();
+        hub.submit_unit(Source::Mirror, unit(2, &["a", "b"])).unwrap();
+        writer.process_batch();
+        writer.sync_batch().unwrap();
+        path = log_path(&writer);
+    }
+    let mark = acpmux_book::index::MarkRecord {
+        seq: 0,
+        origin: ORIGIN.to_owned(),
+        mark: Some(MirrorMark { cursor: 2, edition: 4, whole: true }),
+    };
+    let length = std::fs::metadata(&path).unwrap().len();
+    let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    file.set_len(length - mark.encoded_len()).unwrap();
+    drop(file);
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(1), "the older mark");
+    assert_eq!(titles(&hub), ["a at 2", "b at 2"], "the rows are on disk");
+    let seq = hub.snapshot().seq();
+    let subscription = hub.subscribe(&Sub::new("resume", "list")).unwrap();
+    hub.submit_unit(Source::Mirror, unit(2, &["a", "b"])).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(2));
+    assert_eq!(hub.snapshot().seq(), seq, "no row written again");
+    assert!(subscription.receiver.try_next().is_none(), "no second op");
+}
+
+/// A row of another producer waiting in a keyed slot for a mirrored origin
+/// is refused by ownership and counted in `refused_source_submits`.
+#[test]
+fn a_keyed_row_refused_by_ownership_is_counted() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.process_batch();
+    let before = refused_source_submits();
+    hub.submit_from(Source::V1, row(ORIGIN, "a", 9)).unwrap();
+    writer.process_batch();
+    assert!(refused_source_submits() > before);
+    assert_eq!(titles(&hub), ["a at 1"]);
+}

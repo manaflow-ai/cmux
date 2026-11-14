@@ -708,7 +708,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.mirror_apply",
-        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
+        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate. At most two units per origin are unapplied (one in the storage retry, one in the slot), joined into one append.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
