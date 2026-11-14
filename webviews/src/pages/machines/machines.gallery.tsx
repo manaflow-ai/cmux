@@ -101,6 +101,23 @@ export default componentEntry<Props>({
         },
       },
     },
+    "device-glyphs": {
+      note: "Each machine draws the device it reported (cmux-device-kind's SF Symbol, in the same 16 px icon box): a Mac mini, a Linux server, a Linux desktop, an offline Mac Studio. Cloud machines keep the cloud.",
+      props: {
+        snapshot: {
+          ...sampleSnapshot,
+          rows: sampleRows.map((row) => {
+            const symbol = {
+              local: "macmini",
+              "fixture-ssh-1": "server.rack",
+              "fixture-ssh-2": "macstudio",
+              "fixture-server-1": "pc",
+            }[row.id];
+            return symbol ? { ...row, symbol } : row;
+          }),
+        },
+      },
+    },
     "this-mac-only": {
       note: "No remote machine yet: This Mac, then Add Machine….",
       props: { snapshot: { rows: [thisMac], style: "compact", busy: [], failed: {} } },
