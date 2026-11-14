@@ -366,7 +366,8 @@ impl Hub {
         // The config being written: the strictest default, so the chat counts as held.
         let default =
             self.config.try_read().map_or(PermissionPolicy::DenyAll, |c| c.permission_policy);
-        if !super::policy_mode::out_of_policy(meta, default, &self.web_modes())
+        let family = self.trusted_mode_family(meta);
+        if !super::policy_mode::out_of_policy(meta, default, &family, &self.web_modes())
             || device.is_some_and(|d| self.pairing.full_access(d))
         {
             return Ok(());

@@ -589,10 +589,16 @@ impl Hub {
         if self.is_start_full_access(meta, mode).await {
             return true;
         }
-        // A Claude chat: its family, or (a profile under another name) Claude Code's own modes.
+        // A Claude chat: its configured profile is Claude Code (`trusted_mode_family`), never the
+        // mode names the agent offers, which any ACP agent writes (cmux#40568).
         let offered = available(meta);
-        let claude = crate::web_modes::family_of(meta) == "claude"
-            || crate::claude_stdio::MODES.iter().all(|(id, ..)| offered.iter().any(|m| m == id));
+        let claude = {
+            let cfg = self.config.read().await;
+            crate::web_modes::trusted_mode_family(
+                cfg.profile(&meta.harness),
+                crate::web_modes::family_of(meta),
+            ) == "claude"
+        };
         if meta.remote_origin
             || mode != crate::claude_stdio::OWN_MODE
             || !claude
@@ -622,8 +628,8 @@ impl Hub {
         }
         // A chat with its own policy narrower than approve-all runs in the mode that keeps it
         // (`policy_mode.rs`), never in the start level.
-        let default = self.config.read().await.permission_policy;
-        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+        let held = Self::mode_for_policy(&meta, &offered, &*self.config.read().await);
+        let mode = match held {
             Some(mode) => mode,
             None => {
                 let (level, _) = self.start_level(&meta.harness).await;
@@ -647,8 +653,8 @@ impl Hub {
         if offered.is_empty() {
             return None;
         }
-        let default = self.config.read().await.permission_policy;
-        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+        let held = Self::mode_for_policy(&meta, &offered, &*self.config.read().await);
+        let mode = match held {
             Some(mode) => mode,
             None => self.inherited_mode(&theirs, &meta, &offered).await,
         };

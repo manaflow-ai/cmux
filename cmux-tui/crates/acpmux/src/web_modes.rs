@@ -369,24 +369,16 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
-/// The family whose permission modes `m`'s agent offers: `claude` for every chat on acpmux's own
-/// Claude Code backend (`claude_stdio`), whatever family its profile declares, else `family_of`.
-/// A launcher profile such as `claude-sr2` (`sr2 claude`) names its own family to stay out of
-/// the default Claude row, but runs Claude Code with Claude Code's modes: keyed by that family,
-/// the mode tables knew no mode that asks, and a chat under deny-all or review stayed in `auto`.
-pub(crate) fn mode_family(m: &SessionMeta) -> String {
-    mode_family_by(m.agent_info.as_ref(), m.family.as_deref(), &m.harness)
-}
-
 /// The one rule of every gate that lets a mode through without the person (the Web gates, and the
 /// local person gates for a client that is not the person): `claude` only when `entry`, the config
 /// entry that runs, is kind `claude-stdio` (a launcher such as `claude-sr2` included), else
 /// `family`. It never believes the agent's own `agentInfo`, which any ACP agent writes: an agent
 /// that names itself `claude-stdio` keeps its own family's row. With no config entry (a folder
 /// profile, an entry removed, a config being written) it is `family`, never wider (fail closed).
-/// `policy_mode.rs` still reads [`mode_family`], which believes `agentInfo`: that is a known gap
-/// (an impostor of family `lane` is held in Claude's `default`, and `policy_gate::has_gate` and
-/// `start_mode::may_move_without_person` trust agent-reported data too): cmux#40568.
+/// A launcher profile such as `claude-sr2` (`sr2 claude`) names its own family to stay out of
+/// the default Claude row, but runs Claude Code with Claude Code's modes. The policy gates read
+/// it too (`policy_mode::policy_family`, `policy_gate::has_gate`,
+/// `start_mode::may_move_without_person`; cmux#40568).
 pub(crate) fn trusted_mode_family(
     entry: Option<&crate::config::HarnessProfile>,
     family: String,
@@ -397,16 +389,17 @@ pub(crate) fn trusted_mode_family(
     family
 }
 
-/// [`mode_family`] of a profile before its session exists: `claude` for a profile of acpmux's own
+/// [`trusted_mode_family`] of a profile before its session exists: `claude` for a profile of acpmux's own
 /// Claude Code backend (kind `claude-stdio`, a launcher such as `claude-sr2` included), else its
 /// family (`config::derive_family`).
 pub(crate) fn profile_mode_family(agent: &str, profile: &crate::config::HarnessProfile) -> String {
     trusted_mode_family(Some(profile), crate::config::derive_family(agent, profile))
 }
 
-/// [`mode_family`] from a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`),
-/// for a client that holds no `SessionMeta`: the same rule ([`mode_family_by`]). `None` when the
-/// detail names no harness.
+/// The family whose modes a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`)
+/// shows, for a client that holds no `SessionMeta` ([`mode_family_by`]). It believes `agentInfo`,
+/// so it only words a CLI warning: no gate reads it ([`trusted_mode_family`] is the gates' rule).
+/// `None` when the detail names no harness.
 pub(crate) fn mode_family_of_detail(detail: &serde_json::Value) -> Option<String> {
     use serde_json::Value;
     let harness = detail.get("harness").and_then(Value::as_str)?;
@@ -414,8 +407,8 @@ pub(crate) fn mode_family_of_detail(detail: &serde_json::Value) -> Option<String
     Some(mode_family_by(detail.get("agentInfo"), family, harness))
 }
 
-/// The one rule of [`mode_family`] and [`mode_family_of_detail`]: `claude` for acpmux's own Claude
-/// Code backend (by `agent_info`), else the family, else the harness name.
+/// The rule of [`mode_family_of_detail`]: `claude` for acpmux's own Claude Code backend (by
+/// `agent_info`), else the family, else the harness name.
 fn mode_family_by(
     agent_info: Option<&serde_json::Value>,
     family: Option<&str>,

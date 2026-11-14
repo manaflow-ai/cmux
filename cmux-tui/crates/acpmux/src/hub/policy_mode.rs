@@ -181,10 +181,10 @@ impl Hub {
     pub(super) fn mode_for_policy(
         meta: &SessionMeta,
         offered: &[String],
-        default: PermissionPolicy,
+        cfg: &Config,
     ) -> Option<Option<String>> {
-        let policy = narrow_policy(meta, default)?;
-        Some(policy_mode(policy, &crate::web_modes::mode_family(meta), offered))
+        let policy = narrow_policy(meta, cfg.permission_policy)?;
+        Some(policy_mode(policy, &policy_family(meta, cfg), offered))
     }
 
     /// After a chat's start mode is set: a policy narrower than approve-all that its harness's
@@ -194,10 +194,10 @@ impl Hub {
         let Some(policy) = narrow_policy(&meta, cfg.permission_policy) else { return };
         // Its PreToolUse gate holds the policy in any mode (`policy_gate.rs`), and so does an agent
         // that asks before every tool call.
-        if super::policy_gate::has_gate(&meta) || asks_before_tools(&meta, cfg) {
+        if super::policy_gate::has_gate(&meta, cfg) || asks_before_tools(&meta, cfg) {
             return;
         }
-        let family = crate::web_modes::mode_family(&meta);
+        let family = policy_family(&meta, cfg);
         let offered = super::start_mode::offered_ids(&meta);
         let current = crate::web_modes::mode_of(&meta);
         let wanted = policy_mode(policy, &family, &offered);
@@ -230,10 +230,12 @@ impl Hub {
 
     /// `follow_policy`'s move of the chat's mode.
     async fn follow_policy_mode(self: &Arc<Self>, session: &Arc<Session>) {
-        let default = self.config.read().await.permission_policy;
         let meta = session.meta();
+        let (default, family) = {
+            let cfg = self.config.read().await;
+            (cfg.permission_policy, policy_family(&meta, &cfg))
+        };
         let Some(policy) = narrow_policy(&meta, default) else { return };
-        let family = crate::web_modes::mode_family(&meta);
         if family == "opencode" {
             self.ask_opencode(session).await;
             self.note_unenforced_policy(session, &*self.config.read().await);
@@ -294,13 +296,17 @@ impl Hub {
     /// are adopted: which machine moved a chat is not kept, so a restart puts every such chat
     /// back (fail closed). Returns how many chats it put back.
     pub(crate) async fn hold_policies_again(self: &Arc<Self>) -> usize {
-        let default = self.config.read().await.permission_policy;
         let table = self.web_modes();
-        let held: Vec<Arc<Session>> = self
-            .sessions()
-            .into_iter()
-            .filter(|s| out_of_policy(&s.meta(), default, &table))
-            .collect();
+        let held: Vec<Arc<Session>> = {
+            let cfg = self.config.read().await;
+            self.sessions()
+                .into_iter()
+                .filter(|s| {
+                    let meta = s.meta();
+                    out_of_policy(&meta, cfg.permission_policy, &policy_family(&meta, &cfg), &table)
+                })
+                .collect()
+        };
         for s in &held {
             tracing::warn!(session = %s.id, "a machine's Full access ended: the chat goes back to its policy's mode");
             self.append(s, "mux", "full_access_ended", json!({}));
@@ -430,7 +436,7 @@ impl Hub {
         else {
             return;
         };
-        let family = crate::web_modes::mode_family(&meta);
+        let family = policy_family(&meta, &*self.config.read().await);
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
         let asks = super::start_mode::asks(&current, &family);
@@ -579,13 +585,15 @@ impl Hub {
             _ => None,
         };
         let Some(mode) = mode.and_then(Value::as_str) else { return Ok(()) };
-        let default = self.config.read().await.permission_policy;
         let meta = session.meta();
+        let (default, family) = {
+            let cfg = self.config.read().await;
+            (cfg.permission_policy, policy_family(&meta, &cfg))
+        };
         let Some(policy) = narrow_policy(&meta, default) else { return Ok(()) };
         if granted && meta.remote_origin && policy != PermissionPolicy::DenyAll {
             return Ok(());
         }
-        let family = crate::web_modes::mode_family(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let table = self.web_modes();
         if policy_mode(policy, &family, &offered).is_none()
@@ -610,13 +618,13 @@ impl Hub {
 /// entries an `asksBeforeTools` claim is judged against ([`claim_distrust`]).
 pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), RpcError> {
     let Some(policy) = narrow_policy(meta, cfg.permission_policy) else { return Ok(()) };
-    if super::policy_gate::has_gate(meta)
+    if super::policy_gate::has_gate(meta, cfg)
         || asks_before_tools(meta, cfg)
         || crate::web_modes::family_of(meta) == "opencode"
     {
         return Ok(());
     }
-    let family = crate::web_modes::mode_family(meta);
+    let family = policy_family(meta, cfg);
     let offered = super::start_mode::offered_ids(meta);
     let current = crate::web_modes::mode_of(meta);
     let held = match (policy_mode(policy, &family, &offered), current) {
@@ -718,20 +726,35 @@ pub(super) fn unenforceable(policy: PermissionPolicy, harness: &str, why: &str) 
 /// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
 /// what `refuse_wider_mode` refuses (a mode that does not ask, under a policy whose harness has
 /// a mode that keeps it), so only a paired machine's Full-access setting moves a chat there.
+///
+/// `family`: the family whose modes hold the policy ([`policy_family`], or
+/// `Hub::trusted_mode_family` where the config is being written).
 pub(super) fn out_of_policy(
     meta: &SessionMeta,
     default: PermissionPolicy,
+    family: &str,
     table: &crate::web_modes::WebModeTable,
 ) -> bool {
     if !meta.remote_origin {
         return false;
     }
-    let family = crate::web_modes::mode_family(meta);
     let offered = super::start_mode::offered_ids(meta);
     narrow_policy(meta, default)
-        .is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
+        .is_some_and(|policy| policy_mode(policy, family, &offered).is_some())
         && crate::web_modes::mode_of(meta)
-            .is_some_and(|mode| !super::start_mode::asks_in(&mode, &family, table.modes(&family)))
+            .is_some_and(|mode| !super::start_mode::asks_in(&mode, family, table.modes(family)))
+}
+
+/// The family whose modes hold `meta`'s policy: [`crate::web_modes::trusted_mode_family`] of the
+/// config entry that its harness names in `cfg` now. Never the agent's own `agentInfo`, which any
+/// ACP agent writes (cmux#40568): an agent of family `lane` that names itself `claude-stdio` is
+/// held in `lane`'s asking mode, not Claude Code's `default`. With no entry, the chat's own
+/// family, never wider.
+pub(super) fn policy_family(meta: &SessionMeta, cfg: &Config) -> String {
+    crate::web_modes::trusted_mode_family(
+        cfg.profile(&meta.harness),
+        crate::web_modes::family_of(meta),
+    )
 }
 
 /// What `Hub::set_for_full_access_device` sets.
