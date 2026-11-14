@@ -541,3 +541,32 @@ async fn an_oversized_answer_is_refused() {
     assert!(error.retryable());
     server.abort();
 }
+
+/// A token source that is signed out (it refuses to give a token).
+#[derive(Default)]
+struct SignedOut {
+    asks: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl TokenSource for SignedOut {
+    async fn access_token(&self, _force_refresh: bool) -> Result<Zeroizing<String>, CarrierError> {
+        self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(CarrierError::Unauthorized)
+    }
+}
+
+/// Review round 14: a token source that refuses (signed out) was asked again with a forced
+/// refresh, as if the platform had said 401. It fails once, with no refresh and no request.
+#[tokio::test]
+async fn a_signed_out_token_source_is_asked_once_and_nothing_is_sent() {
+    let tokens = Arc::new(SignedOut::default());
+    let platform =
+        Platform::with_tokens("https://cloud-api.cmux.dev", None, MACHINE, tokens.clone()).unwrap();
+    assert_eq!(platform.fetch(None).await.unwrap_err(), CarrierError::Unauthorized);
+    assert_eq!(
+        tokens.asks.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "a forced refresh followed the refusal"
+    );
+}

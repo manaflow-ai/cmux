@@ -184,10 +184,10 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(machine.handle(.resume) == [.probe(generation: machine.generation)])
     }
 
-    /// Review round 13: a Cloud carrier was closed and dialed again on every return to the
+    /// Review rounds 13 and 14: a Cloud carrier was closed and dialed again on every return to the
     /// foreground, and the dial asks the service for a carrier, which starts a machine that
-    /// idle-paused while the app was away. A live one is probed instead; a dial in flight is
-    /// still replaced, and a dead link fails the probe and takes the drop path.
+    /// idle-paused while the app was away. A live one is probed instead (a dead one fails the probe
+    /// and takes the drop path); a dial in flight goes on, and nothing else dials.
     @Test func aLinkThatResumesByProbeIsProbedNotReplaced() {
         var machine = LinkMachine(transport: .wireGuard)
         machine.resumesByProbe = true
@@ -202,6 +202,6 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         dialing.resumesByProbe = true
         _ = dialing.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
         _ = dialing.handle(.background)
-        #expect(dialing.handle(.resume) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
+        #expect(dialing.handle(.resume) == [], "a resume never starts a dial")
     }
 }
