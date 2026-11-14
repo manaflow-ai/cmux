@@ -1,9 +1,9 @@
 import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
-/// tab does. Kept rows stay (dimmed) under the navigation subtitle "Offline · last known" or
-/// "Couldn't refresh · last known", with no card over the list; with nothing kept, Workspaces'
-/// empty state for that Mac shows ("Can't connect to …" with Retry, or "… is offline").
+/// tab does. Kept rows stay (dimmed) under Workspaces' Mac line ("<Mac> · Offline · last known"
+/// or "· Couldn't refresh · last known", Retry), with no card over the list; with nothing kept,
+/// Workspaces' empty state for that Mac shows ("Can't connect to …" with Retry, or "… is offline").
 final class HomeMacDisconnectedUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -25,8 +25,10 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         let app = launch("retry-home-offline")
         let row = app.buttons["home.row.stress-5"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
-        let subtitle = app.navigationBars.staticTexts["Offline · last known"]
-        XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "Workspaces' subtitle\n\(app.debugDescription)")
+        let line = app.buttons["home.macStatus"]
+        XCTAssertTrue(line.waitForExistence(timeout: 10), "Workspaces' Mac line\n\(app.debugDescription)")
+        XCTAssertTrue(line.label.hasSuffix("· Offline · last known"), "the line marks the rows as last known: \(line.label)")
+        XCTAssertLessThan(line.frame.maxY, row.frame.minY, "the line sits above the rows")
         XCTAssertFalse(app.descendants(matching: .any)["home.note.problem"].exists, "no card over the kept rows")
         attach(app, "1-home-offline-kept-rows")
 
@@ -40,8 +42,9 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     func testAFailedReadMarksTheKeptRowsInTheSubtitle() throws {
         let app = launch("retry-home-failed")
         XCTAssertTrue(app.buttons["home.row.stress-5"].waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
-        XCTAssertTrue(app.navigationBars.staticTexts["Couldn't refresh · last known"].waitForExistence(timeout: 10),
-                      "Workspaces' subtitle\n\(app.debugDescription)")
+        let line = app.buttons["home.macStatus"]
+        XCTAssertTrue(line.waitForExistence(timeout: 10), "Workspaces' Mac line\n\(app.debugDescription)")
+        XCTAssertTrue(line.label.hasSuffix("· Couldn't refresh · last known"), "the failed read's words: \(line.label)")
         XCTAssertFalse(app.descendants(matching: .any)["home.note.problem"].exists, "no card over the kept rows")
         attach(app, "3-home-failed-kept-rows")
     }
@@ -49,7 +52,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     @MainActor
     func testNothingKeptShowsWorkspacesEmptyStateWithRetry() throws {
         let app = launch("retry-home-unreachable-empty")
-        let title = app.staticTexts["Can't connect to Demo Mac 1"]
+        let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Can't connect to Demo Mac 1")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["Retry"].exists, "Retry\n\(app.debugDescription)")
         XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
@@ -59,8 +62,9 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     @MainActor
     func testNothingKeptFromAnAsleepMacSaysItIsOffline() throws {
         let app = launch("retry-home-asleep-empty")
-        XCTAssertTrue(app.staticTexts["Demo Mac 1 is offline"].waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Demo Mac 1", "is offline")).firstMatch.waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
         XCTAssertFalse(app.buttons["Retry"].exists, "nothing to dial")
+        XCTAssertFalse(app.buttons["home.macStatus"].exists, "no line over an empty list")
         XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
         attach(app, "5-home-asleep-empty")
     }

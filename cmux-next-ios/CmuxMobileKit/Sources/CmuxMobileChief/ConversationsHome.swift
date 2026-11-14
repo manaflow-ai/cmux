@@ -98,12 +98,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                          retrying: homeRetries > 0, macName: macTag)
     }
 
-    /// The navigation subtitle: the status while rows show and the list is not live, else none.
-    private var homeSubtitle: String {
-        guard let status = connectionStatus, keptRowsShow else { return "" }
-        return status.subtitle
-    }
-
     /// The kept rows show while the list is not live: dimmed, as Workspaces' last-known rows.
     private var rowsAreStale: Bool { showsHomeProblem && keptRowsShow }
 
@@ -232,6 +226,14 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let list = list
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         List {
+            if let status = connectionStatus, keptRowsShow, !searching {
+                // Kept rows: Workspaces' Mac line over them (its offline or unreachable Mac's
+                // line), not a card. Retry dials the Mac again.
+                HomeMacStatusLine(status: status, macName: macTag, retry: retryHome)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
+            }
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
                 // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
@@ -241,6 +243,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     ForEach(tiles) { $0 }
                 }
                 .padding(.horizontal, 8)
+                // Last-known pins, dimmed as the rows under them.
+                .opacity(rowsAreStale ? 0.55 : 1)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(CmuxMobileBackdrop.listRow)
@@ -424,18 +428,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
             guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying else { return }
-            AccessibilityNotification.Announcement(keptRowsShow ? status.subtitle : status.empty?.title ?? status.subtitle).post()
+            AccessibilityNotification.Announcement(keptRowsShow ? status.detail : status.empty?.title ?? status.detail).post()
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)
         // No visible title (user feedback): the grid sits right under the
         // toolbar. The title still names the screen for VoiceOver and the back menu.
         .navigationTitle("Home")
-        // While the list is not live, the subtitle says so in Workspaces' words ("Offline · last
-        // known"), with the title it sits under; otherwise no visible title (user feedback).
-        .navigationSubtitle(homeSubtitle)
+        // No visible title (user feedback): the grid sits right under the
+        // toolbar. The title still names the screen for VoiceOver and the back menu.
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: homeSubtitle.isEmpty ? .title : nil)
+        .toolbar(removing: .title)
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
