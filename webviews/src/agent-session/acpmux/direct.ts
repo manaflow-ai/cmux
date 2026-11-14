@@ -161,7 +161,14 @@ import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import {
+  isCompletedPlumbingTool,
+  isMuseTodoCall,
+  isPlanToolCall,
+  isPlumbingCall,
+  showsNothing,
+  withAwaitingCall,
+} from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -664,19 +671,12 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
           (typeof replyOf === "number" && seen.createdAt !== replyOf))),
   );
 }
-/// Pages one older read takes at most while none of them has started a turn older than the first
-/// prompt drawn (about 32 MB, more when a single record is larger). An open that lands in the middle
-/// of a long turn, as after a restart, draws that turn's prompt first, and nothing can show above it
-/// until the turn's start is read: a read capped at a few pages left the reader asking again and
-/// again with nothing new at the top, each ask replaying the whole transcript (Leo 2026-10-29: "I
-/// can't fucking scroll up past the current fucking turn after restarting"). The bound keeps one
-/// read from walking a whole log when a single turn is larger than this.
-const OLDER_PAGES_PER_ASK = 128;
-/// Pages one older read takes at least, published together so each prepend does not redraw the
-/// bottom stack; once one of them starts a turn older than the first prompt drawn, the read stops here.
-/// A read asked to fill the view takes one: with rows that do not reach the view's top, each page read
-/// before the first lands is a daemon round trip the band above them stays blank for.
-const OLDER_MIN_PAGES_PER_ASK = 4;
+/// One older read is one bounded page. It is published as soon as it arrives, so a long active turn
+/// never blocks the reader on a whole-turn scan (Leo 2026-10-29: "I can't fucking scroll up past the
+/// current fucking turn after restarting"). The transcript asks again while the reader remains at
+/// the loaded edge, keeping each gesture and render bounded; the pages read ahead
+/// (`readOlderAhead`) answer those asks from memory. A rail jump's window (`readWindow`) lands whole.
+const OLDER_PAGES_PER_ASK = 1;
 /// A chat adopted or watched from Claude Code has older turns in its transcript, past the newest
 /// page its log was seeded with: acpmux logs a `native_history` record (its `before` cursor, a byte
 /// offset into the transcript) and serves the pages before it (acpmux hub/native_history.rs).
@@ -1390,6 +1390,16 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   const bySequence = new Map<number, EventRecord>();
   for (const event of batches.flat()) bySequence.set(event.seq, event);
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
+}
+
+/// Older paging asks for records strictly before `events[0]`. Prepending that page avoids sorting
+/// and copying the entire retained log through a Map on every page; the filter also makes retries
+/// idempotent when a reconnect replays the boundary record.
+export function prependOlderEventRecords(older: EventRecord[], events: EventRecord[]): EventRecord[] {
+  if (older.length === 0) return events;
+  const first = events[0]?.seq;
+  const fresh = first === undefined ? older : older.filter((event) => event.seq < first);
+  return fresh.length === 0 ? events : [...fresh, ...events];
 }
 
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
@@ -3386,6 +3396,10 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Tool ids are scoped to a prompt by ACP adapters. Keep the scope beside the row so paging
+  /// reconciliation never joins two different turns that reused one id.
+  private toolRowScopes = new Map<string, string>();
+  private currentToolScope?: string;
   /// Each running call's first held record and newest held text-only update after it, by call id:
   /// their seqs (`holdLive`).
   private streamedOutputs = new Map<string, { first: number; last?: number }>();
@@ -4452,6 +4466,8 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.toolRows.clear();
+    this.toolRowScopes.clear();
+    this.currentToolScope = undefined;
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
@@ -8006,6 +8022,7 @@ export class AcpmuxDirectClient {
       this.presetApprovalRemoved.clear();
       this.compactionHeardAt.clear();
       this.toolRows.clear();
+      this.toolRowScopes.clear();
     } else {
       // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
       // offer's row, and a preset approval's requests, which a decision the refold reads settles.
@@ -8020,6 +8037,8 @@ export class AcpmuxDirectClient {
       this.sourceLines.clear();
     }
     if (frozenBefore === undefined) this.planCalls.clear();
+    // The refold starts at a turn start (`rebuildCut`), whose prompt sets the scope again.
+    this.currentToolScope = undefined;
     // Past a cut, the subagents' views drawn from the records above it stay (`publishedSubagentViews`):
     // a group row above the cut opens its subagent's view, and the refold reads none of its records.
     // No subagent above it still runs (`rebuildCut`'s `openSince`); the refold's views win.
@@ -9300,6 +9319,7 @@ export class AcpmuxDirectClient {
         // splits a turn whose calls may still update.
         if (msg.steer !== true) {
           this.toolRows.clear();
+          this.toolRowScopes.clear();
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
@@ -9453,6 +9473,9 @@ export class AcpmuxDirectClient {
         this.stoppingOpens(event);
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
+        if (msg.steer !== true)
+          this.currentToolScope =
+            typeof promptId === "string" && promptId ? `prompt:${promptRoot(promptId)}` : `event:${event.seq}`;
         // A prompt that opens a turn is timed from until that turn's own start comes.
         if (!this.turnOpen) {
           this.turnStartedAtMs = undefined;
@@ -9486,6 +9509,8 @@ export class AcpmuxDirectClient {
         }
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
+        if (startedTurnId) this.currentToolScope = `turn:${startedTurnId}`;
+        else if (agentStarted) this.currentToolScope = `event:${event.seq}`;
         // A turn the agent started on its own runs no earlier checklist: Progress shows it ended
         // until the agent sends a plan again.
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
@@ -9762,16 +9787,32 @@ export class AcpmuxDirectClient {
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
-      if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
-      if (!knownRow && !isPlumbingCall(update)) this.endAssistantSegment();
+      // A terminal result can arrive on its own page before the opener. Keep that result in a
+      // temporary row so the opener page can reconcile it; dropping it here leaves the call stuck
+      // in progress when the older page lands (review F1).
+      const terminal = ["completed", "failed", "stopped"].includes(String(update.status));
+      const carriesResult =
+        update.content !== undefined || update.rawOutput !== undefined || (terminal && update.error);
+      const callUnseen = !knownRow && event.kind === "tool_call_update" && showsNothing(update);
+      if (callUnseen && !carriesResult) return;
+      // That held result draws and counts as nothing (`awaitingCall`, hiddenTools.ts) until its
+      // call's page joins it, as the whole record draws a hidden call's result: no row, and no
+      // cut in the reply around it.
+      if (!knownRow && !callUnseen && !isPlumbingCall(update)) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = this.holdEdit(
+      const merged = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
+      const awaiting =
+        itemIndex < 0 ? callUnseen : items[itemIndex].tool?.awaitingCall === true && showsNothing(update);
+      const item: AcpmuxActivity =
+        merged.tool && (merged.tool.awaitingCall === true) !== awaiting
+          ? { ...merged, tool: withAwaitingCall(merged.tool, awaiting) }
+          : merged;
       const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;
       // Streaming output alone leaves the summary unchanged; metadata is visible immediately.
       const summaryChanged = (
@@ -9790,6 +9831,10 @@ export class AcpmuxDirectClient {
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
+      // A call folded before any prompt or turn start of its page (an older page cut mid-turn) has
+      // no known scope: paging reconciliation may join it to that call's row in any turn.
+      if (!this.toolRowScopes.has(id) && this.currentToolScope !== undefined)
+        this.toolRowScopes.set(id, this.currentToolScope);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
       const task = backgroundTask(update, event.at);
@@ -14664,14 +14709,16 @@ export class AcpmuxDirectClient {
         if (held()) return true;
       }
     }
-    for (let pages = 0; pages < 200; pages++) {
+    // Each loadOlder call publishes one bounded page (or a rail jump's window), so keep walking
+    // until the target is held. A fixed iteration cap here would make a far minimap jump fail once a
+    // long chat spans more than that many pages.
+    for (;;) {
       const from = this.firstSeq;
       if (held()) return true;
       if (generation !== this.selectionGeneration || from === undefined || !this.seqHistoryLeft()) return false;
       await this.loadOlder(seq);
       if (this.firstSeq === from) return held();
     }
-    return held();
   }
 
   /// Pages older transcript events in without reattaching, so the live summary,
@@ -14714,6 +14761,17 @@ export class AcpmuxDirectClient {
   /// Older pages read ahead of the reader (`readOlderAhead`), by the `beforeSeq` each was asked with, for
   /// the chat, visit, held history and paging epoch they were read in (`olderKey`).
   private olderAhead?: { key: string; pages: Map<number, Promise<any>> };
+  /// The records an older page read but did not land (`fetchOlder` keeps whole turns, so the end
+  /// of a turn further back waits): `before` is the oldest seq read, `from` the held records' first
+  /// seq they end at. The next ask reads on from `before` and lands them with its page, so no read
+  /// asks again for records already read (and read-ahead chains from `before`).
+  private olderCarry?: { key: string; before: number; from: number; events: EventRecord[] };
+  /// The carried records for this chat's next older read, while they still end where the held ones
+  /// begin; otherwise none.
+  private olderCarryFor(sessionId: string, pagingEpoch: number) {
+    const carry = this.olderCarry;
+    return carry?.key === this.olderKey(sessionId, pagingEpoch) && carry.from === this.firstSeq ? carry : undefined;
+  }
   private olderKey(sessionId: string, pagingEpoch: number): string {
     return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
   }
@@ -14750,7 +14808,8 @@ export class AcpmuxDirectClient {
     const pages = new Map<number, Promise<any>>();
     const ahead = { key, pages };
     this.olderAhead = ahead;
-    let before = this.firstSeq;
+    // Past the records already read and carried (`olderCarry`), where the next ask reads.
+    let before = this.olderCarryFor(sessionId, pagingEpoch)?.before ?? this.firstSeq;
     void (async () => {
       for (let read = 0; read < OLDER_AHEAD_PAGES; read++) {
         if (this.olderAhead !== ahead || !this.canPageOlder(pagingEpoch)) return;
@@ -14846,7 +14905,7 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, fill = false): Promise<void> {
+  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, _fill = false): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -14859,86 +14918,92 @@ export class AcpmuxDirectClient {
     const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
     // Keep the target's preceding turn, including when byte caps end a page at the target prompt.
     const opensAbove = (event: EventRecord) => through !== undefined && startsTurn(event) && event.seq < through;
-    // Newest page first; joined once at the end, so a long read copies its records once.
-    const read: EventRecord[][] = [];
-    let more = true;
-    let found = false;
-    let foundThrough = through === undefined;
-    // The open landed inside the turn on screen: the page holding its prompt makes it whole, so it
-    // lands at once. The reply's start must not wait on a far longer turn above it (the user,
-    // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
-    const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
-    let completed = false;
-    const minPages = fill ? 1 : read.length > 0 ? 0 : OLDER_MIN_PAGES_PER_ASK;
     const stale = () =>
       !this.canPageOlder(pagingEpoch) ||
       generation !== this.selectionGeneration ||
       this.selectedSessionId !== sessionId ||
       epoch !== this.historyEpoch;
-    let before = this.firstSeq;
+    // Publish each page as soon as it arrives. A long active turn must not hide the first readable
+    // older records behind a whole-turn scan. Records before the oldest older turn start finish a
+    // turn further back and remain for the next bounded ask; on the final page there is no next
+    // ask, so its prefix stays too (native adoption history can begin before its first prompt).
+    // What the last ask read but left for this one (`olderCarry`): it lands with this ask's page.
+    const key = this.olderKey(sessionId, pagingEpoch);
+    let carried = this.olderCarryFor(sessionId, pagingEpoch);
+    const publish = (read: EventRecord[], pageMore: boolean) => {
+      const older = carried ? [...read, ...carried.events] : read;
+      carried = undefined;
+      this.olderCarry = undefined;
+      // The open landed inside the turn on screen: the page holding its prompt makes it whole, and
+      // the rest of a longer turn above it waits for the next ask (the user, 2026-11-03: a reply
+      // starting mid-sentence under its prompt, and nothing above).
+      const cutOpener =
+        this.turnOpener && this.firstSeq !== undefined && this.turnOpener.seq < this.firstSeq
+          ? this.turnOpener.seq
+          : undefined;
+      let start = pageMore ? older.findIndex(opensOlderTurn) : -1;
+      if (start < 0 && pageMore && cutOpener !== undefined) start = older.findIndex((event) => event.seq >= cutOpener);
+      const page = start > 0 ? older.slice(start) : older;
+      if (page.length === 0) return;
+      // The records left above the page were read: the next ask reads on past them, not again.
+      if (start > 0)
+        this.olderCarry = { key, before: older[0]!.seq, from: page[0]!.seq, events: older.slice(0, start) };
+      // The held records start inside a turn, and this page brings that turn's start: refold it whole
+      // once, so it draws as reading the whole record does. Pages inside the turn before it fold
+      // incrementally (`foldOlder`), so a long turn costs one refold, not one per page.
+      const completesCutTurn =
+        this.events.length > 0 && !startsTurn(this.events[0]!) && page.some((event) => startsTurn(event));
+      this.events = prependOlderEventRecords(page, this.events);
+      this.sawPrompts(page);
+      // A page exposing a forced result can establish a fence at a prompt already drawn below it.
+      // Replay that boundary chronologically; merging rows cannot recover the held prompt's effect.
+      const crossesStop = page.some(
+        (event) =>
+          event.dir === "mux" &&
+          event.kind === "turn_result" &&
+          event.msg?.cancelForced === true &&
+          typeof event.msg?.turnId === "string",
+      );
+      if (
+        !completesCutTurn &&
+        !crossesStop &&
+        this.compactionFenceSeq === undefined &&
+        this.retiredCompactionTurnId === undefined
+      )
+        this.foldOlder(page);
+      else this.rebuildKeepingLiveState();
+      this.historyExhausted = false;
+      this.emit("history");
+    };
+    let more = true;
+    let before = carried?.before ?? this.firstSeq;
+    let windowed = false;
+    let foundThrough = through === undefined;
+    // A rail jump far back reads the window down to its target at once (`readWindow`) and lands it.
     if (through !== undefined && through < before) {
       const window = await this.readWindow(sessionId, before, through, pagingEpoch, stale);
       if (!window || stale()) return;
-      for (const page of window.pages) {
-        read.push(page);
-        found ||= page.some(opensOlderTurn);
-        foundThrough ||= page.some(opensAbove);
-        completed ||= cutOpener !== undefined && page.some((event) => event.seq <= cutOpener);
-      }
+      windowed = true;
+      foundThrough = window.pages.some((page) => page.some(opensAbove));
       before = window.before;
       more = window.more;
+      publish(window.pages.reverse().flat(), more);
     }
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
-    // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
-    // a long turn the open landed in is that turn's. Read on until a turn older than the first row
-    // starts, at most OLDER_PAGES_PER_ASK pages; a capped read still moves `historyFrom`, which
-    // makes the transcript ask again.
-    for (
-      let pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && (!foundThrough || (!completed && (pages < minPages || !found)));
-      pages++
-    ) {
+    // page of its own, and every page of a long turn the open landed in is that turn's. Each ask
+    // reads OLDER_PAGES_PER_ASK pages and moves `historyFrom`, which makes the transcript ask again.
+    for (let pages = 0; more && pages < OLDER_PAGES_PER_ASK && (!windowed || !foundThrough); pages++) {
       if (!this.canPageOlder(pagingEpoch)) return;
       const result = await this.olderPage(sessionId, before, pagingEpoch);
       if (stale()) return;
       const page = records(result?.events);
-      read.push(page);
-      found ||= page.some(opensOlderTurn);
-      foundThrough ||= page.some(opensAbove);
-      completed ||= cutOpener !== undefined && page.some((event) => event.seq <= cutOpener);
-      more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      const pageMore = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      publish(page, pageMore);
+      more = pageMore;
       if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
-    let older = read.reverse().flat();
-    // Records before the oldest turn start finish a turn further back: the next read takes them, so
-    // what lands holds whole turns.
-    let start = more ? older.findIndex(opensOlderTurn) : 0;
-    if (start < 0 && cutOpener !== undefined) start = older.findIndex((event) => event.seq >= cutOpener);
-    if (start > 0) older = older.slice(start);
-    const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
-    this.events = mergeEventRecords(older, this.events);
-    this.sawPrompts(older);
-    // A page exposing a forced result can establish a fence at a prompt already drawn below it.
-    // Replay that boundary chronologically; merging rows cannot recover the held prompt's effect.
-    const crossesStop = older.some(
-      (event) =>
-        event.dir === "mux" &&
-        event.kind === "turn_result" &&
-        event.msg?.cancelForced === true &&
-        typeof event.msg?.turnId === "string",
-    );
-    // Ordinary whole-turn pages retain the incremental fold. Fenced pages also replay so a
-    // live fence never leaks backward into history that predates the cancellation.
-    if (
-      foldsAbove &&
-      !crossesStop &&
-      this.compactionFenceSeq === undefined &&
-      this.retiredCompactionTurnId === undefined
-    )
-      this.foldOlder(older);
-    else this.rebuildKeepingLiveState();
-    this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
-    this.emit("history");
+    this.historyExhausted = !more || (this.firstSeq ?? 1) <= 1;
+    if (this.historyExhausted) this.emit("history");
     this.readOlderAhead(pagingEpoch);
   }
 
@@ -15026,6 +15091,8 @@ export class AcpmuxDirectClient {
       progressSuperseded: this.progressSuperseded,
       messageRows: this.messageRows,
       toolRows: this.toolRows,
+      toolRowScopes: this.toolRowScopes,
+      currentToolScope: this.currentToolScope,
       planCalls: this.planCalls,
       subagents: this.subagents,
       summary: this.summary,
@@ -15071,6 +15138,10 @@ export class AcpmuxDirectClient {
     this.progressSuperseded = false;
     this.messageRows = new Map();
     this.toolRows = new Map();
+    this.toolRowScopes = new Map();
+    // An older page's records are older than every live turn: until the page's own prompt or turn
+    // start sets it, the turn they belong to is unknown, never the live one.
+    this.currentToolScope = undefined;
     this.planCalls = new Set();
     this.subagents = new SubagentFold(this.subagentStops);
     // An older page replays persisted records too: seed the native roots as the full replay does.
@@ -15099,6 +15170,24 @@ export class AcpmuxDirectClient {
       this.foldingBelow = undefined;
       this.heldPromptRowKeys = undefined;
     }
+    // A page can split a tool call: its completed update may have been held first, then the
+    // older page brings the call opener. Keep the held row as the authoritative later state and
+    // remove the page's duplicate item, while retaining page-only calls in the incremental fold.
+    // `toolRows` is keyed by call id and is intentionally reset at every prompt. Capture every
+    // page row before restoring the live map; adapters may reuse an id in several turns.
+    const pageToolRows: { callId: string; rowId: string; item: AcpmuxActivity; scope?: string }[] = [];
+    for (const [rowId, row] of this.rows) {
+      if (held.has(rowId) || row.kind !== "activity") continue;
+      for (const item of row.items ?? []) {
+        if (item.tool) pageToolRows.push({ callId: item.tool.id, rowId, item, scope: this.toolRowScopes.get(rowId) });
+      }
+    }
+    const pageMessageRows = new Map<string, string[]>();
+    for (const [messageId, rowIds] of this.messageRows)
+      pageMessageRows.set(
+        messageId,
+        rowIds.filter((rowId) => !held.has(rowId)),
+      );
     this.timeTurnsOpenedAbove();
     this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
@@ -15196,7 +15285,136 @@ export class AcpmuxDirectClient {
     const progressRow = live.progressRow !== undefined ? live.progressRow : this.progressRow;
     const progressSuperseded =
       live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
-    Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
+    Object.assign(this, live, {
+      forkedAtSeq,
+      messageRows,
+      progressRow,
+      progressSuperseded,
+      toolRowScopes: new Map(live.toolRowScopes),
+      currentToolScope: live.currentToolScope,
+    });
+    // A message id is stable across streamed chunks. Join only the boundary pair (the last older
+    // fragment to the first held fragment), preserving deliberate cuts within either side.
+    for (const [messageId, pageIds] of pageMessageRows) {
+      const liveIds = live.messageRows.get(messageId) ?? [];
+      const pageId = [...pageIds].reverse().find((rowId) => this.rows.get(rowId)?.kind === "assistant");
+      const liveId = liveIds.find((rowId) => this.rows.get(rowId)?.kind === "assistant");
+      if (!pageId || !liveId || pageId === liveId) continue;
+      const pageRow = this.rows.get(pageId);
+      const liveRow = this.rows.get(liveId);
+      if (!pageRow?.text || !liveRow?.text || pageRow.at > liveRow.at) continue;
+      this.rows.set(liveId, {
+        ...liveRow,
+        version: Math.max(pageRow.version, liveRow.version) + 1,
+        text: `${pageRow.text}${liveRow.text}`,
+      });
+      this.rows.delete(pageId);
+      this.messageRows.set(
+        messageId,
+        (this.messageRows.get(messageId) ?? []).filter((rowId) => rowId !== pageId),
+      );
+    }
+    // Index retained tools once. Paging must reconcile O(page tools) rows, never scan all retained
+    // rows for every item (a 20k-row chat otherwise makes one page quadratic).
+    const heldTools = new Map<string, { rowId: string; tool: NonNullable<AcpmuxActivity["tool"]>; scope?: string }[]>();
+    for (const row of held.values())
+      for (const entry of row.items ?? [])
+        if (entry.tool) {
+          const key = `${entry.tool.id}\u0000${this.toolRowScopes.get(row.id) ?? ""}`;
+          const list = heldTools.get(key) ?? [];
+          list.push({ rowId: row.id, tool: entry.tool, scope: this.toolRowScopes.get(row.id) });
+          heldTools.set(key, list);
+        }
+    for (const { callId, rowId, item, scope } of pageToolRows) {
+      const liveRowId = live.toolRows.get(callId);
+      const pageTool = item.tool;
+      if (!pageTool) continue;
+      const compatible = (left: typeof pageTool | undefined, right: typeof pageTool | undefined) =>
+        left?.title === right?.title ||
+        left?.title === callId ||
+        right?.title === callId ||
+        (left?.command !== undefined && left.command === right?.command);
+      const scopeMatches = (candidateScope: string | undefined) =>
+        scope === undefined || candidateScope === undefined || scope === candidateScope;
+      const candidates = [
+        ...(liveRowId
+          ? [
+              {
+                rowId: liveRowId,
+                row: this.rows.get(liveRowId),
+                tool: this.rows.get(liveRowId)?.items?.find((entry) => entry.tool?.id === callId)?.tool,
+                scope: live.toolRowScopes.get(liveRowId),
+              },
+            ]
+          : []),
+        ...(heldTools.get(`${callId}\u0000${scope ?? ""}`) ?? []),
+        ...(scope === undefined
+          ? [...heldTools.entries()]
+              .filter(([key]) => key.startsWith(`${callId}\u0000`))
+              .flatMap(([, entries]) => entries)
+          : []),
+      ];
+      const seenCandidates = new Set<string>();
+      const match = candidates
+        // Every candidate's row as it stands now: held rows stay in `rows` through the fold.
+        .map((candidate) => ({
+          ...candidate,
+          row: this.rows.get(candidate.rowId),
+          key: `${candidate.rowId}\u0000${candidate.tool?.id ?? callId}`,
+        }))
+        .filter((candidate) => {
+          if (seenCandidates.has(candidate.key)) return false;
+          seenCandidates.add(candidate.key);
+          return true;
+        })
+        .find(
+          ({ rowId: candidateId, row: candidateRow, tool, scope: candidateScope }) =>
+            candidateId !== rowId &&
+            candidateRow !== undefined &&
+            tool !== undefined &&
+            candidateRow.at >= (this.rows.get(rowId)?.at ?? 0) &&
+            scopeMatches(candidateScope) &&
+            compatible(pageTool, tool),
+        );
+      if (match) {
+        const pageRow = this.rows.get(rowId);
+        if (pageRow?.items) {
+          const remaining = pageRow.items.filter((entry) => entry !== item);
+          if (remaining.length === 0) this.rows.delete(rowId);
+          else
+            this.rows.set(rowId, {
+              ...pageRow,
+              version: pageRow.version + 1,
+              items: remaining,
+              toolCount: remaining.filter((entry) => entry.kind === "tool").length,
+            });
+        }
+        const retainedRow = this.rows.get(match.rowId);
+        if (retainedRow?.items) {
+          const retainedItems = retainedRow.items.map((entry) => {
+            if (entry.tool?.id !== callId) return entry;
+            return {
+              ...entry,
+              tool: {
+                ...withAwaitingCall(entry.tool, false),
+                title: entry.tool.title === callId ? pageTool.title : entry.tool.title,
+                kind: entry.tool.kind ?? pageTool.kind,
+                inputSummary: entry.tool.inputSummary ?? pageTool.inputSummary,
+                command: entry.tool.command ?? pageTool.command,
+                description: entry.tool.description ?? pageTool.description,
+                locations: entry.tool.locations ?? pageTool.locations,
+                startedAt: entry.tool.startedAt ?? pageTool.startedAt,
+              },
+            };
+          });
+          this.rows.set(match.rowId, { ...retainedRow, version: retainedRow.version + 1, items: retainedItems });
+        }
+        this.toolRows.set(callId, match.rowId);
+        continue;
+      }
+      if (!this.toolRows.has(callId)) this.toolRows.set(callId, rowId);
+      if (scope !== undefined) this.toolRowScopes.set(rowId, scope);
+    }
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     // A model change line the page moved back (`drawRunChanges` dropped it) stays gone.
     // A preset approval card the page merged into an older one stays gone.

@@ -1,60 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "paneToolbar.terminalChat.chat": {
-      "comment": "Toggle Terminal and Chat's chat segment in the pane toolbar: its VoiceOver label.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Conversation"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "المحادثة"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "채팅"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "チャット"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "da": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "it": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "km": {"stringUnit": {"state": "translated", "value": "ការជជែក"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Czat"}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Chat"}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Чат"}},
-        "th": {"stringUnit": {"state": "translated", "value": "แชท"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Sohbet"}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Чат"}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện"}}
-      }
-    },
-    "paneToolbar.terminalChat.terminal": {
-      "comment": "Toggle Terminal and Chat's terminal segment in the pane toolbar: its VoiceOver label.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Terminal"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Terminal"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Terminal"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "طرفية"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Terminal"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "터미널"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ターミナル"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Terminale"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Терминал"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Термінал"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Terminal"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "เทอร์มินัล"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ទែមីណល"}}
-      }
-    },
     "tabs.ax.busy": {
       "extractionState": "manual",
       "localizations": {

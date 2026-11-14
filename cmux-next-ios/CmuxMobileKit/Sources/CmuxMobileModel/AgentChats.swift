@@ -189,7 +189,7 @@ extension AgentChatsBackend {
                 result.reason = result.reason ?? owned.message
             } catch {
                 result.failed.append(chat)
-                result.failure = result.failure ?? (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                result.failure = result.failure ?? UserFacingError.message(error)
             }
         }
         return result

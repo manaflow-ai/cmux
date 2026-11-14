@@ -229,12 +229,13 @@ fn open(hub: &Hub, sub: &Sub, peer: bool) -> Result<Delivery, ConnError> {
         && let Some(target) =
             if peer { hub.peer_resume_target(cursor.0)? } else { hub.resume_target(cursor.0)? }
     {
-        let receiver = if peer {
+        let mut receiver = if peer {
             hub.subscribe_replay_peer(sub, cursor.0)?
         } else {
             hub.subscribe_replay(sub, cursor.0)?
         };
         if target == cursor.0 {
+            receiver.clear_replay_snapshot();
             return Ok(Delivery {
                 receiver,
                 first: raw_frame(&sub.sid, Some(ReplayMark::End), &[])?
@@ -246,6 +247,9 @@ fn open(hub: &Hub, sub: &Sub, peer: bool) -> Result<Delivery, ConnError> {
         let max_bytes = raw_budget(&sub.sid, Some(ReplayMark::Replay))?;
         if let Some(RawRead::Span(span)) = receiver.try_next_raw(Some(target), max_bytes) {
             let final_frame = span.last_seq >= target;
+            if final_frame {
+                receiver.clear_replay_snapshot();
+            }
             let mode = if final_frame { Mode::Live } else { Mode::Replay(target) };
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
             let frame =
@@ -439,6 +443,9 @@ async fn pump(
         match held.offer(sink.as_ref(), &sub.sid, frame, cursor) {
             Offer::Taken => {
                 receiver.reposition(cursor.0);
+                if matches!(next, Mode::Live) {
+                    receiver.clear_replay_snapshot();
+                }
                 mode = next;
             }
             Offer::NotFed => mode = Mode::Paused,

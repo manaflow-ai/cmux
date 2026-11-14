@@ -48,6 +48,7 @@ struct NativeBrowserPage: View {
             Image(systemName: problem.isMacOnly ? "macbook" : "wifi.exclamationmark")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(Self.title(problem, label: label, macName: macName))
                 .font(.headline)
                 .multilineTextAlignment(.center)

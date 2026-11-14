@@ -211,6 +211,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     .accessibilityIdentifier("settings.logout")
                     .confirmationDialog("Sign out of cmux?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
                         Button("Sign out", role: .destructive) { Task { await auth.signOut() } }
+                        Button("Cancel", role: .cancel) {}
                     }
                 } footer: {
                     VersionFooter().id("bottom")

@@ -239,7 +239,7 @@ jobs:
           git fetch --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
           # The previous tip is in that history; a depth-1 fetch of it would cut the history at it.
           git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
-          python3 scripts/cmux-next/media/whats-new-clips.py plan --base "$BASE" --head "$HEAD" \
+          python3 scripts/cmux-next/media/whats-new-clips.py plan --app mac --base "$BASE" --head "$HEAD" \
             --out "$RUNNER_TEMP/clips-plan.json" --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr
           echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
