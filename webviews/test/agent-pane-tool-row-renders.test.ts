@@ -218,7 +218,7 @@ await requireBrowserLane("agent-pane-tool-row-renders.test.ts", async () => {
     );
   /// Waits until the page has drawn 10 frames in a row with no element added or removed and no
   /// animation that ends still playing (a fold, a fade, a row's entrance), so what is counted next is the stream's alone.
-  const settled = (page: Page) =>
+  const quiet = (page: Page) =>
     page.waitForFunction(
       () =>
         new Promise<boolean>((resolve) => {
@@ -323,14 +323,14 @@ await requireBrowserLane("agent-pane-tool-row-renders.test.ts", async () => {
       for (let index = 0; index < count; index++) await closed.nth(0).click();
       await frames(page, 30);
     }
-    await settled(page);
+    await quiet(page);
     const opened = await renders(page);
     const drawn = new Set(
       Object.keys(opened)
         .filter((key) => key.startsWith("tool-mount:"))
         .map((key) => key.slice("tool-mount:".length)),
     );
-    await settled(page);
+    await quiet(page);
     // Nothing draws at rest.
     const rest = Object.entries(await renders(page)).filter(([key]) => key.startsWith("tool"));
     await watchReplaced(page);
@@ -338,7 +338,7 @@ await requireBrowserLane("agent-pane-tool-row-renders.test.ts", async () => {
       push(step);
       await frames(page, 3);
     }
-    await settled(page);
+    await quiet(page);
     await frames(page, 4);
     const after = await renders(page);
     const gone = await replaced(page);
