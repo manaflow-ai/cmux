@@ -11,9 +11,14 @@ extension GhosttyApp {
         surfaceId: UUID?,
         message: ghostty_surface_message_childexited_s
     ) -> Bool {
+        // A local runtime callback identifies the exact terminal surface that lost
+        // its child. Keep that tab mounted so a Ghostty/PTY failure does not erase
+        // the workspace or its persisted agent/session identity. Remote surfaces
+        // retain their existing disconnect/teardown lifecycle below.
+        let preserveRuntimeSurface = runtimeSurface?.isRemoteTerminal == false
         let keepSurfaceVisible = TerminalChildExitPolicy(
             abnormalRuntimeMilliseconds: abnormalCommandExitRuntimeMilliseconds()
-        ).shouldKeepSurfaceVisible(runtimeMilliseconds: message.timetime_ms)
+        ).shouldKeepSurfaceVisible(runtimeMilliseconds: message.timetime_ms) || preserveRuntimeSurface
 
 #if DEBUG
         cmuxDebugLog(
