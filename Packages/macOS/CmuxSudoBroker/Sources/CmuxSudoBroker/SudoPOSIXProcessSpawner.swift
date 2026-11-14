@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -143,6 +144,10 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
         let flags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
         try Self.requireSuccess(
             posix_spawnattr_setflags(&attributes, flags),
+            error: { .attributesFailed($0) }
+        )
+        try Self.requireSuccess(
+            POSIXSpawnSignalPolicy().apply(to: &attributes),
             error: { .attributesFailed($0) }
         )
 
