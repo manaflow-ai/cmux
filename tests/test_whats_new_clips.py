@@ -169,6 +169,8 @@ class NightlyTourTests(unittest.TestCase):
         validate = clips.tour_module().load_tour
         with tempfile.TemporaryDirectory() as tmp:
             for path in sorted(clips.SPECS.glob("*.json")):
+                if clips.is_iphone(json.loads(path.read_text())):
+                    continue  # recorded on a simulator step, never a tour
                 with self.subTest(spec=path.stem):
                     tour = Path(tmp, path.name)
                     tour.write_text(json.dumps(clips.tour_from_spec(clips.load_spec(path.stem), "T")))
@@ -442,6 +444,264 @@ class NightlyTourTests(unittest.TestCase):
 
 
 
+IPHONE_SPEC = {
+    "app": "iphone",
+    "caption": "Open the drawer from the edge.",
+    "frameInterval": 0.25,
+    "launch_args": ["-cmux-mobile-demo", "drawer"],
+    "env": {"CMUX_MOBILE_FEED_STRESS": "20"},
+    "steps": [{"title": "Launch", "wait": 2}, {"title": "Drawer", "wait": 3, "clip": True},
+              {"title": "Open link", "openurl": "cmux-mobile://feed", "wait": 1}],
+    "crop": [0, 0.1, 1, 0.6],
+}
+
+
+def said_pipe(data: bytes):
+    """A pipe's read end that holds DATA and then ends, as a recorder's stderr."""
+    import os
+    read, write = os.pipe()
+    os.write(write, data)
+    os.close(write)
+    return os.fdopen(read, "rb")
+
+
+class IPhoneClipTests(unittest.TestCase):
+    """An `"app": "iphone"` spec: planned without a Mac tour, recorded by a fleet simulator step
+    (cmux-next-ios-sim.sh clips, record-iphone), rendered by publish-auto like a tour."""
+
+    def test_an_iphone_spec_is_valid_and_says_what_it_cannot_have(self):
+        self.assertEqual(clips.spec_problems(IPHONE_SPEC), [])
+        cases = {
+            "settings": {**IPHONE_SPEC, "settings": {"a": 1}},
+            "an iPhone step takes only": {**IPHONE_SPEC, "steps": [{"title": "T", "cmux": ["x"], "clip": True}]},
+            "CMUX_MOBILE_": {**IPHONE_SPEC, "env": {"HOME": "/tmp"}},
+            "appearance": {**IPHONE_SPEC, "appearance": "sepia"},
+            "wait 0 to": {**IPHONE_SPEC, "steps": [{"title": "T", "wait": 300, "clip": True}]},
+            "openurl": {**IPHONE_SPEC, "steps": [{"title": "T", "openurl": "not a link", "clip": True}]},
+            "app:": {**IPHONE_SPEC, "app": "ipad"},
+        }
+        for words, bad in cases.items():
+            self.assertTrue(any(words in p for p in clips.spec_problems(bad)), words)
+        # A Mac spec has no iPhone environment.
+        self.assertTrue(any("iPhone spec" in p for p in clips.spec_problems({**SPEC, "env": {"CMUX_MOBILE_X": "1"}})))
+
+    def test_the_fleet_capture_refuses_an_iphone_spec_and_names_the_simulator_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "phone.json").write_text(json.dumps(IPHONE_SPEC))
+            with mock.patch.object(clips, "SPECS", Path(tmp)), mock.patch.dict("os.environ", {"CMUX_HQ": tmp}):
+                with self.assertRaisesRegex(clips.ClipError, "cmux-next-ios-sim.sh .*--arg clips --arg id=phone"):
+                    clips.record("phone", "a" * 40, None, Path(tmp, "out.webp"))
+
+    def repo(self, tmp):
+        repo = Path(tmp, "repo")
+        git(repo.parent, "init", "-q", str(repo))
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "t")
+        (repo / "README").write_text("r\n")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "base")
+        base = git(repo, "rev-parse", "HEAD")
+        notes = repo / "release-notes/next"
+        (notes / "highlights").mkdir(parents=True)
+        (notes / "clips").mkdir(parents=True)
+        for name, category, spec in (("mac-thing", "new", SPEC), ("phone-new", "new", IPHONE_SPEC),
+                                     ("phone-better", "improved", IPHONE_SPEC)):
+            (notes / f"highlights/{name}.md").write_text(f"title: {name}\ncategory: {category}\n\nBody.\n")
+            (notes / f"clips/{name}.json").write_text(json.dumps(spec))
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "head")
+        return repo, base, git(repo, "rev-parse", "HEAD")
+
+    def test_the_plan_routes_iphone_specs_to_the_simulator_with_no_tour(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, base, head = self.repo(tmp)
+            tours = Path(tmp, "tours")
+            rows = clips.plan(base, head, tours, exists=lambda url: False, root=repo)
+            self.assertEqual([(r["id"], r["roles"], r.get("app"), r.get("before")) for r in rows],
+                             [("mac-thing", ["after"], None, None),
+                              ("phone-better", ["after", "before"], "iphone", base),
+                              ("phone-new", ["after"], "iphone", None)])
+            # Only the Mac highlight is a tour.py tour; tour.py could not run an iPhone spec.
+            self.assertEqual(sorted(p.stem for p in tours.glob("*.json")), ["mac-thing"])
+            plan = Path(tmp, "plan.json")
+            plan.write_text(json.dumps(rows))
+
+            def main(*args):
+                out = io.StringIO()
+                with mock.patch("sys.stdout", out):
+                    self.assertEqual(clips.main(list(args)), 0)
+                return out.getvalue().splitlines()
+            self.assertEqual(main("iphone-runs", "--plan", str(plan)),
+                             [f"phone-better after,before {base}", "phone-new after -"])
+            self.assertEqual(main("count", "--plan", str(plan), "--app", "mac"), ["1"])
+            self.assertEqual(main("count", "--plan", str(plan), "--app", "iphone"), ["2"])
+            # The Mac tour records neither the iPhone clips nor their befores.
+            self.assertEqual(main("tours", "--plan", str(plan), "--role", "after", "--dir", "D"), ["D/mac-thing.json"])
+            self.assertEqual(main("tours", "--plan", str(plan), "--role", "before", "--dir", "D", "--before", "f" * 40,
+                                  "--other-befores"), [])
+            with mock.patch("sys.stdout"):
+                kept = clips.write_tours(rows, Path(tmp, "t2"), root=repo)
+            self.assertEqual([r["id"] for r in kept], ["mac-thing"])
+
+    def test_an_earlier_iphone_improvement_keeps_its_before_past_the_mac_extra_before_limit(self):
+        # The Mac tour builds at most PLAN_EXTRA_BEFORES apps besides the previous tip's; an iPhone before builds
+        # on its own simulator step, so it is never put off.
+        row = NightlyTourTests()
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = row.history(tmp)
+            t0 = 1_800_000_000
+            row.commit(repo, "root", t0, {"README": "r\n"})
+            mac = row.commit(repo, "mac", t0 + day, row.highlight("mac-better", "improved"))
+            files = {"release-notes/next/highlights/phone.md": "title: Phone\ncategory: improved\n\nBody.\n",
+                     "release-notes/next/clips/phone.json": json.dumps(IPHONE_SPEC)}
+            before_phone = row.commit(repo, "other", t0 + day + 60, {"README": "o\n"})
+            row.commit(repo, "phone", t0 + day + 120, files)
+            previous = row.commit(repo, "previous", t0 + day + 180, {"README": "p\n"})
+            tip = row.commit(repo, "tip", t0 + 2 * day, {"README": "t\n"})
+            rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
+            self.assertEqual([(r["id"], r["roles"]) for r in rows],
+                             [("mac-better", ["after", "before"]), ("phone", ["after", "before"])])
+            self.assertEqual(rows[1]["before"], before_phone)
+            self.assertNotEqual(mac, before_phone)
+
+    def test_record_iphone_writes_a_tour_folder_publish_auto_cuts_like_a_mac_tour(self):
+        now = [100.0]
+        calls, signals = [], []
+
+        class Recorder:
+            def __init__(self, argv, **kw):
+                calls.append(("popen", argv))
+                self.stderr = said_pipe(b"Recording started\n")
+                self.video = Path(argv[-1])
+
+            def send_signal(self, sig):
+                signals.append(sig)
+                self.video.write_bytes(b"mp4")
+
+            def wait(self, timeout=None):
+                return 0
+
+        def call(argv, **kw):
+            calls.append(("run", argv, kw.get("env", {}).get("SIMCTL_CHILD_CMUX_MOBILE_FEED_STRESS"),
+                          kw.get("env", {}).get("SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH")))
+            return mock.Mock(returncode=0)
+
+        def sleep(seconds):
+            now[0] += seconds
+
+        simctl = ["xcrun", "simctl", "--set", "/sims"]
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "specs").mkdir()
+            Path(tmp, "specs/phone-drawer.json").write_text(json.dumps(IPHONE_SPEC))
+            with mock.patch.object(clips, "SPECS", Path(tmp, "specs")):
+                manifest = clips.record_iphone("phone-drawer", simctl, "U", "dev.cmux.app", Path("/dd/App.app"),
+                                               Path(tmp, "after"), popen=Recorder, call=call,
+                                               clock=lambda: now[0], sleep=sleep, ready=lambda stream, timeout: True)
+            folder = Path(tmp, "after", clips.tour_module().slug("phone-drawer"))
+            self.assertEqual(json.loads((folder / "manifest.json").read_text()), manifest)
+            self.assertEqual(manifest["video"], "capture.mp4")
+            self.assertEqual([(s["title"], s["status"], s["at"]) for s in manifest["steps"]],
+                             [("Launch", "ok", 0.0), ("Drawer", "ok", 2.0), ("Open link", "ok", 5.0)])
+            verbs = [c[1][4] for c in calls]
+            # A clean install, then the recorder, then the launch into the spec's scene, then its link.
+            self.assertEqual(verbs[:3], ["terminate", "uninstall", "install"])
+            self.assertLess(verbs.index("io"), verbs.index("launch"))
+            launch = next(c for c in calls if c[0] == "run" and c[1][4] == "launch")
+            self.assertEqual(launch[1][5:], ["U", "dev.cmux.app", "-cmux-mobile-demo", "drawer"])
+            self.assertEqual(launch[2:], ("20", "1"))
+            self.assertIn(["xcrun", "simctl", "--set", "/sims", "openurl", "U", "cmux-mobile://feed"],
+                          [c[1] for c in calls])
+            self.assertEqual(len(signals), 1)
+            # publish-auto's cut: from the frame before the clip step to the step after it.
+            cut = []
+
+            def fake_run(argv, **kw):
+                cut.append(argv)
+                for i in range(3):
+                    (Path(argv[-1]).parent / f"frame-{i:05d}.png").write_bytes(b"x")
+            with mock.patch.object(clips, "run", fake_run), tempfile.TemporaryDirectory() as scratch:
+                clips.tour_frames(IPHONE_SPEC, manifest, folder, Path(scratch))
+            self.assertEqual(cut[0][cut[0].index("-ss") + 1], "1.750")
+            self.assertEqual(cut[0][cut[0].index("-t") + 1], "3.250")
+            self.assertEqual(cut[0][cut[0].index("-i") + 1], str(folder / "capture.mp4"))
+
+    def test_record_iphone_sees_the_start_line_behind_another_line_of_the_same_write(self):
+        """simctl can write a diagnostic and "Recording started" in one write: a buffered readline() took both,
+        returned the first, and select() then waited out the whole timeout on an empty pipe."""
+        import signal, subprocess
+
+        class Recorder(subprocess.Popen):
+            def __init__(self, argv, **kw):
+                self.video = Path(argv[-1])
+                super().__init__([sys.executable, "-c", "import os, time; os.write(2, b'note: using the default codec\\nRecording started\\n'); time.sleep(30)"], **kw)
+
+            def send_signal(self, sig):
+                self.video.write_bytes(b"mp4")
+                super().send_signal(signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "specs").mkdir()
+            Path(tmp, "specs/phone.json").write_text(json.dumps(IPHONE_SPEC))
+            with mock.patch.object(clips, "SPECS", Path(tmp, "specs")), mock.patch.object(clips, "RECORD_START_TIMEOUT", 3):
+                manifest = clips.record_iphone("phone", ["simctl"], "U", "b", Path("/a.app"), Path(tmp, "out"),
+                                               popen=Recorder, call=lambda argv, **kw: mock.Mock(returncode=0),
+                                               sleep=lambda s: None)
+            self.assertEqual(manifest["video"], "capture.mp4")
+            self.assertNotIn("error", manifest)
+
+    def test_record_iphone_gives_up_when_the_recorder_never_starts(self):
+        class Recorder:
+            def __init__(self, argv, **kw):
+                self.stderr = said_pipe(b"")
+
+            def send_signal(self, sig):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "specs").mkdir()
+            Path(tmp, "specs/phone.json").write_text(json.dumps(IPHONE_SPEC))
+            with mock.patch.object(clips, "SPECS", Path(tmp, "specs")):
+                with self.assertRaisesRegex(clips.ClipError, "did not start"):
+                    clips.record_iphone("phone", ["simctl"], "U", "b", Path("/a.app"), Path(tmp, "out"),
+                                        popen=Recorder, call=lambda argv, **kw: mock.Mock(returncode=0),
+                                        clock=lambda: 0.0, sleep=lambda s: None, ready=lambda s, t: True)
+            manifest = json.loads(next(Path(tmp, "out").glob("*/manifest.json")).read_text())
+            self.assertIn("did not start", manifest["error"])
+            self.assertNotIn("video", manifest)
+
+
+class IPhoneSimStepTests(unittest.TestCase):
+    """cmux-next-ios-sim.sh clips: its arguments are checked before anything builds."""
+    SIM = SCRIPT.parents[3] / "scripts/ci/cmux-next-ios-sim.sh"
+
+    def sim(self, *args):
+        import os, subprocess
+        env = {**os.environ, "CMUX_CI_STEP_KEY": "test"}
+        return subprocess.run(["bash", str(self.SIM), *args], capture_output=True, text=True, env=env, timeout=30)
+
+    def test_clips_wants_an_id_and_a_base_for_a_before(self):
+        for args, words in ((["clips"], "clips needs id=ID"),
+                            (["clips", "id=Bad Id"], "id= wants a highlight id"),
+                            (["clips", "id=phone", "roles=before"], "needs base=SHA"),
+                            (["clips", "id=phone", "base=abc"], "base= wants a 40-character"),
+                            (["clips", "id=phone", "speed=2"], "clips takes id=ID")):
+            done = self.sim(*args)
+            self.assertEqual(done.returncode, 2, (args, done.stderr))
+            self.assertIn(words, done.stderr)
+
+    def test_clips_records_each_role_with_record_iphone_and_zips_only_the_clips(self):
+        text = self.SIM.read_text()
+        block = text.split('if [[ "$mode" == clips ]]; then\n  t0=$SECONDS', 1)[1].split("\nfi\n", 1)[0]
+        self.assertIn("whats-new-clips.py record-iphone", block)
+        self.assertIn('[[ "$role" == after ]] || side_app="$base_app"', block)
+        self.assertIn("zip -qr whats-new-clips.zip whats-new-clips", block)
+        # A before whose app does not build leaves the after to record: the base builds in a subshell.
+        self.assertIn('if ( build_base_app ) >"$work/base-app.log" 2>&1; then', text)
+        self.assertIn('if [[ -z "$side_app" ]]; then', block)
+
+
 class WorkflowTests(unittest.TestCase):
     """cmux-next-media.yml's clip steps: planned before the Mac pick, recorded past a failed tour."""
 
@@ -477,6 +737,38 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(run.startswith("set +e\n"), "GitHub's bash -e ends the step at the first failed tour")
         self.assertLess(run.index("count="), run.index("record after"))
         self.assertIn("|| echo", run.split("tour.py", 1)[1].split("}", 1)[0])
+
+    def test_iphone_clips_have_their_own_nightly_workflow_with_no_pull_request_job(self):
+        import yaml
+        # The media workflow plans only Mac clips; a pull request starts no iPhone job (the PR job budget).
+        self.assertIn("plan --app mac", self.step("route", "clips")["run"])
+        self.assertNotIn("iphone-clips", self.jobs)
+        doc = yaml.safe_load((SCRIPT.parents[3] / ".github/workflows/cmux-next-iphone-clips.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        self.assertEqual(on, {"push": {"branches": ["nightly-next"]}})
+        jobs = doc["jobs"]
+        self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
+        self.assertEqual(jobs["record"]["needs"], "plan")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ vars.CI_EVAL_STEP_GATEWAY }}")
+        run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
+        self.assertTrue(run.startswith("set +e\n"))
+        self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)
+        self.assertIn("--artifact artifacts/ios-sim/whats-new-clips.zip", run)
+        self.assertIn("whats-new-clips.py iphone-runs", run)
+        self.assertIn('artifact --failed "$step"', run)
+        self.assertLess(run.index("done < <("), run.index('"$out/plan.json"'))
+        publish = jobs["publish"]
+        self.assertEqual((publish["needs"], publish["environment"]), ("record", "pr-media"))
+        self.assertIn("publish-auto", next(s for s in publish["steps"] if s.get("name") == "Publish the clips")["with"]["command"])
+
+    def test_the_plan_takes_one_app_at_a_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, base, head = IPhoneClipTests().repo(tmp)
+            mac = clips.plan(base, head, Path(tmp, "t1"), exists=lambda url: False, root=repo, app="mac")
+            phone = clips.plan(base, head, Path(tmp, "t2"), exists=lambda url: False, root=repo, app="iphone")
+            self.assertEqual([r["id"] for r in mac], ["mac-thing"])
+            self.assertEqual([r["id"] for r in phone], ["phone-better", "phone-new"])
+            self.assertFalse(Path(tmp, "t2").exists())
 
 
 if __name__ == "__main__":

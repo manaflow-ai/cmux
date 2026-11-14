@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f6d8ceb33746c1f452dc9437614ba751df787693b597dc5c1862d2171b048eff",
+  "catalog_sha256": "47a22221950420d74276eb623f4a6aef32828f4a508749f641b620b3d746375c",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -96,6 +96,15 @@
     },
     "browser_import.read": {
       "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"
@@ -980,6 +989,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

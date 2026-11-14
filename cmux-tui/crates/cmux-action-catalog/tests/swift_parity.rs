@@ -44,7 +44,7 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
 /// catalog, so until the re-pin they show no shortcut for these rows. An export may show
 /// either no shortcut or this crate's; any other value still fails. Take an id off once both
 /// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).
@@ -59,6 +59,48 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
         "{id} is awaiting a shortcut re-pin but has no default shortcut"
     );
     exported.is_null()
+}
+
+/// Fields of an existing action that this crate has changed and the pinned app FFI does not have
+/// yet (step A of an app FFI change, docs/ci/app-ffi-release.md), as JSON pointers into the
+/// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
+/// field of the row is still compared. A listed field the dump already shows as this crate has
+/// it fails: the re-pin landed, so take it off.
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
+
+/// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
+/// checking that the two still differ there.
+fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
+    for (id, fields) in FIELDS_AWAITING_REPIN {
+        let dumped = swift["actions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|a| a["id"] == *id)
+            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not in the dump"));
+        let action = rust["actions"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .find(|a| a["id"] == *id)
+            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not an action"));
+        for field in *fields {
+            let old = dumped.pointer(field).cloned().unwrap_or(Value::Null);
+            let new =
+                action.pointer_mut(field).unwrap_or_else(|| panic!("{id}{field}: no such field"));
+            assert_ne!(
+                *new, old,
+                "action-catalog.json has {id}{field} as the crate does: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+            *new = old;
+        }
+    }
+}
+
+/// Whether `id`'s exported arguments may still be the pinned app's (see
+/// [`FIELDS_AWAITING_REPIN`]).
+fn arguments_await_repin(id: &str) -> bool {
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&"/arguments"))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -178,6 +220,7 @@ fn english_catalog_equals_the_swift_dump() {
             .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
     }
     awaiting_family_repin(&mut rust, &swift);
+    awaiting_field_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
         let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
         let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
@@ -287,10 +330,19 @@ fn action_list_export_matches() {
             "{id}"
         );
         let args = row["args"].as_array().expect("args");
-        assert_eq!(args.len(), action.arguments.len(), "{id}");
-        for (wire, argument) in args.iter().zip(action.arguments) {
-            assert_eq!(wire["name"], argument.name, "{id}");
-            assert_eq!(wire["required"], argument.required, "{id}.{}", argument.name);
+        if arguments_await_repin(id) {
+            let names: Vec<_> = args.iter().map(|a| a["name"].clone()).collect();
+            let ours: Vec<_> = action.arguments.iter().map(|a| Value::from(a.name)).collect();
+            assert_ne!(
+                names, ours,
+                "action-surfaces.json has {id}'s arguments: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+            );
+        } else {
+            assert_eq!(args.len(), action.arguments.len(), "{id}");
+            for (wire, argument) in args.iter().zip(action.arguments) {
+                assert_eq!(wire["name"], argument.name, "{id}");
+                assert_eq!(wire["required"], argument.required, "{id}.{}", argument.name);
+            }
         }
         let section = &row["palette_section"];
         let category = cmux_action_catalog::category(action.category).expect("a category");

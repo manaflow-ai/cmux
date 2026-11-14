@@ -5612,7 +5612,12 @@ a.cv-sha:focus-visible {
 .cv-turn-error {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2);
+  gap: var(--transient-surface-gap);
+}
+.ui-transient-error {
+  /* Error cards are the inline member of Notice: their recovery-specific layout remains intact,
+     while material, spacing and action roles are shared with transient notices. */
+  --glass-tint: var(--transient-surface-veil);
 }
 .cv-turn-error__cause {
   display: flex;
@@ -5650,10 +5655,11 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error__primary {
   border-color: transparent;
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  background: var(--transient-action-fill);
+  color: var(--transient-action-ink);
 }
 .cv-turn-error__primary:hover {
-  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
 }
 /* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
@@ -5737,6 +5743,8 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   padding: var(--grid-cards-padding);
+  /* Transcript cards keep the established grid geometry (12px), while their material and actions
+     follow the transient role. */
   border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
@@ -7669,9 +7677,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   z-index: var(--layer-dropdown);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding-inline: 8px 12px;
+  /* Its frame follows Text Size as its label (--text-control) does (--ui-px, ui/popupSurface.css):
+     a 28 px pill at 16 pt clipped the label's descenders (Leo 2026-11-12: "it doesn't follow"). */
+  gap: calc(4 * var(--ui-px, 1px));
+  height: calc(28 * var(--ui-px, 1px));
+  /* Bounded to the window (fixed: 100% is the viewport), with an 8-px-per-side margin at the Text Size. */
+  max-width: calc(100% - 16 * var(--ui-px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
@@ -7681,13 +7695,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
-  line-height: 20px;
+  line-height: calc(20 * var(--ui-px, 1px));
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 .cv-selection-reply[data-look="icon"] {
-  width: 28px;
+  width: calc(28 * var(--ui-px, 1px));
   padding: 0;
   justify-content: center;
 }

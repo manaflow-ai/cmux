@@ -4,6 +4,7 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
+import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
@@ -396,14 +397,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // did nothing. The button waits only while the request is in flight (acpmux's answer, or a fallback
   // send until acpmux took it): a second click is acpmux's to refuse (Busy, try again shortly), so a
   // row that never changes cannot leave it stuck. Its label is the click's: the attempt can reach the
-  // chat (and change what the row offers) before acpmux answers.
+  // chat (and change what the row offers) before acpmux answers. A retry acpmux took whose attempt
+  // never shows (the link dropped, the agent exited before it ran) says Retrying… for RETRY_HOLD_MS
+  // at most (answerHold.ts), then the card is the failed turn it is, with its Retry.
   const [retryAt, setRetryAt] = useState<number>();
-  const [retryWent, setRetryWent] = useState(false);
+  const [retryWentHeld, setRetryWent] = useAnswerHold<true>(RETRY_HOLD_MS);
+  const retryWent = retryWentHeld === true;
   const [retryLabel, setRetryLabel] = useState<ErrorRecovery["label"]>("retry");
   const retryProgress = retryAt !== undefined && retryAt === row.version && (retrying || retryWent);
   const runRetry = (run: () => Promise<RetryNote | undefined>, label: ErrorRecovery["label"]) => {
     setRetryAt(row.version);
-    setRetryWent(false);
+    setRetryWent(undefined);
     setRetryLabel(label);
     setRetrying(true);
     setRetryNote(undefined);
@@ -411,7 +415,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       .then(
         (note) => {
           setRetryNote(note);
-          setRetryWent(note === undefined);
+          setRetryWent(note === undefined ? true : undefined);
         },
         () => setRetryNote("retry.failed"),
       )
@@ -744,7 +748,7 @@ function TurnFailure({
   );
   return (
     <div
-      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">

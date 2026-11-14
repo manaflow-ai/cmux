@@ -3332,11 +3332,13 @@ jobs:
       # Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
-        if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '')
+        if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
         env:
           GH_TOKEN: ${{ github.token }}
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
           REPOSITORY: ${{ github.repository }}
+          LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
+          SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
         run: bash scripts/ci/nightly-steps/resolve-leave-build-slot.sh
 
   # No nightly from a tree whose webview checks are red (2026-11-02: #32056's TS2448 in SessionInfo.tsx broke every
@@ -7940,20 +7942,7 @@ jobs:
           sparse-checkout: scripts/ci
       - *wait-through-github-api-rate-l
       - name: Ask the push group for the newest head
-        run: |
-          set -euo pipefail
-          tries=$(( ${RETRY:-0} + 1 ))
-          if [ "$tries" -gt 2 ]; then
-            echo "::warning::nightly-next failed after two retries in a row; the next push starts the loop again"
-            exit 0
-          fi
-          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)
-          if [ "$head" != "$SHA" ]; then
-            echo "nightly-next moved to $head: its push run takes the group's pending place, so no retry"
-            exit 0
-          fi
-          echo "retry $tries of 2 after run $RUN_ID attempt $RUN_ATTEMPT: build the nightly-next head again"
-          gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f nightly_next_loop_retry="$tries"
+        run: bash scripts/ci/nightly-steps/retry-ask-push-group.sh
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a

@@ -22,11 +22,26 @@ public final class AgentChatSurface {
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
     var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
@@ -100,7 +115,7 @@ public final class AgentChatSurface {
             do {
                 targets = try await store.source.handoffTargets()
             } catch {
-                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return UserFacingError.message(error)
             }
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
             guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }

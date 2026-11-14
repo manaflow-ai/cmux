@@ -158,7 +158,7 @@
 .nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
   visibility: hidden;
 }
-/* The strip over the box takes the box's corner (--nt-box-radius, the chat composer's). */
+/* The strip over the box takes the box's corner (--nt-box-radius). */
 .nt-composer { --acpmux-strip-radius: var(--nt-box-radius); }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
@@ -177,8 +177,10 @@
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   /* The chat composer's strip height (composerLocation.css), so the two heads match (Leo
-     2026-10-29: "stop making them take up so much space"). */
-  --acpmux-strip-height: 24px;
+     2026-10-29: "stop making them take up so much space"), at New Tab's size scale: a fixed 24 px held the chips'
+     band still while they and the box grew, and Spacious's 31 px chips overflowed it (Lucas 2026-11-14: "the top
+     part should scale down with the composer ... and up too for spacious"). */
+  --acpmux-strip-height: calc(24px * var(--nt-density, 1));
   margin: 0;
   /* Subtract the context and ghost button insets from the + center. The location slot scales
      with density; the ghost button's 4.5 px leading inset does not. */
@@ -419,12 +421,22 @@
   /* The prompt's room: what its line leaves of the chat composer's box (composerLocation.css
      --grid-composer-box, 48 px at the composer's size scale), so New Tab's bar is the chat's at every density
      (Lucas 2026-11-13). */
-  /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density). */
-  --nt-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  /* New Tab's box corner is the chat composer's (composerLocation.css --grid-composer-radius, 12 px at Default on
-     its 48 px box), so the two boxes round alike and scale with the density, never near a pill (Lucas 2026-11-14:
-     "copy that exactly as it is onto the new tab composer"). */
-  --nt-box-radius: var(--grid-composer-radius, calc(12px * var(--nt-density)));
+  /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density), and
+     at least its text's scale up to Default's, so Compact's 12 pt text gets a roomier box (0.86) than Ultra-compact's 11 (0.8): the
+     two shared Compact's rows and one size (Lucas 2026-11-14: "compact is too small"). Default and up, at any Interface
+     Size, keep the chat composer's scale. */
+  --nt-density: max(
+    0.8,
+    var(--cmux-density-scale, var(--cmux-interface-scale, 1)),
+    min(1, var(--cmux-density-text-scale, 0))
+  );
+  /* New Tab's box corner keeps Nightly's roundness at every density and font size: Nightly's share of its one-line
+     box at Default, 20 px on Claude's 50.75 px box (its 22.75 px line and 14 px over and under) and 22 px on Codex's
+     48 px box (below), times the box's own one-line height here (Lucas 2026-11-14: "currently nightly has 20px
+     border radius on default. we want to proportionally match that"). Under half the height, so never a pill. */
+  --nt-box-height: calc(var(--text-content--line-height) + 2 * var(--nt-input-pad-block));
+  --nt-box-round: calc(20 / 50.75);
+  --nt-box-radius: calc(var(--nt-box-height) * var(--nt-box-round));
   /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
      line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
      10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
@@ -482,20 +494,20 @@
   height: calc(var(--acpmux-chip-glyph) * 13 / 16);
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
 }
-/* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
-   inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
-   to baseline, and a lowercase name's ink sits low in that box, so the fill read 1 pt high (Lucas 2026-11-14). */
+/* The tray's chips are a flex row with align-items: center, so the mark, the name and the chevron share the line
+   box's center and the fill centers on them. A project's name is lowercase, whose ink sits low in that line box, so
+   its picture drops by a share of the name's font size, the same proportion at every density; the folder and the
+   laptop beside "No folder" and "This Mac" center by flex (Lucas 2026-11-14: the laptop sat under "This Mac" at
+   Compact). A fixed 1 pt tuned at Default overshot at Compact. */
 .nt-above .acpmux-location-button {
-  --acpmux-location-fill-drop: 1px;
-  top: var(--acpmux-location-fill-drop);
-  padding-top: 0;
-  padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
+  --acpmux-location-mark-drop: 0.08;
 }
-/* A tray chip's leading mark (the folder, the laptop, a project's picture or mark) sits 1 pt under the label's line
-   box, where a lowercase name's ink sits, so the marks and the names share one line (Lucas 2026-11-14: "the
-   folder/project image ... needs to drop by 1pt", "make sure the laptop icon is aligned"). */
-.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
-  translate: 0 1px;
+/* Codex's tray centers its chips by flex alone (Lucas 2026-11-14: "the codex minimal looks good with the tray"). */
+.nt-composer[data-composer-look="codex"] .nt-above .acpmux-location-button {
+  --acpmux-location-mark-drop: 0;
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  translate: 0 calc(var(--text-control, 13px) * var(--acpmux-location-mark-drop));
 }
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {

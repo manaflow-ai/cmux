@@ -58,6 +58,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
+    /// View a Cloud machine's screen from its machine header (`SidebarScreenIntentActions`).
+    case viewScreen(MachineID)
+    /// Share This Mac's screen from the local machine header (`SidebarScreenIntentActions`).
+    case shareScreen(MachineID)
     /// Show another profile in this window (dot click, swipe).
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").

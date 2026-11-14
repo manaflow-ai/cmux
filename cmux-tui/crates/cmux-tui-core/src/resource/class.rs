@@ -99,6 +99,7 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::AgentMessageList
+                | Self::ChatList
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
@@ -114,6 +115,9 @@ impl ResourceOperation {
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
+                | Self::ThemeSchemeConvert
+                | Self::ThemeSchemeExport
+                | Self::ThemeSchemeFromImage
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan

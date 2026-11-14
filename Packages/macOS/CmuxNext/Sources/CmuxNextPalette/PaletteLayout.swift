@@ -15,8 +15,15 @@ enum PaletteLayout {
     static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
-    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    /// A row highlight's corner (the selected row, a hovered one): a tab's shape, as a tab pill and a
+    /// sidebar workspace row (Lawrence 2026-11-13, msg 31442: "make cmd shift p roundness same
+    /// roundness as tabs").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
+    /// The panel's corner: concentric with the rows it holds, the row corner plus ``listInset``, the
+    /// one gap at the rows' sides and above the first and below the last (Lawrence 2026-11-13, msg
+    /// 31478: "density of selected cmd shift p row needs to be concentric"). The panel holds its rows
+    /// as a card holds its tabs, at every density.
+    static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
     static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
     static var horizontalPadding: CGFloat { Metrics.space5 }
 
@@ -31,7 +38,7 @@ enum PaletteLayout {
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
-    static var keycapCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: Metrics.itemCornerRadius, inset: Metrics.space1) }
+    static var keycapCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: rowCornerRadius, inset: Metrics.space1) }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
     /// How much larger the palette's text draws than the size its density's heights are made for:

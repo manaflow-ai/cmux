@@ -381,7 +381,7 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview()
+        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
