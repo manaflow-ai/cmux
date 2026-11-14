@@ -198,19 +198,40 @@ import Testing
 
     // MARK: Localized text
 
+    private struct StringCatalogFile: Decodable {
+        struct Entry: Decodable {
+            struct Localization: Decodable {
+                struct Unit: Decodable { let value: String? }
+                let stringUnit: Unit?
+            }
+
+            let localizations: [String: Localization]?
+        }
+
+        let strings: [String: Entry]
+    }
+
     @Test func transcriptTextIsLocalized() throws {
         // SwiftPM uses both a flat resource directory and an app-style
         // Contents/Resources wrapper across its package and Xcode runners.
-        // Read the catalog file directly so the test checks the resource that
-        // ships instead of relying on Bundle(path:) accepting an .lproj URL.
+        // Xcode compiles the catalog into an .lproj table, while command-line
+        // SwiftPM copies the .xcstrings resource without compiling locales.
+        // Check whichever representation the runner ships.
         let roots = [ChiefText.bundle.resourceURL, ChiefText.bundle.bundleURL].compactMap { $0 }
         let candidates = roots.flatMap { root in
             [root.appendingPathComponent("ja.lproj/Localizable.strings"),
              root.appendingPathComponent("Contents/Resources/ja.lproj/Localizable.strings")]
         }
-        let stringsURL = try #require(candidates.first { FileManager.default.isReadableFile(atPath: $0.path) })
-        let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
-        let failed = try #require(strings["chief.turn.failed"])
+        let failed: String
+        if let stringsURL = candidates.first(where: { FileManager.default.isReadableFile(atPath: $0.path) }) {
+            let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
+            failed = try #require(strings["chief.turn.failed"])
+        } else {
+            let catalogCandidates = roots.map { $0.appendingPathComponent("Localizable.xcstrings") }
+            let catalogURL = try #require(catalogCandidates.first { FileManager.default.isReadableFile(atPath: $0.path) })
+            let catalog = try JSONDecoder().decode(StringCatalogFile.self, from: Data(contentsOf: catalogURL))
+            failed = try #require(catalog.strings["chief.turn.failed"]?.localizations?["ja"]?.stringUnit?.value)
+        }
         #expect(failed != "chief.turn.failed")
         #expect(failed.contains("%@") && !failed.contains("could not finish"))
         #expect(ChiefText.turnFailed("boom").contains("boom"))
