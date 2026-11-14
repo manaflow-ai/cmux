@@ -35,8 +35,9 @@ if (unknown?.length) {
 
 /// Rows known to grow, each with its handoff: they still print and still fail their row on the cron, but the bench
 /// exits 1 only for a failure not listed here or a listed one that passes (fixed: take it off this list).
+/// tool-output-stream/god is off the list: it passes (64 KB/op against its 267 KB band on the perf cron since
+/// 2026-11-12 and in run 43370377084), and a listed row that passes exits 1, which failed every web-ui-growth part.
 const KNOWN: Record<string, string> = {
-  "tool-output-stream/god": "manaflow-ai/cmuxterm-hq#8951",
   "reconnect-mid-stream/god": "manaflow-ai/cmuxterm-hq#8951",
 };
 
@@ -76,12 +77,15 @@ for (const growth of results) {
   ])
     console.log(PERF_ROW_MARK + JSON.stringify(each));
 }
-const verdicts = results.map((growth) => {
+const failing = results.flatMap((growth) => {
   const key = `${growth.scenario}/${growth.scale}`;
   const known = KNOWN[key];
   if (known && growth.failures.length) console.log(`state-growth: ${key} grows as known (${known})`);
   if (known && !growth.failures.length)
     console.log(`state-growth: ${key} passes: ${known} is fixed, take it off KNOWN`);
-  return known ? growth.failures.length === 0 : growth.failures.length > 0;
+  const fails = known ? growth.failures.length === 0 : growth.failures.length > 0;
+  return fails ? [`${key}: ${known ? `passes, take it off KNOWN (${known})` : growth.failures.join("; ")}`] : [];
 });
-process.exit(verdicts.some(Boolean) ? 1 : 0);
+// Why it exits 1, last and on stderr, so the suite's report carries the reason (web-ui-suite.ts failureTail).
+for (const line of failing) console.error(`state-growth: FAIL ${line}`);
+process.exit(failing.length ? 1 : 0);

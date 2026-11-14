@@ -26,9 +26,8 @@ use std::time::{Duration, Instant};
 use cmux_tui_machine_protocol::{
     AcknowledgeNoticeParams, AcknowledgeNoticeResult, BearerToken,
     CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
-    ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
-    ConnectExternalMachineResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
-    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult,
+    ClientDescriptor, CloseMachineParams, CloseMachineResult, DURABLE_NOTICES_CAPABILITY,
+    EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope, HelloParams, HelloResult,
     MACHINE_LIFECYCLE_CAPABILITY, MACHINE_METADATA_CLIENT_CAPABILITY,
     MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
     NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
@@ -202,6 +201,16 @@ pub(crate) enum ProviderClientError {
     Protocol(String),
     StatePoisoned(&'static str),
     TransportRejected,
+}
+
+#[cfg(unix)]
+impl ProviderClientError {
+    /// True when the request failed before its frame was written, so the
+    /// provider cannot have seen it. `mutate` checks authentication and the
+    /// request's capability before it sends anything.
+    pub(crate) fn proves_request_unsent(&self) -> bool {
+        matches!(self, Self::UnsupportedCapability(_) | Self::NotAuthenticated)
+    }
 }
 
 #[cfg(unix)]
@@ -836,19 +845,6 @@ impl ProviderClient {
             self.require_capability(capability)?;
         }
         self.request(request)
-    }
-
-    pub(crate) fn connect_external_machine(
-        &self,
-        scope_id: OpaqueId,
-        specifier: ExternalMachineSpecifier,
-        mutation_id: OpaqueId,
-    ) -> ProviderResult<ConnectExternalMachineResult> {
-        self.mutate(ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
-            scope_id,
-            specifier,
-            mutation_id,
-        }))
     }
 
     pub(crate) fn machine_lifecycle_snapshot(

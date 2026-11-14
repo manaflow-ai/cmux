@@ -84,6 +84,23 @@ fn one_frame_in_flight_until_the_viewer_acknowledges() {
 }
 
 #[test]
+fn changing_frames_in_flight_updates_every_live_stream() {
+    let mut e = engine();
+    const POPUP: u16 = 3;
+    let damage = Rect { x: 1, y: 1, width: 10, height: 10 };
+    e.add_stream(POPUP, 200, 100).expect("popup");
+
+    let main = e.start(0).expect("main");
+    send(&mut e, &main, true, 1_000, 0);
+    let popup = e.damage(POPUP, damage, 0).expect("popup");
+    send(&mut e, &popup, true, 1_000, 0);
+
+    e.set_frames_in_flight(2);
+    assert!(e.damage(0, damage, 20_000).is_some(), "main gate updated");
+    assert!(e.damage(POPUP, damage, 20_000).is_some(), "popup gate updated");
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
@@ -240,4 +257,54 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         e.tick(true, now + 10 * TAIL_PROBE_US).datagrams.is_empty(),
         "an acknowledged stream never probes"
     );
+}
+
+#[test]
+fn repaired_shard_delay_does_not_collapse_the_media_bitrate() {
+    use cmux_rd_proto::Arrival;
+    for tail_probe in [false, true] {
+        let mut e = engine();
+        let first = e.start(0).expect("first");
+        let sent = send(&mut e, &first, true, 6_000, 0);
+        let last = sent.len() - 1;
+        let arrivals = sent[..last]
+            .iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: 25_000,
+            })
+            .collect();
+        let nacks = if tail_probe {
+            vec![]
+        } else {
+            vec![Nack { frame: first.frame, indexes: vec![last as u16] }]
+        };
+        let requested = e.on_datagram(
+            &feedback(&Feedback { arrivals, nacks, ..Feedback::default() }),
+            false,
+            50_000,
+        );
+        let initial_bps = e.stats().target_bps;
+        let (resent, received) = if tail_probe {
+            (e.tick(false, 250_000).datagrams, 275_000)
+        } else {
+            (requested.datagrams, 75_000)
+        };
+        assert!(resent.iter().any(|d| d == &sent[last]));
+        let transport_seq = DatagramHeader::decode(&sent[last]).expect("header").0.transport_seq;
+        e.on_datagram(
+            &feedback(&Feedback {
+                acked_frame: first.frame,
+                arrivals: vec![Arrival { transport_seq, arrival_us: received }],
+                ..Feedback::default()
+            }),
+            false,
+            u64::from(received) + 25_000,
+        );
+        assert_eq!(
+            e.stats().target_bps,
+            initial_bps,
+            "repair keeps a 25 ms path: tail_probe={tail_probe}"
+        );
+    }
 }

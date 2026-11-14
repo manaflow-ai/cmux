@@ -5,8 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// The kinds `--kind` takes. `widget` (the new tab page's
-/// `cmux.newtab.widget/1`) joins once the validator knows that interface.
+/// The kinds `--kind` takes.
 pub(super) const KINDS: &[&str] = &["section"];
 
 const SECTION: &[(&str, &str)] = &[
@@ -16,9 +15,10 @@ const SECTION: &[(&str, &str)] = &[
     ("README.md", include_str!("templates/section/README.md")),
 ];
 
-/// The types `src/main.ts` references: the generated app global, the same
-/// file `cmux script types` starts with.
-const TYPES: &str = include_str!("../../../../cmux-app-host/generated/cmux-app.d.ts");
+/// The types `src/main.ts` references: the generated app global from the
+/// capability manifest, the same file `cmux script types` starts with.
+/// `cmux ext dev` refreshes it from the running cmux when that one differs.
+const TYPES: &str = cmux_app_manifest::capabilities::APP_TYPES;
 
 /// Whether `name` makes a valid id `local/<name>` (the manifest schema's
 /// name part) other than the customize folder's.

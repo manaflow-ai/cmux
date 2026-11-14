@@ -11,8 +11,9 @@ import Observation
 @MainActor
 final class SidebarGroupLineViews {
     /// One update's motion (`update`): the AppKit changes (fades, or every change without motion), the views
-    /// to remove when the move ends, and the frames to move on the render server's spring.
-    typealias LineMotion = (changes: () -> Void, leaving: [NSView], springs: [(NSView, NSRect)])
+    /// to remove when the move ends, the frames to move on the render server's spring, and the fades (`changes`'
+    /// opacities) a row move runs on the render server with its rows' (`RowMotion.fade`).
+    typealias LineMotion = (changes: () -> Void, leaving: [NSView], springs: [(NSView, NSRect)], fades: [(NSView, CGFloat)])
 
     private var views: [GroupID: GroupLineView] = [:]
     /// The lines the last `update` showed (a group's fold moves them without a pass over every row).
@@ -72,15 +73,15 @@ final class SidebarGroupLineViews {
         leavingViews += leaving.map(\.0)
         if animated {
             // The frames go to the caller's render-server springs (`springs`), every line's, an unmoved one's too
-            // (with movement off that one's earlier spring comes off); only the fades run in the AppKit block.
-            let changes = {
-                for (view, _) in moves where view.alphaValue != 1 { view.animator().alphaValue = 1 }
-                for (view, _) in leaving { view.animator().alphaValue = 0 }
-            }
-            return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) })
+            // (with movement off that one's earlier spring comes off). The fades: a row move runs them with its rows'
+            // (`fades`), a drag in the AppKit block (`changes`).
+            let fades = moves.filter { $0.0.alphaValue != 1 }.map { ($0.0 as NSView, CGFloat(1)) } + leaving.map { ($0.0 as NSView, CGFloat(0)) }
+            let changes = { for (view, alpha) in fades { view.animator().alphaValue = alpha } }
+            return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) }, fades)
         }
-        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off.
+        // Without motion the lines take their frames in one step: a spring (or an open's clip) an earlier move left on one comes off.
         SidebarDragSpring.stop(moves.map(\.0) + leaving.map(\.0))
+        moves.forEach { $0.0.clearFoldClip() }
         let changes = {
             for (view, frame) in moves {
                 view.animator().frame = frame
@@ -91,8 +92,11 @@ final class SidebarGroupLineViews {
                 view.animator().alphaValue = 0
             }
         }
-        return (changes, leaving.map(\.0), [])
+        return (changes, leaving.map(\.0), [], [])
     }
+
+    /// Group `group`'s shown line (a fold clips it with its members, `clipFold`).
+    func view(for group: GroupID) -> NSView? { views[group] }
 
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
@@ -133,6 +137,7 @@ final class SidebarGroupLineViews {
     /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
     func land() {
         for line in lines { views[line.group]?.frame = line.frame }
+        views.values.forEach { $0.clearFoldClip() } // an open's clip (`clipFold`) ends with the last move
     }
 
     /// A rail sits among the rows, left of their fills. A block goes under every row, below `decorations` (the list's
@@ -148,8 +153,8 @@ final class SidebarGroupLineViews {
 }
 
 /// One members' line, the sidebar's left bar: Chrome's (Leo 2026-10-19), a 2 pt bar in its header bar's exact color,
-/// one capsule with the same round cap at the top and the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
-/// The layer's corner clip draws the caps, so the line keeps its shape in every frame of the rows' spring.
+/// the katana's tip at the top (Leo 2026-11-08) and a round cap at the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
+/// The layer's corner clip draws the cap, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
     /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
     /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
@@ -181,6 +186,8 @@ final class GroupLineView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true // the corner clip draws the capsule's caps (`updateShape`)
         railShape.fillColor = NSColor.black.cgColor
+        // A new color shows at once, with its header's: an implicit fade lagged it a quarter second behind the bar.
+        railShape.actions = ["fillColor": NSNull()]
         layer?.addSublayer(railShape)
         light.isHidden = true
         light.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull(), "hidden": NSNull()]
@@ -282,10 +289,11 @@ final class GroupLineView: NSView {
             light.locations = [0, NSNumber(value: Double(min(1, 2 * SidebarDensityTokens.rowHeight / max(bounds.height, 1)))), 1]
             return
         }
-        // The clipping layer owns both caps (one capsule, `SidebarGroupLineShape`), so they follow the presentation
-        // bounds through a fold; rounding the oversized body instead would clip the bottom cap off the visible rail.
+        // The clipping layer owns the bottom cap, so it follows the presentation bounds through a fold; rounding the
+        // oversized body instead would clip the cap off the visible rail. The body's path draws the katana's tip at
+        // its top (`SidebarGroupLineShape`).
         layer?.cornerRadius = SidebarGroupLineShape.cornerRadius(width: bounds.width)
-        layer?.maskedCorners = SidebarGroupLineShape.corners
+        layer?.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true)
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)

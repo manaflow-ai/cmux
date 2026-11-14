@@ -177,10 +177,11 @@ fn unassigned_mutation_id() -> anyhow::Result<protocol::OpaqueId> {
     Ok(protocol::OpaqueId::new("cmux-unassigned-mutation")?)
 }
 
+/// An external connect whose outcome is still unknown. Its `mutation_id`
+/// lives in `UnsettledMutations`, like every other mutation's.
 struct PendingExternalConnect {
     scope_id: protocol::OpaqueId,
     specifier: protocol::ExternalMachineSpecifier,
-    mutation_id: protocol::OpaqueId,
 }
 
 #[derive(Clone)]
@@ -1194,34 +1195,30 @@ impl ProviderMachineRuntime {
                 localization::catalog().sidebar.machine_provider_external_connect_ambiguous
             );
         }
-        let mutation_id = if let Some(pending) = self
+        // The ledger owns the mutation_id: it replays the id an unanswered
+        // attempt in this scope already sent, counts the connect against its
+        // cap, and settles it on a definite answer.
+        let intent = protocol::ProviderRequest::ConnectExternalMachine(
+            protocol::ConnectExternalMachineParams {
+                scope_id: scope_id.clone(),
+                specifier: specifier.clone(),
+                mutation_id: unassigned_mutation_id()?,
+            },
+        );
+        let result: anyhow::Result<protocol::ConnectExternalMachineResult> =
+            self.send_mutation(intent.clone());
+        // The connect stays ambiguous exactly while the ledger still lists
+        // it. A connect the full ledger refused leaves another one alone.
+        if self.unsettled_mutations.replay_id(&intent).is_some() {
+            self.pending_external_connect = Some(PendingExternalConnect { scope_id, specifier });
+        } else if self
             .pending_external_connect
             .as_ref()
-            .filter(|pending| pending.scope_id == scope_id && pending.specifier == specifier)
+            .is_some_and(|pending| pending.scope_id == scope_id && pending.specifier == specifier)
         {
-            pending.mutation_id.clone()
-        } else {
-            self.next_mutation_id()?
-        };
-        self.pending_external_connect = Some(PendingExternalConnect {
-            scope_id: scope_id.clone(),
-            specifier: specifier.clone(),
-            mutation_id: mutation_id.clone(),
-        });
-        let connected = match self.client.connect_external_machine(scope_id, specifier, mutation_id)
-        {
-            Ok(connected) => connected,
-            Err(error) => {
-                if matches!(
-                    &error,
-                    ProviderClientError::Provider(provider_error) if !provider_error.retryable
-                ) {
-                    self.pending_external_connect = None;
-                }
-                return Err(error.into());
-            }
-        };
-        self.pending_external_connect = None;
+            self.pending_external_connect = None;
+        }
+        let connected = result?;
         Ok(self.finish_accepted_machine_selection(connected.machine_id, connected.notice))
     }
 
@@ -1564,6 +1561,11 @@ impl ProviderMachineRuntime {
 
     /// Sends one mutation, replaying the `mutation_id` an earlier unanswered
     /// attempt of the exact same request already sent.
+    ///
+    /// Every provider mutation goes through here, so every one is replayed
+    /// and counted against `MAX_UNSETTLED_MUTATIONS`. The test
+    /// `every_provider_mutate_call_goes_through_send_mutation` fails on a
+    /// `.mutate(` call anywhere else in the crate.
     fn send_mutation<T>(&mut self, mut request: protocol::ProviderRequest) -> anyhow::Result<T>
     where
         T: serde::de::DeserializeOwned,
@@ -1575,7 +1577,9 @@ impl ProviderMachineRuntime {
         *intent_id = unassigned_mutation_id()?;
         // Refuse before minting an id, so a refused request leaves no trace.
         self.unsettled_mutations.admit(&intent)?;
-        let mutation_id = match self.unsettled_mutations.replay_id(&intent) {
+        let replayed = self.unsettled_mutations.replay_id(&intent);
+        let first_attempt = replayed.is_none();
+        let mutation_id = match replayed {
             Some(mutation_id) => mutation_id,
             None => self.next_mutation_id()?,
         };
@@ -1584,7 +1588,12 @@ impl ProviderMachineRuntime {
         }
         self.unsettled_mutations.remember(intent.clone(), mutation_id)?;
         let result = self.client.mutate(request);
-        if mutation_answer_is_definite(&result) {
+        // A first attempt that failed before its frame was written left
+        // nothing on the provider, so it holds no slot. A replay keeps its
+        // entry: an earlier attempt with that id may still commit.
+        let never_sent = first_attempt
+            && result.as_ref().err().is_some_and(ProviderClientError::proves_request_unsent);
+        if never_sent || mutation_answer_is_definite(&result) {
             self.unsettled_mutations.settle(&intent);
         }
         Ok(result?)

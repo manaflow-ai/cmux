@@ -782,7 +782,7 @@ public final class WorkspaceCreator {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 
     /// Waits for every creation in flight (tests and demos).
@@ -811,7 +811,7 @@ public final class WorkspaceCreator {
                 if request.start == .browser, let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
                     onTabResolved?(first.id, tab.id)
                 }
-                store.noteOpened(tabID: tab.id, in: real.id)
+                store.requestOpen(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
             taskOrigins[placeholder.id] = nil
@@ -821,7 +821,7 @@ public final class WorkspaceCreator {
             if let task = request.task, task.launch == .chat { deliver(task, to: real) }
             if let placement = request.placement { await place(real, placement) }
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            let message = UserFacingError.message(error)
             store.removePending(placeholder.id)
             phases[placeholder.id] = .failed(message)
             // The Mac's own words, as the person's reason: written for them, said as is; else

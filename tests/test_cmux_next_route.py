@@ -1275,6 +1275,22 @@ class WorkflowRoute(unittest.TestCase):
                 read = set(re.findall(r"needs\.path_route\.outputs\.(\w+)", str(jobs[job].get("if", ""))))
                 self.assertLessEqual(read & set(WORKFLOW_TIER_FIELDS), set(job_tiers))
 
+    def test_a_matrix_runs_on_is_linux_only_when_every_cell_is(self):
+        """linux_job reads runs-on per matrix cell (workflow_jobs.runs_on_label_cells). Read as one string,
+        `${{ matrix.os }}` was never Linux, so an all-Linux matrix job counted as a Mac job and an edit to it
+        ran every tier; a matrix with a Mac cell, or one nothing resolves, is still not Linux."""
+        from cmux_next_route import linux_job
+
+        def matrix(*values):
+            return {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": {"os": list(values)}}}
+        self.assertTrue(linux_job(matrix("ubuntu-24.04", "ubuntu-22.04"), ROOT))
+        self.assertFalse(linux_job(matrix("ubuntu-24.04", "macos-15"), ROOT))
+        self.assertFalse(linux_job({"runs-on": "${{ matrix.os }}",
+                                    "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}, ROOT))
+        self.assertFalse(linux_job({"runs-on": ["self-hosted", "ubuntu-24.04"]}, ROOT))
+        self.assertTrue(linux_job({"runs-on": "ubuntu-24.04"}, ROOT))
+        self.assertFalse(linux_job({"steps": []}, ROOT))
+
     def test_never_on_pull_request(self):
         from cmux_next_route import never_on_pull_request
         jobs = yaml_jobs(self.HEAD)
@@ -1740,7 +1756,7 @@ class RouteLabels(unittest.TestCase):
 
 
 class FfiRepinRoute(unittest.TestCase):
-    """A pure app FFI re-pin runs the app compile alone; any other diff keeps every tier (2026-11-10: re-pin
+    """A pure app FFI re-pin runs compile and handler coverage; any other diff keeps every tier (2026-11-10: re-pin
     #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
     "Check the app FFI pin" from 13:36 to 18:25Z)."""
 
@@ -1787,7 +1803,7 @@ class FfiRepinRoute(unittest.TestCase):
         return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
                               capture_output=True, text=True).stdout.split()
 
-    def test_a_pure_repin_routes_to_the_app_compile_alone(self):
+    def test_a_pure_repin_routes_to_compile_and_handler_coverage(self):
         changed = self.repin(self.new_source)
         reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
         self.assertIsNotNone(reason)
@@ -1796,7 +1812,9 @@ class FfiRepinRoute(unittest.TestCase):
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["mac_release"], "true", "the Mac Release compile stays the no-verdict fallback")
         self.assertEqual(result["macos"], "true")
-        for tier in ("full", "scheme", "generated", "swift", "daemon", "fast_tier"):
+        self.assertEqual(result["fast_tier"], "true")
+        self.assertEqual(result["ffi_repin"], "true", "both runners select only HandlerCoverageTests")
+        for tier in ("full", "scheme", "generated", "swift", "daemon"):
             self.assertEqual(result[tier], "false", tier)
 
     def test_the_same_files_without_the_repin_reason_run_every_tier(self):

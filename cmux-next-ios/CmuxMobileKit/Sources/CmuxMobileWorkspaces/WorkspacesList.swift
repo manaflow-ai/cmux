@@ -270,6 +270,7 @@ public struct WorkspacesList: View {
                 Button("Delete Group", role: .destructive) {
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { (target: GroupTarget) in
                 Text(deleteGroupMessage(target))
             }
@@ -351,8 +352,8 @@ public struct WorkspacesList: View {
         open(workspace)
     }
 
-    /// Opens a workspace: a needs-you one on its waiting tab, else the
-    /// last tab used here (`AppStore.openingTab`). Clears its "Done".
+    /// Opens a workspace: a needs-you one on its waiting tab, else the active
+    /// tab of its layout's top-left pane (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         if status == .offline {
             theme.haptics.warning()
@@ -360,7 +361,7 @@ public struct WorkspacesList: View {
             return
         }
         if let tab = tab ?? (status == .needsYou ? ws.agentTab(for: .needsYou) : nil) {
-            store.noteOpened(tabID: tab.id, in: ws.id)
+            store.requestOpen(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
         // Its tabs come from its Mac: opening a workspace links that Mac.
@@ -740,6 +741,7 @@ public struct WorkspacesList: View {
                         }
                     }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
             }
@@ -749,6 +751,7 @@ public struct WorkspacesList: View {
                     theme.haptics.impactLight()
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.close(ws) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { ws in
                 Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
             }

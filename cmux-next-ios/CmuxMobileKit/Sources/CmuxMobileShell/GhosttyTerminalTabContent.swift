@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -26,7 +27,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
     private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
-    /// Cooled tabs' pages as last seen.
+    /// Cooled tabs' pages as last seen, only while they are not on disk (no `frameStore`): a
+    /// cooled tab's frame otherwise waits in its JPEG, read back when its next host is built
+    /// (as a cold launch does), not as a full-size image in memory for as long as the tab is
+    /// open. A memory warning lets these go.
     private var lastFrames: [TerminalFrameKey: UIImage] = [:]
     /// The frame identity captured when each live host was built. This keeps
     /// a frame tied to the account that owned it even if auth changes later.
@@ -68,7 +72,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 // The background (or the lock screen) releases every
                 // terminal's size at once. A short background task keeps the
                 // app running for the releases to reach the Mac (bounded:
-                // the Mac's size lease covers a release that never lands).
+                // the Mac's size lease covers a release that never lands)
+                // and while the frames for the next cold launch are saved.
                 let release = SizeReleaseBackgroundTask()
                 release.begin()
                 self?.setAppActive(false)
@@ -81,6 +86,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.setAppActive(true) }
         }
+        // A cooled tab's frame in memory is only a still for its next page: it can go.
+        MemoryPressure.shared.register(self) { [weak self] in self?.lastFrames = [:] }
     }
 
     private func setAppActive(_ active: Bool) {
@@ -210,6 +217,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
             (session as? DaemonTerminalSession)?.reconnect()
@@ -219,7 +227,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
-        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
+        // The placeholder's page carries over only through the frame gate: a
+        // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
+        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
         if live != nil, let frameStore, let key {
@@ -312,10 +322,24 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         let key = hostFrameKeys.removeValue(forKey: id)
         if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
-        if let frame = host.model.snapshot {
-            if let key {
+        // The page as it is now (not only a grid-card snapshot, which a tab never
+        // shown in the grid lacks): its next host shows it at once while it attaches.
+        // A tab cooled before it drew the Mac's output keeps the cached frame it
+        // had; its blank page never goes over it, in memory or on disk.
+        // Its frame waits on disk: the live page is written now, and a frame it was given is
+        // usually its file already (`host(for:in:)`). Memory holds it only when it is not on
+        // disk: no frame store, or a frame handed over from a placeholder whose save has not
+        // landed (written to disk only after live output, so a blank page never goes there).
+        var frameState = "none"
+        if let key, let frame = host.model.frameToKeep() {
+            if let frameStore, host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) {
+                frameStore.save(data, for: key)
+                frameState = "on disk"
+            } else if let frameStore, FileManager.default.fileExists(atPath: frameStore.url(for: key).path) {
+                frameState = "on disk"
+            } else {
                 lastFrames[key] = frame
-                if let data = (host.model.frameForSaving() ?? frame).jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
+                frameState = "in memory"
             }
         }
         slots[id] = nil
@@ -325,7 +349,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host.model.session.stop()
         stopWatching(id)
         liveTabs.remove(id)
-        let frameState = key.flatMap { self.lastFrames[$0] } == nil ? "none" : "kept"
         warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(frameState, privacy: .public)")
     }
 
@@ -336,7 +359,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// state itself: making one during a view update notifies nothing.
     private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
         if let indicator = indicators[id] { return indicator }
-        let indicator = ReattachIndicator()
+        // The pill says "Reattaching…" only once an outage lasted as long as the
+        // composer's quiet line waits (10 s): a blip changes nothing on screen.
+        let indicator = ReattachIndicator(clock: ContinuousClock(), delay: QuietStatusGate.threshold)
         indicators[id] = indicator
         return indicator
     }
@@ -363,7 +388,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A read (no host is created): the tab's pill says "Reattaching…" while
-    /// its reattach has lasted 400 ms or more.
+    /// its reattach has lasted `QuietStatusGate.threshold` or more.
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }
@@ -420,16 +445,25 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// `live`: the grid's own refresh (D6), which also asks for a started
     /// tab whose page is off screen, at the grid's shorter interval.
     private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel, gridOpening: Bool = false, live: Bool = false) {
-        guard let provider = screenTextProvider, live || !model.pageStarted,
-              let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening,
+        guard let provider = screenTextProvider, live || !model.pageStarted else { return }
+        guard let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening,
                                                     interval: live ? TerminalCardLiveRefresh.screenTextInterval : TerminalCardScreenRefresh.interval)
-        else { return }
+        else {
+            // One is still out: output after it began waits for the next read.
+            if live { liveRefresh.readAgain(tab.id, now: CACurrentMediaTime()) }
+            return
+        }
+        liveRefresh.reading(tab.id)
         let macID = hostMacs[tab.id]
         Task { @MainActor [weak self, weak model] in
             let text = await provider(tab, macID)
             guard let self else { return }
             guard let text else {
                 self.screenTextRefresh.failed(tab.id, request: request)
+                if live {
+                    self.liveRefresh.readAgain(tab.id, now: CACurrentMediaTime())
+                    self.wakeLiveRefresh()
+                }
                 return
             }
             // A slower older reply never replaces a newer card text (A6).
@@ -455,25 +489,72 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     private var liveRefresh = TerminalCardLiveRefresh()
     private var liveRefreshTask: Task<Void, Never>?
+    /// The workspace's terminal tabs as they are now, while the grid shows.
+    private var gridTabs: (@MainActor () -> [WorkspaceTab])?
+    /// Sources told of the Mac's terminal output (`observeOutput`).
+    private var outputObservers: [(owner: Weak, handler: @MainActor (String?, String) -> Void)] = []
+    private struct Weak { weak var object: AnyObject? }
 
     func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {
         liveRefresh.setVisible(visible, now: CACurrentMediaTime())
         liveRefreshTask?.cancel()
         liveRefreshTask = nil
-        guard visible else { return }
+        gridTabs = visible ? tabs : nil
+        wakeLiveRefresh()
+    }
+
+    func overviewScrollingChanged(_ scrolling: Bool) {
+        liveRefresh.setScrolling(scrolling, now: CACurrentMediaTime())
+        wakeLiveRefresh()
+    }
+
+    func sceneActiveChanged(_ active: Bool) {
+        liveRefresh.setAppActive(active, now: CACurrentMediaTime())
+        if !active {
+            liveRefreshTask?.cancel()
+            liveRefreshTask = nil
+        }
+        wakeLiveRefresh()
+    }
+
+    func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {
+        outputObservers.removeAll { $0.owner.object == nil || $0.owner.object === owner }
+        outputObservers.append((Weak(object: owner), handler))
+    }
+
+    /// The Mac said terminal `tabID` on `macID` drew output (`surface-output`),
+    /// or (nil) that any of its terminals may have: its event stream started
+    /// again, so output in between was not heard.
+    func macOutput(tabID: String?, macID: String) {
+        let now = CACurrentMediaTime()
+        if let tabID {
+            if hosts[tabID] != nil, hostMacs[tabID].map({ $0 == macID }) ?? true { liveRefresh.macOutput(tabID, now: now) }
+        } else {
+            for (id, mac) in hostMacs where mac == macID && hosts[id] != nil { liveRefresh.macOutput(id, now: now) }
+        }
+        wakeLiveRefresh()
+        outputObservers.removeAll { $0.owner.object == nil }
+        for observer in outputObservers { observer.handler(tabID, macID) }
+    }
+
+    /// Ticks while cards may be due: only after the Mac's output, until it
+    /// has been quiet for `TerminalCardLiveRefresh.quietAfter`. A quiet grid
+    /// has no timer at all.
+    private func wakeLiveRefresh() {
+        guard liveRefreshTask == nil, liveRefresh.wantsTicks(now: CACurrentMediaTime()) else { return }
         // A UI refresh cadence, not synchronization: each tick asks only for
         // the cards that are due (`TerminalCardLiveRefresh`).
         liveRefreshTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await ContinuousClock().sleep(for: TerminalCardLiveRefresh.tick)
                 guard !Task.isCancelled, let self else { return }
-                self.refreshLiveCards(tabs())
+                self.refreshLiveCards(self.gridTabs?() ?? [])
+                if !self.liveRefresh.wantsTicks(now: CACurrentMediaTime()) {
+                    self.liveRefreshTask = nil
+                    return
+                }
             }
         }
-    }
-
-    func overviewScrollingChanged(_ scrolling: Bool) {
-        liveRefresh.setScrolling(scrolling)
     }
 
     private func refreshLiveCards(_ tabs: [WorkspaceTab]) {
@@ -491,7 +572,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             case .screenText(let id):
                 guard let tab = known.first(where: { $0.id == id }), let model = hosts[id]?.model else { continue }
                 // A live tab not attached yet shows its connecting card.
-                if model.pageStarted, !model.connectionState.isAttached { continue }
+                if model.pageStarted, !model.connectionState.isAttached {
+                    liveRefresh.readAgain(id, now: CACurrentMediaTime())
+                    continue
+                }
                 refreshScreenText(for: tab, model: model, live: true)
             }
         }
@@ -544,6 +628,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos
     /// drive the tab through it.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
+
+    /// Cooled tabs' last frames held in memory, and their pixel bytes (tests).
+    var framesHeldInMemory: Int { lastFrames.count }
+    var frameBytesHeldInMemory: Int {
+        lastFrames.values.reduce(0) { total, image in total + (image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) }
+    }
 }
 
 /// A short background task for the background release: begun before the

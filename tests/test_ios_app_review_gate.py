@@ -117,6 +117,22 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("metadata.missing", self.rules(lint))
         self.assertTrue(any("cmux-next-ios/AppStoreReview/metadata" in f.message for f in lint.findings))
 
+    def test_a_raw_error_dump_in_user_text_warns_but_a_log_line_does_not(self) -> None:
+        rel = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/Failing.swift"
+        write(self.root, rel,
+              'log.error("failed: \\(String(describing: error), privacy: .public)")\n'
+              'let shown = UserFacingError.message(error)\n'
+              '// was: (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        lint = self.run_lint()
+        self.assertEqual([f for f in lint.findings if f.rule == "ux.raw-error"], [])
+        write(self.root, rel, 'failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FailingTests.swift",
+              'let text = x ?? String(describing: error)\n')
+        lint = self.run_lint()
+        raw = [f for f in lint.findings if f.rule == "ux.raw-error"]
+        self.assertEqual([(f.severity, f.where) for f in raw], [("warning", f"{rel}:1")])
+        self.assertNotIn("ux.raw-error", self.rules(lint))
+
     def test_google_and_github_without_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Welcome.swift",
               'let g = "Continue with Google"; let h = "Continue with GitHub"\n')
@@ -200,6 +216,95 @@ class AppReviewGateTests(unittest.TestCase):
         lint = gate.Lint(self.root, "appstore")
         lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
         self.assertIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_privacy_api_in_a_linked_package_needs_its_purpose_string(self) -> None:
+        # The microphone lives in a shared package the kit links, not in the
+        # app's own folders; the prompt is still the app's.
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift",
+              'let p = Package(dependencies: [.package(path: "../../Packages/Shared/Voice")])\n')
+        write(self.root, "Packages/Shared/Voice/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/Shared/Voice/Sources/Voice/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertIn("privacy.purpose-string", self.rules(lint))
+        self.assertTrue(any("NSMicrophoneUsageDescription" in f.message for f in lint.findings))
+
+    def test_a_package_the_app_does_not_link_is_not_judged(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Sources/Classic/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertNotIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_biometry_locked_key_needs_the_face_id_purpose_string(self) -> None:
+        # The classic app's SSH key lock (#40636): Secure Enclave keys with
+        # biometry access control ask for Face ID with no LAContext call.
+        write(self.root, "cmux-next-ios/App/Keys.swift", "var flags: SecAccessControlCreateFlags = [.privateKeyUsage, .biometryCurrentSet]\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertTrue(any("NSFaceIDUsageDescription" in f.message and f.severity == "blocker" for f in lint.findings))
+
+    def test_a_generic_purpose_string_is_flagged(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSCameraUsageDescription": "This app uses the camera for features."}, "Info.plist")
+        self.assertIn("privacy.purpose-string-vague", {f.rule for f in lint.findings})
+
+    def test_bonjour_services_are_asked_for_only_when_bonjour_is_used(self) -> None:
+        plist = {"ITSAppUsesNonExemptEncryption": False,
+                 "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network for a faster link."}
+        write(self.root, "cmux-next-ios/App/Dial.swift", "let l = try NWListener(using: .tcp, on: 0)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Browse.swift", 'let b = NWBrowser(for: .bonjour(type: "_cmux._tcp", domain: nil), using: .tcp)\n')
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertIn("privacy.bonjour", self.rules(lint))
+
+    def manifests(self, app: list[str], **extensions: list[str]) -> None:
+        def body(categories: list[str]) -> str:
+            return plistlib.dumps({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
+                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": ["X.1"]} for c in categories]}).decode()
+        write(self.root, "cmux-next-ios/App/PrivacyInfo.xcprivacy", body(app))
+        for name in ("NotificationContent", "NotificationService"):
+            if name in extensions:
+                write(self.root, f"cmux-next-ios/{name}/PrivacyInfo.xcprivacy", body(extensions[name]))
+
+    def privacy_rules(self) -> set[str]:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        return self.rules(lint)
+
+    def test_a_required_reason_api_the_manifest_omits_blocks(self) -> None:
+        # ITMS-91053: PreviewStorage read free space with no DiskSpace entry (2026-11-12).
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileArtifacts/PreviewStorage.swift",
+              "let v = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])\n")
+        self.manifests([], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+        self.manifests(["NSPrivacyAccessedAPICategoryDiskSpace"], NotificationContent=[], NotificationService=[])
+        self.assertEqual(self.privacy_rules(), set())
+
+    def test_an_extension_without_its_own_manifest_blocks(self) -> None:
+        self.manifests([], NotificationContent=[])
+        self.assertIn("privacy.manifest", self.privacy_rules())
+
+    def test_an_extensions_manifest_covers_its_own_sources(self) -> None:
+        write(self.root, "cmux-next-ios/NotificationService/NotificationService.swift", "let d = UserDefaults.standard\n")
+        self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+
+    def test_local_network_without_bonjour_browsing_needs_no_bonjour_services(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Find.swift", "let b = NWBrowser(for: .bonjour(type: \"_x._tcp\", domain: nil), using: .tcp)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertIn("privacy.bonjour", {f.rule for f in lint.findings})
 
     def test_vpn_entitlement_blocks_only_the_app_store_lane(self) -> None:
         ents = {"com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]}
@@ -366,6 +471,86 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(text.count("XCUITest cannot fold the simulator"), 1)
 
+    def ratchet_inputs(self, failed: list[str]) -> tuple[Path, Path]:
+        suite = self.root / "iphone.json"
+        cases = [{"nodeType": "Test Case", "name": name, "result": "Failed",
+                  "children": [{"nodeType": "Failure Message", "name": f"AppReviewGateUITests.swift:{i}: on screen: {i}"}]}
+                 for i, name in enumerate(failed, 1)] or [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]
+        suite.write_text(json.dumps({"testNodes": [{"nodeType": "Unit test bundle", "name": "AppReviewGateUITests", "children": cases}]}))
+        known = self.root / "known-blockers.json"
+        known.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"}]}))
+        return suite, known
+
+    def test_a_known_blocker_alone_passes_a_change_and_still_shows(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("No new blocker", text)
+        # A submission reads no baseline: the same result refuses it.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--out", str(out)]), 1)
+
+    def test_a_new_blocker_fails_the_change_that_brought_it(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 1)
+        self.assertIn("**1 new blocking**", text)
+        self.assertIn("uitest.failed|iphone|AppReviewGateUITests/testNew()", text)
+        self.assertNotIn("`uitest.failed|iphone|AppReviewGateUITests/testOld()`: ", text)
+
+    def test_a_fixed_blocker_is_named_for_removal(self) -> None:
+        suite, known = self.ratchet_inputs([])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        self.assertEqual(code, 0)
+        self.assertIn("remove from", out.read_text())
+
+    def test_a_change_cannot_pin_its_own_regression(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        proposed = self.root / "proposed.json"
+        proposed.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"},
+                                                     {"key": "uitest.failed|iphone|AppReviewGateUITests/testNew()"}]}))
+        out = self.root / "report.md"
+        # Its own list alone would pass it; judged on the base's, it fails twice over.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                                    "--known-blockers", str(proposed), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 1)
+        self.assertIn("known-blockers.added", out.read_text())
+        # Removing a fixed entry is fine.
+        suite, known = self.ratchet_inputs([])
+        proposed.write_text(json.dumps({"blockers": []}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 0)
+
+    def test_the_key_ignores_line_numbers_and_screen_dumps(self) -> None:
+        a = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:120: on screen: a"}
+        b = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:131: on screen: b"}
+        self.assertEqual(gate.blocker_key(a), gate.blocker_key(b))
+        self.assertEqual(gate.blocker_key({"rule": "r", "where": "a/B.swift:90"}),
+                         gate.blocker_key({"rule": "r", "where": "a/B.swift:91"}))
+
+    def test_missing_results_and_the_agent_pass_are_judged_apart_from_the_baseline(self) -> None:
+        # Fail closed: a suite that never reported is new, whatever is known.
+        _, known = self.ratchet_inputs([])
+        agent = self.root / "agent-findings.json"
+        agent.write_text(json.dumps([{"rule": "agent", "guideline": "2.1(a)", "severity": "blocker",
+                                      "source": "agent reviewer pass", "message": "m", "where": "s.png"}]))
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--extra", str(agent),
+                                    "--known-blockers", str(known), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--expect-device", "ipad",
+                                    "--known-blockers", str(known), "--out", str(out)]), 1)
+        known.write_text("not json")
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 1)
+
 
 class RealTreeTests(unittest.TestCase):
     """The checked-in history, the NEXT app's UI tests and the gate agree."""
@@ -374,6 +559,18 @@ class RealTreeTests(unittest.TestCase):
         lint = gate.Lint(ROOT, "appstore")
         lint.check_history()
         self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_the_app_declares_a_specific_purpose_string_for_every_privacy_api_it_links(self) -> None:
+        # Fails CI the moment the NEXT app (or a package it links) calls a
+        # privacy API without its Info.plist purpose string, or a purpose
+        # string reads as generic: iOS kills the app at the prompt, and App
+        # Review rejects under 5.1.1 (first-user journey, permission audit).
+        lint = gate.Lint(ROOT, "appstore")
+        plist = lint.project_info()
+        self.assertTrue(plist, "project.yml's CmuxMobileApp Info.plist properties could not be read")
+        lint.check_info_plist(plist, gate.PROJECT_YML)
+        privacy = [f"{f.rule}: {f.message}" for f in lint.findings if f.rule.startswith("privacy.")]
+        self.assertEqual(privacy, [])
 
     def test_the_workflow_runs_every_gate_test_by_its_real_name(self) -> None:
         # -only-testing names resolve only when target, class and method match.
@@ -386,6 +583,26 @@ class RealTreeTests(unittest.TestCase):
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
         self.assertFalse("Billing" in tests or "StoreKit" in tests)
+
+    def test_every_known_blocker_names_something_that_still_exists(self) -> None:
+        # A renamed or deleted test would leave a pin nothing can match.
+        known = json.loads((ROOT / gate.KNOWN_BLOCKERS_FILE).read_text())
+        tests = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
+        for entry in known["blockers"]:
+            rule, where, *rest = entry["key"].split("|")
+            if rule == "uitest.failed":
+                self.assertIn(where, ("iphone", "ipad", "duo"), entry["key"])
+                name = rest[0].split("/")[-1].removesuffix("()")
+                self.assertIn(f"func {name}(", tests, entry["key"])
+            self.assertNotIn("agent", rule, "the agent pass is never pinned")
+
+    def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertNotIn("ADVISORY", workflow)
+        pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+        self.assertIn('"cmux-next-ios/**"', pull_request)
 
 
 if __name__ == "__main__":

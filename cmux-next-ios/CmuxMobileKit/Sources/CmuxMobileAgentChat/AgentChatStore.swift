@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
@@ -208,6 +209,9 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The main actor's time spent putting older pages in, in all (the scroll-up bench reads it
+    /// per frame: a page that lands costs the frame it lands in).
+    @ObservationIgnored public private(set) var earlierApplyTime: Duration = .zero
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
@@ -272,6 +276,14 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// What the chat says when the Mac refused a send for this phone's Full-access setting
+    /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
+    /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
+    /// It goes once a later connection says Full access covers this phone (`.fullAccess(true)`).
+    public static let fullAccessOffNotice = "Full access is off for this iPhone, so from it a chat runs only in a mode that asks before changes. Turn it on in Settings > Devices on the Mac."
+    /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
+    /// fleet lanes run in Bypass permissions): what to change to send it.
+    public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -334,11 +346,32 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    public init(source: any AgentSessionSource) {
+    /// Says when a dropped or catching-up chat may show its line (after 10 s);
+    /// its rows stay on screen the whole time.
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+
+    /// The chat's one quiet status line by the composer: nil while live and for the first
+    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
+    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
+    /// instead (``AgentChatLoadingState``).
+    public var connectionLine: String? {
+        guard quietStatus.isShown, hasTurns else { return nil }
+        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
+        return isLoadingHistory ? "Updating…" : nil
+    }
+
+    /// Feeds ``quietStatus`` from the link and history state.
+    private func updateQuietStatus() {
+        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+    }
+
+    public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
+        self.quietStatus = quietStatus
+        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -458,6 +491,7 @@ public final class AgentChatStore {
         chunkFlushes += 1
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
+        updateQuietStatus()
     }
 
     nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
@@ -617,7 +651,7 @@ public final class AgentChatStore {
             } catch {
                 guard let self else { return }
                 if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
-                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                self.clientError = UserFacingError.message(error)
             }
         }
     }
@@ -641,6 +675,43 @@ public final class AgentChatStore {
 
     @ObservationIgnored private var loadedBookmarks = false
     @ObservationIgnored private var loadingBookmarks = false
+
+    /// The person opened a tool output the Mac sent cut (``ACPToolCall/outputCut``): its whole
+    /// record is read and put in place of the cut one, unless a newer update replaced the output
+    /// meanwhile. One read per record at a time (a second ask waits for it). False when the read
+    /// failed: the cut output stays shown, and the person can ask again.
+    @discardableResult
+    public func loadFullOutput(of call: ACPToolCall) async -> Bool {
+        guard let cut = call.outputCut else { return true }
+        let read: Task<ACPToolCallUpdate?, Never>
+        if let reading = fullOutputReads[cut.seq] {
+            read = reading
+        } else {
+            let source = source
+            read = Task { @MainActor in await source.fullToolOutput(cut) }
+            fullOutputReads[cut.seq] = read
+        }
+        let full = await read.value
+        fullOutputReads[cut.seq] = nil
+        guard let full, full.toolCallId == call.id else { return false }
+        placeFullOutput(full, cut: cut)
+        return true
+    }
+
+    @ObservationIgnored private var fullOutputReads: [Int: Task<ACPToolCallUpdate?, Never>] = [:]
+
+    private func placeFullOutput(_ full: ACPToolCallUpdate, cut: ACPToolOutputCut) {
+        var placed = false
+        for index in turns.indices.reversed() where !placed {
+            placed = turns[index].items.placeFullOutput(full, cut: cut)
+        }
+        for index in subagents.indices where !placed {
+            placed = subagents[index].items.placeFullOutput(full, cut: cut)
+        }
+        guard placed else { return }
+        revision &+= 1
+        refreshDerived()
+    }
     /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
     @ObservationIgnored private var wantsBookmarks = false
 
@@ -827,7 +898,10 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
+        spillIfOffScreen()
         refreshDerived()
+        // A record after a reattach can end `.disconnected` without a `.status` event.
+        updateQuietStatus()
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
@@ -1041,6 +1115,8 @@ public final class AgentChatStore {
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
+            let start = ContinuousClock.now
+            defer { earlierApplyTime += start.duration(to: .now) }
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
             refreshEarlierHistory()
@@ -1051,6 +1127,8 @@ public final class AgentChatStore {
             fillGap(events, done: done)
         case .fullAccess(let on):
             fullAccess = on
+            // The refusal said Full access was off; a connection that says it is on ends it.
+            if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
@@ -1073,8 +1151,16 @@ public final class AgentChatStore {
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, attachments, promptID)
+            if let earlier = returnedDraft {
+                // Several messages came back before the composer took the first: none is lost.
+                // Joined, they are a new message (no single id runs them all once).
+                returnedDraft = ReturnedDraft(text: [earlier.text, text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                              attachments: earlier.attachments + attachments, promptID: promptID)
+                resendable = nil
+            } else {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                resendable = (text, attachments, promptID)
+            }
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
@@ -1092,6 +1178,19 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// How far ahead of the reader older history is read: within this many screens of the
+    /// oldest turn shown, the page before it is asked for (the desktop's transcript reads six
+    /// viewports ahead; a phone's screen holds less, and its source holds one more page ahead).
+    public static let readAheadScreens: Double = 4
+
+    /// The reader is `screensAbove` screens below the oldest turn shown (the list's scroll, each
+    /// step): within ``readAheadScreens``, the page before it is asked for, long before the top
+    /// shows. The source reads one more ahead, so the next ask is answered at once.
+    public func readAhead(screensAbove: Double) {
+        guard screensAbove < Self.readAheadScreens, hasEarlierHistory, !isLoadingEarlier else { return }
+        loadEarlier()
+    }
 
     /// The reader reached the oldest turn shown: the source reads the page before it.
     public func loadEarlier() {
@@ -1170,6 +1269,58 @@ public final class AgentChatStore {
         assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
     }
 
+    // MARK: Off screen
+
+    /// The lists showing this chat now (`ChatTranscriptList`), held weakly: a list that goes
+    /// stops counting. Such a list keeps the window itself, knowing where the reader is.
+    @ObservationIgnored private var viewers: [WeakViewer] = []
+    private struct WeakViewer { weak var owner: AnyObject? }
+    /// Set by the store's owner (`boundsMemoryOffScreen`): a chat kept for a tab keeps the
+    /// on-screen window while no list shows it. Off for the stores built for one page of
+    /// history (`prependEarlier`), which must hold every turn they read.
+    @ObservationIgnored private(set) var boundsOffScreen = false
+
+    /// Whether a list shows this chat.
+    public var isShown: Bool { viewers.contains { $0.owner != nil } }
+
+    /// `owner` (a transcript list) shows this chat from now on.
+    public func shown(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        viewers.append(WeakViewer(owner: owner))
+    }
+
+    /// `owner` no longer shows this chat: its window is kept from now on by the store.
+    public func hidden(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        spillIfOffScreen()
+    }
+
+    /// A chat that stays in memory while the person is elsewhere (its tab's store, made for the
+    /// chat, Home and Feed cards) spills like the one on screen: past `windowTrigger` turns the
+    /// oldest go to disk, keeping `windowKeep`, and a memory warning brings it down to
+    /// `pressureKeep`. Opening it shows the same newest turns and scrolling up reads the rest
+    /// back (`loadEarlier`), as after the on-screen spill.
+    public func boundsMemoryOffScreen() { boundsMemoryOffScreen(memoryPressure: .shared) }
+
+    func boundsMemoryOffScreen(memoryPressure: MemoryPressure) {
+        guard !boundsOffScreen else { return }
+        boundsOffScreen = true
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressureOffScreen() }
+    }
+
+    /// The on-screen window (`ChatTranscriptList.spillIfResting`), for a chat no list shows.
+    private func spillIfOffScreen() {
+        guard boundsOffScreen, turns.count > Self.windowTrigger, !isShown else { return }
+        spillOlder(keeping: Self.windowKeep)
+    }
+
+    /// A memory warning, for a chat no list shows (the list's own handler covers the one on
+    /// screen, keeping the turn the reader is on).
+    func relieveMemoryPressureOffScreen() {
+        guard !isShown else { return }
+        spillOlder(keeping: Self.pressureKeep)
+    }
+
     /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from
     /// `protecting` (the reader's first visible turn) on. A running turn and one with an open
     /// ask, and every turn after it, stay. Scrolling up brings them back (`loadEarlier`).
@@ -1205,6 +1356,8 @@ public final class AgentChatStore {
 
     /// A page of spilled turns (newest first) goes back in front of the shown ones.
     private func restoreSpilled(_ page: [AgentTurn]) {
+        let start = ContinuousClock.now
+        defer { earlierApplyTime += start.duration(to: .now) }
         isLoadingEarlier = false
         turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
         spilledTurnIDs.subtract(page.map(\.id))
