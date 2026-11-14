@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::ListKey;
 
 struct Provider {
     rows: HashMap<RowKey, Arc<Summary>>,
@@ -18,7 +19,7 @@ fn request(keys: Vec<ListKey>, max: u32) -> Page {
         stream: "list".into(),
         before: None,
         after: None,
-        keys: Some(keys),
+        keys: Some(keys.into_iter().map(PageKey::Summary).collect()),
         view: None,
         max_bytes: max,
         filter: None,
@@ -109,4 +110,25 @@ fn missing_and_unknown_are_answered_and_never_repeated_in_rest() {
     assert_eq!(page.missing, vec![local]);
     assert_eq!(page.unknown, vec![remote]);
     assert!(page.rest.is_empty());
+}
+
+#[test]
+fn folder_keys_are_refused_before_any_summary_provider_read() {
+    let provider = Arc::new(Provider { rows: HashMap::new(), reads: Mutex::new(Vec::new()) });
+    let (hub, _writer) = Hub::new(SummaryIndex::new());
+    hub.set_page_provider(provider.clone());
+    for mixed in [false, true] {
+        let mut keys = Vec::new();
+        if mixed {
+            keys.push(PageKey::Summary(wire_key(SortKey::of(&Summary::new("cold")))));
+        }
+        keys.push(PageKey::Folder(crate::wire::FolderIdentity {
+            origin: "local".into(),
+            folder: "/work".into(),
+        }));
+        let mut page = request(Vec::new(), 64 * 1024);
+        page.keys = Some(keys);
+        assert!(matches!(hub.page(&page), Err(HubError::InvalidPage)));
+        assert!(provider.reads.lock().unwrap().is_empty());
+    }
 }

@@ -212,6 +212,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
             (session as? DaemonTerminalSession)?.reconnect()
