@@ -14,7 +14,7 @@ The layouts use the same native controls and semantic theme tokens:
 - Stacked: the name and live latency above the controls, preserving their labels.
 - Compact: name and latency above access, quality, full screen, More and connect/disconnect. More contains display choice, Send Keys and refresh. Very narrow panes wrap whole controls, including long translations; no control extends beyond the pane.
 
-The selected quality stays on its menu button (its tooltip and accessible name at compact widths). The detailed stats preference still controls the extended metrics; measured round-trip latency is visible independently. Missing latency reads as unavailable, never zero. The keyboard release hint remains visible when it fits and in the access control's tooltip otherwise.
+The selected quality stays visible on its menu button at every width; narrow layouts wrap the controls instead of hiding the value. The detailed stats preference still controls the extended metrics; measured round-trip latency is visible independently. Missing latency reads as unavailable, never zero. The keyboard release hint remains visible when it fits and in the access control's tooltip otherwise.
 
 All affected geometry uses the toolbar's measured height: video, pointer input and the state card move together. Layout costs are bounded by the fixed control count, independent of workspace and session counts. There are no new timers, observers or motion.
 

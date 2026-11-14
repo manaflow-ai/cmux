@@ -318,8 +318,6 @@ final class MacScreenToolbarView: MacScreenThemedView {
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
         more.isHidden = !controlsShown || !compact
-        let position: NSControl.ImagePosition = compact ? .imageOnly : .imageLeading
-        if quality.imagePosition != position { quality.imagePosition = position }
         return ([access, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
     }
 
