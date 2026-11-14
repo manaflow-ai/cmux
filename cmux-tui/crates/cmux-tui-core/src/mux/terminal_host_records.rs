@@ -146,6 +146,33 @@ fn host_read_before_the_answer(
     (liveness, host_that_lives(liveness, host))
 }
 
+/// The seat of a kept host, as its adoption owns it ([`Mux::kept_host`]).
+/// The default is no seat.
+///
+/// A client can have its class from the seat. At each end of the seat (the
+/// drop of this value), the clients that have their class from it get the
+/// class that the seats give at that moment
+/// (`ClientRegistry::kept_seat_ended`). The owner drops this value with no
+/// lock held.
+#[cfg(any(unix, windows))]
+#[derive(Default)]
+#[must_use = "the seat ends when this value is dropped"]
+pub(crate) struct KeptHostHold {
+    seat: crate::diagnostics::KeptHostSeat,
+    mux: std::sync::Weak<Mux>,
+}
+
+#[cfg(any(unix, windows))]
+impl Drop for KeptHostHold {
+    fn drop(&mut self) {
+        if self.seat.end()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.control_clients.kept_seat_ended(mux.connection_stats());
+        }
+    }
+}
+
 #[cfg(all(test, any(unix, windows)))]
 mod kept_host_tests;
 
@@ -165,18 +192,22 @@ impl Mux {
     /// answer that is not that one, or a start that is not read or is not
     /// before this daemon's. `terminal`: the terminal's public id, when the
     /// pass has it.
+    ///
+    /// A second seat for one host makes the host name no terminal. The
+    /// clients that had their class from the first seat get their class
+    /// again here, as at an end of the seat ([`KeptHostHold`]).
     pub(crate) fn kept_host(
-        &self,
+        self: &Arc<Self>,
         record_path: &Path,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
         terminal: Option<&TerminalPublicId>,
-    ) -> (TerminalHostLiveness, crate::diagnostics::KeptHostSeat) {
+    ) -> (TerminalHostLiveness, KeptHostHold) {
         let (liveness, host) = host_read_before_the_answer(
             || crate::diagnostics::KeptHost::read(record.host_pid),
             || terminal_host_record_liveness(record_path, record),
         );
         if host.is_none() {
-            return (liveness, crate::diagnostics::KeptHostSeat::default());
+            return (liveness, KeptHostHold::default());
         }
         let terminal = terminal.cloned().or_else(|| {
             let read = {
@@ -197,7 +228,11 @@ impl Mux {
         let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
         let seating =
             crate::diagnostics::HostSeating::of(self.connection_stats().clone(), terminal);
-        (liveness, seating.seat_kept(host))
+        let seat = seating.seat_kept(host);
+        if seat.ended_a_class() {
+            self.control_clients.kept_seat_ended(self.connection_stats());
+        }
+        (liveness, KeptHostHold { seat, mux: Arc::downgrade(self) })
     }
 }
 
