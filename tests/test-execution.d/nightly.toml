@@ -61,6 +61,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that generate-nightly-deltas checks out only scripts/ of the build ref and that the reel's apt install retries; run python3 tests/test_nightly_deltas_sparse_checkout.py yourself after changing either (about 1 s, no Mac)."
 
 [[test]]
+path = "tests/test_nightly_deltas_yield.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that build-nightly-deltas waits for a quiet nightly-next loop before the keyed job asks for the signer Mac, and skips deltas the live feed has passed; run python3 tests/test_nightly_deltas_yield.py yourself after changing the yield script or the three delta jobs (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
@@ -352,6 +357,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_version.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_borrows_mirror.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next builder's checkout step from nightly.yml on an empty slot beside a temp git mirror, and needs the slot to borrow a healthy mirror (borrow record and alternates) before its fetch and to leave an unhealthy one alone; run python3 tests/test_nightly_warm_checkout_borrows_mirror.py yourself after changing that step or glaeda's borrow record (about 1 s, git only, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_warm_checkout_sparse.py"
