@@ -13,6 +13,8 @@ fn page(filter: ListFilter) -> Page {
         view: None,
         max_bytes: crate::wire::MAX_PAGE_BYTES as u32,
         filter: Some(filter),
+        edition: None,
+        fold: None,
     }
 }
 

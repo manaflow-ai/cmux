@@ -1,6 +1,8 @@
 //! I/O-free client state machine for agent-service v2.
 
+pub mod chat;
 pub mod ffi;
+pub mod tokio_list;
 pub mod wire;
 
 use acpmux_list_types::{OriginState, RowKey, Summary};
@@ -87,6 +89,8 @@ pub enum Change<T> {
         cursor: Cursor,
     },
     Fallback(Vec<u8>),
+    /// A chat sub's change: the same queue, the same credit, and no `T`.
+    Chat(chat::ChatChange),
 }
 
 /// Encodes a list summary using the object shape expected by the v1 app.
@@ -229,6 +233,8 @@ pub struct Client<T = Summary> {
     direct_v2: bool,
     upgrade_id: Option<Value>,
     skips: SkipCounters,
+    chats: HashMap<String, chat::ChatSub>,
+    blobs: VecDeque<chat::PendingBlob>,
 }
 
 /// Counts protocol values this client intentionally skips while preserving the
@@ -239,6 +245,8 @@ pub struct SkipCounters {
     pub unknown_op: u64,
     pub missing_seq: u64,
     pub unheld_sid: u64,
+    /// A chat window or page past 400 rows or 256 KB, skipped and answered with an error change.
+    pub over_bound: u64,
 }
 
 struct QueuedChange<T> {
@@ -276,6 +284,8 @@ where
             direct_v2: false,
             upgrade_id: None,
             skips: SkipCounters::default(),
+            chats: HashMap::new(),
+            blobs: VecDeque::new(),
         }
     }
 
@@ -340,6 +350,7 @@ where
             sub.consumed = 0;
             sub.credited = 0;
         }
+        self.chats_disconnected();
         if self.direct_v2 {
             self.queue_hello();
         }
@@ -365,18 +376,7 @@ where
         if queued.charge
             && let Some(sid) = queued.sid.as_deref()
         {
-            let mut credit = None;
-            if let Some(sub) = self.subscriptions.get_mut(sid) {
-                sub.consumed = sub.consumed.saturating_add(queued.bytes);
-                if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
-                    sub.credited = sub.consumed;
-                    credit = Some(sub.consumed);
-                }
-            }
-            if let Some(consumed) = credit {
-                let _ = self
-                    .queue_request(Request::Credit(wire::Credit { sid: sid.to_owned(), consumed }));
-            }
+            self.charge_frame_now(Some(sid), queued.bytes);
         }
         Some(queued.change)
     }
@@ -491,6 +491,9 @@ where
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
         }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
+        }
         if sub.view == Some(ListView::Folders) {
             // A folders window is a replacement head snapshot. Cursors and
             // editions belong to resumable summary streams only.
@@ -545,6 +548,9 @@ where
             held_keys.into_iter().map(|key| (Self::row_identity(&key), key)).collect();
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
+        }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
         }
         let sid = sub.sid.clone();
         let cursor = sub.cursor.unwrap_or_default();
@@ -628,7 +634,9 @@ where
         Ok(())
     }
 
+    /// Ends a list or a chat sub.
     pub fn unsubscribe(&mut self, sid: &str) -> Result<(), FrameError> {
+        self.forget_chat(sid);
         self.subscriptions.remove(sid);
         self.stale_folder_pages.remove(sid);
         self.deferred_folder_pages.remove(sid);
@@ -696,6 +704,7 @@ where
         for request in requests {
             let _ = self.queue_request(Request::Page(request));
         }
+        self.queue_chat_requests();
     }
 
     fn row_key(value: &Value) -> Option<ListKey> {
@@ -1049,6 +1058,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1091,6 +1102,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1161,6 +1174,7 @@ where
 
     fn accept_frame(&mut self, frame: Frame) {
         let frame_bytes = frame.encoded_len() as u64;
+        let Some(frame) = self.accept_chat_frame(frame, frame_bytes) else { return };
         match frame.kind {
             FrameKind::Hello => {
                 let Ok(reply) = frame.decode_json::<wire::HelloReply>() else {
@@ -1537,6 +1551,8 @@ where
                     view: sub.request.view,
                     max_bytes: wire::MAX_PAGE_BYTES as u32,
                     filter: sub.request.filter.clone(),
+                    edition: None,
+                    fold: None,
                 }
             };
             self.pages.insert(
@@ -1686,12 +1702,18 @@ where
 
     fn charge_frame_now(&mut self, sid: Option<&str>, bytes: u64) {
         let Some(sid) = sid else { return };
+        let quarter = self.limits.credit_window / 4;
         let consumed = {
-            let Some(sub) = self.subscriptions.get_mut(sid) else { return };
-            sub.consumed = sub.consumed.saturating_add(bytes);
-            if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
-                sub.credited = sub.consumed;
-                Some(sub.consumed)
+            let credit = if self.subscriptions.contains_key(sid) {
+                self.subscriptions.get_mut(sid).map(|sub| (&mut sub.consumed, &mut sub.credited))
+            } else {
+                self.chat_credit(sid)
+            };
+            let Some((consumed, credited)) = credit else { return };
+            *consumed = consumed.saturating_add(bytes);
+            if consumed.saturating_sub(*credited) >= quarter {
+                *credited = *consumed;
+                Some(*consumed)
             } else {
                 None
             }
@@ -2729,6 +2751,8 @@ tail"#;
             view: Some(ListView::Folders),
             max_bytes: wire::MAX_PAGE_BYTES as u32,
             filter: None,
+            edition: None,
+            fold: None,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({

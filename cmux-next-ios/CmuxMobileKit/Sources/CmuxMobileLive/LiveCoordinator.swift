@@ -269,6 +269,12 @@ public final class LiveCoordinator {
             var scoped = summary
             scoped.accountID = self.userID
             let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
+            // A tab of a workspace this phone is still creating (New Task, New Agent Chat): the Mac
+            // is starting its chat, which opens under the Mac's own tab id once listed. It loads
+            // meanwhile; it has not "not started".
+            if self.store.pendingWorkspaceIDs.contains(where: { self.store.workspace(id: $0)?.tabs.contains { $0.id == summary.id } == true }) {
+                return StartingAgentSource(summary: scoped)
+            }
             // The Mac's tree has not come yet (a relaunch, the link still opening): the tab is not
             // known to be unbound. Its kept session opens at once (and catches up when the link
             // comes); with none kept, the chat loads instead of saying it hasn't started.
