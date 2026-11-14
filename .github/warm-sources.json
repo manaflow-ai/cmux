@@ -10,6 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
+    "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": ["actions-cache"]},
     "acpmux-sim-sweep.yml:sweep": {"class": "linux-rust", "warm": ["actions-cache"]},
     "agent-brands.yml:swift-test": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "app-ffi-release.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo from an empty target directory; a build script from a clean tree; no warm source wired yet"},
@@ -37,6 +38,7 @@
     "ci-macos.yml:release-build": {"class": "pr-release-compile", "warm": ["actions-cache", "product-reuse"]},
     "ci-macos.yml:swift-package-tests": {"class": "pr-swift-test", "warm": ["deriveddata-reuse", "spm-shared", "actions-cache"]},
     "ci-web.yml:react-apps-base-check": {"class": "webview", "warm": ["actions-cache"]},
+    "ci-web.yml:react-apps-base-early": {"class": "webview", "warm": ["actions-cache"]},
     "cmux-next-web.yml:web-bisect": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:react-apps-check-shard": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-db-migrations": {"class": "webview", "warm": ["actions-cache"]},
@@ -47,6 +49,7 @@
     "cloud-chat-proof.yml:proof-prod": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
     "cloud-devbox-image-rebake.yml:rebake": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-journey-pr.yml:journey": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the PR Cloud journey; no warm source wired yet"},
+    "cloud-journey-prod.yml:preclaim": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the staging preclaim login burst (manual dispatch only); no warm source wired yet"},
     "cloud-rd-link-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-image-bake.yml:bake": {"class": "linux-js", "warm": ["actions-cache"]},

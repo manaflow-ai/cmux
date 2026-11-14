@@ -9,7 +9,8 @@ import Testing
 // same, or I mean, close enough to the exact same as the small sessions"). Each test measures one
 // metric on the SMALL and the GOD fixture (InstantPerfFixtures.swift) side by side, reports it
 // (`INSTANTPERF {json}`, InstantPerfReport.swift) and asserts its budget (3x target) and the
-// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`.
+// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`. The
+// small case's budget only warns unless CMUX_INSTANT_PERF_STRICT=1 (a quiet harness).
 //
 // a. home_list_first_screen   the first window's `home-inbox` reply bytes (what a windowing host
 //                              sends: 20 rows and the list's total) to the list the first screen
@@ -23,6 +24,8 @@ import Testing
 // e. chat_older_page           one scroll-up page of older history. 50 ms.
 // f. chat_scroll_fill          a 60 Hz fling up a chat's history over a phone's link: p95 of each
 //                              frame's time to a filled viewport. 16.7 ms (one frame).
+// g. chat_scroll_fill_ui       the same fling on the transcript list itself (ChatScrollFillUITests.swift,
+//                              iOS): its layout, cells and reloads, not estimated heights. 16.7 ms.
 //
 // The suite is serialized and CI runs this target on its own (no other suite on the cores).
 // Numbers are from a Debug build (`swift test`, `xcodebuild test`), as the kit's tests build.
@@ -276,14 +279,10 @@ struct InstantPerfTests {
         let god = try await older(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_older_page", target: 50, small: small, god: god,
-            // Both sizes halved since the read's records map off the main actor and only those
-            // the page shows (simulator: small 27 to 9 ms, god 50 to 20 ms), but god's first older
-            // page carries the 2 MB log whole: about 10 ms more on the wire and in the parse,
-            // whatever the phone does with it. Next: the Mac sends a page's oversized tool output
-            // cut, with the whole read on tap. Scrolling never waits for this read any more
+            // Green since the Mac cuts a page's oversized tool output (`toolOutputMaxBytes`,
+            // OlderPageToolOutputTests): god's first older page carried a 2 MB log whole, about
+            // 6 ms more on the wire and in the parse. Scrolling never waits for this read
             // (`chat_scroll_fill`: it runs four screens ahead).
-            knownRed: [.ratio],
-            why: "god's first older page carries a 2 MB tool output whole (256 KiB plus 2 MB on the wire and parsed), small's 256 KiB",
             note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
     }
 

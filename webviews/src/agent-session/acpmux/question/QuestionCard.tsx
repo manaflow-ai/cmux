@@ -8,7 +8,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from "../conversation/i
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
 import { NativeError } from "../nativeError";
-import { errorMessage, isHostRefusal } from "../transportErrors";
+import { knownRefusalText } from "../transportErrors";
 import {
   activeItem,
   canSubmit,
@@ -242,8 +242,9 @@ function PendingQuestion({
     // The ask stays pending: say why on the card and take input again.
     if (sending.current === askId) sending.current = undefined;
     setSentFor((current) => (current === askId ? undefined : current));
-    if (isHostRefusal(error)) {
-      setRefused({ reason: errorMessage(error) });
+    const known = knownRefusalText(error);
+    if (known) {
+      setRefused({ reason: known });
       return;
     }
     const reason = localizedMessage(error);

@@ -31,8 +31,11 @@ impl Mux {
             &projection.result,
             pruned.as_ref().unwrap_or(&projection.changes),
         )?;
-        if pruned.is_none() && projection.restates_all && !commit.replayed {
-            registry.record_full_projection_fold(commit.revision, &projection.changes);
+        if projection.restates_all && !commit.replayed {
+            registry.record_full_projection_fold(
+                commit.revision,
+                pruned.as_ref().unwrap_or(&projection.changes),
+            );
         }
         state.resource_revision = commit.revision;
         Ok(commit)

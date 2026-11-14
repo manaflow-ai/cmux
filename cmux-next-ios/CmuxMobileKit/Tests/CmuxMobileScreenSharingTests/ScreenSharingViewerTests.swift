@@ -362,3 +362,84 @@ struct TestKeys: DeviceKeyMaterial {
 }
 
 #endif
+
+#if os(iOS)
+/// A Mac that can't be shared says why in the list's alert, never as a full-screen card over
+/// the list (user 2026-11-13).
+extension ScreenSharingViewerTests {
+    @Test func tappingAMacThatIsNotSharedShowsTheAlertAndAsksTheHubNothing() {
+        let (service, ends) = makeService()
+        let notShared = HubDevice(id: hostID, name: "Studio", platform: .macos, signingKey: "", macScreenShared: false, online: true)
+        service.select(notShared)
+        #expect(service.viewer == nil)
+        #expect(service.alert?.refusal == .notShared)
+        #expect(service.alert?.hostName == "Studio")
+        #expect(ends.calls.isEmpty)
+    }
+
+    @Test func aRefusalBeforeTheViewerShowsBecomesTheAlert() throws {
+        let (service, _) = makeService()
+        service.select(mac(), scope: .full)
+        let viewer = try #require(service.viewer)
+        // Still asking the hub: nothing full screen, the row spins.
+        #expect(service.viewerOnScreen == nil)
+        // The list was stale: the hub says the Mac isn't sharing.
+        viewer.requestAnswered(.failure(.server(status: 409, code: .notShared, message: "")), scope: .full)
+        #expect(service.viewer == nil)
+        #expect(service.viewerOnScreen == nil)
+        let alert = try #require(service.alert)
+        #expect(alert.hostID == hostID && alert.hostName == "Studio")
+        #expect(alert.refusal == .notShared && alert.requested == .full)
+    }
+
+    @Test func onceShownARefusalStaysOnTheViewersCard() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full)
+        #expect(service.viewerOnScreen === viewer)
+        // Try Again on the card, refused: the card says why; no alert pulls it away.
+        viewer.request(.full)
+        #expect(service.viewerOnScreen === viewer)
+        viewer.requestAnswered(.failure(.server(status: 409, code: .notShared, message: "")), scope: .full)
+        #expect(service.viewerOnScreen === viewer)
+        #expect(viewer.phase == .refused(.notShared, requested: .full))
+        #expect(service.alert == nil)
+    }
+
+    @Test func leavingThePageEndsARequestThatNeverShowed() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        service.leaveUnshownRequest()
+        #expect(service.viewer == nil)
+        #expect(viewer.phase == .ended(reason: ScreenSharingEndReason.viewerDisconnected.rawValue))
+    }
+
+    @Test func leavingThePageKeepsAViewerOnScreen() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full)
+        service.leaveUnshownRequest()
+        #expect(service.viewer === viewer)
+    }
+}
+#endif
+
+#if os(iOS)
+extension ScreenSharingViewerTests {
+    /// Review: a request still waiting when an unavailable Mac is tapped would go full screen
+    /// under that Mac's alert.
+    @Test func tappingAnUnavailableMacEndsARequestStillWaiting() throws {
+        let (service, _) = makeService()
+        service.select(mac(), scope: .full)
+        let waiting = try #require(service.viewer)
+        let offline = HubDevice(id: "other-mac", name: "Office iMac", platform: .macos, signingKey: "", macScreenShared: true, online: false)
+        service.select(offline)
+        #expect(service.viewer == nil)
+        #expect(service.alert?.refusal == .hostOffline)
+        // The hub's late answer doesn't bring the old request on screen.
+        waiting.requestAnswered(.success(HubSession(id: "s3", state: .pending, scope: .full)), scope: .full)
+        #expect(service.viewerOnScreen == nil)
+    }
+
+}
+#endif

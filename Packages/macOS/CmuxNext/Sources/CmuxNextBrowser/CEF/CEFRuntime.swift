@@ -28,7 +28,7 @@ final class CEFRuntime {
     /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
     var livePages = false
     /// The answer for a first-party page file of a tab that is not a page host while ``livePages`` (``CEFPageSchemes/liveFallback``).
-    var liveFallback: (@MainActor (URL, String?) async -> CEFPageResponse)?
+    var liveFallback: (@MainActor (URL, String?, Bool) async -> CEFPageResponse)?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?

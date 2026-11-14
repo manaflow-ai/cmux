@@ -66,6 +66,7 @@ export interface AcpmuxRequestMeta {
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
   senderToken?: unknown;
+  sessionCreatedAt?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -76,6 +77,7 @@ export interface AcpmuxRequestMeta {
   tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  throwaway?: unknown;
   topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
@@ -183,6 +185,11 @@ export interface ArchiveParams {
 export interface AttachParams {
   /** Page forward from here (oldest first) when `beforeSeq` is absent. */
   afterSeq?: (number | null);
+  /**
+   * False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
+   * sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
+   */
+  attending?: (boolean | null);
   /** The newest `limit` records before this one. */
   beforeSeq?: (number | null);
   /**
@@ -196,6 +203,11 @@ export interface AttachParams {
   limit?: (number | null);
   maxBytes?: (number | null);
   sessionId: string;
+  /**
+   * Answer from the chat's settled view first (`settled-attach-v1`,
+   * `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+   */
+  settled?: (boolean | null);
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
   visible?: (boolean | null);
   /** Wait for restart-time log restoration before answering; false serves the page immediately. */
@@ -216,6 +228,11 @@ export type AttachResult = {
   pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
+  /**
+   * The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
+   * saw while attending; null before they saw any. An older acpmux leaves it out.
+   */
+  readThrough: (number | null);
   session: SessionDetail;
   /**
    * The prompt that opened the turn the page starts inside, when the page starts inside one
@@ -550,6 +567,8 @@ export interface KillParams {
   _meta?: RequestMeta;
   cancelFork?: unknown;
   cancelToken?: unknown;
+  expectRevision?: unknown;
+  ifIdle?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }
@@ -711,6 +730,16 @@ export interface MailWaitParams {
   limit?: (number | null);
   recipient: string;
   timeoutMs?: (number | null);
+}
+
+/**
+ * `_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor
+ * moves back to it (never forward).
+ */
+export interface MarkUnreadParams {
+  _meta?: (AuthorMeta | null);
+  readThrough?: (number | null);
+  sessionId: string;
 }
 
 export interface McpReconnectParams {
@@ -1291,6 +1320,23 @@ export interface SecretSubmitParams {
   secretId?: unknown;
   sessionId?: unknown;
   value?: unknown;
+}
+
+/** `_acpmux/seen`'s answer: the person's cursor after the request. */
+export type SeenDone = {
+  readThrough: number;
+} & Record<string, unknown>;
+
+/**
+ * `_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it
+ * (`hub/seen.rs`). Moves their seen cursor forward only.
+ */
+export interface SeenParams {
+  /** Whose cursor: an author's, the owner's when absent. */
+  _meta?: (AuthorMeta | null);
+  /** The newest log seq of a row that was on screen. */
+  seq: number;
+  sessionId: string;
 }
 
 /**
@@ -2244,12 +2290,31 @@ export type UsageStats = {
   updatedAt: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/view`'s answer: the person's return when coming to attend put "New since you looked"
+ * on the chat (`hub/seen.rs`), so the client draws it without waiting for its list.
+ */
+export type ViewDone = {
+  lastReturn?: (LastReturn | null);
+} & Record<string, unknown>;
+
 export interface ViewParams {
   /**
    * An author changes only that person's presence (`hub/presence.rs`), not whether the
    * chat counts as shown.
    */
   _meta?: (AuthorMeta | null);
+  /**
+   * Its person attends the chat it shows: on screen, window key, input within the client's
+   * idle window. Absent: true. A shown chat nobody attends stays shown, but its turns are
+   * unread (`hub/seen.rs`).
+   */
+  attending?: (boolean | null);
+  /**
+   * With `attending: false`, the log seq the client had at its person's last input: where the
+   * chat is left off, when earlier than now.
+   */
+  seenSeq?: (number | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;
