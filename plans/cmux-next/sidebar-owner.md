@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
+
 - 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
   The first customization slices keep the document as placement owner while allowing
   bounded cmux-next.json section/workspace hide, order and same-section grouping.
