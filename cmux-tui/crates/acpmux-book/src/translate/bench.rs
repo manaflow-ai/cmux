@@ -25,7 +25,7 @@ fn corpus(harness: Harness) -> Vec<String> {
         r#""type":"user","uuid":"p","message":{"content":"Question"}"#,
         r#""type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"Read","input":{"path":"a"}}]}"#,
         r#""type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"output"}]}"#,
-        r#""type":"assistant","message":{"content":[{"type":"text","text":"Final reply"}],"stop_reason":"end_turn"}"#,
+        r#""type":"assistant","message":{"id":"m","content":[{"type":"text","text":"Final reply"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":10,"cache_creation_input_tokens":2}}"#,
     ].iter().map(|line|format!("{{{line},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn v1_corpus() -> Vec<String> {
@@ -40,7 +40,7 @@ fn v1_corpus() -> Vec<String> {
         update(r#"{"sessionUpdate":"tool_call","toolCallId":"t","status":"running"}"#),
         update(r#"{"sessionUpdate":"tool_call_update","toolCallId":"t","status":"completed","content":{"type":"text","text":"output"}}"#),
         update(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Final reply"}}"#),
-        r#""dir":"mux","kind":"turn_result","msg":{"turnId":"p"}"#.to_owned(),
+        r#""dir":"mux","kind":"turn_result","msg":{"turnId":"p","promptId":"p","status":"completed","inputTokens":5,"outputTokens":7,"cacheReadTokens":10,"cacheWriteTokens":2,"contextTokens":30,"modelCalls":2,"inputExcludesCache":true,"checkpointId":"c1","endCheckpointId":"c2"}"#.to_owned(),
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
