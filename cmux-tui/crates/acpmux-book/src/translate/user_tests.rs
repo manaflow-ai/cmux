@@ -529,20 +529,20 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     // Steers waiting, each at its caps, past the 32 rows and 12 KB they may hold.
     for n in 0..40 {
         let said = format!(
-            r#"{{"promptId":"s{n}{}","turnId":"p","text":"also","steer":true,"_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
-            long("i", 300),
+            r#"{{"promptId":"s{n:02}{}","turnId":"p","text":"also","steer":true,"_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
+            long("i", 253),
             long("n", 300),
             long("h", 80)
         );
         lines.push(mux(next(), "user_message", &said));
     }
-    // Asks open, each at its caps, past the 32 and 8 KB they may hold.
+    // Asks open, each at its caps, past the 8 KB of fields they may hold (32 small ones fit).
     for n in 0..40 {
         let ask = format!(
-            r#"{{"permissionId":"a{n}{}","groupId":"{}","turnId":"{}","request":{{"toolCall":{{"title":"{}"}},"options":[]}}}}"#,
-            long("i", 300),
-            long("g", 300),
-            long("t", 300),
+            r#"{{"permissionId":"a{n:02}{}","groupId":"{}","turnId":"{}","request":{{"toolCall":{{"title":"{}"}},"options":[]}}}}"#,
+            long("i", 253),
+            long("g", 256),
+            long("t", 256),
             long("x", 200)
         );
         lines.push(mux(next(), "permission_request", &ask));
@@ -557,9 +557,11 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
         lines.push(mux(next(), "sender_claim", &claim));
     }
     run(&mut state, &lines);
+    assert_eq!(state.line_failures(), (0, 0), "every line at its caps is read");
     assert!(state.continued.is_some(), "the held notice");
     assert!(state.claimable.is_some(), "the row a claim may patch");
-    assert_eq!(state.asks.len(), 32);
+    let asked: usize = state.asks.values().map(|ask| fields_bytes(&ask.row)).sum();
+    assert!(!state.asks.is_empty() && state.asks.len() <= 32 && asked <= 8 * 1024, "{asked}");
     assert!(!state.prompts.is_empty() && state.held_steer_bytes() <= MAX_HELD_STEER_BYTES);
     let claimed: usize = state.claims.iter().map(|(_, from)| from.len()).sum();
     assert!(!state.claims.is_empty() && claimed <= MAX_HELD_CLAIM_BYTES, "{claimed}");
@@ -569,6 +571,6 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     println!("full held state: {} of {MAX_TRANSLATOR_BYTES} bytes", saved.translator.len());
     // And comes back whole.
     let restored = saved.restore().unwrap();
-    assert_eq!(restored.asks.len(), 32);
+    assert_eq!(restored.asks.len(), state.asks.len());
     assert!(restored.continued.is_some());
 }
