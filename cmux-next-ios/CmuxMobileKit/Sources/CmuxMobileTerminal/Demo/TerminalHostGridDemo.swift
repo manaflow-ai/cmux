@@ -6,7 +6,9 @@ import Foundation
 /// (`-CmuxMobileTerminalDemo -CmuxMobileHostGridDemo 120x40` for a shell
 /// wider than the phone, `... 50x20,tui` for a full-screen app with fewer
 /// rows). The screen must render the grid exactly: pan sideways, letterbox
-/// below (PROTOCOL.md "Terminal sizing policy").
+/// below with the note `30×12 · set by Rig Mac` (PROTOCOL.md "Terminal
+/// sizing policy"). The shell has history above its screen, so a grid
+/// pinned to the top is told apart from one resting on the composer.
 @MainActor
 public final class TerminalHostGridDemoSession: TerminalSession {
     public let programName: String
@@ -26,6 +28,9 @@ public final class TerminalHostGridDemoSession: TerminalSession {
         programName = isAlternateScreen ? "htop" : "zsh"
     }
 
+    /// The device the demo's grid is set by.
+    static let owner = "Rig Mac"
+
     public static var requestedSpec: String? {
         UserDefaults.standard.string(forKey: "CmuxMobileHostGridDemo")
     }
@@ -34,6 +39,8 @@ public final class TerminalHostGridDemoSession: TerminalSession {
         self.handler = handler
         handler(.connection(.attached))
         let columns = remoteColumns ?? 80, rows = remoteRows ?? 24
+        handler(.hostGrid(columns: columns, rows: rows))
+        handler(.hostGridOwner(Self.owner))
         var text = "\u{1B}c"
         if isAlternateScreen {
             handler(.alternateScreen(true))
@@ -48,8 +55,9 @@ public final class TerminalHostGridDemoSession: TerminalSession {
         } else {
             let ruler = (0..<columns).map { String($0 % 10) }.joined()
             let tens = (0..<columns).map { $0 % 10 == 0 ? String(($0 / 10) % 10) : " " }.joined()
+            for line in 1...40 { text += "history \(line)\r\n" }
             text += tens + "\r\n" + ruler + "\r\n"
-            for line in 1...12 {
+            for line in 1...max(1, rows - 4) {
                 let body = "line \(line): " + String(repeating: "=", count: max(0, columns - 20)) + "| end"
                 text += String(body.prefix(columns)) + "\r\n"
             }

@@ -512,6 +512,7 @@ lto = "fat"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
+opt-level = "z"
 codegen-units = 1
 
 [profile.release.package.cmux-tui-core]
