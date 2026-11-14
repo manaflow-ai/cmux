@@ -245,8 +245,9 @@ impl RawSource for Gated {
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
         self.reads += 1;
         if self.reads == 2 {
-            // Waits until the test lets it go (the sender dropped).
-            let _ = self.go.lock().unwrap().recv();
+            // Waits until the test lets it go (the sender dropped). A test that never does
+            // reads on after 30 s, and its assertions on the book name what went wrong.
+            let _ = self.go.lock().unwrap().recv_timeout(Duration::from_secs(30));
         }
         let chunk = self.inner.read_chunk(place)?;
         if self.reads == 1 {

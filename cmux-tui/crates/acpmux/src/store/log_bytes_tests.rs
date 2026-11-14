@@ -225,7 +225,9 @@ fn a_read_started_mid_change_waits_and_reads_under_the_bumped_count() {
                 let after = reader_store.read_stamp("c").unwrap();
                 done_tx.send((before, after, out)).unwrap();
             });
-            started_rx.recv().unwrap();
+            started_rx
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .expect("the reader thread did not start in 30 s");
             std::thread::sleep(std::time::Duration::from_millis(200));
         }),
     );
