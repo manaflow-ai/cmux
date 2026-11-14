@@ -202,6 +202,23 @@ class HostTests(unittest.TestCase):
                     host.__enter__()
                 launch.assert_not_called()
 
+    def test_partial_device_namespace_refuses_before_launch(self):
+        bundle = "com.cmuxterm.app.debug.capabc"
+        selected = dict(bundle_id=bundle, legacy_storage=False, auth_namespace="development",
+                        name="staging", stack_project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895")
+        def run(argv, **_):
+            # The ID was never committed, but the signing-key item survived.
+            return Mock(returncode=44 if "device-id" in argv else 0)
+        with tempfile.TemporaryDirectory(prefix="ss-") as work:
+            host = self.host.Host(Path("/tmp/owned.app"),
+                                  {"CFBundleIdentifier": bundle, "CFBundleExecutable": "cmux"},
+                                  work, ("account", "password"))
+            with patch.object(self.host, "command", return_value=json.dumps(selected)), \
+                    patch.object(self.host.subprocess, "run", side_effect=run), \
+                    patch.object(self.host.subprocess, "Popen", side_effect=AssertionError("launched into partial namespace")):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_not_fresh"):
+                    host.__enter__()
+
     def test_artifact_requires_completed_verified_exact_source(self):
         source, digest = "a" * 40, "b" * 64
         job = dict(kind="cmux", state="done", source_digest=source,
