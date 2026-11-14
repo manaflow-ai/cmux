@@ -1183,6 +1183,24 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
+
+`scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
+no trust rule to do it. It reads the tagged Mac's live pairing code from its Mobile Pairing page
+(`cmux.mobilePairing.status` over the tag's own control socket, the pair-e2e route) and hands it to
+the phone's DEBUG launch environment (`CMUX_MOBILE_PAIR_URL`), the same single-use, minutes-long
+code a scan of the Mac's screen would open; it is never printed or logged, and a code is used for
+one phone only. The Mac shows a code only while its person has iPhone connections on and it is
+signed in, and hostd still refuses a phone of another account. It sets no pairing seed, presses
+no Allow, writes no pairing state and turns no setting on.
+
+A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
+`Library/Application Support/cmux-dogfood/readiness.json` in the app's own container
+(`DogfoodReadiness.swift`): the launch's nonce, the account's email and user id, how the session
+started, and the focused Mac's device id, name and whether its link is paired and connected. No
+token, password or key; the checker refuses a receipt with a secret-like field. Release builds
+compile none of it.
+
 ## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
 
 Held for #13742 (`verify/notifications-trust.md`). Wire format: PROTOCOL.md
