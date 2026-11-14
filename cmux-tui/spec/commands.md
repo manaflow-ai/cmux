@@ -4883,9 +4883,12 @@ it, under every policy. The published size state stays the engine's
 decision. A client lists the capability only once it shows a larger grid
 correctly (letterbox or pan).
 
-Size lease (`size-lease-v1`, advertised in `identify`): a client that lists
-`size-lease-v1` in `set-client-info` `capabilities` keeps each size it reports
-(`resize-surface`, a sized `attach-surface`) for 45 s after the last report.
+Size lease (`size-lease-v2` and `size-lease-v1`, both advertised in
+`identify`): a client that lists `size-lease-v2` in `set-client-info`
+`capabilities` keeps each size it reports (`resize-surface`, a sized
+`attach-surface`) for 8 s after the last report, and refreshes it every 2 s;
+a client that lists only `size-lease-v1` keeps it for 45 s and refreshes every
+15 s. A client that lists both gets the 8 s lease.
 A `resize-surface` at the same size renews the lease and never resizes the
 terminal. When a lease ends unrenewed the daemon releases that size as this
 command would: the view stays attached and stops counting, so the grid
