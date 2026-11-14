@@ -156,4 +156,9 @@ final class DaemonAppsTransport: AppsTransport {
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
         AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }
+
+    func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
+        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
+        return AppJSON(try await send(AppsOpenLinkRequest(url: url, origin: wire)))
+    }
 }
