@@ -790,6 +790,17 @@ body[data-status-only="true"] #files-sidebar {
   gap: 6px;
   min-width: 0;
 }
+#files-diff-stats {
+  display: inline-flex;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+#files-added-lines {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+#files-deleted-lines {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
 #files-header-actions {
   display: inline-flex;
   align-items: center;
