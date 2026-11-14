@@ -90,7 +90,11 @@ async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
         while v2.hub.snapshot().len() < rows {
             let held: Vec<String> =
                 v2.hub.snapshot().iter().map(|row| row.key().chat_id.to_string()).collect();
-            assert!(Instant::now() < deadline, "the tee holds {} of {rows} rows: {held:?}", held.len());
+            assert!(
+                Instant::now() < deadline,
+                "the tee holds {} of {rows} rows: {held:?}",
+                held.len()
+            );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
@@ -120,14 +124,32 @@ fn fixture_with(hub: &Hub, peer_closed: bool) -> usize {
     };
     add(meta("c-closed-parent", "closed-parent", "closed", at(1), json!({})));
     add(meta("c-archived-parent", "archived-parent", "idle", at(2), json!({"archived": "1"})));
-    add(meta("c-under-closed", "under-closed", "idle", at(3), json!({"spawnedBy": "c-closed-parent"})));
-    add(meta("c-under-archived", "under-archived", "idle", at(4), json!({"spawnedBy": "c-archived-parent"})));
+    add(meta(
+        "c-under-closed",
+        "under-closed",
+        "idle",
+        at(3),
+        json!({"spawnedBy": "c-closed-parent"}),
+    ));
+    add(meta(
+        "c-under-archived",
+        "under-archived",
+        "idle",
+        at(4),
+        json!({"spawnedBy": "c-archived-parent"}),
+    ));
     for n in 0..6 {
         let tags = if n % 2 == 0 { json!({"area": "acpmux"}) } else { json!({}) };
         add(meta(&format!("c-live-{n}"), &format!("chat-{n}"), "idle", at(10 + n), tags));
     }
     for n in 0..5 {
-        add(meta(&format!("c-old-{n}"), &format!("old-{n}"), "closed", at(30 + n), json!({"area": "acpmux"})));
+        add(meta(
+            &format!("c-old-{n}"),
+            &format!("old-{n}"),
+            "closed",
+            at(30 + n),
+            json!({"area": "acpmux"}),
+        ));
     }
     // A running chat that is stuck: its summary's `state` reads `stuck`, its row's `status`
     // `running`, and `--status running` lists it as v1 does.
@@ -182,7 +204,9 @@ async fn callers(daemon: &Daemon, v2: bool) -> Vec<(&'static str, String)> {
         ("mcp ls", crate::acpmux_mcp::ls_via(client, &json!({}), via()).await.to_string()),
         (
             "mcp ls closed",
-            crate::acpmux_mcp::ls_via(client, &json!({"status": "closed"}), via()).await.to_string(),
+            crate::acpmux_mcp::ls_via(client, &json!({"status": "closed"}), via())
+                .await
+                .to_string(),
         ),
     ]
 }
@@ -243,7 +267,9 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
             differ.push(format!("ls {}:\nv1:\n{v1}\nv2:\n{v2}", form.join(" ")));
         }
     }
-    for ((name, v1), (_, v2)) in callers(&daemon, false).await.into_iter().zip(callers(&daemon, true).await) {
+    for ((name, v1), (_, v2)) in
+        callers(&daemon, false).await.into_iter().zip(callers(&daemon, true).await)
+    {
         eprintln!("--- {name} ---\n{v2}");
         if v1 != v2 {
             differ.push(format!("{name}:\nv1:\n{v1}\nv2:\n{v2}"));
@@ -257,9 +283,15 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         all["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == id).cloned().unwrap()
     };
     assert_eq!(row("c-under-closed")["spawnedBy"], "c-closed-parent");
-    assert_eq!((row("c-stuck")["state"].clone(), row("c-stuck")["status"].clone()), (json!("stuck"), json!("running")));
+    assert_eq!(
+        (row("c-stuck")["state"].clone(), row("c-stuck")["status"].clone()),
+        (json!("stuck"), json!("running"))
+    );
     let running = ls(&daemon, &["--json", "--status", "running"], true, now).await;
-    assert!(running.contains("c-stuck"), "--status running lists the stuck running chat: {running}");
+    assert!(
+        running.contains("c-stuck"),
+        "--status running lists the stuck running chat: {running}"
+    );
     if peer_closed {
         // v1's own row: v1 marks no closed row stale while its peer is down
         // (`RemoteRows::mark_peer_stale`), so neither does this.
@@ -267,9 +299,10 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         assert!(row("p-closed").get("stale").is_none_or(|stale| stale != true));
     }
     assert_eq!(row("p-live")["stale"], true);
-    let exact: Value =
-        serde_json::from_str(&ls(&daemon, &["--json", "--live", "--limit", &live_text], true, now).await)
-            .unwrap();
+    let exact: Value = serde_json::from_str(
+        &ls(&daemon, &["--json", "--live", "--limit", &live_text], true, now).await,
+    )
+    .unwrap();
     assert_eq!(exact["nextCursor"], Value::Null);
     let more: Value =
         serde_json::from_str(&ls(&daemon, &["--json", "--live", "--limit", "1"], true, now).await)
@@ -284,7 +317,8 @@ async fn a_walk_of_the_whole_view_reads_v1_while_another_machines_closed_row_is_
     use crate::cli::list_read::closed_remote_listed;
     for (peer_closed, listed) in [(true, true), (false, false)] {
         let daemon = serve(Serves::List, |hub| fixture_with(hub, peer_closed)).await;
-        let status = daemon.client.request(crate::rpc::method::MUX_STATUS, json!({})).await.unwrap();
+        let status =
+            daemon.client.request(crate::rpc::method::MUX_STATUS, json!({})).await.unwrap();
         assert_eq!(closed_remote_listed(Some(&status)), listed, "{status}");
     }
     assert!(closed_remote_listed(Some(&json!({"closedListed": 3}))), "a status without the count");
@@ -292,11 +326,13 @@ async fn a_walk_of_the_whole_view_reads_v1_while_another_machines_closed_row_is_
     assert!(!closed_remote_listed(Some(&json!({"closedRemoteListed": 0}))));
 }
 
-/// A daemon without v2, one with v2 and `list` off, and one whose v2 list lacks the rows of the
-/// hub machine it lists (no `listHubRows`, decision 210): each caller runs its v1 path, and
-/// prints the hub machine's chat as v1 does.
+/// A daemon without v2, and one with v2 and `list` off: each caller runs its v1 path. A daemon
+/// that lists a hub machine names `listHubRows` since row 5h, so its callers walk v2 and print
+/// the hub machine's chat as v1 does. A daemon without `listHubRows` that lists a hub machine
+/// takes v1 (decision 210).
 #[tokio::test]
 async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
+    use crate::cli::list_read::{HUB_ROWS, hub_rows_missing};
     for (serves, hub_machine) in
         [(Serves::NoV2, false), (Serves::ListOff, false), (Serves::List, true)]
     {
@@ -318,16 +354,26 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
             rows
         };
         let daemon = serve(serves, seed).await;
-        if hub_machine {
-            let listed = ls(&daemon, &["--json"], true, 0).await;
-            assert!(listed.contains("m-joined"), "the hub machine's chat is listed: {listed}");
-        }
         let source = Via::List(daemon.path.clone()).open(&daemon.client).await.unwrap();
-        assert!(source.is_none(), "no list source on this daemon");
+        assert_eq!(source.is_some(), hub_machine, "a list source only on the daemon with the list");
+        assert_eq!(daemon.client.daemon_lists(HUB_ROWS), hub_machine, "listHubRows with the list");
+        let hub_peer = [json!({"via": "hub"})];
+        assert_eq!(
+            hub_rows_missing(&daemon.client, Some(&hub_peer)).await.unwrap(),
+            !hub_machine,
+            "a hub machine's rows are missing only without listHubRows"
+        );
+        assert!(!hub_rows_missing(&daemon.client, Some(&[])).await.unwrap(), "no hub machine");
+        if hub_machine {
+            for v2 in [false, true] {
+                let listed = ls(&daemon, &["--json"], v2, 0).await;
+                assert!(listed.contains("m-joined"), "the hub machine's chat is listed: {listed}");
+            }
+        }
         for ((name, v1), (_, through)) in
             callers(&daemon, false).await.into_iter().zip(callers(&daemon, true).await)
         {
-            assert_eq!(v1, through, "{name}: its v1 path");
+            assert_eq!(v1, through, "{name}: the same on both paths");
             assert!(!through.is_empty(), "{name} printed nothing");
         }
     }
@@ -344,17 +390,21 @@ async fn a_limit_then_its_cursor_read_every_row_once() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|r| format!("{}/{}", r["peer"].as_str().unwrap_or(""), r["sessionId"].as_str().unwrap()))
+            .map(|r| {
+                format!("{}/{}", r["peer"].as_str().unwrap_or(""), r["sessionId"].as_str().unwrap())
+            })
             .collect()
     };
     let mut read = Vec::new();
-    let first: Value = serde_json::from_str(&ls(&daemon, &["--json", "--limit", "2"], true, now).await).unwrap();
+    let first: Value =
+        serde_json::from_str(&ls(&daemon, &["--json", "--limit", "2"], true, now).await).unwrap();
     read.extend(ids(&first));
     let mut cursor = first["nextCursor"].as_str().map(str::to_owned);
     while let Some(c) = cursor {
-        let page: Value =
-            serde_json::from_str(&ls(&daemon, &["--json", "--limit", "2", "--cursor", &c], true, now).await)
-                .unwrap();
+        let page: Value = serde_json::from_str(
+            &ls(&daemon, &["--json", "--limit", "2", "--cursor", &c], true, now).await,
+        )
+        .unwrap();
         read.extend(ids(&page));
         cursor = page["nextCursor"].as_str().map(str::to_owned);
     }
@@ -408,10 +458,22 @@ fn gate_rows(hub: &Hub, closed: usize) -> usize {
     let now = crate::store::now_ms();
     for n in 0..20_u64 {
         let tags = json!({"area": "acpmux"});
-        hub.insert_test_session(meta(&format!("live-{n:02}"), &format!("live-{n}"), "idle", now - n * 1_000, tags));
+        hub.insert_test_session(meta(
+            &format!("live-{n:02}"),
+            &format!("live-{n}"),
+            "idle",
+            now - n * 1_000,
+            tags,
+        ));
     }
     for n in 0..closed as u64 {
-        hub.insert_test_session(meta(&format!("closed-{n:05}"), &format!("closed-{n}"), "closed", now - 60_000 - n, json!({})));
+        hub.insert_test_session(meta(
+            &format!("closed-{n:05}"),
+            &format!("closed-{n}"),
+            "closed",
+            now - 60_000 - n,
+            json!({}),
+        ));
     }
     20 + closed
 }
@@ -425,7 +487,9 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let started = Instant::now();
     match caller {
         "ls" => {
-            super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms()).await.unwrap();
+            super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms())
+                .await
+                .unwrap();
         }
         "pending" => {
             super::standard::pending_output(&client, via(), false).await.unwrap();
@@ -472,7 +536,8 @@ fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128
 async fn v2_pr07b_callers() {
     let small = gate_daemon(0).await;
     let god = gate_daemon(11_000).await;
-    let (small_proxy, god_proxy) = (counted(small.path.clone()).await, counted(god.path.clone()).await);
+    let (small_proxy, god_proxy) =
+        (counted(small.path.clone()).await, counted(god.path.clone()).await);
     for caller in ["ls", "pending", "send_tag_dry_run", "mcp_ls"] {
         let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -491,13 +556,15 @@ async fn v2_pr07b_callers() {
             god_wall.push(gw);
             god_bytes.push(gb);
         }
-        for (measure, small, god, unit) in [
-            ("bytes", &small_bytes, &god_bytes, "bytes"),
-            ("wall", &small_wall, &god_wall, "ns"),
-        ] {
+        for (measure, small, god, unit) in
+            [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
+        {
             let name = format!("v2.pr07b.{caller}_{measure}");
             let (small, god) = emit(&name, small, god, unit);
-            assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+            assert!(
+                god.saturating_mul(100) <= small.saturating_mul(120),
+                "{name}: {god} vs {small}"
+            );
         }
     }
     // The read of the live view holds at most one page it has not handed out.

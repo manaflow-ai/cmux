@@ -102,7 +102,7 @@ const HOSTS_READ: &str = "_acpmux/peers";
 /// Whether `client`'s daemon lists a hub machine (`via: hub`) whose rows its v2 list lacks:
 /// never when it names [`HUB_ROWS`]; else from `peers`, or one `_acpmux/peers` read. A machine
 /// that joins after this read and before the walk is missed by that one command.
-async fn hub_rows_missing(client: &Client, peers: Option<&[Value]>) -> Result<bool> {
+pub(crate) async fn hub_rows_missing(client: &Client, peers: Option<&[Value]>) -> Result<bool> {
     if client.daemon_lists(HUB_ROWS) {
         return Ok(false);
     }
@@ -122,7 +122,9 @@ async fn open_at(
     client: &Arc<Client>,
     peers: Option<&[Value]>,
 ) -> Result<Option<Source>> {
-    if !client.daemon_lists(crate::capabilities::INFO_ROWS) || hub_rows_missing(client, peers).await? {
+    if !client.daemon_lists(crate::capabilities::INFO_ROWS)
+        || hub_rows_missing(client, peers).await?
+    {
         return Ok(None);
     }
     let stream = local_stream::connect(path)
@@ -255,7 +257,10 @@ pub(crate) async fn fetch(
             _ => Vec::new(),
         };
         if got.is_empty() && !rest.is_empty() {
-            anyhow::bail!("the daemon answered none of {} keys and named them all again", rest.len());
+            anyhow::bail!(
+                "the daemon answered none of {} keys and named them all again",
+                rest.len()
+            );
         }
         rows.extend(got);
         for key in rest.into_iter().rev() {
@@ -282,8 +287,7 @@ fn after(summary: &Summary, row: &Value) -> bool {
     let row_peer = row.get("peer").and_then(Value::as_str).map(str::to_owned);
     let row_id = row.get("sessionId").and_then(Value::as_str).unwrap_or("");
     summary.last_activity < at
-        || (summary.last_activity == at
-            && (summary.chat_id.as_str(), peer) > (row_id, row_peer))
+        || (summary.last_activity == at && (summary.chat_id.as_str(), peer) > (row_id, row_peer))
 }
 
 impl Source {
