@@ -124,6 +124,42 @@ struct WorkspaceMergeDropTests {
         #expect(fixture.manager.tabs.map(\.id) == [workspace.id])
     }
 
+    /// A sidebar reorder that overshoots onto a pane must not pull a session out
+    /// of its group: a drag merges only inside one group, or between ungrouped rows.
+    @Test
+    func aDragNeverMergesAWorkspaceAcrossGroups() throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let target = try XCTUnwrap(fixture.manager.selectedWorkspace)
+        let sibling = fixture.manager.addWorkspace(title: "Sibling", select: false)
+        let otherGroup = fixture.manager.addWorkspace(title: "Other group", select: false)
+        let ungrouped = fixture.manager.addWorkspace(title: "Ungrouped", select: false)
+        let looseTarget = fixture.manager.addWorkspace(title: "Loose target", select: false)
+        _ = try XCTUnwrap(fixture.manager.createWorkspaceGroup(
+            name: "Mine", childWorkspaceIds: [target.id, sibling.id], selectAnchor: false
+        ))
+        _ = try XCTUnwrap(fixture.manager.createWorkspaceGroup(
+            name: "Theirs", childWorkspaceIds: [otherGroup.id], selectAnchor: false
+        ))
+
+        func dropAccepted(_ source: Workspace, onto destination: Workspace) -> Bool {
+            let dragID = UUID()
+            return destination.canPerformPortalPaneDrop(
+                PaneDragTransfer(tabId: dragID, sourcePaneId: dragID,
+                                 sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)),
+                source: .workspaceMerge(source.id)
+            )
+        }
+
+        #expect(!dropAccepted(otherGroup, onto: target), "another group's row stays out of this split")
+        #expect(!dropAccepted(ungrouped, onto: target), "an ungrouped row stays out of a group")
+        #expect(!dropAccepted(target, onto: looseTarget), "a group member stays in its group")
+        #expect(dropAccepted(sibling, onto: target), "members of one group still merge")
+        #expect(dropAccepted(ungrouped, onto: looseTarget), "ungrouped rows still merge")
+        #expect(fixture.app.canMergeWorkspace(otherGroup.id, into: target.id),
+                "Merge Workspace into is explicit and may still cross groups")
+    }
+
     @Test
     func aRegisteredRowResolvesAsAWorkspaceMergeSource() {
         let workspaceId = UUID()
