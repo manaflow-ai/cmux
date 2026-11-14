@@ -251,7 +251,7 @@ impl InputState {
 }
 
 mod event_log;
-pub(super) use event_log::ProcessEventLog;
+use event_log::ProcessEventLog;
 pub use event_log::{ProcessSubscription, ProcessSubscriptionError};
 
 type SharedMasterPty = Arc<StdMutex<Option<Box<dyn MasterPty + Send>>>>;

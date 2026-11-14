@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone)]
 pub(super) struct ProcessEventLog {
     inner: Arc<ProcessEventLogInner>,
 }
@@ -57,7 +58,7 @@ impl EventHistory {
 
 /// Room for one output event, held from before a read until its output is
 /// published (or the read ends).
-struct RoomReservation<'a>(&'a ProcessEventLogInner);
+pub(super) struct RoomReservation<'a>(&'a ProcessEventLogInner);
 
 impl Drop for RoomReservation<'_> {
     fn drop(&mut self) {
@@ -114,7 +115,7 @@ impl ProcessEventLog {
     /// dropping output. A reader still waiting for its pipe holds no room:
     /// with a budget of one event, a quiet stdout holding it would block a
     /// child writing only stderr for good.
-    async fn wait_for_room(&self) -> RoomReservation<'_> {
+    pub(super) async fn wait_for_room(&self) -> RoomReservation<'_> {
         let mut stall = None;
         loop {
             let notified = self.inner.room.notified();
