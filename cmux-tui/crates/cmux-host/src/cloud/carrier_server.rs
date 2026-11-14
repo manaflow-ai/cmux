@@ -147,6 +147,9 @@ pub struct Hooks {
 struct Next<H: Http> {
     client: CloudClient<H>,
     prefetch: bool,
+    /// The bind answer carried the first ticket, kept in the bind's own
+    /// transition: the bind's request mints the bearer only.
+    seeded: bool,
 }
 
 /// What the threads share: the state and the client-bearing payloads it
@@ -220,6 +223,7 @@ impl<H: Http> Shared<H> {
 /// The worker's handle on the ticket threads.
 pub struct CarrierServer<H: Http> {
     shared: Arc<Shared<H>>,
+    hooks: Hooks,
     resumes: Arc<Resumes>,
     /// Shutting it down stops the socket thread.
     wake: UnixStream,
@@ -269,7 +273,7 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
                 }
                 .run();
             })?;
-        let mut server = CarrierServer { shared, resumes, wake, threads: vec![fetcher] };
+        let mut server = CarrierServer { shared, hooks, resumes, wake, threads: vec![fetcher] };
         // On a failed spawn, `server`'s drop stops the fetch thread.
         let theirs = Arc::clone(&server.shared);
         let socket = std::thread::Builder::new()
@@ -283,9 +287,25 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
     /// `prefetch` (the machine has a relay carrier), a ticket is asked for at
     /// once and kept for the session host's Register.
     pub fn bound(&self, client: CloudClient<H>, prefetch: bool) {
+        self.bound_with_ticket(client, prefetch, None);
+    }
+
+    /// [`CarrierServer::bound`], with the ticket the bind answer carried
+    /// (`first`, the reply line the session host gets): on a carrier machine
+    /// it is kept in the bind's own transition, so the session host's first
+    /// Register takes it at once instead of waiting for the bearer mint and
+    /// the ticket request (three platform requests after the bind). The
+    /// bind's request then mints the bearer only, for later tickets; the kept
+    /// ticket is refreshed before it expires like any other, at most
+    /// [`MAX_REFRESHES`] times. A ticket too close to its expiry to keep is
+    /// dropped, and the bind asks for one as before.
+    pub fn bound_with_ticket(&self, client: CloudClient<H>, prefetch: bool, first: Option<Value>) {
+        let now = (self.hooks.now)();
+        let warm = first.filter(|_| prefetch).and_then(|reply| Warm::of(&reply, now));
+        let seeded = warm.is_some();
         // The bind's generation starts now, not when the fetch thread takes
         // it: an ask in between waits for the bind's ticket.
-        self.shared.change(|state| state.bind(Next { client, prefetch }));
+        self.shared.change(|state| state.bind_with(Next { client, prefetch, seeded }, warm));
     }
 }
 
@@ -306,10 +326,18 @@ impl<H: Http + Send + 'static> Fetcher<H> {
         while let Some(job) = self.next_job() {
             match job {
                 Job::Stop | Job::Wait(_) => {}
-                Job::Bind(next, generation) => {
-                    let Next { client, prefetch } = *next;
+                Job::Bind(next, generation, seed_valid) => {
+                    let Next { client, prefetch, seeded } = *next;
                     self.hands.bound(client, prefetch);
-                    let ticket = prefetch.then_some(("prefetched", false));
+                    // A resume can land after the bind job was picked but
+                    // before this arm runs. Its generation invalidates the
+                    // bind answer's seed just as the state transition does.
+                    let seeded =
+                        seeded && seed_valid && self.shared.lock().generation == generation;
+                    if seeded {
+                        (self.hooks.log)("carrier ticket: kept from the bind");
+                    }
+                    let ticket = (prefetch && !seeded).then_some(("prefetched", false));
                     self.start(Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {

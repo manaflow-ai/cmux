@@ -1004,12 +1004,12 @@ impl Worker {
         };
         log(&format!("bind: {}", result.describe()));
         match result {
-            BindResult::Bound(bound) => {
+            BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
-                self.start_live(*bound, key, http, daemon);
+                self.start_live(*bound, key, http, daemon, first_ticket);
             }
             BindResult::Retry(_) => {
                 let changed = cmux_server::cloud_http::network_changes() != changes;
@@ -1055,12 +1055,21 @@ impl Worker {
             Err(e) => return log(&format!("daemon info: {e}")),
         };
         match JsonPoster::new() {
-            Ok(poster) => self.start_live(bound, loaded.key, PosterHttp(poster), daemon),
+            Ok(poster) => self.start_live(bound, loaded.key, PosterHttp(poster), daemon, None),
             Err(e) => log(&e),
         }
     }
 
-    fn start_live(&mut self, bound: Bound, key: InstallKey, http: PosterHttp, daemon: DaemonInfo) {
+    /// `first_ticket`: the bind answer's relay Register ticket, kept for the
+    /// session host's first Register (`carrier_server.rs`).
+    fn start_live(
+        &mut self,
+        bound: Bound,
+        key: InstallKey,
+        http: PosterHttp,
+        daemon: DaemonInfo,
+        first_ticket: Option<Value>,
+    ) {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
@@ -1071,9 +1080,13 @@ impl Worker {
         }
         if let Some(carrier) = self.carrier.as_ref() {
             match github_client(&bound, &key) {
-                // A machine with a relay carrier asks for its first ticket now (`carrier_server.rs`).
-                Ok(client) => carrier
-                    .bound(client, self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file()),
+                // A machine with a relay carrier keeps the bind's ticket, or asks for its first one now
+                // (`carrier_server.rs`).
+                Ok(client) => carrier.bound_with_ticket(
+                    client,
+                    self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file(),
+                    first_ticket,
+                ),
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
         }

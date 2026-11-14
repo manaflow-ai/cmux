@@ -179,6 +179,49 @@ fn a_bound_machine_answers_its_ticket_in_one_request_after_the_bearer_minted_at_
     drop(server);
 }
 
+/// The bind answer's ticket for the session host's first Register.
+fn bind_ticket(ticket: &str, life_s: u64) -> Value {
+    json!({ "ok": true, "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": ticket, "expires_at": T0 / 1000 + life_s })
+}
+
+#[test]
+fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("bind-ticket-0123", 300)));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!((&reply["ok"], &reply["ticket"]), (&json!(true), &json!("bind-ticket-0123")));
+    wait_for_requests(&fake, 2);
+    // Dropping the server joins its request threads: the bind's request minted
+    // the bearer (for later tickets) and asked for no ticket.
+    drop(server);
+    assert_eq!(fake.urls(), [format!("{DEV}/v1/auth/challenge"), format!("{DEV}/v1/auth/token")]);
+    let logged = LOGGED.lock().unwrap().clone();
+    assert!(logged.iter().any(|l| l == "carrier ticket: kept from the bind"), "{logged:?}");
+    assert!(logged.iter().all(|l| !l.contains("bind-ticket-0123")), "{logged:?}");
+}
+
+#[test]
+fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_kept() {
+    // Too close to its expiry to keep: the bind asks for a ticket as before.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("short-lived-0123", 30)));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ticket"], TICKET);
+    drop(server);
+    assert!(fake.urls().contains(&format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier")));
+    // No carrier: nothing is kept, and nothing is asked ahead.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), false, Some(bind_ticket("no-carrier-0123", 300)));
+    drop(server);
+    assert!(fake.urls().iter().all(|u| !u.ends_with("/carrier")), "{:?}", fake.urls());
+}
+
 #[test]
 fn an_ask_before_the_bind_is_answered_once_the_bind_lands() {
     let dir = tempfile::tempdir().unwrap();
@@ -838,6 +881,60 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
     drop(server);
 }
 
+/// A resume can be noted while a seeded bind is still waiting for the fetch
+/// thread. The bind's ticket is stale as soon as the resume is noted, so the
+/// fetcher must keep the pending resume and prefetch a fresh ticket before the
+/// Register ask is answered. The wanted-request gate makes the before/after
+/// Register wait visible in this same harness.
+#[test]
+fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(5);
+    let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
+    let (wanted_signal, wanted_started) = std::sync::mpsc::channel();
+    let (_release_wanted, wanted_gate) = std::sync::mpsc::channel::<()>();
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        let _ = wanted_signal.send(());
+        // The old ordering reaches a wanted request here. Keep it slow enough
+        // for the measured before/after Register wait to be visible.
+        let _ = wanted_gate.recv_timeout(Duration::from_secs(1));
+    }));
+
+    let (release_fetcher, fetcher_gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(fetcher_gate);
+    server.bound_with_ticket(
+        client_with(LiveHttp(Arc::clone(&live))),
+        true,
+        Some(json!({
+            "ok": true,
+            "relay": "relay+do://relay.example",
+            "slot": "slot_0123456789abcdefghijkl",
+            "ticket": "stale-after-resume",
+            "expires_at": wall_now() / 1000 + 300,
+        })),
+    );
+    wait_for("the fetcher held before the seeded bind", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    resumes.note();
+
+    let asking = {
+        let path = path.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
+        })
+    };
+    release_fetcher.send(()).unwrap();
+    let (reply, took) = asking.join().unwrap();
+    eprintln!("reconnect Register wait: {took:?}");
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(wanted_started.try_recv().is_err(), "Register asked for a ticket after reconnect");
+    assert!(took < Duration::from_secs(1), "Register waited {took:?} behind the seeded bind");
+    drop(server);
+}
+
 /// #38700's review: a model of the ticket threads on their one state.
 /// Each seed drives a random interleaving of Registers (an ask, its
 /// hand-out, an asker leaving), resumes, binds, the fetch thread's jobs,
@@ -1093,10 +1190,10 @@ mod model {
                 self.overtaken_resumes += 1;
             }
             match job {
-                Job::Bind(bind, generation) => {
+                Job::Bind(bind, generation, seed_valid) => {
                     let (binding, prefetch) = *bind;
                     self.hands.bound(binding, prefetch);
-                    let ticket = prefetch.then_some(("prefetched", false));
+                    let ticket = (prefetch && !seed_valid).then_some(("prefetched", false));
                     self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
