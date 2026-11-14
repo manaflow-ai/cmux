@@ -86342,122 +86342,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "أبقِ طلبات السحب المفتوحة بجانب عملك.\nانقر على صف لفتحه في علامة تبويب متصفح cmux."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Držite svoje otvorene pull requestove pored svog rada.\nKliknite red da ga otvorite u kartici cmux preglednika."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Hold dine åbne pull requests ved siden af dit arbejde.\nKlik på en række for at åbne den i en cmux-browserfane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Behalte deine offenen Pull Requests neben deiner Arbeit im Blick.\nKlicke auf eine Zeile, um sie in einem cmux-Browsertab zu öffnen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Ten tus pull requests abiertos junto a tu trabajo.\nHaz clic en una fila para abrirla en una pestaña del navegador de cmux."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Gardez vos pull requests ouvertes à côté de votre travail.\nCliquez sur une ligne pour l’ouvrir dans un onglet du navigateur cmux."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Tieni le tue pull request aperte accanto al tuo lavoro.\nFai clic su una riga per aprirla in una scheda del browser di cmux."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "開いているプルリクエストを作業のそばに表示します。\n行をクリックすると cmux のブラウザタブで開きます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "រក្សាសំណើទាញដែលបើករបស់អ្នកនៅក្បែរការងាររបស់អ្នក។\nចុចជួរដេកមួយដើម្បីបើកវានៅក្នុងផ្ទាំងកម្មវិធីរុករក cmux ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "열려 있는 풀 리퀘스트를 작업 옆에 둡니다.\n행을 클릭하면 cmux 브라우저 탭에서 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Ha de åpne pull-forespørslene dine ved siden av arbeidet ditt.\nKlikk på en rad for å åpne den i en cmux-nettleserfane."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Miej otwarte pull requesty obok swojej pracy.\nKliknij wiersz, aby otworzyć go w karcie przeglądarki cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Mantenha seus pull requests abertos ao lado do seu trabalho.\nClique em uma linha para abri-la em uma aba do navegador do cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Держите открытые пул-реквесты рядом с работой.\nНажмите на строку, чтобы открыть её во вкладке браузера cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "เก็บพูลรีเควสต์ที่เปิดอยู่ไว้ข้างงานของคุณ\nคลิกแถวเพื่อเปิดในแท็บเบราว์เซอร์ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Açık pull request'lerinizi çalışmanızın yanında tutun.\nBir satıra tıklayarak cmux tarayıcı sekmesinde açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Тримайте відкриті пул-реквести поруч із роботою.\nНатисніть рядок, щоб відкрити його у вкладці браузера cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Giữ các pull request đang mở bên cạnh công việc của bạn.\nNhấp vào một hàng để mở nó trong tab trình duyệt cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "把你打开的拉取请求放在工作旁边。\n点击一行即可在 cmux 浏览器标签页中打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+            "state": "needs_review",
+            "value": "把你開啟的拉取要求放在工作旁邊。\n按一下某一列即可在 cmux 瀏覽器分頁中開啟。"
           }
         }
       }
@@ -86606,122 +86606,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "اعرف أي محادثات الوكلاء تنتظر إجابتك.\nافتح السؤال مباشرة من الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Pogledajte koji razgovori s agentima čekaju vaš odgovor.\nOtvorite pitanje direktno iz bočne trake."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Se, hvilke agentchats der venter på dit svar.\nÅbn spørgsmålet direkte fra sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Sieh, welche Agent-Chats auf deine Antwort warten.\nÖffne die Frage direkt aus der Seitenleiste."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Mira qué chats de agentes esperan tu respuesta.\nAbre la pregunta directamente desde la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Voyez quels chats d’agents attendent votre réponse.\nOuvrez la question directement depuis la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Scopri quali chat degli agenti aspettano la tua risposta.\nApri la domanda direttamente dalla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "回答を待っているエージェントチャットを確認できます。\nサイドバーから質問を直接開けます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "មើលថាការជជែករបស់ភ្នាក់ងារណាខ្លះកំពុងរង់ចាំចម្លើយរបស់អ្នក។\nបើកសំណួរដោយផ្ទាល់ពីរបារចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "답변을 기다리는 에이전트 채팅을 확인합니다.\n사이드바에서 질문을 바로 엽니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Se hvilke agentchatter som venter på svaret ditt.\nÅpne spørsmålet direkte fra sidefeltet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Zobacz, które czaty agentów czekają na Twoją odpowiedź.\nOtwórz pytanie bezpośrednio z paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Veja quais chats de agentes estão esperando sua resposta.\nAbra a pergunta diretamente pela barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Смотрите, какие чаты агентов ждут вашего ответа.\nОткрывайте вопрос прямо из боковой панели."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "ดูว่าแชตเอเจนต์ใดกำลังรอคำตอบจากคุณ\nเปิดคำถามได้โดยตรงจากแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Hangi ajan sohbetlerinin yanıtınızı beklediğini görün.\nSoruyu doğrudan kenar çubuğundan açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Дивіться, які чати агентів чекають на вашу відповідь.\nВідкривайте запитання просто з бічної панелі."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "Xem những cuộc trò chuyện với tác tử nào đang chờ bạn trả lời.\nMở câu hỏi trực tiếp từ thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "查看哪些代理聊天在等待你的回答。\n直接从侧边栏打开问题。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+            "state": "needs_review",
+            "value": "查看哪些代理程式聊天正在等待你的回答。\n直接從側邊欄開啟問題。"
           }
         }
       }
@@ -86870,122 +86870,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "تابع علامات التبويب في مساحة العمل التي تركز عليها.\nانتقل إلى الطرفية أو المحادثة أو المتصفح بنقرة واحدة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Pratite kartice u fokusiranom radnom prostoru.\nJednim klikom prijeđite na njegov terminal, chat ili preglednik."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Følg fanerne i dit fokuserede arbejdsområde.\nGå til dets terminal, chat eller browser med ét klik."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Verfolge die Tabs in deinem fokussierten Arbeitsbereich.\nSpringe mit einem Klick zu seinem Terminal, Chat oder Browser."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Sigue las pestañas del espacio de trabajo enfocado.\nSalta a su terminal, chat o navegador con un clic."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Suivez les onglets de votre espace de travail actif.\nAccédez à son terminal, son chat ou son navigateur en un clic."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Segui le schede dello spazio di lavoro attivo.\nPassa al suo terminale, alla chat o al browser con un clic."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "フォーカス中のワークスペースのタブを追跡します。\nワンクリックでターミナル、チャット、ブラウザに移動できます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "តាមដានផ្ទាំងនៅក្នុងកន្លែងធ្វើការដែលអ្នកកំពុងផ្តោត។\nលោតទៅកាន់ទែមីណាល់ ការជជែក ឬកម្មវិធីរុករករបស់វាដោយចុចតែម្តង។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "포커스된 워크스페이스의 탭을 따라갑니다.\n한 번의 클릭으로 터미널, 채팅 또는 브라우저로 이동합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Følg fanene i arbeidsområdet du har i fokus.\nGå til terminalen, chatten eller nettleseren med ett klikk."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Śledź karty w aktywnym obszarze roboczym.\nPrzejdź do jego terminala, czatu lub przeglądarki jednym kliknięciem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Acompanhe as abas do espaço de trabalho em foco.\nVá para o terminal, o chat ou o navegador dele com um clique."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Следите за вкладками рабочего пространства в фокусе.\nПереходите к его терминалу, чату или браузеру одним нажатием."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "ติดตามแท็บในพื้นที่ทำงานที่โฟกัสอยู่\nไปยังเทอร์มินัล แชต หรือเบราว์เซอร์ได้ในคลิกเดียว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Odaktaki çalışma alanınızın sekmelerini takip edin.\nTek tıkla terminaline, sohbetine veya tarayıcısına geçin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Стежте за вкладками робочого простору у фокусі.\nПереходьте до його термінала, чату чи браузера одним натисканням."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "Theo dõi các tab trong không gian làm việc đang được chọn.\nChuyển đến terminal, cuộc trò chuyện hoặc trình duyệt của nó chỉ bằng một cú nhấp."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "跟踪当前聚焦工作区中的标签页。\n一键跳转到它的终端、聊天或浏览器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+            "state": "needs_review",
+            "value": "追蹤目前聚焦工作區中的分頁。\n按一下即可跳到它的終端機、聊天或瀏覽器。"
           }
         }
       }
@@ -87134,122 +87134,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "الصق الروابط التي يستخدمها فريقك كل يوم واحتفظ بها.\nافتح لوحة معلومات بجانب الكود في علامة تبويب متصفح cmux."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Zalijepite i sačuvajte linkove koje vaš tim koristi svaki dan.\nOtvorite kontrolnu ploču pored koda u kartici cmux preglednika."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Indsæt og gem de links, dit team bruger hver dag.\nÅbn et dashboard ved siden af din kode i en cmux-browserfane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Füge die Links ein, die dein Team täglich nutzt, und behalte sie.\nÖffne ein Dashboard neben deinem Code in einem cmux-Browsertab."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Pega y guarda los enlaces que tu equipo usa a diario.\nAbre un panel junto a tu código en una pestaña del navegador de cmux."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Collez et conservez les liens que votre équipe utilise chaque jour.\nOuvrez un tableau de bord à côté de votre code dans un onglet du navigateur cmux."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Incolla e conserva i link che il tuo team usa ogni giorno.\nApri una dashboard accanto al codice in una scheda del browser di cmux."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "チームが毎日使うリンクを貼り付けて保存します。\nダッシュボードを cmux のブラウザタブでコードの横に開けます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "បិទភ្ជាប់ និងរក្សាទុកតំណដែលក្រុមរបស់អ្នកប្រើរាល់ថ្ងៃ។\nបើកផ្ទាំងគ្រប់គ្រងនៅក្បែរកូដរបស់អ្នកក្នុងផ្ទាំងកម្មវិធីរុករក cmux ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "팀이 매일 쓰는 링크를 붙여 넣어 보관합니다.\ncmux 브라우저 탭에서 코드 옆에 대시보드를 엽니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Lim inn og ta vare på lenkene teamet ditt bruker hver dag.\nÅpne et dashbord ved siden av koden i en cmux-nettleserfane."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Wklej i zachowaj linki, których Twój zespół używa codziennie.\nOtwórz pulpit obok kodu w karcie przeglądarki cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Cole e guarde os links que sua equipe usa todos os dias.\nAbra um painel ao lado do seu código em uma aba do navegador do cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Вставьте и сохраните ссылки, которыми ваша команда пользуется каждый день.\nОткройте дашборд рядом с кодом во вкладке браузера cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "วางและเก็บลิงก์ที่ทีมของคุณใช้ทุกวัน\nเปิดแดชบอร์ดข้างโค้ดของคุณในแท็บเบราว์เซอร์ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Ekibinizin her gün kullandığı bağlantıları yapıştırıp saklayın.\nBir panoyu kodunuzun yanında cmux tarayıcı sekmesinde açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Вставте й збережіть посилання, якими ваша команда користується щодня.\nВідкрийте панель моніторингу поруч із кодом у вкладці браузера cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Dán và lưu các liên kết nhóm bạn dùng mỗi ngày.\nMở bảng điều khiển bên cạnh mã của bạn trong tab trình duyệt cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "粘贴并保存你的团队每天使用的链接。\n在 cmux 浏览器标签页中，于代码旁打开仪表板。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+            "state": "needs_review",
+            "value": "貼上並保存你的團隊每天使用的連結。\n在 cmux 瀏覽器分頁中，於程式碼旁開啟儀表板。"
           }
         }
       }
@@ -87398,122 +87398,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "اعرض الفرع وعدد الالتزامات المتقدمة والمتأخرة للمحادثة الحالية.\nتتبع معلومات الجلسة مجلد مستودع تلك المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Pogledajte granu i broj commitova ispred/iza za trenutni chat.\nInformacije o sesiji prate folder repozitorija tog chata."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Se grenen og antal foran/bagud for den aktuelle chat.\nSessionsinfo følger den chats repository-mappe."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Sieh den Branch und die Vorsprung-/Rückstandszahlen für den aktuellen Chat.\nSitzungsinfo folgt dem Repository-Ordner dieses Chats."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Consulta la rama y los recuentos de adelanto/atraso del chat actual.\nInformación de la sesión sigue la carpeta del repositorio de ese chat."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Voyez la branche et les compteurs d’avance/retard du chat actuel.\nInfos de la session suit le dossier du dépôt de ce chat."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Vedi il branch e i conteggi avanti/indietro della chat corrente.\nInfo sessione segue la cartella del repository di quella chat."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "現在のチャットのブランチと先行/遅れのコミット数を確認できます。\nセッション情報はそのチャットのリポジトリフォルダに追従します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "មើលសាខា និងចំនួននាំមុខ/នៅពីក្រោយសម្រាប់ការជជែកបច្ចុប្បន្ន។\nព័ត៌មានវគ្គធ្វើតាមថតឃ្លាំងរបស់ការជជែកនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "현재 채팅의 브랜치와 앞섬/뒤처짐 커밋 수를 확인합니다.\n세션 정보는 해당 채팅의 저장소 폴더를 따라갑니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Se grenen og antall foran/bak for den gjeldende chatten.\nØktinfo følger repositorymappen til den chatten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Zobacz gałąź i liczbę commitów do przodu/do tyłu dla bieżącego czatu.\nInformacje o sesji podążają za folderem repozytorium tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Veja o branch e as contagens à frente/atrás do chat atual.\nInformações da sessão acompanha a pasta do repositório desse chat."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Смотрите ветку и число коммитов впереди/позади для текущего чата.\nСведения о сеансе следуют за папкой репозитория этого чата."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "ดูบรานช์และจำนวนคอมมิตที่นำหน้า/ตามหลังของแชตปัจจุบัน\nข้อมูลเซสชันจะติดตามโฟลเดอร์รีโพสิทอรีของแชตนั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Geçerli sohbetin dalını ve önde/geride sayılarını görün.\nOturum bilgileri o sohbetin depo klasörünü izler."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Переглядайте гілку й кількість комітів попереду/позаду для поточного чату.\nВідомості про сеанс стежать за папкою репозиторію цього чату."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "Xem nhánh và số commit đi trước/đi sau của cuộc trò chuyện hiện tại.\nThông tin phiên theo thư mục kho mã của cuộc trò chuyện đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "查看当前聊天的分支以及领先/落后的提交数。\n会话信息会跟随该聊天的仓库文件夹。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
+            "state": "needs_review",
+            "value": "查看目前聊天的分支以及領先/落後的提交數。\n工作階段資訊會跟隨該聊天的儲存庫資料夾。"
           }
         }
       }
@@ -87662,122 +87662,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "أبقِ طلبات السحب التي تنتظر مراجعتك في الشريط الجانبي.\nافتح مراجعة في علامة تبويب متصفح cmux."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Držite pull requestove koji čekaju vaš pregled u bočnoj traci.\nOtvorite pregled u kartici cmux preglednika."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Hold de pull requests, der venter på din gennemgang, i sidepanelet.\nÅbn en gennemgang i en cmux-browserfane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Behalte die Pull Requests, die auf dein Review warten, in der Seitenleiste.\nÖffne ein Review in einem cmux-Browsertab."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Ten en la barra lateral los pull requests que esperan tu revisión.\nAbre una revisión en una pestaña del navegador de cmux."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Gardez dans la barre latérale les pull requests qui attendent votre revue.\nOuvrez une revue dans un onglet du navigateur cmux."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Tieni nella barra laterale le pull request in attesa della tua revisione.\nApri una revisione in una scheda del browser di cmux."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "レビュー待ちのプルリクエストをサイドバーに表示します。\nレビューを cmux のブラウザタブで開けます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "រក្សាសំណើទាញដែលកំពុងរង់ចាំការពិនិត្យរបស់អ្នកនៅក្នុងរបារចំហៀង។\nបើកការពិនិត្យក្នុងផ្ទាំងកម្មវិធីរុករក cmux ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "리뷰를 기다리는 풀 리퀘스트를 사이드바에 둡니다.\ncmux 브라우저 탭에서 리뷰를 엽니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Ha pull-forespørslene som venter på din gjennomgang, i sidefeltet.\nÅpne en gjennomgang i en cmux-nettleserfane."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Trzymaj na pasku bocznym pull requesty czekające na Twoją recenzję.\nOtwórz recenzję w karcie przeglądarki cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Mantenha na barra lateral os pull requests que aguardam sua revisão.\nAbra uma revisão em uma aba do navegador do cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Держите в боковой панели пул-реквесты, ожидающие вашего ревью.\nОткройте ревью во вкладке браузера cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "เก็บพูลรีเควสต์ที่รอการรีวิวจากคุณไว้ในแถบด้านข้าง\nเปิดการรีวิวในแท็บเบราว์เซอร์ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "İncelemenizi bekleyen pull request'leri kenar çubuğunda tutun.\nBir incelemeyi cmux tarayıcı sekmesinde açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Тримайте на бічній панелі пул-реквести, що чекають на ваше рецензування.\nВідкрийте рецензію у вкладці браузера cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "Giữ các pull request đang chờ bạn đánh giá trong thanh bên.\nMở một bài đánh giá trong tab trình duyệt cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "把等待你审查的拉取请求放在侧边栏中。\n在 cmux 浏览器标签页中打开审查。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+            "state": "needs_review",
+            "value": "把等待你審查的拉取要求放在側邊欄中。\n在 cmux 瀏覽器分頁中開啟審查。"
           }
         }
       }
@@ -87926,122 +87926,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "اعرض وكلاء الطرفية العاملين والمتوقفين معًا.\nانقر على وكيل للتركيز على طرفيته."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Pogledajte svoje aktivne i blokirane terminalske agente zajedno.\nKliknite agenta da fokusirate njegov terminal."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Se dine arbejdende og blokerede terminalagenter samlet.\nKlik på en agent for at fokusere dens terminal."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Sieh deine arbeitenden und blockierten Terminal-Agents zusammen.\nKlicke auf einen Agent, um sein Terminal zu fokussieren."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Ve juntos tus agentes de terminal activos y bloqueados.\nHaz clic en un agente para enfocar su terminal."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Voyez ensemble vos agents de terminal actifs et bloqués.\nCliquez sur un agent pour mettre son terminal au premier plan."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Vedi insieme i tuoi agenti del terminale attivi e bloccati.\nFai clic su un agente per mettere a fuoco il suo terminale."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "作業中とブロック中のターミナルエージェントをまとめて表示します。\nエージェントをクリックするとそのターミナルにフォーカスします。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "មើលភ្នាក់ងារទែមីណាល់ដែលកំពុងធ្វើការ និងត្រូវបានរារាំងរបស់អ្នកជាមួយគ្នា។\nចុចភ្នាក់ងារមួយដើម្បីផ្តោតលើទែមីណាល់របស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "작업 중이거나 막힌 터미널 에이전트를 한곳에서 봅니다.\n에이전트를 클릭하면 해당 터미널에 포커스합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Se terminalagentene dine som jobber og er blokkert, samlet.\nKlikk på en agent for å fokusere terminalen dens."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Zobacz razem swoich pracujących i zablokowanych agentów terminala.\nKliknij agenta, aby ustawić fokus na jego terminalu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Veja juntos seus agentes de terminal ativos e bloqueados.\nClique em um agente para focar o terminal dele."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Смотрите работающих и заблокированных агентов терминала вместе.\nНажмите на агента, чтобы перевести фокус на его терминал."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "ดูเอเจนต์เทอร์มินัลที่กำลังทำงานและถูกบล็อกไว้รวมกัน\nคลิกเอเจนต์เพื่อโฟกัสเทอร์มินัลของเอเจนต์นั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Çalışan ve engellenen terminal ajanlarınızı birlikte görün.\nTerminaline odaklanmak için bir ajana tıklayın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Переглядайте разом активних і заблокованих агентів термінала.\nНатисніть агента, щоб перевести фокус на його термінал."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "Xem cùng lúc các tác tử terminal đang làm việc và bị chặn.\nNhấp vào một tác tử để chuyển tiêu điểm đến terminal của nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "集中查看正在工作和被阻塞的终端代理。\n点击某个代理即可聚焦其终端。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+            "state": "needs_review",
+            "value": "集中查看正在工作與被阻擋的終端機代理程式。\n按一下代理程式即可聚焦其終端機。"
           }
         }
       }
@@ -88190,122 +88190,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "ضع إجراءات cmux المفيدة في الشريط الجانبي.\nكل زر يشغّل إجراءً حقيقيًا في التطبيق عند النقر عليه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Stavite korisne cmux radnje u bočnu traku.\nSvako dugme pokreće stvarnu radnju aplikacije na vaš klik."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Placer nyttige cmux-handlinger i dit sidepanel.\nHver knap kører en rigtig app-handling, når du klikker."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Lege nützliche cmux-Aktionen in deine Seitenleiste.\nJede Schaltfläche führt bei deinem Klick eine echte App-Aktion aus."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Pon acciones útiles de cmux en tu barra lateral.\nCada botón ejecuta una acción real de la app cuando haces clic."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Placez des actions cmux utiles dans votre barre latérale.\nChaque bouton exécute une véritable action de l’app quand vous cliquez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Metti azioni utili di cmux nella barra laterale.\nOgni pulsante esegue una vera azione dell’app al tuo clic."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "便利な cmux アクションをサイドバーに置けます。\n各ボタンはクリックすると実際のアプリアクションを実行します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "ដាក់សកម្មភាព cmux ដែលមានប្រយោជន៍នៅក្នុងរបារចំហៀងរបស់អ្នក។\nប៊ូតុងនីមួយៗដំណើរការសកម្មភាពកម្មវិធីពិតប្រាកដនៅពេលអ្នកចុច។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "유용한 cmux 동작을 사이드바에 둡니다.\n각 버튼은 클릭하면 실제 앱 동작을 실행합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Legg nyttige cmux-handlinger i sidefeltet.\nHver knapp kjører en ekte apphandling når du klikker."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Umieść przydatne akcje cmux na pasku bocznym.\nKażdy przycisk po kliknięciu uruchamia prawdziwą akcję aplikacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Coloque ações úteis do cmux na barra lateral.\nCada botão executa uma ação real do app quando você clica."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Разместите полезные действия cmux в боковой панели.\nКаждая кнопка по нажатию выполняет настоящее действие приложения."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "วางการทำงานที่มีประโยชน์ของ cmux ไว้ในแถบด้านข้าง\nแต่ละปุ่มจะเรียกใช้การทำงานจริงของแอปเมื่อคุณคลิก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Kullanışlı cmux eylemlerini kenar çubuğunuza koyun.\nHer düğme, tıkladığınızda gerçek bir uygulama eylemi çalıştırır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Додайте корисні дії cmux на бічну панель.\nКожна кнопка після натискання виконує справжню дію застосунку."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "Đặt các thao tác cmux hữu ích vào thanh bên.\nMỗi nút chạy một thao tác thật của ứng dụng khi bạn nhấp."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "把实用的 cmux 操作放进侧边栏。\n每个按钮在你点击时都会运行一个真实的应用操作。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+            "state": "needs_review",
+            "value": "把實用的 cmux 動作放進側邊欄。\n每個按鈕在你按一下時都會執行真正的 App 動作。"
           }
         }
       }
@@ -88454,122 +88454,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "ابدأ جلسة تركيز قصيرة بجانب عملك أو أوقفها مؤقتًا.\nتعدّ عناصر التحكم الأصلية تنازليًا ويخبرك cmux عند انتهاء الوقت."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Pokrenite ili pauzirajte kratku sesiju fokusa pored svog rada.\nIzvorne kontrole odbrojavaju, a cmux vam javlja kada vrijeme istekne."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Start eller sæt en kort fokussession på pause ved siden af dit arbejde.\nIndbyggede kontroller tæller ned, og cmux giver besked, når tiden er gået."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Starte oder pausiere eine kurze Fokussitzung neben deiner Arbeit.\nNative Steuerelemente zählen herunter, und cmux meldet sich, wenn die Zeit um ist."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Inicia o pausa una breve sesión de concentración junto a tu trabajo.\nLos controles nativos hacen la cuenta atrás y cmux te avisa cuando se acaba el tiempo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Lancez ou mettez en pause une courte session de concentration à côté de votre travail.\nDes commandes natives décomptent le temps et cmux vous prévient quand il est écoulé."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Avvia o metti in pausa una breve sessione di concentrazione accanto al tuo lavoro.\nI controlli nativi fanno il conto alla rovescia e cmux ti avvisa quando il tempo è scaduto."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "作業のそばで短い集中セッションを開始または一時停止できます。\nネイティブのコントロールがカウントダウンし、時間になると cmux が知らせます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើម ឬផ្អាកវគ្គផ្តោតអារម្មណ៍ខ្លីមួយនៅក្បែរការងាររបស់អ្នក។\nការគ្រប់គ្រងដើមរាប់ថយក្រោយ ហើយ cmux ប្រាប់អ្នកនៅពេលអស់ពេល។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "작업 옆에서 짧은 집중 세션을 시작하거나 일시 정지합니다.\n네이티브 컨트롤이 카운트다운하고 시간이 다 되면 cmux가 알려 줍니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Start eller sett en kort fokusøkt på pause ved siden av arbeidet ditt.\nInnebygde kontroller teller ned, og cmux sier fra når tiden er ute."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Uruchom lub wstrzymaj krótką sesję skupienia obok swojej pracy.\nNatywne kontrolki odliczają czas, a cmux powiadamia Cię, gdy się skończy."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Inicie ou pause uma breve sessão de foco ao lado do seu trabalho.\nOs controles nativos fazem a contagem regressiva e o cmux avisa quando o tempo acaba."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Запускайте или приостанавливайте короткую сессию фокуса рядом с работой.\nНативные элементы управления ведут обратный отсчёт, а cmux сообщает, когда время вышло."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "เริ่มหรือหยุดเซสชันโฟกัสสั้นๆ ไว้ข้างงานของคุณ\nตัวควบคุมแบบเนทีฟจะนับถอยหลังและ cmux จะแจ้งเมื่อหมดเวลา"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Çalışmanızın yanında kısa bir odak oturumu başlatın veya duraklatın.\nYerel denetimler geri sayar ve süre dolduğunda cmux size haber verir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Запускайте або призупиняйте короткий сеанс зосередження поруч із роботою.\nНативні елементи керування ведуть зворотний відлік, а cmux повідомляє, коли час вийшов."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "Bắt đầu hoặc tạm dừng một phiên tập trung ngắn bên cạnh công việc của bạn.\nCác điều khiển gốc đếm ngược và cmux báo cho bạn khi hết giờ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "在工作旁开始或暂停一段简短的专注时段。\n原生控件会倒计时，时间到时 cmux 会提醒你。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+            "state": "needs_review",
+            "value": "在工作旁開始或暫停一段簡短的專注時段。\n原生控制項會倒數計時，時間到時 cmux 會提醒你。"
           }
         }
       }
@@ -88718,122 +88718,122 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "احتفظ بقائمة «اليوم» صغيرة بجانب مساحة عملك.\nأضف ملاحظة واحتفظ بها عبر عمليات إعادة التحميل باستخدام التخزين المحلي للتطبيق."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Držite malu listu „Danas” pored svog radnog prostora.\nDodajte bilješku i sačuvajte je kroz ponovna učitavanja pomoću lokalne pohrane aplikacije."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Hav en lille »I dag«-liste ved siden af dit arbejdsområde.\nTilføj en note, og bevar den på tværs af genindlæsninger med appens lokale lager."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Behalte eine kleine „Heute“-Liste neben deinem Arbeitsbereich.\nFüge eine Notiz hinzu und behalte sie über Neuladen hinweg im lokalen App-Speicher."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Ten una pequeña lista «Hoy» junto a tu espacio de trabajo.\nAñade una nota y consérvala entre recargas con el almacenamiento local de la app."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Gardez une petite liste « Aujourd’hui » à côté de votre espace de travail.\nAjoutez une note et conservez-la d’un rechargement à l’autre grâce au stockage local de l’app."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Tieni una piccola lista «Oggi» accanto al tuo spazio di lavoro.\nAggiungi una nota e conservala tra un ricaricamento e l’altro con l’archiviazione locale dell’app."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "ワークスペースの横に小さな「今日」リストを置けます。\nメモを追加すると、アプリのローカルストレージで再読み込み後も保持されます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "រក្សាបញ្ជី «ថ្ងៃនេះ» តូចមួយនៅក្បែរកន្លែងធ្វើការរបស់អ្នក។\nបន្ថែមកំណត់ចំណាំ ហើយរក្សាវាទុកពេលផ្ទុកឡើងវិញ ដោយប្រើកន្លែងផ្ទុកមូលដ្ឋានរបស់កម្មវិធី។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "워크스페이스 옆에 작은 '오늘' 목록을 둡니다.\n메모를 추가하면 앱 로컬 저장소에 저장되어 다시 불러와도 유지됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Ha en liten «I dag»-liste ved siden av arbeidsområdet ditt.\nLegg til et notat og behold det etter omlasting med appens lokale lagring."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Miej małą listę „Dzisiaj” obok swojego obszaru roboczego.\nDodaj notatkę i zachowaj ją po przeładowaniu dzięki lokalnej pamięci aplikacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Mantenha uma pequena lista “Hoje” ao lado do seu espaço de trabalho.\nAdicione uma nota e mantenha-a entre recarregamentos com o armazenamento local do app."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Держите небольшой список «Сегодня» рядом с рабочим пространством.\nДобавьте заметку — она сохранится после перезагрузки в локальном хранилище приложения."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "เก็บรายการ “วันนี้” เล็กๆ ไว้ข้างพื้นที่ทำงานของคุณ\nเพิ่มโน้ตและเก็บไว้แม้โหลดใหม่ด้วยที่เก็บข้อมูลภายในของแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Çalışma alanınızın yanında küçük bir “Bugün” listesi tutun.\nBir not ekleyin; uygulamanın yerel depolaması sayesinde yeniden yüklemelerde korunur."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Тримайте невеликий список «Сьогодні» поруч із робочим простором.\nДодайте нотатку, і вона збережеться після перезавантажень у локальному сховищі застосунку."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "Giữ một danh sách “Hôm nay” nhỏ bên cạnh không gian làm việc của bạn.\nThêm ghi chú và giữ nó qua các lần tải lại bằng bộ nhớ cục bộ của ứng dụng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "在工作区旁保留一个简短的“今天”清单。\n添加一条笔记，借助应用的本地存储在重新加载后仍会保留。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+            "state": "needs_review",
+            "value": "在工作區旁保留一份簡短的「今天」清單。\n新增一則筆記，透過 App 的本機儲存空間在重新載入後仍會保留。"
           }
         }
       }
