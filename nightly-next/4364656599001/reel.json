@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4364656599001",
+  "notes": "notes/4364656599001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43279,
+      "title": "acpmux: the person's steer sent as a turn starts goes into that turn, not the queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36055,
+      "title": "cmux NEXT: Computer Use helper on upstream Cua Driver v0.38.0",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43256,
+      "title": "iOS terminal: bench bytes against render attach on a real daemon, and bytes received in the energy bench",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41494,
+      "title": "Agent chat: a video tile's duration is one line in its corner, never over the play button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43266,
+      "title": "Agent chat: drop the \"Checking back in N min.\" loop row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43263,
+      "title": "[next-no-huge-files] Split cmux-remote authorization database",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43276,
+      "title": "cmux device list: a peer down a day is offline with how to remove it; short-lived pool machines fold to one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43264,
+      "title": "optchat-chief: release at opt-level s (-23% of the binary)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43236,
+      "title": "acpmux v2 3c follow-ups: two rows marked, two read-only paths tested, a damaged-header resume rebuilds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43247,
+      "title": "cmux-api: a staging-proven commit promotes itself; a red production journey rolls back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43095,
+      "title": "CMUX-572: require sustained delay before screen-share bitrate cuts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43231,
+      "title": "cmux-next iOS: a streamed token redraws only its row's cell, and lays out no row off screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43245,
+      "title": "bundle-size.py breakdown: the installed app by category, every nightly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43273,
+      "title": "Agent chat: queued note's clock centred on its words, note starts at the bubble's text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43192,
+      "title": "holder: a 50-tab crash test and a noisy-neighbour echo test, holder vs per-terminal hosts (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
