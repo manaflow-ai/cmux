@@ -574,6 +574,12 @@ debug = false
 [profile.dev.package.acpmux]
 opt-level = 0
 
+# cmux-tui-core's test suite regresses from 16.1 s at opt-level 1 to 30.0 s at
+# opt-level 0; keep its measured optimized test path while the other package
+# overrides above trim the edit loop.
+[profile.dev.package.cmux-tui-core]
+opt-level = 1
+
 # The JSON rewriter sits on every translated daemon message; tests and the
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
