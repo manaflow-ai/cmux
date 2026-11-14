@@ -3,8 +3,7 @@ use crate::wire::{
     Anchor, AnchorSide, FolderPageResult, FolderPosition, FolderWindow, ListFilter, ListView, Page,
     PageKey, PageSide, Position,
 };
-use acpmux_book::index::FolderKey;
-use acpmux_book::index::folders::FolderOp;
+use acpmux_book::index::folders::{FolderKey, FolderOp};
 
 fn row(id: &str, folder: &str, at: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -158,8 +157,10 @@ fn folder_view_refuses_table_filters_and_hides_removed_origins() {
     remote.origin = "peer".into();
     writer.apply(remote).unwrap();
     let mut request = sub();
-    request.filter =
-        Some(ListFilter { folder: Some(FolderKey::new("peer", "/a")), ..Default::default() });
+    request.filter = Some(ListFilter {
+        folder: Some(acpmux_book::index::FolderKey::new("peer", "/a")),
+        ..Default::default()
+    });
     assert!(hub.subscribe(&request).is_err());
     let mut p = page(FolderPosition { at: 0, origin: "peer".into(), folder: "/a".into() });
     p.filter = request.filter;
