@@ -53,6 +53,7 @@ book_gates() {
   run_book pr05f_first_window
   run_book pr05f_deep_page
   run_book pr05f_equal_entry
+  run_book v2_pr03c_
 }
 run_group acpmux-book book_gates
 
@@ -70,6 +71,7 @@ core_gates() {
   run_core pr05d_origin_state_ops
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
+  run_core v2_pr03c_
 }
 run_group acpmux-core core_gates
 

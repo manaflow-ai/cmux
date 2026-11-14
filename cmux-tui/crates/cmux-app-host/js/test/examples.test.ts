@@ -241,6 +241,8 @@ describe("cmux-extension-sdk", () => {
     expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
     expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
     expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
+    expect(host.eval(`__sdk.scopeFor("settings.changed")`)).toBe("settings:read")
+    expect(host.eval(`__sdk.scopeFor("theme.changed")`)).toBe("settings:read")
   })
 })
 

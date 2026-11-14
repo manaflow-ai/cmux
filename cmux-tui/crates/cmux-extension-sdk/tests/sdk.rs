@@ -67,6 +67,9 @@ fn listening_asks_for_the_events_scope_once_and_refuses_an_unknown_stream() {
         Manifest::new("local/x", "X", "0.1.0", "A test.").listen("workspace.chagned").unwrap_err();
     assert!(error.contains("workspace.changed"), "{error}");
     assert_eq!(event("agent.changed").map(|e| e.scope), Some("agent:read"));
+    for stream in ["settings.changed", "theme.changed"] {
+        assert_eq!(event(stream).map(|e| e.scope), Some("settings:read"), "{stream}");
+    }
 }
 
 /// The example extension's manifest, made with the builder: the places, scopes and activation

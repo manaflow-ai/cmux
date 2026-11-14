@@ -66,6 +66,38 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 
+/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
+/// no copy of its own (a sample copied out of a checkout, one a person installs): the
+/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
+/// SDK's relative imports of its tables expect.
+const SDK_FILES: [(&str, &str); 3] = [
+    (
+        "cmux-extension-sdk/typescript/src/index.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-app-host/schema/v2/events.json",
+        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
+    ),
+    (
+        "cmux-app-host/generated/scopes.json",
+        include_str!("../../../../cmux-app-host/generated/scopes.json"),
+    ),
+];
+
+/// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
+pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::write(dir.join("pack.ts"), PACK_TS)?;
+    for (path, text) in SDK_FILES {
+        let file = dir.join("sdk").join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+    }
+    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+}
+
 /// One problem with file and position where known.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Problem {
@@ -254,10 +286,14 @@ pub(super) fn build(
             let packer = tempfile::Builder::new()
                 .prefix("cmux-ext-pack")
                 .tempdir()
-                .and_then(|dir| std::fs::write(dir.path().join("pack.ts"), PACK_TS).map(|()| dir));
-            let packer = packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
+                .and_then(|dir| write_packer(dir.path()).map(|sdk| (dir, sdk)));
+            let (packer, sdk) =
+                packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
             let mut pack = Command::new(bun);
-            pack.arg(packer.path().join("pack.ts")).arg(&pkg.dir).current_dir(&pkg.dir);
+            pack.arg(packer.path().join("pack.ts"))
+                .arg(&pkg.dir)
+                .current_dir(&pkg.dir)
+                .env("CMUX_EXTENSION_SDK", sdk);
             run_bounded(pack, deadline)
         }
     };
