@@ -1,9 +1,10 @@
 use acpmux_client::ffi::{
     ACPMUX_CLIENT_OK, Bytes, acpmux_client_bytes_free, acpmux_client_connected, acpmux_client_free,
-    acpmux_client_new, acpmux_client_next_change, acpmux_client_page, acpmux_client_subscribe,
-    acpmux_client_take_send,
+    acpmux_client_new, acpmux_client_next_change, acpmux_client_page, acpmux_client_received,
+    acpmux_client_subscribe, acpmux_client_subscribe_mirror, acpmux_client_take_send,
+    acpmux_client_unwant, acpmux_client_want,
 };
-use acpmux_client::wire::{Page, PageSide, Sub};
+use acpmux_client::wire::{Frame, FrameKind, HelloReply, Limits, Page, PageSide, Sub};
 
 #[test]
 fn pointer_length_calls_drive_the_same_core_as_rust() {
@@ -34,6 +35,89 @@ fn pointer_length_calls_drive_the_same_core_as_rust() {
         assert_eq!(acpmux_client_next_change(handle, &mut change), ACPMUX_CLIENT_OK);
         assert_eq!(change.len, 0);
 
+        acpmux_client_free(handle);
+    }
+}
+
+#[test]
+fn mirror_and_wanted_calls_match_the_rust_window_change() {
+    let handle = acpmux_client_new();
+    assert!(!handle.is_null());
+    unsafe {
+        let request = serde_json::json!({
+            "sub": {"sid":"m","stream":"list","view":"live"},
+            "held": [],
+            "whole": false
+        });
+        let request = serde_json::to_vec(&request).unwrap();
+        let mut sid = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(
+            acpmux_client_subscribe_mirror(handle, request.as_ptr(), request.len(), &mut sid),
+            ACPMUX_CLIENT_OK
+        );
+        acpmux_client_bytes_free(sid);
+        let key = serde_json::json!({"origin":"local","chatId":"wanted","lastActivity":1});
+        let keys = serde_json::json!({"sid":"m","keys":[key]});
+        let keys = serde_json::to_vec(&keys).unwrap();
+        assert_eq!(acpmux_client_want(handle, keys.as_ptr(), keys.len()), ACPMUX_CLIENT_OK);
+        assert_eq!(acpmux_client_unwant(handle, keys.as_ptr(), keys.len()), ACPMUX_CLIENT_OK);
+        assert_eq!(acpmux_client_connected(handle), ACPMUX_CLIENT_OK);
+
+        let mut outbound = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(acpmux_client_take_send(handle, &mut outbound), ACPMUX_CLIENT_OK);
+        let upgrade: serde_json::Value =
+            serde_json::from_slice(std::slice::from_raw_parts(outbound.ptr, outbound.len)).unwrap();
+        let id = upgrade.get("id").cloned().unwrap();
+        acpmux_client_bytes_free(outbound);
+        let reply = format!("{{\"id\":{id},\"result\":{{\"upgrade\":true}}}}\n");
+        let mut consumed = 0;
+        assert_eq!(
+            acpmux_client_received(handle, reply.as_ptr(), reply.len(), &mut consumed),
+            ACPMUX_CLIENT_OK
+        );
+        let mut hello = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        acpmux_client_take_send(handle, &mut hello);
+        acpmux_client_bytes_free(hello);
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        assert_eq!(
+            acpmux_client_received(handle, hello.as_ptr(), hello.len(), &mut consumed),
+            ACPMUX_CLIENT_OK
+        );
+        let mut sub = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        acpmux_client_take_send(handle, &mut sub);
+        acpmux_client_bytes_free(sub);
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"m","cursor":4,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        acpmux_client_received(handle, window.as_ptr(), window.len(), &mut consumed);
+        let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        acpmux_client_next_change(handle, &mut change);
+        let c_value: serde_json::Value =
+            serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
+        let mut rust = acpmux_client::Client::<serde_json::Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        rust.received(&hello);
+        rust.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), false).unwrap();
+        rust.received(&window);
+        let expected = match rust.next_change().unwrap() {
+            acpmux_client::Change::Window(window) => serde_json::to_value(window).unwrap(),
+            other => panic!("unexpected change: {other:?}"),
+        };
+        assert_eq!(c_value, expected);
+        acpmux_client_bytes_free(change);
         acpmux_client_free(handle);
     }
 }
