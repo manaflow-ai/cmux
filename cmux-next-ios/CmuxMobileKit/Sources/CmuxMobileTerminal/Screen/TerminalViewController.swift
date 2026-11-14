@@ -3296,9 +3296,12 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         // Keyboard up: the grid's bottom rides the stack and its top is
         // clipped; it moves down only as far as the cursor's row needs. Set
         // in the layout pass, so inside the keyboard's own animation.
+        // A shorter Mac grid another device set stays whole at the top while it and its note fit
+        // above the keyboard (its rows are the top of the host, not the phone's bottom rows).
+        let pinned = hostGridIsPhonesOwn ? nil : layout.letterbox.map { $0.top + ceil(hostGridNote.font.lineHeight) + 8 }
         let lift = TerminalGridSizing.keyboardLift(gridRows: tuiRows, visibleHeight: tuiClip.bounds.height,
                                                    cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift },
-                                                   cellHeight: cell.height)
+                                                   cellHeight: cell.height, pinnedHeight: pinned)
         if lift != tuiKeyboardLift {
             tuiKeyboardLift = lift
             tuiClip.bounds.origin.y = -lift

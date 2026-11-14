@@ -33,9 +33,14 @@ public enum TerminalGridSizing {
     ///   - gridRows: rows of the grid (the claimed rows).
     ///   - visibleHeight: the TUI area's height now (toolbar to stack top).
     ///   - cursorRow: the cursor's row from the grid's top (nil: unknown).
-    public static func keyboardLift(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?, cellHeight: CGFloat) -> CGFloat {
+    ///   - pinnedHeight: the height a shorter Mac grid (and its note) takes at the grid's top,
+    ///     when another device set one: while it fits, the lift shows it whole (its top at the
+    ///     area's top), whatever the cursor's row.
+    public static func keyboardLift(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?, cellHeight: CGFloat,
+                                    pinnedHeight: CGFloat? = nil) -> CGFloat {
         guard cellHeight > 0, gridRows > 0 else { return 0 }
         let clipped = CGFloat(gridRows) * cellHeight - max(0, visibleHeight)
+        if clipped > 0.5, let pinnedHeight, pinnedHeight <= max(0, visibleHeight) + 0.5 { return clipped }
         guard clipped > 0.5, let cursorRow, cursorRow >= 0 else { return 0 }
         let cursorTop = CGFloat(min(cursorRow, gridRows - 1)) * cellHeight
         guard cursorTop < clipped else { return 0 }
