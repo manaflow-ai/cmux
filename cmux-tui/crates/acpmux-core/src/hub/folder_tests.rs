@@ -94,7 +94,18 @@ fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
     assert!(hub.subscribe_replay(&reconnect, 1).is_err());
     writer.apply(row("one", "/b", 4)).unwrap();
     writer.apply(row("one", "/b", 5)).unwrap();
-    assert!(matches!(fresh.receiver.try_next(), Some(ListItem::Lagged { .. })));
+    let RawRead::Span(span) = fresh.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("fresh folder subscribers replay the retained tail")
+    };
+    let decoded: Vec<serde_json::Value> =
+        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
+            .unwrap();
+    assert_eq!(decoded.len(), 2);
+    assert!(
+        decoded
+            .iter()
+            .all(|op| op.get("seq").and_then(serde_json::Value::as_u64) == Some(span.last_seq))
+    );
 }
 
 #[test]
@@ -308,6 +319,7 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
                 }
             }
         }
+        assert!(hub.folder_state.lock().unwrap().tail_bytes <= 64 * 1024);
         let index = hub.snapshot();
         let mut model = BTreeMap::<FolderKey, (SortKey, RowKey, u32)>::new();
         for row in index.iter() {
@@ -374,7 +386,8 @@ fn keyed_folder_pages_reserve_bytes_for_unanswered_identities() {
     let extra_row_bytes = first_row.encoded_len() - serde_json::to_vec(first).unwrap().len();
     let mut request = page(FolderPosition { at: 0, origin: "local".into(), folder: "/a".into() });
     request.after = None;
-    request.max_bytes = (8192 + request.sid.len() + key_bytes + extra_row_bytes) as u32;
+    let encoded_sid = serde_json::to_vec(&request.sid).unwrap();
+    request.max_bytes = (8192 + encoded_sid.len() + key_bytes + extra_row_bytes) as u32;
     request.keys = Some(keys.iter().cloned().map(PageKey::Folder).collect());
     let frame = hub.page(&request).unwrap();
     assert!(frame.encoded_len() <= request.max_bytes as usize);
