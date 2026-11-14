@@ -706,8 +706,13 @@ class AgentReviewerPassTests(unittest.TestCase):
     def run_pass(self, mode: str = "verdict") -> tuple[int, list[dict]]:
         os.environ["PATH"] = f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
         os.environ["STUB_CLAUDE"] = mode
-        code = agent_pass.main(["--udid", "UDID", "--app", str(self.app), "--setup", str(self.root / "none.md"),
-                                "--out", str(self.out), "--findings", str(self.findings)])
+        argv = sys.argv
+        sys.argv = ["app_review_agent_pass.py", "--udid", "UDID", "--app", str(self.app),
+                    "--setup", str(self.root / "none.md"), "--out", str(self.out), "--findings", str(self.findings)]
+        try:
+            code = agent_pass.main()
+        finally:
+            sys.argv = argv
         return code, json.loads(self.findings.read_text())
 
     def test_a_pass_with_no_agent_tools_is_red(self) -> None:
@@ -746,8 +751,12 @@ class AgentReviewerPassTests(unittest.TestCase):
 
     def report(self, *extra: str) -> tuple[int, str]:
         out = self.root / "report.md"
-        code = gate.main(["report", "--asc-skipped", *extra, "--out", str(out)])
-        return code, out.read_text()
+        out.unlink(missing_ok=True)
+        try:
+            code = gate.main(["report", "--asc-skipped", *extra, "--out", str(out)])
+        except SystemExit as exit:  # a flag the report does not know
+            code = exit.code
+        return code, out.read_text() if out.exists() else ""
 
     def test_the_report_blocks_when_the_expected_agent_verdict_never_arrived(self) -> None:
         code, text = self.report("--expect-agent")
