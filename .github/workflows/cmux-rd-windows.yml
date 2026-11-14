@@ -88,10 +88,15 @@ jobs:
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
           $ErrorActionPreference = 'Stop'
+          # Static-frame suppression is intentional; animate a small runner-local
+          # window so the passive viewer records a meaningful FPS sample.
+          $motion = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
           $ip = (tailscale ip -4).Trim()
           Add-Content $env:GITHUB_STEP_SUMMARY "Tailnet address: $ip:4103"
           $log = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.log'
           $err = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.err'
+          try {
           $process = Start-Process -FilePath '.\target\debug\cmux-rd.exe' `
             -ArgumentList @('host', '--bind', $ip, '--single-tenant-overlay', '1', '--port', '4103', '--max-fps', '30', '--codec', 'openh264') `
             -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
@@ -105,6 +110,11 @@ jobs:
             Start-Sleep -Seconds 5
           }
           Get-Content $log, $err -ErrorAction SilentlyContinue
+          } finally {
+            if ($motion -and -not $motion.HasExited) {
+              Stop-Process -Id $motion.Id -Force
+            }
+          }
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
