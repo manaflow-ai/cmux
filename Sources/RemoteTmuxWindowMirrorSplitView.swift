@@ -10,8 +10,6 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let portalPriority: Int
     let onOuterFocus: () -> Void
     var unreadSurfaceIDs: Set<UUID> = []
-    @Environment(\.displayScale) private var displayScale
-    @State private var containerSize: CGSize = .zero
 
     var body: some View {
         // The base color is the region, and it answers every proposal with
@@ -26,19 +24,13 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         // view's reported size, every space-filling ancestor up to the main
         // window's root content inherited it (observed live: the content
         // view marching wider than the display-pinned window a step per
-        // layout pass), and the geometry callback below then read the
+        // layout pass), and geometry reporting then read the
         // mirror's own imposed width back as its "container".
         Color(nsColor: appearance.backgroundColor)
             .overlay(alignment: .topLeading) {
                 splitTree
             }
             .background(MirrorHostProbe(mirror: mirror))
-            .onGeometryChange(for: CGSize.self) { proxy in
-                proxy.size
-            } action: { newSize in
-                containerSize = newSize
-                pushClientSize(pointSize: newSize)
-            }
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
                 if !isVisibleInUI {
@@ -66,7 +58,8 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 if visible { becameVisible() }
             }
             .onChange(of: mirror.layoutStructureVersion) { _, _ in
-                pushClientSize(pointSize: containerSize)
+                mirror.refreshContainerSizeFromHost()
+                mirror.setNeedsSizingPass()
             }
     }
 
@@ -122,27 +115,44 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         )
     }
 
-    private func pushClientSize(pointSize: CGSize) {
-        mirror.isVisibleForSizing = isVisibleInUI
-        guard pointSize.width > 0, pointSize.height > 0 else { return }
-        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-    }
-
     /// A tab shown again may have had its views recreated while hidden, so
     /// identical sizing inputs do not mean the fresh views hold the plan —
     /// request the pass that ignores the settled check.
     private func becameVisible() {
-        pushClientSize(pointSize: containerSize)
+        mirror.refreshContainerSizeFromHost()
         mirror.setNeedsSizingPassIgnoringInputs()
     }
 }
 
-/// The zero-cost NSView ``MirrorHostProbe`` plants inside the mirror's own
+/// The NSView ``MirrorHostProbe`` plants inside the mirror's own
 /// view subtree so the mirror has a window handle that survives portal
 /// churn, and an ancestor chain rooted at the mirror's real position for
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
+    var initialDisplayScale: CGFloat?
+    /// Region changes can finish after a display change or outside live resize.
+    /// AppKit's actual frame supplies the measurement, without a queue delay.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
+    }
+
+    override func setBoundsSize(_ newSize: NSSize) {
+        super.setBoundsSize(newSize)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
+    }
+
+    override func layout() {
+        super.layout()
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
+    }
+
+    /// A scale-only display move does not change the region's point size.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
+    }
 
     /// The probe backs the whole mirror region, including the sub-cell
     /// margin outside the split tree; it must never swallow a click there.
@@ -152,7 +162,7 @@ final class MirrorHostProbeView: NSView {
         super.viewDidEndLiveResize()
         // A window live-resize whose final geometry arrived BEFORE mouse-up
         // leaves a parked oversized reading with no edge to consume it —
-        // onGeometryChange fires only on value change, and the parked-reading
+        // the host geometry can already be final, and the parked-reading
         // consumer holds while inLiveResize is true. By the time this
         // coalesced pass runs, inLiveResize is false so the consume proceeds.
         // setNeedsSizingPass (not IgnoringInputs): the consume sits above the
@@ -173,6 +183,7 @@ final class MirrorHostProbeView: NSView {
             return
         }
         mirror?.hostProbeView = self
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 }
 
@@ -182,12 +193,30 @@ private struct MirrorHostProbe: NSViewRepresentable {
     func makeNSView(context: Context) -> MirrorHostProbeView {
         let view = MirrorHostProbeView()
         view.mirror = mirror
+        view.initialDisplayScale = context.environment.displayScale
         mirror.hostProbeView = view
         return view
     }
 
     func updateNSView(_ nsView: MirrorHostProbeView, context: Context) {
         nsView.mirror = mirror
+        nsView.initialDisplayScale = context.environment.displayScale
         mirror.hostProbeView = nsView
+        mirror.refreshContainerSizeFromHost(nsView, initialScale: nsView.initialDisplayScale)
+    }
+}
+
+extension RemoteTmuxWindowMirror {
+    /// Sample the current probe; an unmounted probe may seed its first size
+    /// using the representable's scale. Attached windows supply live scale.
+    func refreshContainerSizeFromHost(_ source: NSView? = nil, initialScale: CGFloat? = nil) {
+        guard let probe = source ?? hostProbeView, hostProbeView === probe else { return }
+        guard let scale = probe.window?.backingScaleFactor
+            ?? (containerSizePt == nil ? initialScale : nil) else { return }
+        let size = probe.bounds.size
+        let latestSize = pendingOversizedReading?.size ?? pendingContainerSizePt ?? containerSizePt
+        let latestScale = pendingOversizedReading?.scale ?? pendingContainerScale ?? containerScale
+        guard latestSize != size || latestScale != scale else { return }
+        noteContainerSize(pointSize: size, scale: scale)
     }
 }

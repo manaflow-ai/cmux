@@ -132,7 +132,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     // MARK: Sizing inputs (locally owned; never tmux-derived)
 
-    /// The mirror container's last-known size in points from `onGeometryChange`.
+    /// The mirror container's last-known size in points from its AppKit host probe.
     @ObservationIgnored var containerSizePt: CGSize?
     /// The hosting window's backing scale, delivered with the container size.
     @ObservationIgnored var containerScale: CGFloat?
