@@ -56,7 +56,8 @@ def main_js(headline):
             "function renderSection() {\n"
             f"  return VStack({{ spacing: 2 }}, [Text({json.dumps(headline)}).font(\"headline\"),\n"
             f"    Row({{ title: {json.dumps(headline + ' row')}, symbol: \"bolt.horizontal\" }})])\n"
-            "}\n")
+            "}\n"
+            "globalThis.__cmuxAppExports = { renderSection }\n")
 
 
 def bmp(png):
@@ -196,6 +197,7 @@ def main():
         cases = opts.cases.split(",")
         for case in cases:
             rows = []
+            result["cases"][case] = {"rounds": rows}  # finished rounds survive a later failure
             rnd = Round(app, opts.out, case)
             for i in range(opts.rounds):
                 if case == "theme":
@@ -205,11 +207,11 @@ def main():
                     density = ["expanded", "compact"][i % 2]
                     write = save_config(lambda c, d=density: c.setdefault("sidebar", {}).__setitem__("density", d))
                 elif case == "extension":
-                    if i == 0:
-                        with open(os.path.join(customize, "cmux-app.json"), "w") as f:
-                            json.dump(MANIFEST, f, indent=2)
+                    if i == 0:  # main.js first: the manifest appearing installs the app
                         with open(os.path.join(customize, "main.js"), "w") as f:
                             f.write(main_js("edit repaint ready"))
+                        with open(os.path.join(customize, "cmux-app.json"), "w") as f:
+                            json.dump(MANIFEST, f, indent=2)
                         time.sleep(8)  # the section installs and draws once before the first timed save
                     js = main_js(HEADLINES[i % 2])
 
@@ -224,7 +226,7 @@ def main():
                 print(f"edit-repaint: {case} round {i}: {json.dumps(row)}", flush=True)
                 time.sleep(1.0)
             stats = summary(rows)
-            result["cases"][case] = {"summary": stats, "rounds": rows}
+            result["cases"][case]["summary"] = stats
             print("EDIT_REPAINT " + json.dumps({"case": case, **stats}), flush=True)
             if case == "theme":  # the next cases run on the default look
                 save_config(lambda c: c.get("appearance", {}).pop("themeFile", None))()
