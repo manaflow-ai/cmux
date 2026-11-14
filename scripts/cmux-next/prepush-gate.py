@@ -112,8 +112,10 @@ seven). Git objects only, no cargo.
 Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
 in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
 scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
-caller, or gives a listed one a caller without `--update` is refused; it runs only when the push changes a header,
-the baseline, the checker or a Swift line naming a cmux_/acpmux_ function. The fast gates' --advisory pass warns.
+caller, or gives a listed one a caller without `--update` is refused; an export the app's pinned library
+(Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
+header, the baseline, the checker, the pin or a Swift line naming a cmux_/acpmux_ function. The fast gates'
+--advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -316,6 +318,8 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
 PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
 PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
+# The app's pinned library: an export it lacks is not drift yet, so a re-pin can move the verdict.
+PORT_DRIFT_PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
 PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
@@ -1791,7 +1795,7 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
     """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
     no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
 
-    It runs only when base..head changes a header, the baseline, the checker, or a Swift line under Packages that
+    It runs only when base..head changes a header, the baseline, the checker, the app's FFI pin, or a Swift line under Packages that
     names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
     Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
     Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
@@ -1801,8 +1805,8 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
         return []  # a commit older than this check
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode(
         "utf-8", "surrogateescape").split("\0") if n]
-    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt")
-               for n in names):
+    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt",
+                                                   PORT_DRIFT_PIN) for n in names):
         swift = [n for n in names if n.startswith("Packages/") and n.endswith(".swift")]
         if not swift:
             return []

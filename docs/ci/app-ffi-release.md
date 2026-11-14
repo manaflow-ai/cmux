@@ -104,7 +104,11 @@ release workflow's push paths, the router, `build_class.py` and
    red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
    the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
    opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
-   merges the re-pin first.
+   merges the re-pin first. A function that step A adds to a header is not
+   port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
+   release lacks it: the app cannot call it yet, so the check prints a note,
+   not a finding. From the re-pin on, it needs its Swift caller, which is
+   step B.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 
