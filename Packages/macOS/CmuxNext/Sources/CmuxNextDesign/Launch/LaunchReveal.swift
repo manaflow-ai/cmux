@@ -36,6 +36,8 @@ public final class LaunchReveal {
     @ObservationIgnored private let deadlineTimer: DemandTimer
     /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
     @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
+    /// The limits of `whenReady(_:within:_:)` waits (a timer cancels itself when released).
+    @ObservationIgnored private var limitTimers: [DemandTimer] = []
     @ObservationIgnored private let clock: any Clock<Duration>
     /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
     @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
@@ -82,6 +84,17 @@ public final class LaunchReveal {
         if isReady(region) { work() } else { waiters[region, default: []].append(work) }
     }
 
+    /// Runs `work` once: when `region` is ready, or `limit` after this call, whichever comes first (a launch that
+    /// never shows the region, or whose region never gets its data, still runs it).
+    public func whenReady(_ region: LaunchRegion, within limit: Duration, _ work: @escaping @MainActor () -> Void) {
+        guard !isReady(region) else { return work() }
+        let once = LaunchRevealOnce(work)
+        let timer = DemandTimer(owner: "launch.reveal-wait.\(region.rawValue)", clock: clock)
+        limitTimers.append(timer)
+        timer.schedule(after: limit) { @MainActor in once.run() }
+        waiters[region, default: []].append { timer.cancel(); once.run() }
+    }
+
     /// `region`'s data arrived: its held views fade in. Later calls do nothing.
     public func markReady(_ region: LaunchRegion) {
         guard ready.insert(region).inserted else { return }
@@ -115,5 +128,21 @@ public final class LaunchReveal {
         deadlineTimer.cancel()
         for timer in ownDeadlines.values { timer.cancel() }
         for region in LaunchRegion.allCases { markReady(region) }
+    }
+}
+
+/// One `whenReady(_:within:_:)` wait's work: runs once, by the region or by the limit, whichever comes first.
+@MainActor
+private final class LaunchRevealOnce {
+    private var work: (@MainActor () -> Void)?
+
+    init(_ work: @escaping @MainActor () -> Void) {
+        self.work = work
+    }
+
+    func run() {
+        guard let work else { return }
+        self.work = nil
+        work()
     }
 }
