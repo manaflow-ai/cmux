@@ -3306,7 +3306,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
         guard model.isTUI else { return }
-        measured("kw-layout") { view.layoutIfNeeded() }
+        view.layoutIfNeeded()
         keyboardClaim = true
         settleKeyboardLift()
         view.setNeedsLayout()
@@ -3333,24 +3333,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func keyboardSettledLayout() {
-        measured("kd-stopped") { keyboardStopped() }
-        measured("kd-layout") {
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
-        }
+        keyboardStopped()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
         settleKeyboardLift()
-        measured("kd-layout2") {
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
-        }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
         // saved frame for the next cold launch follows (R2-5).
-        measured("kd-save") { model.saveFrameSoon() }
-        measured("kd-viewport") { updateViewport(visibleMinY: scrollView.contentOffset.y) }
+        model.saveFrameSoon()
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
         // A full-screen app gets other rows with the keyboard up or down (R1-1).
-        if model.isTUI { measured("kd-find") { finder.rowsReplaced() } }
+        if model.isTUI { finder.rowsReplaced() }
     }
 
     /// Keyboard state for the toolbar icon and the input target; layout
