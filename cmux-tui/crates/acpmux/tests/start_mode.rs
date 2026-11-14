@@ -1619,8 +1619,8 @@ async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
     let dir = home("reported", json!({}));
     let path = dir.join("config.json");
     let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    config["harnesses"]["picker"] =
-        json!({"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PICKER_MODES": "claude"}});
+    // The stand-in agent's chats report modes Normal and Strict and a Model option on m1.
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
     std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
@@ -1640,17 +1640,16 @@ async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
         let reported = &rows(&r)["picker"]["reported"];
         let ids: Vec<&str> =
             reported["modes"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
-        assert_eq!(ids, ["default", "acceptEdits", "plan", "bypassPermissions"], "{reported}");
-        assert_eq!(reported["modes"][2]["name"], "Plan Mode", "{reported}");
-        let effort = reported["configOptions"]
+        assert_eq!(ids, ["normal", "strict"], "{reported}");
+        assert_eq!(reported["modes"][1]["name"], "Strict", "{reported}");
+        let model = reported["configOptions"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|o| o["id"] == "effort")
+            .find(|o| o["id"] == "model")
             .unwrap_or_else(|| panic!("{reported}"));
-        assert_eq!(effort["category"], "thought_level", "{reported}");
-        assert_eq!(effort["options"].as_array().map(Vec::len), Some(3), "{reported}");
-        assert!(effort.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
+        assert_eq!(model["options"].as_array().map(Vec::len), Some(2), "{reported}");
+        assert!(model.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
