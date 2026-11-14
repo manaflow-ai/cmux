@@ -653,13 +653,19 @@ fn screen_share_routes_only_the_explicit_machine_and_current_chat() {
     facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "b"});
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "refuse", "reason": "noMachine"}));
-    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "hostKind": "local"});
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "hostKind": "local", "localSummaryCurrent": true});
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "shareLocal"}));
     facts["kind"] = json!("cloud");
     facts["chat"] = serde_json::Value::Null;
     let (_, body) = call_json(c"window_remote_screen_share", &facts);
     assert_eq!(body, json!({"decision": "cloudDesktop", "machineId": "studio"}));
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "host": "registry:studio", "registryHost": "registry:studio"});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "cloudDesktop", "machineId": "studio"}));
+    facts["chat"]["host"] = json!("registry:another-machine");
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "refuse", "reason": "unresolvedChatHost"}));
 }
 
 #[test]

@@ -10,7 +10,7 @@ Leo, 2026-11-14: "ok but in screen sharing we also want the interaction pathways
 
 Device identity must match the hub record by UUID, including normalization. A missing, removed, nil, mismatched, offline or unsupported device does not become the local machine or the generic picker. No display-name matching or focused-machine fallback occurs.
 
-A chat entry supplies the daemon's exact session summary as well as its expected session ID. A stale summary refuses. A peer's chat is not necessarily on its containing daemon: until a peer has an authenticated machine mapping, it refuses rather than sharing that daemon's screen. Chief is outside this slice. Machine entry points have an explicit native target and omit chat facts.
+A chat entry supplies the daemon's exact session summary as well as its expected session ID. A stale summary refuses. A peer's chat is not necessarily on its containing daemon: until a peer has an authenticated machine mapping, it refuses rather than sharing that daemon's screen. A local chat also needs the live native watch to include its exact session; a missing peer record does not prove locality. A remote chat must name the same registry host as the containing daemon’s handshake. The detector is the Rust regression pair `a_missing_local_watch_is_not_evidence_that_a_chat_is_local` and `a_cloud_chat_must_belong_to_the_daemon_not_just_be_listed_by_it`. Chief is outside this slice. Machine entry points have an explicit native target and omit chat facts.
 
 The route examines one machine and one device; its cost is independent of workspace, session and fleet counts. It creates no timer, observer, task or connection.
 
