@@ -6,6 +6,8 @@
 //!   operation, a read or a write, with the error `git_failed` and one problem text.
 //! - An operation that needs the two git folders of a work tree gets them for a main checkout
 //!   whose name has a line break.
+//! - A file that cmux keeps in a git folder (a setup's status, the repository's ports) is read
+//!   to a size limit only.
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
@@ -53,6 +55,20 @@ fn new_repository(repo: &Path) {
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(repo, &["add", "a.txt"]);
     git(repo, &["commit", "--quiet", "-m", "a.txt"]);
+}
+
+/// A new repository `main` in `top` and a linked work tree `linked` of it.
+fn main_and_linked(top: &Path) -> (PathBuf, PathBuf) {
+    let (main, linked) = (top.join("main"), top.join("linked"));
+    new_repository(&main);
+    git(&main, &["worktree", "add", "--quiet", "-b", "linked", linked.to_str().unwrap()]);
+    (main, linked)
+}
+
+/// A text that is one byte longer than the size limit of a file that cmux keeps in a git
+/// folder.
+fn above_the_limit() -> String {
+    "x".repeat(1024 * 1024 + 1)
 }
 
 struct Client {
@@ -153,4 +169,50 @@ fn own_tree_git_worktree_setup_reads_a_work_tree_whose_main_checkout_name_has_a_
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["result"]["main_root"], json!(main), "{reply}");
     assert_eq!(reply["result"]["run"]["state"], "succeeded", "{reply}");
+}
+
+#[test]
+fn own_tree_git_worktree_setup_takes_a_status_file_above_the_size_limit_as_no_status() {
+    let top = scratch("large-status");
+    let mut client = Client::of_a_new_daemon(&top);
+    let (main, linked) = main_and_linked(&top);
+    let status_file = main.join(".git/worktrees/linked/cmux-setup.json");
+
+    // A status of a setup that ended is read.
+    let status = json!({"state": "succeeded", "started_ms": 1, "finished_ms": 2});
+    std::fs::write(&status_file, status.to_string()).unwrap();
+    let reply = client.reply_with("git.worktree.setup", &linked, &[]);
+    assert_eq!(reply["result"]["run"]["state"], "succeeded", "{reply}");
+
+    // The same status in a file above the limit is no status.
+    let status = json!({
+        "state": "succeeded", "started_ms": 1, "finished_ms": 2, "setup": above_the_limit(),
+    });
+    std::fs::write(&status_file, status.to_string()).unwrap();
+    let reply = client.reply_with("git.worktree.setup", &linked, &[]);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["result"]["run"]["state"], "none", "{reply}");
+}
+
+#[test]
+fn own_tree_git_worktree_setup_reads_no_port_from_a_ports_file_above_the_size_limit() {
+    let top = scratch("large-ports");
+    let mut client = Client::of_a_new_daemon(&top);
+    let (main, linked) = main_and_linked(&top);
+    let ports_file = main.join(".git/cmux-worktree-ports.json");
+
+    // The work tree's port is read.
+    let (own, more) = (linked.to_str().unwrap(), above_the_limit());
+    let ports = json!({own: 40_000});
+    std::fs::write(&ports_file, ports.to_string()).unwrap();
+    let reply = client.reply_with("git.worktree.setup", &linked, &[]);
+    assert_eq!(reply["result"]["run"]["port"], 40_000, "{reply}");
+
+    // The same port in a file above the limit is not read, and the file stays.
+    let ports = json!({own: 40_000, more: 1}).to_string();
+    std::fs::write(&ports_file, &ports).unwrap();
+    let reply = client.reply_with("git.worktree.setup", &linked, &[]);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["result"]["run"]["port"], Value::Null, "{reply}");
+    assert_eq!(std::fs::read_to_string(&ports_file).unwrap(), ports);
 }

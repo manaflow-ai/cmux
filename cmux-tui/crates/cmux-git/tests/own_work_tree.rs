@@ -187,6 +187,59 @@ fn own_tree_open_refuses_a_work_tree_whose_top_folder_has_another_git_folder_or_
 }
 
 #[test]
+fn own_tree_open_names_the_command_for_a_work_tree_whose_git_folder_names_no_work_tree() {
+    let scratch = Scratch::new("separate");
+    let (folder, store) = (scratch.folder("folder"), scratch.0.join("store"));
+    git(&folder, &["init", "--quiet", "--initial-branch=main", "--separate-git-dir", text(&store)]);
+
+    let problem = refusal(&folder);
+
+    assert!(problem.contains("do not name each other"), "{problem}");
+    assert!(problem.contains("git config core.worktree"), "{problem}");
+    git(&folder, &["config", "core.worktree", text(&folder)]);
+    assert_eq!(top_folder(&folder), folder, "the work tree opens after the command");
+}
+
+#[test]
+fn own_tree_open_names_the_command_for_a_linked_work_tree_that_was_moved_with_no_git() {
+    let scratch = Scratch::new("moved");
+    let main = scratch.0.join("main");
+    new_repository(&main);
+    let linked = linked_work_tree(&main, "linked");
+    let moved = scratch.0.join("moved");
+    std::fs::rename(&linked, &moved).expect("move the work tree");
+
+    let problem = refusal(&moved);
+
+    assert!(problem.contains("do not name each other"), "{problem}");
+    assert!(problem.contains("git worktree repair"), "{problem}");
+    git(&moved, &["worktree", "repair"]);
+    assert_eq!(top_folder(&moved), moved, "the work tree opens after the command");
+}
+
+/// git prints two folders on a line each, and a name can have a line break. An answer that
+/// two pairs of folders that are there can have made is the answer of no pair.
+#[test]
+fn own_tree_two_folders_of_an_answer_that_two_pairs_can_have_made_are_not_taken() {
+    let scratch = Scratch::new("pairs");
+    let top = text(&scratch.0).to_string();
+    let (first, second, third) = (format!("{top}/a"), format!("{top}/b"), format!("{top}/c"));
+    let answer = format!("{first}\n{second}\n{third}\n");
+    // One pair: `a`, then a folder whose name has the line break.
+    std::fs::create_dir_all(&first).expect("create a folder");
+    std::fs::create_dir_all(format!("{second}\n{third}")).expect("create a folder");
+
+    let pair = cmux_git::two_folders(answer.as_bytes());
+
+    let with_break = PathBuf::from(format!("{second}\n{third}"));
+    assert_eq!(pair, Some((PathBuf::from(&first), with_break)), "one pair is there");
+    // The other pair: a folder whose name has the line break, then `c`.
+    std::fs::create_dir_all(format!("{first}\n{second}")).expect("create a folder");
+    std::fs::create_dir_all(&third).expect("create a folder");
+    assert_eq!(cmux_git::two_folders(answer.as_bytes()), None, "two pairs are there");
+}
+
+#[test]
 fn own_tree_open_keeps_the_kind_of_an_error_of_git_that_is_not_its_no_repository_error() {
     let scratch = Scratch::new("kind");
     // git's error for this file names the file's path.
