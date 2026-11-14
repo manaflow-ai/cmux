@@ -170,7 +170,9 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "footer-to-next": diff(glyphCentre, at(inboxes[0])),
         "step-to-prompt": diff(at(inboxes[0]), prompt?.top),
         "prompt-to-step": diff(prompt?.bottom, at(sends[0])),
-        "step-pitch": diff(at(sends[0]), at(sends[1])),
+        // An opened run's two commands sit flush; a running turn's listed calls keep the run's 4 between them.
+        "step-pitch": diff(at(commands.at(-2)), at(commands.at(-1))),
+        "call-pitch": diff(at(sends[0]), at(sends[1])),
         "step-to-prose": diff(at(sends.at(-1)), at(short[0])),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),

@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -77,13 +78,15 @@ class Check(unittest.TestCase):
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
         wf = (ROOT / ".github" / "workflows" / "pr-body-checks.yml").read_text()
         step = next(s for s in yaml.safe_load(wf)["jobs"]["body"]["steps"]
-                    if s.get("name") == "Check where the cloud backend change belongs")
+                    if s.get("name") == "Run the advisory steps")
         self.assertIs(step.get("continue-on-error"), True)
+        self.assertIn("ci_steps.py run --job advisory", step["run"])
+        table = tomllib.loads((ROOT / "ci" / "steps.toml").read_text())["step"]["cloud-backend"]
+        self.assertIs(table["blocks"], False)
         self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
-        self.assertIn("|| echo \"::warning title=Cloud backend belongs in cmux-platform::the check could not run", wf)
+        self.assertIn("|| echo \"::warning title=Cloud backend belongs in cmux-platform::the check could not run", table["run"])
         self.assertIn("permissions: {}", wf)
         self.assertNotIn("pull_request_target", wf)
-
 
 if __name__ == "__main__":
     unittest.main()

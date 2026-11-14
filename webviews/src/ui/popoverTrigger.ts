@@ -3,10 +3,28 @@
 // button, so a press first blurs whatever the popover focused, and an outside-press handler may
 // close it too; either way the click would find it closed and reopen it. A mouse press decides on
 // the press and its click is ignored; a keyboard click reads the state as of the press, or now.
-import { useEffect, useRef, type PointerEvent } from "react";
+//
+// The trigger's state goes with the handlers, so no caller can forget it: `aria-expanded`,
+// `aria-haspopup` and, while open, `aria-controls` naming the popup. A `Popover` takes that id as
+// `id={trigger["aria-controls"]}`; a caller that draws its own popup passes its id as `popupId`.
+import { useEffect, useId, useRef, type PointerEvent } from "react";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 
-export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => void, show?: () => void) {
+export interface PopoverTriggerOptions {
+  /** The popup's role, for `aria-haspopup` (default `dialog`, a `Popover`'s role). */
+  popup?: "dialog" | "listbox" | "menu";
+  /** The popup's id, for `aria-controls` (default: one the hook makes). */
+  popupId?: string;
+}
+
+export function usePopoverTrigger(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  show?: () => void,
+  { popup = "dialog", popupId }: PopoverTriggerOptions = {},
+) {
+  const ownId = useId();
+  const controls = popupId ?? `${ownId}-popup`;
   const openAtPress = useRef<boolean | undefined>(undefined);
   // A mouse press already opened or closed it: the click it ends with does nothing.
   const pressed = useRef(false);
@@ -21,6 +39,9 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
     [],
   );
   return {
+    "aria-expanded": open,
+    "aria-haspopup": popup,
+    "aria-controls": open ? controls : undefined,
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       openAtPress.current = open;
       if (!isMousePress(event)) return;

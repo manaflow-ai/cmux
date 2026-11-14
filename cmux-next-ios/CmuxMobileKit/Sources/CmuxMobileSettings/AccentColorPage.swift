@@ -15,8 +15,9 @@ struct AccentColorPage: View {
     var body: some View {
         List {
             Section {
+                MatchMacRow(selected: accents.followsMac) { accents.matchMac() }
                 ForEach(CmuxMobileAccent.allCases) { accent in
-                    AccentRow(accent: accent, selected: accent == accents.accent) {
+                    AccentRow(accent: accent, selected: !accents.followsMac && accent == accents.accent) {
                         accents.accent = accent
                     }
                 }
@@ -25,6 +26,47 @@ struct AccentColorPage: View {
             }
         }
         .settingsPage("Accent color")
+    }
+
+    /// The Settings row's value: Match Mac, or the chosen accent's name.
+    static func title(_ accents: CmuxMobileAccentTheme) -> String {
+        accents.followsMac ? String(localized: "Match Mac") : accents.accent.title
+    }
+}
+
+/// Match Mac (ask-87d30da8e5): the Mac theme's accent while the chrome follows the Mac, else Default.
+private struct MatchMacRow: View {
+    let selected: Bool
+    let choose: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Button {
+            choose()
+            theme.haptics.selection()
+        } label: {
+            HStack(spacing: CmuxMobileListColumn.groupedGap) {
+                Image(systemName: "macbook.and.iphone")
+                    .font(.body)
+                    .foregroundStyle(theme.colors.label)
+                    .frame(width: CmuxMobileListColumn.grouped(typeSize).mark)
+                    .accessibilityHidden(true)
+                Text("Match Mac")
+                    .font(theme.type.rowTitle)
+                    .foregroundStyle(theme.colors.label)
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(theme.colors.label)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("settings.accentColor.matchMac")
     }
 }
 

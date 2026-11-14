@@ -31,7 +31,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "./browsers";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { newestPage } from "./daemonPage";
 import { benchFixture, godChat, LATEST_TEXT, scaledPerfRow } from "./godFixture";
@@ -326,9 +326,6 @@ try {
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
   const launch = (args: string[] = []) =>
     chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
       args,
     });

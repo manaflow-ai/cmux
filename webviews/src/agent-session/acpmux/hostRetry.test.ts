@@ -8,6 +8,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
@@ -159,7 +160,7 @@ test("a hard refusal is said at once", () => {
   expect(hostErrorShows({ code: "agent_session.untrusted" }, 0)).toBe(true);
 });
 
-test("a recovering pane asks again within 2 s; a refusal keeps retrying without a terminal cap", () => {
+test("a recovering pane asks again within 2 s; a refusal keeps retrying, at least every 30 s", () => {
   const waits = (recovering: boolean) => {
     let delay = 250;
     const out: number[] = [];
@@ -170,7 +171,21 @@ test("a recovering pane asks again within 2 s; a refusal keeps retrying without 
     return out;
   };
   expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
-  expect(Math.max(...waits(false))).toBeGreaterThan(30_000);
+  expect(waits(false)).toEqual([250, 500, 1000, 2000, 4000, 8000, 16_000, 30_000]);
+});
+
+// Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "it should just automatically
+// do stuff". A failure the pane clears by asking again is the quiet line; one that waits on the
+// person, or that asking cannot change, keeps its words and action.
+test("only a failure the pane clears by asking again is self-retrying", () => {
+  expect(hostSelfRetrying(new Error("Couldn't connect to the agent."), false)).toBe(true);
+  expect(hostSelfRetrying({ code: "native.not_connected" }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "native.timed_out" }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "host_unavailable", details: { reconnecting: true } }, false)).toBe(true);
+  expect(hostSelfRetrying({ code: "host_unavailable" }, false)).toBe(false);
+  expect(hostSelfRetrying({ code: "agent_session.untrusted" }, false)).toBe(false);
+  expect(hostSelfRetrying({ code: -32000, reason: "message.too_large" }, false)).toBe(false);
+  expect(hostSelfRetrying(new Error("Couldn't connect to the agent."), true)).toBe(false);
 });
 
 /// A chat whose open reply passes one message is refused the same way at every ask (Leo,

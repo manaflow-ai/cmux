@@ -34,6 +34,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "choice_or_url":
       return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
+      if (row.key === "app.uiScale") return has("select") && !has("input") ? null : "no zoom menu";
       // A time row with a wide range is a menu of durations (DurationEditor), not a slider.
       if (isDuration(row)) return has("select") && !has('input[type="range"]') ? null : "no duration menu";
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";

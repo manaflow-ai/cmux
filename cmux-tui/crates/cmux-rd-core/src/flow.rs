@@ -83,6 +83,11 @@ impl FrameGate {
         self.min_interval_us = 1_000_000 / u64::from(max_fps.max(1));
     }
 
+    /// Changes the maximum number of frames that may be unacknowledged.
+    pub fn set_max_in_flight(&mut self, max_in_flight: u32) {
+        self.max_in_flight = max_in_flight.max(1);
+    }
+
     /// Frames sent and not yet acknowledged.
     pub fn in_flight(&self) -> u32 {
         self.last_sent.saturating_sub(self.acked)

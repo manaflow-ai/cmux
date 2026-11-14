@@ -643,7 +643,7 @@ export function publishRun(outputDir: string, run: string, host = "cmux-lawrence
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
+  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, concurrency: { type: "string", default: "1" }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
   if (values["freestyle-cleanup"]) return cleanupLedger(values["freestyle-key-file"], values["freestyle-api-url"]);
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
   if (values["dry-run"]) {
@@ -653,7 +653,7 @@ async function main(): Promise<void> {
     return;
   }
   const publish = () => { if (values["publish-run"]) console.log(`matrix: ${publishRun(values["output-dir"], values["publish-run"], values["publish-host"])}`); };
-  const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); const caseTimeoutMs = Number(values["case-timeout-ms"]); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number"); if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("--case-timeout-ms must be a positive number");
+  const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); const caseTimeoutMs = Number(values["case-timeout-ms"]); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number"); if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("--case-timeout-ms must be a positive number"); const concurrency = Number(values.concurrency); if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer");
   if (values["freestyle-vms"]) {
     await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, caseTimeoutMs, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
     return publish();
@@ -661,7 +661,7 @@ async function main(): Promise<void> {
   // A browser on a developer laptop interrupts its owner: render only inside a VM (or CI, which sets
   // CMUX_GALLERY_IN_VM=1 on its runner). Use --freestyle-vms N, or --dry-run to list the cases.
   if (!IN_VM) throw new Error("the matrix renders only on Freestyle VMs or CI: pass --freestyle-vms N, or --dry-run");
-  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, caseTimeoutMs, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]) });
+  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, caseTimeoutMs, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]), concurrency });
   publish();
 }
 

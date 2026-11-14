@@ -94,6 +94,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "minus.circle",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 100)], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "sidebar remove-from-sidebar",
         ..Action::DEFAULT
@@ -107,6 +108,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "minus.square",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 110)], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "sidebar remove-item",
         ..Action::DEFAULT
@@ -120,6 +122,8 @@ pub static ACTIONS: &[Action] = &[
         symbol: "xmark.app",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 120).label(t("Localizable", "menu.sidebar.hideApp", "Hide App")), Placement::at("sidebarSection", "close", 110).label(t("Localizable", "menu.sidebar.hideApp", "Hide App"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-item"),
+        palette_target_source: Some("sidebarApps"),
         targets: &["sidebar-item", "sidebar-section"],
         cli_name: "sidebar hide-app",
         ..Action::DEFAULT
@@ -133,6 +137,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "archivebox",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "identity", 110)], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "sidebar toggle-item-archive",
         ..Action::DEFAULT
@@ -146,6 +151,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "textformat",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "identity", 100).label(t("Localizable", "menu.sidebar.toggleItemLabel", "Show/Hide Label"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "sidebar toggle-item-label",
         ..Action::DEFAULT
@@ -173,6 +179,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 100)], ..SurfacePlan::DEFAULT },
         arguments: &[args::TITLE_5],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar rename-section",
         ..Action::DEFAULT
@@ -186,6 +193,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.up.to.line",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "move", 100).folder("move")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar move-section-top",
         ..Action::DEFAULT
@@ -199,6 +207,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.up.and.down",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "move", 110).folder("move")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar move-section-scrolling",
         ..Action::DEFAULT
@@ -212,6 +221,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "house",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 200).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar section-look-built-in",
         ..Action::DEFAULT
@@ -225,6 +235,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "list.bullet.rectangle",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 210).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar section-look-list",
         ..Action::DEFAULT
@@ -238,6 +249,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "list.bullet",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 230).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar section-layout-list",
         ..Action::DEFAULT
@@ -251,6 +263,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "rectangle.split.3x1",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 240).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar section-layout-inline",
         ..Action::DEFAULT
@@ -264,6 +277,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "square.grid.2x2",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 250).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar section-layout-grid",
         ..Action::DEFAULT
@@ -278,6 +292,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 260).folder("appearance")], ..SurfacePlan::DEFAULT },
         arguments: &[args::ALIGN],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar set-section-alignment",
         ..Action::DEFAULT
@@ -292,6 +307,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 270).folder("appearance")], ..SurfacePlan::DEFAULT },
         arguments: &[args::GAP],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar set-section-gap",
         ..Action::DEFAULT
@@ -306,6 +322,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 280).folder("appearance")], ..SurfacePlan::DEFAULT },
         arguments: &[args::COLUMNS],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar set-section-columns",
         ..Action::DEFAULT
@@ -319,6 +336,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "textformat",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 220).folder("appearance").label(t("Localizable", "menu.sidebar.toggleSectionTitle", "Show/Hide Section Title"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar toggle-section-title",
         ..Action::DEFAULT
@@ -332,6 +350,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "circle.grid.2x2",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 300).folder("options")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar toggle-section-space",
         ..Action::DEFAULT
@@ -346,6 +365,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "identity", 310).folder("options")], ..SurfacePlan::DEFAULT },
         arguments: &[args::ROWS],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar set-section-height",
         ..Action::DEFAULT
@@ -359,6 +379,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "chevron.down",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menus: &[Placement::at("sidebarSection", "organize", 100).label(t("Localizable", "menu.sidebar.toggleSectionCollapsed", "Collapse/Expand Section"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "action sidebar-section-toggle-collapsed",
         ..Action::DEFAULT
@@ -373,6 +394,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "close", 200)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar remove-section",
         is_destructive: true,
@@ -388,6 +410,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "close", 100)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar close-section-workspaces",
         is_destructive: true,
@@ -402,6 +425,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "plus.square",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "create", 105)], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "sidebar new-section-workspace",
         ..Action::DEFAULT
@@ -415,6 +439,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "eye.slash",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarSection", "view", 100)], ..SurfacePlan::DEFAULT },
+        palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "action sidebar-section-hide",
         ..Action::DEFAULT

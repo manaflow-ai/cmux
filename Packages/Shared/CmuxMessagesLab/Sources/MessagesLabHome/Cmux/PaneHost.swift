@@ -886,6 +886,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if demo.longTextBandHit(p) { return }
         if approvalClicked(at: p) { return }
         if turnFailureClicked(at: p) { return }
+        // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
+        if failedMarkClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

@@ -167,7 +167,7 @@ impl Hub {
         for id in &changed {
             match by_id.get(id) {
                 Some(session) => self.events.row_changed(session),
-                None => self.events.changed(),
+                None => self.events.all_rows_stale(),
             }
         }
         for (id, stats) in announce {

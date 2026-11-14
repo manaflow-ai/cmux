@@ -585,11 +585,18 @@ impl MessageWriter {
 /// before), so a message with no such text (a `tab.list` reply of terminals) costs that one scan
 /// and nothing more. Here one scan for the prefix that both tokens share reads only the few bytes
 /// after each hit.
+///
+/// The text after a hit is taken with `str::get`: the bounds and boundary check that an index
+/// makes, with no panic path, no allocation and no second scan. That check cannot fail (a hit ends
+/// where the next character starts, at most at the end of `text`); if it did, the answer is the
+/// safe one, a parse.
 #[inline]
 pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
     const PREFIX: &str = "\"conversation";
     text.match_indices(PREFIX).any(|(at, _)| {
-        let rest = &text[at + PREFIX.len()..];
+        let Some(rest) = text.get(at + PREFIX.len()..) else {
+            return true;
+        };
         let Some(after) = rest.strip_prefix('"').or_else(|| rest.strip_prefix("_tab\"")) else {
             return false;
         };

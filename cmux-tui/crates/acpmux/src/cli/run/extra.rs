@@ -618,10 +618,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "store:    {}",
                         v.pointer("/store/mode").and_then(Value::as_str).unwrap_or("")
                     );
+                    // A count that missed status's reading budget is null: unknown, not 0.
+                    let live = v.get("liveAgents").and_then(Value::as_u64);
                     println!(
                         "sessions: {} ({} live agents)",
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
+                        live.map_or_else(|| "unknown".to_owned(), |n| n.to_string())
                     );
                     if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");
@@ -851,8 +853,33 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::LeaveIntent { user_id, signed_out_at }) => {
+            let recorded =
+                crate::cli::cloud_join::record_leave_intent(&user_id, signed_out_at).await?;
+            if json_out {
+                print_json(&json!({ "recorded": recorded }));
+            } else if recorded {
+                println!("recorded");
+            } else {
+                println!("not recorded: that account signed in again since");
+            }
+            Ok(())
+        }
         Command::Host(PeerCmd::Leave { local_only }) => {
             crate::cli::cloud_join::leave(local_only, json_out).await
+        }
+        // The enroll runs here; a running daemon starts its relay at its next start.
+        Command::Host(PeerCmd::EnrollSelf { access_token_stdin: _, hub, build_tag, user_id }) => {
+            let access = crate::cli::join_input::read_stdin_line(false)?
+                .ok_or_else(|| anyhow!("the access token must be on stdin"))?;
+            let request = crate::cli::cloud_join::EnrollRequest { hub, user_id, build_tag };
+            let outcome = crate::cli::cloud_join::enroll_self(request, access).await;
+            if json_out {
+                print_json(&json!({ "outcome": outcome }));
+            } else {
+                println!("{}", serde_json::to_value(outcome)?.as_str().unwrap_or_default());
+            }
+            Ok(())
         }
         Command::Host(PeerCmd::Vault { cmd }) => match cmd {
             crate::cli::command_host::VaultCmd::Pull => {
@@ -1158,6 +1185,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Join { .. }
                 | PeerCmd::Leave { .. }
+                | PeerCmd::LeaveIntent { .. }
+                | PeerCmd::EnrollSelf { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }

@@ -4,7 +4,7 @@ use super::*;
 use crate::peer::PeerNotice;
 use tokio::time::{Duration, Instant};
 
-const DROP_GRACE: Duration = Duration::from_secs(10);
+pub(super) const DROP_GRACE: Duration = Duration::from_secs(10);
 
 /// The row deadline of each peer instance's pending outage. Failed retries never
 /// extend or re-arm it. A row, list, ready or restart notice ends it; removal or
@@ -23,7 +23,7 @@ impl Hub {
             return;
         }
         // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
-        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+        let _ = tokio::time::timeout(super::shutdown::OWNED_TASKS_CLOSE, notified).await;
     }
 
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
@@ -103,6 +103,13 @@ impl Hub {
                         drops.remove(&(peer.clone(), generation));
                         if let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) {
                             current.outage_ended.store(true, Ordering::SeqCst);
+                            self.events.origin_tee(
+                                &peer,
+                                super::peers::peer_origin_state(&current),
+                                crate::store::now_ms(),
+                            );
+                        } else {
+                            continue;
                         }
                         self.mark_peer_unreachable(&peer, generation);
                     }
@@ -151,6 +158,11 @@ impl Hub {
                         drops.contains_key(&key) || current.outage_ended.load(Ordering::SeqCst);
                     if !ongoing {
                         drops.insert(key, Instant::now() + DROP_GRACE);
+                        self.events.origin_tee(
+                            &peer,
+                            super::peers::peer_origin_state(&current),
+                            crate::store::now_ms(),
+                        );
                     }
                     // The outage's first drop by this loop's own record: the link's
                     // attempt count may already be past it.
@@ -160,7 +172,9 @@ impl Hub {
                     // Rows came (a list, a changed row) or the link is up: the peer's chats are
                     // read ahead soon (`peer_snapshot/warm.rs`).
                     let warms = match &notice {
-                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::Connected
+                        | PeerNotice::Sessions(_)
+                        | PeerNotice::SessionsPatch { .. } => true,
                         PeerNotice::SessionChanged { kind, .. } => kind != "purged",
                         _ => false,
                     };
@@ -170,6 +184,12 @@ impl Hub {
                     if !matches!(notice, PeerNotice::Notification { .. }) {
                         drops.remove(&key);
                         current.outage_ended.store(false, Ordering::SeqCst);
+                    }
+                    // The link takes requests: copies ahead of the peer's journals go back
+                    // first, and prompts to it wait for that (`peer_snapshot/restore.rs`). Before
+                    // the notice, so no message the notice wakes goes ahead of them.
+                    if matches!(notice, PeerNotice::Connected) {
+                        self.restore_peer_journals(&peer, generation);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
                     if warms {

@@ -455,10 +455,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
-        router.heartbeat = { [weak self] handled, edits in
-            guard let self else { return }
+        router.heartbeat = { [weak self] handled, edits, rest in
+            guard let self else { return true }
             reportsUnsavedEdits = edits
-            healthFeed?.pageBeat(self, handled: handled)
+            healthFeed?.pageBeat(self, handled: handled, resting: rest)
+            return healthFeed?.takesRestBeats ?? true
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -554,7 +555,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``followsChatZoom``); the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
+        let rendererScale = chromiumSession == nil ? "" : chromiumZoomScript
+        evaluateInPage(rendererScale + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
@@ -587,6 +589,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        // Window entry can precede the offscreen page's first nonempty frame under an alpha-zero workspace.
+        setChromiumVisibility(true)
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
@@ -703,6 +707,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
@@ -716,6 +721,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             shouldFocusOnAttach = false
             focusPage()
         }
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
     }
 
     /// Another tab took the pane: the page's popup ends.

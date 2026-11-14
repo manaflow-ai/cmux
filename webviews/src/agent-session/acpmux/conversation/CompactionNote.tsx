@@ -15,6 +15,7 @@
 import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
+import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import { compactTokens } from "./compactionNoteModel";
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
@@ -22,12 +23,23 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
   // How it ended was never heard: neither a failure nor a completion is claimed.
   const unheard = state === "failed" && inferred === true && !error;
   const accountSwitch = reason === "account_switch";
+  // acpmux's cache timer ran it (cacheCompaction.ts): the note says so, since no one typed /compact.
+  const cacheExpiry = reason === CACHE_EXPIRY_REASON;
   let text: string;
-  if (state === "running") text = accountSwitch ? t("compaction.runningAccountSwitch") : t("compaction.running");
+  if (state === "running")
+    text = accountSwitch
+      ? t("compaction.runningAccountSwitch")
+      : cacheExpiry
+        ? t("compaction.runningCacheExpiry")
+        : t("compaction.running");
   else if (unheard) text = t("compaction.ended");
   else if (state === "failed") text = error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
   else {
-    text = accountSwitch ? t("compaction.completedAccountSwitch") : t("compaction.completed");
+    text = accountSwitch
+      ? t("compaction.completedAccountSwitch")
+      : cacheExpiry
+        ? t("compaction.completedCacheExpiry")
+        : t("compaction.completed");
     if (preTokens !== undefined && postTokens !== undefined)
       text = t("compaction.withSizes", { text, before: compactTokens(preTokens), after: compactTokens(postTokens) });
   }

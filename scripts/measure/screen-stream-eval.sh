@@ -16,6 +16,7 @@
 # 5: no target measured a window).
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -29,6 +30,9 @@ for arg in "$@"; do
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
+    netem-rtt-ms=*) netem_rtt_ms="${arg#netem-rtt-ms=}" ;;
+    netem-loss-pct=*) netem_loss_pct="${arg#netem-loss-pct=}" ;;
+    netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
     # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
@@ -38,7 +42,20 @@ for arg in "$@"; do
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
 [[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+[[ -z "$netem_rtt_ms" || "$netem_rtt_ms" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-rtt-ms= is non-negative milliseconds" >&2; exit 2; }
+[[ "$netem_loss_pct" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-loss-pct= is a percentage" >&2; exit 2; }
+[[ "$netem_seed" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: netem-seed= is a non-negative integer" >&2; exit 2; }
+if ! python3 -I - "$netem_loss_pct" <<'PY'
+import sys
+value = float(sys.argv[1])
+if value > 100:
+    raise SystemExit("screen-stream-eval.sh: netem-loss-pct= must be in [0, 100]")
+PY
+then
+  exit 2
+fi
 export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+export EVAL_NETEM_RTT_MS="$netem_rtt_ms" EVAL_NETEM_LOSS_PCT="$netem_loss_pct" EVAL_NETEM_SEED="$netem_seed"
 if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
@@ -89,7 +106,8 @@ if [[ "$tools_only" == 1 ]]; then
   # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
   # macOS 14, so they run on a Mac older than this worker's SDK.
   swift_target="$(uname -m)-apple-macos14.0"
-  for tool in preflight scene ocr; do
+  # window-id and marker-locate: the third-party viewers' tools (gui-viewer.sh), for a prebuilt= viewer Mac.
+  for tool in preflight scene ocr window-id marker-locate; do
     swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
   done
   swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
@@ -131,7 +149,7 @@ elif [[ -n "$lan" ]]; then
 fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(rev)" display "$display" samples "$samples" repeats "$repeats" \
-  rd_input_frame_now "$input_frame_now" \
+  rd_input_frame_now "$input_frame_now" netem_rtt_ms "$netem_rtt_ms" netem_loss_pct "$netem_loss_pct" netem_seed "$netem_seed" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
@@ -161,11 +179,17 @@ results = {"schema": "cmux.screen-stream-eval/1", "run": run, "scenarios": ["idl
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
   cat "$out/summary.md"
+  # Includes only explicit eval outputs, never the host's authentication token.
+  tar -czf "$work/evidence.tar.gz" -C "$out" .
+  cp "$work/evidence.tar.gz" "$out/evidence.tar.gz"
 }
 
-if [[ -n "$viewer_of" ]]; then
-  # The viewer Mac of a two-Mac run: no scene, marker or grants here (the viewers only receive and
-  # send input over the network). It builds each target and serves the host Mac's view verbs.
+# The viewer Mac of a two-Mac run: no scene or marker here. It builds each target and serves the host
+# Mac's view verbs. cmux's own viewers only receive and send input over the network, so they need no
+# grants; a third-party viewer measured from outside (gui-viewer.sh: observe posts input and captures
+# the display) does, and its target's `caps` says `viewer-grants`. Then the viewer half takes the same
+# grant check, and the same launcher, as a host run below before it serves.
+serve_viewer() {
   printf '%s\n' "$peer_token" >"$work/peer-token"
   chmod 600 "$work/peer-token"
   IFS=',' read -r -a names <<<"$targets"
@@ -179,7 +203,13 @@ if [[ -n "$viewer_of" ]]; then
   status=$?
   finish "the viewer Mac of a two-Mac run (host $viewer_of): the host Mac's step has the results"
   exit "$status"
-fi
+}
+viewer_grants=0
+IFS=',' read -r -a names <<<"$targets"
+for name in "${names[@]}"; do
+  bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx viewer-grants && viewer_grants=1
+done
+[[ -n "$viewer_of" && "$viewer_grants" == 0 ]] && serve_viewer
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 if [[ -n "$prebuilt" ]]; then
@@ -251,6 +281,7 @@ if ! granted "$grants"; then
   finish "the step's processes lack Screen Recording or Accessibility on this worker ($grants)"
   exit 3
 fi
+[[ -n "$viewer_of" ]] && serve_viewer
 
 if [[ -n "$lan" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"
@@ -347,7 +378,17 @@ for name in "${names[@]}"; do
   fi
   ran=1
 
+  # A target whose `caps` verb prints window-only (cu-png, rd-window: no input path to time) skips
+  # the latency stage, and eval.py then judges it on its window rows alone. Every other target
+  # answers `caps` with nothing or an error and runs both stages.
+  window_only=0
+  if bash "$script" caps 2>/dev/null | grep -qx window-only; then
+    window_only=1
+    : >"$dir/window-only"
+  fi
+
   # Latency: the marker (cmux-rd-host/scripts/mac-marker) above everything, then the host.
+  if [[ "$window_only" == 0 ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE $name latency"
   export EVAL_MARKER_LOG="$EVAL_STATE/marker.log"
   "$EVAL_BIN/cmux-rd-marker" --verbose >"$EVAL_MARKER_LOG" 2>&1 &
@@ -371,6 +412,7 @@ for name in "${names[@]}"; do
   bash "$script" host-stop
   kill "$marker" 2>/dev/null || true
   wait "$marker" 2>/dev/null || true
+  fi
 
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
   # each time); eval.py reports each number's median and keeps every repeat's.
@@ -394,6 +436,14 @@ for name in "${names[@]}"; do
     touch "$stop"
     wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
     bash "$script" host-stop
+    if [[ "$name" == rd ]]; then
+      evidence="$dir/rd-evidence-$rep"
+      mkdir -p "$evidence"
+      for file in "$raw" "$EVAL_STATE/timing.jsonl" "$EVAL_STATE/netem-stats.json"; do
+        [[ ! -f "$file" ]] || cp "$file" "$evidence/"
+      done
+      [[ ! -d "$EVAL_STATE/quality" ]] || cp -R "$EVAL_STATE/quality" "$evidence/"
+    fi
 
     echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
     if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then

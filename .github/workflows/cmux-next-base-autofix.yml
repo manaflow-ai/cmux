@@ -26,7 +26,7 @@ name: cmux-next base autofix
 # is reported and never written; missing cmux-tui tree inputs are reported
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
 # app-ffi-release.yml's app-ffi-repin pull request. The action exports
-# (plans/cmux-next/action-surfaces.json, actions.md, links.json) need a Mac
+# (plans/cmux-next/action-surfaces.json, action-catalog.json, actions.md, links.json) need a Mac
 # swift test: the action-exports job regenerates them on a Mac at the newest
 # tip (scripts/cmux-next/base-autofix-action-exports.sh) and autofix copies them in
 # before it rewrites the docs shortcuts from them. The settings exports
@@ -76,6 +76,7 @@ on:
       - webviews/scripts/pages/**
       - webviews/test/**
       - plans/cmux-next/action-surfaces.json
+      - plans/cmux-next/action-catalog.json
       - plans/cmux-next/actions.md
       - plans/cmux-next/links.json
       - scripts/cmux-next/regenerate-action-exports.sh
@@ -590,6 +591,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # The shared publisher checks Rust catalog parity on every final candidate.
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
       # The graph only, as base-autofix-land.sh makes a repair again on a moved tip: nothing from
       # or built from the Mac exports, no formatting.
       - name: Make the graph
@@ -726,8 +731,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # Required for the strict parity check before every automatic push, regardless of repair area.
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true' || steps.areas.outputs.locks == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Download the webviews formatting patch
@@ -804,7 +809,10 @@ jobs:
           if git diff --quiet HEAD~1 HEAD -- schemas/settings/settings-schema.json; then
             echo "schemas/settings/settings-schema.json unchanged"; exit 0
           fi
-          if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tail -60); then
+          # cargo's whole output is kept so a stale Cargo.lock is named as such (cargo-locks.py explain).
+          log="$RUNNER_TEMP/cmux-config-tests.log"
+          if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tee "$log" | tail -60); then
+            if python3 scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
             echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
             exit 1
           fi

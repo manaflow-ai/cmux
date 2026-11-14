@@ -82,9 +82,9 @@ Guidelines for any iOS UI change and citing the page in the PR. It applies to
 
 This file covers the classic iPhone app in `ios/`; `ios/scripts/reload.sh` does not build the cmux-next iPhone app in `cmux-next-ios/`. Any work verified by opening the iOS app installs the build on the user's iPhones (with `--review`, every connected one; see "Finishing a task") and checks it in a fleet simulator. Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build and install with `ios/scripts/reload.sh --review --tag <tag>` (fleet builds; without `--review` it builds locally, which only outside contributors may do). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. Agents never boot a simulator on the person's Mac (see "Simulators run on the fleet").
 
-**Every phone install MUST be authenticated before handoff. Installed-but-signed-out is a failed install.** A tagged bundle id can retain an older account, so every authenticated launch clears that tagged session, signs both surfaces into the selected profile, verifies the exact tagged Mac account through `cmux whoami --json`, then mints the pairing ticket. The iPhone auth gate passes only after the same-account host accepts the phone RPC and emits `mobile.rpc.ready`. `scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>]` repeats the Mac-account check, relaunches the phone without credentials, and passes only when persisted phone state reconnects. Never install with raw `devicectl device install app`, and never pass `--no-sign-in`/`--no-attach`/`--no-setup` for a dogfood build. The scripts refuse those device paths unless a human sets `CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1`. If setup fails, report the gate reason and exact retry command.
+**Every phone install MUST be authenticated before handoff. Installed-but-signed-out is a failed install.** A tagged bundle id can retain an older account, so every authenticated launch replaces that tagged session with the selected profile. The iPhone auth gate is the app's own receipt: the app declares `CMUXDogfoodReadiness = app-receipt-v1` in `ios/Config/Info.plist`, and after sign-in it writes a receipt that must match a fresh launch nonce, its client id and the selected account. The iOS app does not pair with the Mac, so no Mac takes part in the gate. `scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>]` relaunches the phone without credentials and passes only on a receipt from a restored session. The old Mac gate is gone: the cmux-next Mac app no longer runs the iroh phone listener (`mobile.attach_ticket.create`, `mobile.rpc.ready`), so `--readiness mac-rpc`, `--iroh-release-gate`, `--restore-pairing` and an app without `app-receipt-v1` are refused with exit 2. `--attach` and `--ensure-mac` are accepted and ignored. Never install with raw `devicectl device install app`, and never pass `--no-sign-in`/`--no-attach`/`--no-setup` for a dogfood build. The scripts refuse those device paths unless a human sets `CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1`. If setup fails, report the gate reason and exact retry command.
 
-Every phone build requires the same-tag Mac dev build (the iOS app is unusable without its Mac). The reload scripts build the Mac tag first when it is missing and refuse to ship a phone-only build if that fails; do not bypass this with `CMUX_IOS_SKIP_MAC_BUILD_CHECK` in normal work.
+Every phone build still requires the same-tag Mac dev build. The reload scripts build the Mac tag first when it is missing and refuse to ship a phone-only build if that fails; do not bypass this with `CMUX_IOS_SKIP_MAC_BUILD_CHECK` in normal work.
 
 If the iPhone is unreachable at build time, the signed build is parked in `scripts/iphone-install-queue.sh`. Each entry stores the chosen profile, normalized account, and credentials-file path. Drain revalidates that snapshot before device mutation and uses installed stable copies of the launcher and auth helpers, so an old or pruned feature worktree cannot change policy. Install or refresh that control plane with `scripts/install-iphone-queue-agent.sh install`. Report `scripts/iphone-install-queue.sh list` in the handoff; `drain` retries delivery and `clear` abandons a queued build.
 
@@ -98,14 +98,14 @@ recording; `verify-remote.sh capacity` shows the pool. `ios/scripts/reload.sh` w
 `--review` still builds a local simulator app: only contributors outside the team, who
 have no fleet, may use it, with one isolated device that they shut down afterwards.
 
-## Cross-tag Mac access for DEV iPhone builds
+## No Mac pairing for DEV iPhone builds
 
-A DEV iPhone build pairs only with the Mac DEV build sharing its tag. Classic cmux
-granted other Mac tags at runtime with `cmux-debug-cli.sh mobile compatible-tags`;
-cmux-next has no `mobile` CLI scope and its Mac host reports an empty
-`mac_compatible_mac_tags` list (`MobileCompatHostInfo.swift`), so that grant does not
-exist here yet. To dogfood another Mac build from a phone, build the phone with that
-Mac's tag. Do not mint a shared tag.
+The iOS app in `ios/` does not pair with the Mac, and the cmux-next Mac app no longer
+runs the iroh phone listener it would have dialed (its iPhone host serves only cmux on
+iPhone in `cmux-next-ios/`), so there are no pairing tickets and no cross-tag grants. Classic cmux's
+`cmux-debug-cli.sh mobile compatible-tags` does not exist here. A phone build's tag
+only names its bundle id (`dev.cmux.ios.<slug>`) and the same-tag Mac build the reload
+scripts keep next to it. Do not mint a shared tag.
 
 ## iOS dev auth
 

@@ -385,7 +385,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
       </button>
       {merge.phase === "failed" && merge.message && (
         <span className="gh-failure gh-merge-failure" role="alert">
-          {merge.message}
+          {merge.refused ? t("github.merge.notReady") : merge.message}
         </span>
       )}
     </>

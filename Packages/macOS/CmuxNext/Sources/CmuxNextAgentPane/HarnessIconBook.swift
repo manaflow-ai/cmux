@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+public import CmuxNextWakeups
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -8,7 +10,7 @@ public import Observation
 /// icon shows on them as the daemon announces it.
 ///
 /// ```swift
-/// let book = HarnessIconBook(environment: { QuitAgents.environment(services) })
+/// let book = HarnessIconBook(work: work, build: build, mock: false)
 /// book.start()
 /// ```
 @MainActor
@@ -17,14 +19,22 @@ public final class HarnessIconBook {
     /// The icons of the last reply; ``HarnessIcons/none`` until acpmux answered.
     public private(set) var icons: HarnessIcons = .none
 
-    @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
+    @ObservationIgnored private let environment: @Sendable () -> AcpmuxEnvironment?
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private var loop: Task<Void, Never>?
 
+    /// The app's resolver runs on the blocking file lane, including executable and signature checks.
+    public convenience init(work: BackgroundWork, build: BuildIdentity?, mock: Bool) {
+        self.init(work: work, environment: { AcpmuxEnvironment.app(build: build, mock: mock) })
+    }
+
     /// - Parameters:
+    ///   - work: The app's bounded blocking lanes; resolution never runs on the caller's actor.
     ///   - environment: This Mac's acpmux, or nil while it is not known yet.
     ///   - clock: The reconnect delay's clock (tests pass their own).
-    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, clock: any Clock<Duration> = ContinuousClock()) {
+    public init(work: BackgroundWork, environment: @escaping @Sendable () -> AcpmuxEnvironment?, clock: any Clock<Duration> = ContinuousClock()) {
+        self.work = work
         self.environment = environment
         self.clock = clock
     }
@@ -48,11 +58,15 @@ public final class HarnessIconBook {
         if next != icons { icons = next }
     }
 
+    func resolveEnvironment() async -> AcpmuxEnvironment? {
+        try? await work.run(.userVisible, mayBlock: .files, environment)
+    }
+
     private func follow() async {
         var delay: Duration = .seconds(1)
         // wakeup-allow: each pass awaits the daemon's watch (event-driven) or the bounded reconnect delay below
         while !Task.isCancelled {
-            if let environment = environment(), await refresh(environment) {
+            if let environment = await resolveEnvironment(), !Task.isCancelled, await refresh(environment) {
                 delay = .seconds(1)
                 for await _ in Self.changes(environment) {
                     _ = await refresh(environment)

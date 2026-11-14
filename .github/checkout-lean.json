@@ -39,9 +39,6 @@
     "cmux-tui.yml": {
       "go-pane": "reads cmux-tui/bindings and cmux-tui/crates/cmux-pane-protocol/spec only"
     },
-    "gallery-advisory.yml": {
-      "capture": "gallery tools read webviews/src and webviews/dev-server; the base worktree builds webviews only"
-    },
     "nightly.yml": {
       "build-sign-notarize-nightly": "signs the prepared app from the artifact; from the build ref it runs scripts/ and reads the entitlements, ghostty-next (its own submodule init) and the notices inputs, never cmux-next-ios/verify/",
       "publish-nightly": "runs .publish-tooling's scripts in the build checkout, which reads scripts/ (verify_remote_daemon_release.py, cmux-next/release-notes.py, release_thanks.py) and release-notes/, never cmux-next-ios/verify/"

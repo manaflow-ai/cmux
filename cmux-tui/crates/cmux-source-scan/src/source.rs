@@ -5,6 +5,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use proc_macro2::{Span, TokenStream, TokenTree};
+use syn::parse::ParseStream;
+use syn::parse::discouraged::Speculative;
+use syn::visit::Visit;
+use syn::{Block, Expr};
 
 /// A directory or file of the tree the scan could not read. A scan that skipped it would read as
 /// a clean one, so every reader here returns this, naming the path, and the scan fails.
@@ -99,4 +103,44 @@ pub fn snippet(lines: &[&str], span: Span) -> String {
         text.push(' ');
     }
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Comma-separated expressions, as many as parse; the rest of the input is skipped.
+pub fn lenient_exprs(input: ParseStream) -> syn::Result<Vec<Expr>> {
+    let mut out = Vec::new();
+    while !input.is_empty() {
+        let fork = input.fork();
+        let Ok(e) = fork.parse::<Expr>() else {
+            break;
+        };
+        input.advance_to(&fork);
+        out.push(e);
+        if input.parse::<syn::Token![,]>().is_err() {
+            break;
+        }
+    }
+    let _rest: TokenStream = input.parse()?;
+    Ok(out)
+}
+
+/// Visit the code in a macro's body with `v`: items (`mod_tests! { #[test] fn .. }`), else
+/// statements (a `tokio::select!`-style block, a user macro over `let`s), else comma-separated
+/// expressions (`dbg!({ .. })`, `vec![..]`, `format!(.., x = ..)`, `matches!(x, ..)`'s `x`). A
+/// body that parses as none of them (`macro_rules!` arms) is skipped. Every visitor of a body
+/// goes through here, so a wrapper macro hides from none of them what it holds.
+pub fn visit_macro_body<V>(v: &mut V, mac: &syn::Macro)
+where
+    V: for<'ast> Visit<'ast>,
+{
+    if let Ok(file) = syn::parse2::<syn::File>(mac.tokens.clone()) {
+        v.visit_file(&file);
+    } else if let Ok(stmts) = mac.parse_body_with(Block::parse_within) {
+        for stmt in &stmts {
+            v.visit_stmt(stmt);
+        }
+    } else if let Ok(exprs) = mac.parse_body_with(lenient_exprs) {
+        for e in &exprs {
+            v.visit_expr(e);
+        }
+    }
 }

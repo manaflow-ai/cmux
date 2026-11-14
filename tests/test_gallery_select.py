@@ -264,13 +264,39 @@ class WorkflowTests(unittest.TestCase):
         # run on the same events.
         cond = self.jobs["mark-stale"]["if"]
         self.assertNotIn("== 'synchronize'", cond)
-        self.assertEqual(cond, self.jobs["capture"]["if"])
+        # The capture runs on those same pull request events (it also runs on a direct push).
+        quota = "${{ vars.CI_QUOTA_HOLD != '1' && "
+        self.assertTrue(cond.startswith(quota) and cond.endswith(" }}"))
+        pr_events = cond[len(quota):-len(" }}")]
+        self.assertIn(f"github.event_name == 'pull_request' && {pr_events})", self.jobs["capture"]["if"])
         self.assertEqual(self.jobs["mark-stale"]["permissions"]["pull-requests"], "write")
 
     def test_artifact_name_is_pr_and_exact_head(self):
         upload = [s for s in self.jobs["capture"]["steps"] if "upload-artifact" in s.get("uses", "")][0]
         self.assertEqual(upload["with"]["name"],
-                         "gallery-advisory-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}")
+                         "gallery-advisory-${{ github.event.pull_request.number || 0 }}"
+                         "-${{ github.event.pull_request.head.sha || github.sha }}")
+
+    def test_direct_push_gets_the_receipt_and_warns(self):
+        # A direct push skips every PR check: it gets the receipt against the tip it replaced,
+        # warns on the states it changed, and never writes a PR section (Leo, ask-7678b03a7d).
+        import yaml
+        workflow = yaml.safe_load(self.text)
+        on = workflow.get(True) or workflow["on"]
+        self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
+        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
+        # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
+        cond = self.jobs["capture"]["if"]
+        self.assertIn("github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && "
+                      "!endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' "
+                      "&& contains(github.event.head_commit.message, '(#'))", cond)
+        frames = [s for s in self.jobs["capture"]["steps"] if s.get("name") == "Require real frames"][0]
+        self.assertEqual(frames["continue-on-error"], "${{ github.event_name == 'push' }}")
+        text = self.run_text("capture")
+        self.assertIn('base_sha=$PUSH_BEFORE', text)
+        self.assertIn("::warning title=Direct push changed a gallery state::", text)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", self.jobs["comment"]["if"])
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", self.jobs["mark-stale"]["if"])
 
 
 def pr_status_sections():

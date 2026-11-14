@@ -4,7 +4,6 @@ import { experimentArm } from "../../experiments/experiment";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
-import { errorMessage } from "./transportErrors";
 import type { PeerCopyState } from "./peerCopy";
 import type { PeerMachineState } from "./peerCloudMachine";
 import { pausedMachineResume } from "./pausedMachine.experiment";
@@ -47,9 +46,7 @@ function PeerCopyBannerBody({
   onReconnect?(peer: string): Promise<unknown>;
 }) {
   const t = useT();
-  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed"; error?: string }>({
-    state: "idle",
-  });
+  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({ state: "idle" });
   const detail =
     copy.capturedAt !== undefined
       ? t("peerCopy.offline.savedAt", { time: relativeTime(copy.capturedAt, now, currentLanguage()) })
@@ -96,7 +93,10 @@ function PeerCopyBannerBody({
         setReconnect({ state: "reconnecting" });
         Promise.resolve(onReconnect(copy.peer)).then(
           () => setReconnect({ state: "idle" }),
-          (error: unknown) => setReconnect({ state: "failed", error: errorMessage(error) || String(error) }),
+          (error: unknown) => {
+            console.warn("agent pane: reconnecting the machine failed", error);
+            setReconnect({ state: "failed" });
+          },
         );
       }}
     >
@@ -116,9 +116,9 @@ function PeerCopyBannerBody({
         {reconnectButton}
       </p>
       <p className="acpmux-watch-hint">{detail}</p>
-      {reconnect.state === "failed" && reconnect.error && (
+      {reconnect.state === "failed" && (
         <p className="acpmux-watch-hint" role="alert">
-          {reconnect.error}
+          {t("peerCopy.reconnectFailed")}
         </p>
       )}
     </div>

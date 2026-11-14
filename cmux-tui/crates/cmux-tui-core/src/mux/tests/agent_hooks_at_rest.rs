@@ -489,6 +489,7 @@ fn agents_at_rest_a_journal_hook_for_the_kind_keeps_every_row() {
 #[test]
 fn agents_at_rest_a_report_after_a_row_with_an_unknown_result_is_appended() {
     let (mux, agent, root) = one_agent("unknown");
+    mux.set_journal_durable_wait_for_test(crate::journal_ingress::JOURNAL_DEADLINE_TEST_WAIT);
     let tool_rows = |mux: &Arc<Mux>| {
         let head = mux.session_journal_head().unwrap();
         send(mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));

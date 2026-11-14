@@ -147,6 +147,7 @@ mod with_link {
         offers: u32,
         candidates: usize,
         incoming: Vec<Incoming>,
+        path_rtt_us: Option<u64>,
     }
 
     impl<'a, S: Read + Write + AsRawFd> HybridCarrier<'a, S> {
@@ -159,6 +160,7 @@ mod with_link {
                 offers: 0,
                 candidates: 0,
                 incoming: Vec::new(),
+                path_rtt_us: None,
             }
         }
 
@@ -265,7 +267,10 @@ mod with_link {
                     NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                         out.push(Incoming::Datagram(d));
                     }
-                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, .. }) => {
+                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, rtt_us, .. }) => {
+                        if rtt_us.is_some() {
+                            self.path_rtt_us = rtt_us;
+                        }
                         match (route.is_some(), self.up) {
                             (true, false) => self.state(true, None)?,
                             (false, true) => {
@@ -327,6 +332,10 @@ mod with_link {
             received?;
             answered.map_err(|e| format!("control write failed: {e}"))?;
             self.pump_link(out).map_err(|e| format!("control write failed: {e}"))
+        }
+
+        fn take_path_rtt_us(&mut self) -> Option<u64> {
+            self.path_rtt_us.take()
         }
 
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {

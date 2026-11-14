@@ -81,16 +81,44 @@ extension DeepLink {
         segment.range(of: "^[a-z]{2}(-[A-Z]{2})?$", options: .regularExpression) != nil
     }
 
+    /// What a settings link runs: an action and its arguments, run as the person's click.
+    public nonisolated struct SettingsLinkAction: Sendable, Equatable {
+        /// The action's id.
+        public let id: ActionID
+        /// Its arguments.
+        public let arguments: [String: ActionValue]
+
+        public init(_ id: ActionID, arguments: [String: ActionValue] = [:]) {
+            self.id = id
+            self.arguments = arguments
+        }
+    }
+
     /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
     /// offers it) is Change Background…, the same action as the command palette, the context menus and
-    /// `cmux settings change-background`.
+    /// `cmux settings change-background`; `cmux://settings/start-agent-from-any-app` (the welcome's
+    /// shortcut list offers it while it is off) turns `app.startAgentGlobalHotKey` on through Toggle
+    /// Setting, as `cmux settings set app.startAgentGlobalHotKey true` does. A link only turns it on,
+    /// never off.
     /// - Parameters:
     ///   - url: The clicked link.
     ///   - linkScheme: This build's own scheme; the `cmux` scheme is taken too.
-    /// - Returns: The action's id, or nil for any other URL.
-    public static func settingsAction(for url: URL, linkScheme: String) -> ActionID? {
+    /// - Returns: The action and its arguments, or nil for any other URL.
+    public static func settingsAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
-        return url.path.lowercased() == "/background" ? "appearance.changeBackground" : nil
+        return settingsRoutes[url.path.lowercased()]
     }
+
+    /// The settings link path that turns Start Agent from Any App on.
+    public static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
+
+    /// Every settings link path the app runs, and what it runs: the one list. Home draws a link only
+    /// for a path it renders (MessagesLabHome's `URL.homeSettingsLinkPaths`), so a path added here and
+    /// not there would show as plain text; `HomeCmuxAppLinkTests` holds the two lists equal.
+    public static let settingsRoutes: [String: SettingsLinkAction] = [
+        "/background": SettingsLinkAction("appearance.changeBackground"),
+        startAgentFromAnyAppPath: SettingsLinkAction(
+            "palette.toggleSetting", arguments: ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)]),
+    ]
 }
