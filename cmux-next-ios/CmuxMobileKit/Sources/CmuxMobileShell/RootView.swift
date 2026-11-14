@@ -463,6 +463,8 @@ public struct RootView: View {
         if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
             coordinator.accept(invite)
         }
+        // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
+        DogfoodReadiness().start(auth: auth, live: coordinator, apiBase: base)
         #endif
     }
 

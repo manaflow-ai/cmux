@@ -15,6 +15,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RELOAD = ROOT / 'ios/scripts/reload.sh'
+# The phone discovery --review shares with cmux-next-ios/scripts/review.sh.
+PHONES_LIB = ROOT / 'scripts/lib/iphone-review-targets.sh'
 
 
 def reload(*args):
@@ -22,6 +24,11 @@ def reload(*args):
 
 
 class ReviewFlagTests(unittest.TestCase):
+    def test_review_sources_the_shared_phone_discovery(self):
+        text = RELOAD.read_text()
+        self.assertIn('source "$IOS_DIR/../scripts/lib/iphone-review-targets.sh"', text)
+        self.assertNotIn('review_resolve_phones() {', text)
+
     def test_help_documents_review(self):
         result = reload('--help')
         self.assertEqual(result.returncode, 0)
@@ -53,7 +60,7 @@ class ConnectedPhonesTests(unittest.TestCase):
     """--review installs on every connected phone and registers new ones."""
 
     def run_helpers(self, devices, body, known=''):
-        text = RELOAD.read_text()
+        text = PHONES_LIB.read_text()
         funcs = ''.join(re.search(r'\n(%s\(\) \{\n.*?\n\})\n' % name, text, re.S).group(1) + '\n'
                         for name in ('review_phone_result', 'review_connected_phones', 'review_register_phone',
                                      'review_resolve_phones'))

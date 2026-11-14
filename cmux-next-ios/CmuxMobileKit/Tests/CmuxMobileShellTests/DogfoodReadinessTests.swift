@@ -1,0 +1,64 @@
+import CmuxMobileLive
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+#if DEBUG && os(iOS)
+/// The hand-off's readiness receipt (`cmux-next-ios/scripts/review.sh`): which session it names,
+/// which Mac it lists as linked, and that it carries no secret.
+@Suite struct DogfoodReadinessTests {
+    let base = URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev")!
+    let macs = [LiveAPI.Mac(deviceId: "mac-tagged", name: "cmux DEV cnx", online: true),
+                LiveAPI.Mac(deviceId: "mac-other", name: "Other", online: true)]
+
+    func readiness(_ env: [String: String]) -> DogfoodReadiness {
+        DogfoodReadiness(environment: env, bundle: .main)
+    }
+
+    @Test func noNonceWritesNothing() {
+        #expect(readiness([:]).nonce == nil)
+        #expect(readiness(["CMUX_DOGFOOD_READINESS_NONCE": ""]).nonce == nil)
+        #expect(readiness(["CMUX_DOGFOOD_READINESS_NONCE": "n1"]).nonce == "n1")
+    }
+
+    @Test func injectedCredentialsAreAutoLoginAndNoneAreRestored() {
+        #expect(readiness(["CMUX_MOBILE_STACK_EMAIL": "a@b.c"]).sessionSource == "auto_login")
+        #expect(readiness(["CMUX_MOBILE_STACK_EMAIL": ""]).sessionSource == "restored")
+        #expect(readiness([:]).sessionSource == "restored")
+    }
+
+    @Test func linkedOnlyWhenPairedAndConnected() {
+        let r = readiness(["CMUX_DOGFOOD_CLIENT_ID": "client"])
+        func linked(_ focus: DogfoodReadiness.Focus?) -> [DogfoodReadiness.PairedMac] {
+            r.body(nonce: "n", apiBase: base, email: "Me@Example.com", userID: "u", macs: macs, focus: focus,
+                   now: Date(timeIntervalSince1970: 0)).paired_macs
+        }
+        #expect(linked(nil).isEmpty)
+        #expect(linked(.init(id: "mac-tagged", paired: true, connected: true))
+                == [.init(id: "mac-tagged", name: "cmux DEV cnx", linked: true)])
+        #expect(linked(.init(id: "mac-tagged", paired: true, connected: false)).first?.linked == false)
+        #expect(linked(.init(id: "mac-tagged", paired: false, connected: true)).first?.linked == false)
+        #expect(linked(.init(id: "unlisted", paired: true, connected: true)).first?.name == "")
+    }
+
+    @Test func receiptKeysAndNoSecrets() throws {
+        let body = readiness(["CMUX_DOGFOOD_CLIENT_ID": "client", "CMUX_MOBILE_STACK_EMAIL": "me@example.com",
+                              "CMUX_MOBILE_STACK_PASSWORD": "hunter2"])
+            .body(nonce: "nonce-1", apiBase: base, email: "Me@Example.com", userID: "user-1", macs: macs,
+                  focus: .init(id: "mac-tagged", paired: true, connected: true), now: Date(timeIntervalSince1970: 0))
+        let data = try DogfoodReadiness.encode(body)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["schema"] as? Int == 1)
+        #expect(json["nonce"] as? String == "nonce-1")
+        #expect(json["client_id"] as? String == "client")
+        #expect(json["account_email"] as? String == "me@example.com")
+        #expect(json["session_source"] as? String == "auto_login")
+        #expect(json["user_id"] as? String == "user-1")
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(!text.contains("hunter2"))
+        for key in json.keys {
+            for word in ["token", "password", "secret", "cookie"] { #expect(!key.lowercased().contains(word)) }
+        }
+    }
+}
+#endif
