@@ -10,11 +10,12 @@ import type { AcpmuxDirectClient } from "./direct";
 /// only (saved to its `.gemini/.env`); the Grok CLI with its device flow only (`grok login
 /// --device-auth`: a page and a code, like Codex), its key coming from the person's vault; Cursor
 /// with its sign-in page only (Leo 2026-11-10: "if somebody has a ChatGPT subscription or a Cursor
-/// subscription").
-export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor";
+/// subscription"); OpenCode (Zen and Go) with the key from opencode.ai/auth only (Leo: "or an
+/// OpenCode subscription and they're using one of OpenCode's models").
+export type LoginAgent = "claude" | "codex" | "gemini" | "grok" | "cursor" | "opencode";
 
 /// The agents ``cloudAgentLogin`` offers a sign-in for.
-export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor"];
+export const LOGIN_AGENTS: readonly LoginAgent[] = ["claude", "codex", "gemini", "grok", "cursor", "opencode"];
 
 /// `value` as a ``LoginAgent``; else undefined.
 export function loginAgent(value: string | undefined): LoginAgent | undefined {
@@ -22,9 +23,22 @@ export function loginAgent(value: string | undefined): LoginAgent | undefined {
 }
 
 /// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
-/// agent but Gemini, which takes a key only.
+/// agent but Gemini and OpenCode, which take a key only.
 export function signsInByPage(agent: LoginAgent): boolean {
-  return agent !== "gemini";
+  return agent !== "gemini" && agent !== "opencode";
+}
+
+/// The page that makes `agent`'s API key, linked beside its key field (OpenCode's, whose card has
+/// no sign-in page to point there). A fixed page this app names, so not one of ``SIGN_IN_HOSTS``,
+/// which check the pages a machine's sign-in names.
+export const KEY_PAGE: Partial<Record<LoginAgent, string>> = { opencode: "https://opencode.ai/auth" };
+
+/// Whether an OpenCode chat on `model` signs in with the key the card saves: Zen's and Go's models
+/// (`opencode/...`, `opencode-go/...`). Another provider's model (`anthropic/...`) needs that
+/// provider's own login, which the saved key would not repair. An unknown model keeps the card.
+function opencodeKeyServes(model: string | undefined): boolean {
+  const provider = model?.includes("/") ? model.split("/")[0] : undefined;
+  return provider === undefined || provider === "opencode" || provider === "opencode-go";
 }
 
 /// Whether the agent takes an API key saved on the machine (`_acpmux/agent_login/api_key`): every
@@ -229,6 +243,8 @@ type LoginOptions = {
   machineID: string | undefined;
   sessionId: string | undefined;
   harness: string | undefined;
+  /// The chat's model (`provider/model` for OpenCode), when known.
+  model?: string;
   supported: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
@@ -263,8 +279,12 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
-  const agent = loginAgent(agentKey(harness?.split("/").pop()));
+  const leaf = harness?.split("/").pop();
+  const agent = loginAgent(agentKey(leaf));
   if (!connected || !sessionId || !supported || !agent) return undefined;
+  // OpenCode: only the `opencode` harness (acpmux signs in that family; `opencode-v2` is its own) on
+  // a Zen or Go model.
+  if (agent === "opencode" && (leaf !== "opencode" || !opencodeKeyServes(options.model))) return undefined;
   const client = () => {
     const current = currentClient();
     if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");
@@ -297,7 +317,8 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
         return started;
       }),
     open: (url) => {
-      const safe = signInURL(url);
+      // A machine's sign-in page on an allowed host, or this agent's own key page exactly.
+      const safe = signInURL(url) ?? (url === KEY_PAGE[agent] ? url : undefined);
       if (safe) openURL(safe);
     },
     openOnMachine: async (url) => {

@@ -56,9 +56,10 @@ fn error(e: LoginError) -> RpcError {
 fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     let name = params.get("agent").and_then(Value::as_str).unwrap_or_default();
     Agent::parse(name).ok_or_else(|| {
+        let names: Vec<_> = Agent::ALL.iter().map(|a| a.name()).collect();
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!("agent must be \"claude\", \"codex\", \"gemini\" or \"grok\", not {name:?}"),
+            format!("agent must be one of {}, not {name:?}", names.join(", ")),
         ))
     })
 }
@@ -100,6 +101,8 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
         }),
         // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
         Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
+        // `opencode acp`: its env (XDG_DATA_HOME) says where its `auth.json` is.
+        Agent::OpenCode => p.kind == HarnessKind::Acp && opencode_launch(&p.argv),
     };
     let profile =
         selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
@@ -119,12 +122,12 @@ fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Opti
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor => Vec::new(),
+        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
@@ -134,6 +137,12 @@ fn cursor_launch(argv: &[String]) -> bool {
     let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
     matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
         && argv.get(1).is_some_and(|a| a == "acp")
+}
+
+/// Whether `argv` runs OpenCode's CLI: `opencode`, then `acp`.
+fn opencode_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    program.and_then(|p| p.to_str()) == Some("opencode") && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
@@ -259,6 +268,14 @@ pub(super) async fn handle(
     match m {
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
+            // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
+            // its CLI, so the answer is `unsupported` whether or not it is installed here.
+            if !agent.signs_in_by_link() {
+                return Err(error(LoginError::new(
+                    reason::UNSUPPORTED,
+                    format!("{} signs in on this machine with an API key", agent.name()),
+                )));
+            }
             let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({

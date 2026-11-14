@@ -51,6 +51,7 @@ const AGENT_NAMES: Record<LoginAgent, string> = {
   gemini: "Gemini CLI",
   grok: "Grok",
   cursor: "Cursor",
+  opencode: "OpenCode",
 };
 
 function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure): CloudSignIn {
@@ -71,8 +72,8 @@ function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure)
               }
             : {}),
         };
-      // Gemini has no sign-in page (the card never starts one).
-      if (agent === "gemini") throw new LoginStepError("unsupported");
+      // Gemini and OpenCode have no sign-in page (the card never starts one).
+      if (agent === "gemini" || agent === "opencode") throw new LoginStepError("unsupported");
       return { loginId: "gallery-login", ...DEVICE_PAGES[agent], needsCode: false };
     },
     open: () => {},
@@ -272,6 +273,18 @@ export default componentEntry({
     "gemini-key-entry": {
       props: { signIn: "gemini" },
       note: "After Use an API key for Gemini: the key field, saved to the machine's .gemini/.env (and settings.json picks the key) where Gemini CLI reads it.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-signin__input[type="password"]'));
+      },
+    },
+    "opencode-sign-in": {
+      props: { signIn: "opencode" },
+      note: "A Cloud chat whose OpenCode (Zen or Go models) is not signed in on its machine: OpenCode has no sign-in page, only the key from opencode.ai/auth, so Use an API key is the card's one filled button.",
+    },
+    "opencode-key-entry": {
+      props: { signIn: "opencode" },
+      note: "After Use an API key for OpenCode: the key field, Save, and Get an OpenCode API key, which opens opencode.ai/auth on this Mac; the key is saved where opencode auth login saves it, for Zen and Go.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-signin__input[type="password"]'));
