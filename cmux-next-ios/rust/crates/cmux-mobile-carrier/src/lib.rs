@@ -57,6 +57,8 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 const TICKET_MARGIN_SECS: u64 = 30;
 /// The team selector cmux-platform reads (`TeamSelect.ts` `TEAM_HEADER`).
 const TEAM_HEADER: &str = "x-cmux-team";
+/// The longest platform answer read (an answer is a few hundred bytes).
+const MAX_ANSWER_BYTES: usize = 64 * 1024;
 /// One stream's buffer between the bridge and the app.
 const STREAM_BUFFER: usize = 256 * 1024;
 /// The longest read handed to the app at once.
@@ -244,12 +246,28 @@ impl Platform {
         if status == 401 {
             return Err(CarrierError::Unauthorized);
         }
-        let text = reply
-            .text()
+        // Read at most MAX_ANSWER_BYTES: an answer is a few hundred bytes, and a misbehaving
+        // endpoint never makes the phone hold an unbounded body.
+        let mut reply = reply;
+        let mut body = Vec::new();
+        while let Some(chunk) = reply
+            .chunk()
             .await
-            .map_err(|error| CarrierError::transport("ticket", error.without_url().to_string()))?;
-        let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        read_answer(status, &value)
+            .map_err(|error| CarrierError::transport("ticket", error.without_url().to_string()))?
+        {
+            if body.len() + chunk.len() > MAX_ANSWER_BYTES {
+                return Err(CarrierError::Answer("the carrier answer is too large".into()));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let value: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+        let answer = read_answer(status, &value)?;
+        // A loopback relay (`relay+ws://127.0.0.1`) is a local development relay: a shipped
+        // phone never sends its ticket to its own loopback in the clear.
+        if answer.relay.scheme() == "relay+ws" && !cfg!(any(test, debug_assertions)) {
+            return Err(CarrierError::Answer("a local relay is only for development builds".into()));
+        }
+        Ok(answer)
     }
 }
 

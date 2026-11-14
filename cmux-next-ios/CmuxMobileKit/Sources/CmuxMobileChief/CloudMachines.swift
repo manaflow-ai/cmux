@@ -254,8 +254,19 @@ public final class CloudMachinesModel {
     private func applies(_ serial: Int) -> Bool {
         guard serial > appliedReadSerial else { return false }
         appliedReadSerial = serial
+        lastAppliedWasRead = true
         return true
     }
+
+    /// The list is this phone's own change now (an action's optimistic row): every read already
+    /// out began before it, so none of them may put the old row back.
+    private func supersedeReadsInFlight() {
+        appliedReadSerial = readSerial
+        lastAppliedWasRead = false
+    }
+
+    /// The list standing now came from a read (not an action's optimistic change).
+    @ObservationIgnored private var lastAppliedWasRead = true
 
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
@@ -294,9 +305,9 @@ public final class CloudMachinesModel {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
             let read = try await Self.readMachines(account)
-            // An older read that answers after a newer one keeps nothing (the newer list stands).
-            guard applies(serial) else { return }
-            machines = read
+            // An older machine list that answers after a newer one is dropped (the newer list
+            // stands); the plan and snapshots this read fetched still apply.
+            if applies(serial) { machines = read }
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
@@ -327,7 +338,9 @@ public final class CloudMachinesModel {
         do {
             let read = try await Self.readMachines(account)
             // An older read that answers after a newer one keeps nothing (the newer list stands).
-            guard applies(serial) else { return false }
+            // It still answered: when a newer read (begun after it) is what stands, the list is
+            // at least as fresh as this one, so its caller may treat it as answered.
+            guard applies(serial) else { return lastAppliedWasRead && appliedReadSerial > serial }
             machines = read
             phase = .loaded
             // Its caller (the Workspaces list's poll) publishes this read itself.
@@ -486,14 +499,24 @@ public final class CloudMachinesModel {
             rollback?()
             return .busy
         }
-        let old = machines
+        let oldRow = machines.first { $0.id == id }
         if let optimistic, let index = machines.firstIndex(where: { $0.id == id }) {
             optimistic(&machines[index])
+            supersedeReadsInFlight()
             onMachinesChanged?()
         }
+        let readAtStart = appliedReadSerial
+        // A refusal puts back this action's own row, and only while no read applied since it began
+        // (a newer read already shows the machine as it is; the rest of the list is never rewound).
         let restore = { [weak self] in
-            self?.machines = old
-            self?.onMachinesChanged?()
+            guard let self else {
+                rollback?()
+                return
+            }
+            if self.appliedReadSerial == readAtStart, let oldRow, let index = self.machines.firstIndex(where: { $0.id == oldRow.id }) {
+                self.machines[index] = oldRow
+                self.onMachinesChanged?()
+            }
             rollback?()
         }
         busyID = id

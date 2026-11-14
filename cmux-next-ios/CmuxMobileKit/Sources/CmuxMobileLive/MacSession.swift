@@ -72,6 +72,8 @@ final class MacSession {
     /// Which serve of this machine ``servedLink`` is (``LiveCoordinator/serveSerial``), so a
     /// terminal tells its own link from a newer one by number, never by an object's address.
     var servedSerial: UInt64 = 0
+    /// The link ``servedSerial`` numbers (weak: a freed link is never mistaken for a new one).
+    weak var numberedLink: AnyObject?
     var closeSerial = 0
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false

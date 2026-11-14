@@ -248,9 +248,14 @@ extension LiveCoordinator {
             if case .success(let prepared)? = daemon { Task { await prepared.client.close() } }
             return nil
         }
+        // A number per link, not per serve: the same link served again (a pairing retry) keeps its
+        // number, so its own terminals never mistake it for a newer link.
+        if session.numberedLink !== link {
+            serveSerial &+= 1
+            session.servedSerial = serveSerial
+            session.numberedLink = link
+        }
         session.servedLink = link
-        serveSerial &+= 1
-        session.servedSerial = serveSerial
         session.acpmux.macLink = link
         bindWorkspaces(session, link, prepared: daemon)
         // A Cloud machine has no `version` service and no pairing (its carrier is the admission).
@@ -680,7 +685,7 @@ extension LiveCoordinator {
         lastShown[macID] = ContinuousClock.now
         if isCloud(macID: macID) { touchedCloud = macID }
         // A held machine opened: read the list now (its hold lifts only on a read).
-        if cloudDropHolds[macID] != nil { onCloudHoldsWaiting?() }
+        if cloudDropHolds[macID] != nil { onCloudHoldsWaiting?(false) }
         applyLinks()
     }
 

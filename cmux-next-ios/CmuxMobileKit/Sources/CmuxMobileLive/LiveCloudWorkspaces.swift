@@ -57,7 +57,10 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         // A carrier dropped: read the list now, so the machine is dialed again only if it still runs.
         coordinator.onCloudLinkDropped = { [weak self] _ in self?.refreshSoon() }
         // The network came back, or a held machine was opened: read now (only a read lifts a hold).
-        coordinator.onCloudHoldsWaiting = { [weak self] in self?.refreshSoon() }
+        coordinator.onCloudHoldsWaiting = { [weak self] restart in
+            guard let self else { return }
+            if restart || !self.readWillLiftHolds { self.refreshSoon() }
+        }
         // The Cloud Machines page changed the shared list (a delete, a start): the Workspaces list follows now.
         model.onMachinesChanged = { [weak self] in self?.publish() }
     }
@@ -144,9 +147,20 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// Reads `cloud.machine.list` and shows it. A failed read (offline, a token being
     /// refreshed, the service briefly away) changes nothing on screen: the last list stays, so
     /// no link or row goes for a transient failure. Only `stop` (sign-out) clears it.
+    /// The stamp of the poll's read in flight (nil: none out).
+    @ObservationIgnored private var readStampInFlight: Int?
+
+    /// A read is out that began after every hold now placed, so its answer will lift them.
+    private var readWillLiftHolds: Bool {
+        guard let stamp = readStampInFlight, let coordinator else { return false }
+        return coordinator.cloudDropHolds.values.allSatisfy { $0 <= stamp }
+    }
+
     public func refresh() async {
         // Where the drop holds stand now: this read may lift only the holds placed before it.
         let stamp = coordinator?.cloudReadStamp
+        readStampInFlight = stamp
+        defer { if readStampInFlight == stamp { readStampInFlight = nil } }
         // The list only: the plan and snapshots are the Cloud Machines page's, read when it opens.
         let read = await model.loadMachines()
         // Only a read that answered, and was not cancelled, is fresh word on a machine.

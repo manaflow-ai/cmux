@@ -222,7 +222,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         let live = coordinator(store: store, cloud: RecordingCloudDialer())
         defer { live.stop() }
         var asks = 0
-        live.onCloudHoldsWaiting = { asks += 1 }
+        live.onCloudHoldsWaiting = { _ in asks += 1 }
         live.networkPathChanged(NetworkPathEvent.changed("wifi"))
         #expect(asks == 0, "nothing held: no read asked")
         live.holdCloudDial(vm)
@@ -830,6 +830,43 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(!LiveCoordinator.reattachesOnChannelEnd(served: 3, lastOpenedOn: 3))
         #expect(LiveCoordinator.reattachesOnChannelEnd(served: 4, lastOpenedOn: 3))
         #expect(LiveCoordinator.reattachesOnChannelEnd(served: 4, lastOpenedOn: nil))
+    }
+
+    /// The page's full read and the list poll share an order: a page read whose machine list
+    /// answers after a newer poll keeps the newer list, but still shows its plan and snapshots.
+    @Test(.timeLimit(.minutes(1))) func aPageReadOvertakenByAPollStillShowsItsPlanAndSnapshots() async {
+        let entered = OpsLog()
+        let gate = DispatchSemaphore(value: 0)
+        ServiceStub.install(host: host) { request in
+            switch Self.op(request) {
+            case "cloud.machine.list":
+                if !entered.all.contains("page") {
+                    // The page's read (the first): held until the poll has answered.
+                    entered.add("page")
+                    gate.wait()
+                    return .init(body: Self.list([("vm_o", "paused")]))
+                }
+                return .init(body: Self.list([("vm_o", "running")]))
+            case "cloud.plan.get":
+                return .init(body: #"{"value":{"plan_id":"team","limits":{"max_active":3,"max_saved":10},"usage":{"active":1,"saved":0}}}"#)
+            case "cloud.snapshot.list":
+                return .init(body: #"{"value":{"snapshots":[{"id":"snap_o","machine":"vm_o","name":"before","size_mb":10,"status":"ready","created_at":1}]}}"#)
+            default:
+                return .init()
+            }
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        let page = Task { await cloud.model.load() }
+        await settle { entered.all.contains("page") }
+        // The poll begins later and answers first.
+        #expect(await cloud.model.loadMachines())
+        gate.signal()
+        await page.value
+        #expect(cloud.model.machine("vm_o")?.status == .running, "the newer poll's list stands")
+        #expect(cloud.model.plan?.planID == "team", "the page's plan still applies")
+        #expect(cloud.model.snapshots.map(\.id) == ["snap_o"], "the page's snapshots still apply")
     }
 
     @Test func startIsTheAccountsOwnOp() async {

@@ -101,7 +101,9 @@ public final class LiveCoordinator {
     @ObservationIgnored var serveSerial: UInt64 = 0
     /// Cloud machines are held and a list read could lift them (the network came back, a held
     /// machine was opened): ``LiveCloudWorkspaces`` reads the list now.
-    @ObservationIgnored public var onCloudHoldsWaiting: (() -> Void)?
+    /// `restart`: cancel a read in flight and start again (the network changed: a read out on the
+    /// old path may never answer); false keeps a read in flight that will lift the holds.
+    @ObservationIgnored public var onCloudHoldsWaiting: ((_ restart: Bool) -> Void)?
 
     /// Holds a Cloud machine out of dialing until a list read that begins after now succeeds.
     func holdCloudDial(_ machineID: String) {
@@ -381,7 +383,7 @@ public final class LiveCoordinator {
             if store.isOffline { store.isOffline = false }
             // A Cloud machine held after its carrier dropped (the outage dropped it) waits for a list
             // read: the network is back, so read now rather than at the next poll.
-            if !cloudDropHolds.isEmpty { onCloudHoldsWaiting?() }
+            if !cloudDropHolds.isEmpty { onCloudHoldsWaiting?(true) }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);

@@ -527,3 +527,15 @@ async fn a_stream_whose_bridge_is_aborted_reads_none() {
         tokio::time::timeout(Duration::from_secs(5), stream.receive()).await.expect("the end, not a hang");
     assert_eq!(after, None);
 }
+
+/// An answer larger than any real one is refused before it is all read (no unbounded body).
+#[tokio::test]
+async fn an_oversized_answer_is_refused() {
+    let big = "x".repeat(MAX_ANSWER_BYTES + 1);
+    let (base, server) = serve_once(200, json!({"ok": true, "value": answer(), "pad": big})).await;
+    let platform = Platform::new(&base, None, MACHINE, "token".into()).unwrap();
+    let error = platform.fetch(None).await.unwrap_err();
+    assert!(matches!(&error, CarrierError::Answer(why) if why.contains("too large")), "{error:?}");
+    assert!(error.retryable());
+    server.abort();
+}
