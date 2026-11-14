@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43533139287",
+  "recorded_at": "2026-11-14T00:26:48Z",
+  "reason": "cmux-tui 96787bf6218b changes the image's cmux-tui (pinned 6ed7dfc35cb2)",
+  "dry_run": false,
+  "cmux_tui": "96787bf6218bf67e4b3575e29dbd81ae8268c14c",
+  "fixes": [
+    {
+      "sha": "96787bf6218bf67e4b3575e29dbd81ae8268c14c",
+      "mergedAt": "2026-11-13T15:52:47-08:00",
+      "subject": "agent service v2: finish remote tee startup and lifecycle coverage (#42715)"
+    },
+    {
+      "sha": "44b208992e5c44a6af457d0f0bac629cef9c2d31",
+      "mergedAt": "2026-11-13T15:47:55-08:00",
+      "subject": "agent service v2: mirror follow-ups and C controls (#42689)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T00:26:48Z",
+    "snapshot_id": "sh-0d7a673ce9564ef88d6d0536143beae7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43533139287): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4b39089e6179e6a27430b6e1d2b797f1b959cef1",
+    "image": "cloud-native-auto-96787bf6-43533139287-1",
+    "revision": "ci-43533139287-1",
+    "at": "2026-11-14T00:26:48Z"
+  },
+  "rolled_back": false
+}
