@@ -597,6 +597,17 @@ class FirstUserJourney(unittest.TestCase):
         self.assertEqual(sorted(got["surfaces"]), ["input2", "input3", "web"], "a bad or repeated surface never overwrites")
         self.assertEqual((got["surfaces"]["input2"]["steps"], got["surfaces"]["input2"]["missing_accounts"]), (0, []))
 
+    def test_a_non_text_stamp_or_reds_value_costs_that_surface_never_the_report(self):
+        stamp = journey("web", 1, [{"cell": "x", "outcome": "pass"}])
+        reds = journey("ios", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": 1}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", stamp), self.write(d, "b.json", reds)], T)
+            r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                                journey_paths=[self.write(d, "c.json", stamp)])
+        self.assertEqual(got["surfaces"]["web"]["why"], "the results have no generated_at")
+        self.assertEqual((got["surfaces"]["ios"]["red"], got["surfaces"]["ios"]["reds_by_rule"]), (1, {}))
+        self.assertIn("n/a", qr.headline(r)["First-user journey"])
+
     def test_fetch_takes_the_newest_run_that_kept_the_artifact(self):
         calls = []
 
