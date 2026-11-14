@@ -348,7 +348,7 @@ mod tests {
         let (len, items) = transcript_end(&file, true);
         assert_eq!(len, std::fs::metadata(&file).unwrap().len());
         assert!(items);
-        assert_eq!(transcript_end(&file, false).1, false);
+        assert!(!transcript_end(&file, false).1);
         assert_eq!(transcript_end(&dir.join("gone.jsonl"), true), (0, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
