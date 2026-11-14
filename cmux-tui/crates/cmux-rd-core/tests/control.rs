@@ -519,6 +519,66 @@ fn split_burst_feedback_still_detects_queue_growth_across_distinct_bursts() {
 }
 
 #[test]
+fn split_burst_feedback_ignores_old_tails_mixed_with_a_new_burst() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    for seq in [0, 1] {
+        cc.on_sent(seq, 0);
+    }
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(2, 100_000);
+    cc.on_feedback(
+        &[
+            Arrival { transport_seq: 1, arrival_us: 26_000 },
+            Arrival { transport_seq: 2, arrival_us: 145_000 },
+        ],
+        0.0,
+        170_000,
+    );
+    assert_eq!(cc.usage(), Usage::Overuse, "an old tail must not hide new queue growth");
+}
+
+#[test]
+fn split_burst_feedback_handles_clock_wrap_retransmits_and_path_reset() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let sent = u64::from(u32::MAX) - 30_000;
+    cc.on_sent(u16::MAX, sent);
+    cc.on_sent(0, sent);
+    cc.on_sent(1, sent);
+    cc.on_feedback(
+        &[Arrival { transport_seq: u16::MAX, arrival_us: (sent + 25_000) as u32 }],
+        0.0,
+        sent + 50_000,
+    );
+    let target = cc.target_bps();
+    cc.on_retransmitted(1);
+    cc.on_feedback(
+        &[
+            Arrival { transport_seq: 0, arrival_us: (sent + 40_000) as u32 },
+            Arrival { transport_seq: 1, arrival_us: (sent + 80_000) as u32 },
+        ],
+        0.0,
+        sent + 105_000,
+    );
+    assert_eq!(cc.target_bps(), target);
+    cc.on_sent(2, sent + 100_000);
+    cc.on_feedback(
+        &[Arrival { transport_seq: 2, arrival_us: (sent + 125_000) as u32 }],
+        0.0,
+        sent + 150_000,
+    );
+    assert_eq!(cc.usage(), Usage::Normal);
+    assert!(cc.target_bps() > target);
+    cc.on_path_changed(PathKind::DirectLan);
+    cc.on_sent(3, sent + 200_000);
+    cc.on_feedback(
+        &[Arrival { transport_seq: 3, arrival_us: (sent + 280_000) as u32 }],
+        0.0,
+        sent + 305_000,
+    );
+    assert_eq!(cc.usage(), Usage::Normal, "a path change starts a fresh delay baseline");
+}
+
+#[test]
 fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
     cc.on_sent(0, 0);
