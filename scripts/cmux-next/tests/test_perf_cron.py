@@ -61,15 +61,31 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(cron.empty_state(T0), T0, None, None, lambda sha: ALL, None)
         self.assertEqual(d["action"], "none")
 
-    def test_a_busy_github_fleet_holds_the_mac_parts_but_not_the_linux_part(self):
+    def test_a_busy_github_fleet_holds_the_mac_parts_of_a_runner_host_but_not_the_linux_part(self):
+        busy = "nightly.yml waits for a runner"
         state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, "nightly.yml waits for a runner")
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs built the app
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual(d["action"], "none")
         self.assertTrue(d["yielded"])
         self.assertIsNotNone(state["current"])
-        state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, "nightly.yml waits for a runner")
+        state["current"]["parts_todo"].append("diff-viewer")
+        d = cron.decide(state, at(1), None, None, lambda sha: ALL, busy)
         self.assertEqual((d["action"], d["part"], d["linux_part"]), ("part", "", "diff-viewer"))
+
+    def test_a_busy_github_fleet_sends_the_mac_parts_to_the_bench_host(self):
+        # 2026-11-13 16:43Z to 11-14 02:29Z: no Mac part ran. Every tick found a nightly job queued for a signing
+        # runner and measured nothing, while cmux20-bench, which runs no CI job, could have taken the part.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        self.assertIn(busy, d["reason"])
+        self.assertNotIn("host", state["current"], "the part's result pins the measurement, not the request")
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
 
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
