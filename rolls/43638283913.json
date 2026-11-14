@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43638283913",
+  "recorded_at": "2026-11-14T20:45:04Z",
+  "reason": "cmux-tui 2ba8b457a7b2 changes the image's cmux-tui (pinned 4add9d5e1d1f)",
+  "dry_run": false,
+  "cmux_tui": "2ba8b457a7b2849999194bbf51d86174b6125846",
+  "fixes": [
+    {
+      "sha": "2ba8b457a7b2849999194bbf51d86174b6125846",
+      "mergedAt": "2026-11-14T12:13:34-08:00",
+      "subject": "Agent chat: the translator writes the turn's end with its result, and counts every kind it does not draw (v2 row 2c, PR 1) (#43168)"
+    },
+    {
+      "sha": "e6a5213758f90ec66e1e038d65844190323c7dfc",
+      "mergedAt": "2026-11-14T12:13:27-08:00",
+      "subject": "acpmux: add read-free hold attach (#43176)"
+    },
+    {
+      "sha": "f1930900fea4a19bae774fde36893399783061bb",
+      "mergedAt": "2026-11-14T12:12:45-08:00",
+      "subject": "[cloud-resume-no-lost-output] Fix inventory scanning of test modules (#43221)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:45:04Z",
+    "snapshot_id": "sh-b2cdf67f59d34fb9aacafae3a2daa68b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43638283913): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3f726226fcc2842eb9f7bbeb7367d547c2d6e4ad",
+    "image": "cloud-native-auto-2ba8b457-43638283913-1",
+    "revision": "ci-43638283913-1",
+    "at": "2026-11-14T20:45:04Z"
+  },
+  "rolled_back": false
+}
