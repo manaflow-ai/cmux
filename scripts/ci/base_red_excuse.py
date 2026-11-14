@@ -1529,12 +1529,18 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         try:
             matcher = _check_matcher(str(job_id), spec, path)
         except Refused:
-            unread.append(spec)
+            # A name _check_matcher does not read (two expressions: 'Reviewer path (${{ needs.plan.outputs.lane }},
+            # ${{ matrix.family }})') still names JOB when JOB's name is its text with each expression rendered.
+            (named if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
             continue
         if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
                                                        for start in matcher["prefixes"])):
             named.append(spec)
-    if len(named) != 1 or "uses" in named[0] or (named[0].get("strategy") or {}).get("matrix"):
+    # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
+    # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
+    # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
+    # composite setup-cmux-tui-rust step printed three inner `Run` lines and no header was known to place them.
+    if len(named) != 1 or "uses" in named[0]:
         return STEP_NAMES_UNKNOWN
     marks = _step_marks(named[0].get("steps"), names)
     if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
@@ -1550,6 +1556,15 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
            and _failure_gates(spec["steps"], api, marks) != found.gates for spec in unread):
         found.gates = None
     return found
+
+
+def _rendered_name_fits(template, name) -> bool:
+    """Whether NAME (a jobs-API job name) is TEMPLATE (a workflow job's `name:` holding `${{ }}` expressions) with
+    each expression rendered as some text. Matching more than one workflow job leaves workflow_step_names unsure."""
+    if not isinstance(template, str) or not isinstance(name, str) or "${{" not in template:
+        return False
+    parts = re.split(r"\$\{\{.*?\}\}", template)
+    return re.fullmatch(".*".join(map(re.escape, parts)), name, flags=re.DOTALL) is not None
 
 
 def _numbered_in_full(api: list[dict]) -> bool:
