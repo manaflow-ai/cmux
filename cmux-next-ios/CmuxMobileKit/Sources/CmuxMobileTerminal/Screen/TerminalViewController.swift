@@ -968,10 +968,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func gridReplayed() {
         // The held frame is up: the area changes when it goes (`unfreeze`).
-        if freezeView != nil, model.isTUI {
-            areaSwapPending = true
-            return
-        }
         swapArea()
     }
 
@@ -1887,7 +1883,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // (the composer's glass, the key row) stays live above the backing,
         // and a still of the whole page cost 10-15 ms on the frame the
         // keyboard stopped (the held replay's reset, step f97802b9).
-        let source: UIView = model.isTUI ? tuiHost : view
+        let source: UIView = model.isTUI ? tuiClip : view
         guard let snapshot = measured("hold-frame-snapshot", { source.snapshotView(afterScreenUpdates: false) }) else { return }
         snapshot.isUserInteractionEnabled = false
         if source === view {
@@ -1898,9 +1894,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // pinned to the composer and rides the keyboard's animation, so
             // the still does too (a still of the clip added mid-animation
             // stood where the clip ends, 12-21 pt off the moving composer).
-            snapshot.frame.origin = CGPoint(x: 0, y: tuiHost.bounds.height - snapshot.bounds.height)
+            snapshot.frame.origin = CGPoint(x: 0, y: tuiClip.bounds.height - snapshot.bounds.height)
             snapshot.autoresizingMask = [.flexibleTopMargin]
-            tuiHost.addSubview(snapshot)
+            tuiClip.addSubview(snapshot)
         }
         freezeView = snapshot
         freezeBatches = 0
