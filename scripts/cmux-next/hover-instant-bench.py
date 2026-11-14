@@ -135,9 +135,13 @@ class Cua:
         self.lines = queue.Queue()
         threading.Thread(target=self.read, daemon=True).start()
         self.n = 0
-        self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                "clientInfo": {"name": "hover-instant-bench", "version": "1"}})
-        self.rpc("notifications/initialized", notify=True)
+        try:
+            self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                    "clientInfo": {"name": "hover-instant-bench", "version": "1"}})
+            self.rpc("notifications/initialized", notify=True)
+        except (OSError, RuntimeError):
+            self.close()
+            raise
 
     def read(self):
         for line in self.p.stdout:
