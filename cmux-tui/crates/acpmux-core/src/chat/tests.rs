@@ -965,7 +965,8 @@ fn msgs(raw: &[u8], count: usize) -> Vec<serde_json::Value> {
         .collect()
 }
 
-const CARD: u64 = 1 << 40;
+// Above every row id the one-turn corpus settles, and small: the log indexes rows by id.
+const CARD: u64 = 1000;
 
 #[test]
 fn card_records_are_each_listed_lines_msg_in_order() {
@@ -988,7 +989,10 @@ fn a_record_that_no_longer_reads_is_left_out_counted_and_the_actor_reads_on() {
     let missed = config.card_reads_missed.clone();
     let mut state = open_state(config).unwrap();
     while !read_source(&mut state).unwrap() {}
-    let before = rows(home.path()).len();
+    // The rows one turn settles, from another book: this one is open.
+    let other = tempfile::tempdir().unwrap();
+    catch_up(fixture(other.path(), 1));
+    let before = rows(other.path()).len();
     let mut lines = logged_lines(&mut state).into_iter().take(3).collect::<Vec<_>>();
     // The middle line's span no longer matches: the log under it changed.
     lines[1].span += 1;
