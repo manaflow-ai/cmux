@@ -991,8 +991,8 @@ fn a_joined_machine_named_in_another_case_starts_under_its_own_name() {
     let found = on_joined("STUDIO", Some(joined_rows()));
     assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
     let Ok(Route::Joined(machine)) = found else { unreachable!() };
-    let words = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
-    assert_eq!(words, words(&["session", "start", "n", "--machine", "studio", "--json"]));
+    let sent = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
+    assert_eq!(sent, words(&["session", "start", "n", "--machine", "studio", "--json"]));
     // Without the account's list, the hub's spelling.
     assert_eq!(on_joined("Mini-2", None), joined_at(None, "mini-2", "mini-2"));
     // A label in another case: the account's label and the hub's host name.
