@@ -117,6 +117,38 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
+/// Composer places are data: the builder writes the slash commands and mention items into the
+/// options cmux's validator checks, with no export and no activation, and the validator takes it.
+#[test]
+fn the_builder_adds_composer_commands_and_mentions_cmux_accepts() {
+    let manifest = Manifest::new("local/standup", "Standup", "0.1.0", "Composer commands.")
+        .slash_command("standup", "Ask for today's standup", "Write my standup notes.")
+        .slash_command("review-pr", "Review a pull request", "Review pull request #")
+        .mention("ticket", "ENG-1", "ENG-1 Login fails", Some("ENG-1"))
+        .mention("ticket", "ENG-2", "ENG-2 Slow sidebar", None);
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    let commands = &json["implements"]["cmux.composer.command/1"];
+    assert_eq!(commands["options"]["commands"][1]["name"], "review-pr");
+    assert_eq!(commands["options"]["commands"][0]["insert"], "Write my standup notes.");
+    assert!(commands.get("export").is_none());
+    let mentions = &json["implements"]["cmux.composer.mention/1"]["options"];
+    assert_eq!(mentions["prefix"], "ticket");
+    assert_eq!(mentions["items"].as_array().map(Vec::len), Some(2));
+    assert!(json.get("activation").is_none(), "data places activate no script: {json}");
+
+    // The same name twice is refused, as cmux refuses it.
+    let twice = Manifest::new("local/standup", "Standup", "0.1.0", "Composer commands.")
+        .slash_command("standup", "a", "a")
+        .slash_command("standup", "b", "b");
+    assert!(
+        twice.validate().iter().any(|i| i.code == "interface.options.duplicate"),
+        "{:?}",
+        twice.validate()
+    );
+}
+
 /// A chat widget (`cmux.chat.widget/1`): the builder writes the place, the tools it answers and
 /// its activation, and cmux's validator takes it; a pattern that would answer every call is refused.
 #[test]

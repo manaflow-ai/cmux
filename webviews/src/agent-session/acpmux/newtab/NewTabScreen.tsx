@@ -127,6 +127,7 @@ import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
+  insertsText,
   returnPicks,
   shownName,
   slashMatches,
@@ -956,7 +957,7 @@ export function NewTabScreen(props: Props) {
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       requestAnimationFrame(() => field.current?.focus());
       return;
     }
