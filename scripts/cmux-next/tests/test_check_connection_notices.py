@@ -30,6 +30,10 @@ SPEC = importlib.util.spec_from_file_location("check_connection_notices",
 ccn = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = ccn  # dataclasses read the module
 SPEC.loader.exec_module(ccn)
+# tests/git_fixture_env.py builds a fixture repository's git env: no inherited GIT_DIR or config, no maintenance.
+_GIT_FIXTURE = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_GIT_FIXTURE)
+_GIT_FIXTURE.loader.exec_module(git_fixture_env)
 
 ALLOWLIST = ccn.ALLOWLIST
 
@@ -211,9 +215,9 @@ class Tree:
         return code, out.getvalue()
 
     def git(self, *args: str) -> str:
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
-               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+        env = git_fixture_env.without_auto_maintenance(git_fixture_env.write_env())
+        env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com")
         return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True,
                               env=env).stdout
 
