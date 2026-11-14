@@ -435,9 +435,11 @@ assert not servers["cmux"]["enabled"], servers["cmux"]
   }
   root=$(run_review "$CODEX" "${probe[@]}" "${dead[@]}" review "look at the readme")
   deeper=$(run_review "$CODEX" "${probe[@]}" review "${dead[@]}" "look at the readme")
+  # review starts the configured servers more than once (its own session
+  # and the review's): "started" means at least once.
   case "$("$CODEX" --version)" in
-    *" 0.160."*) [ "$root" = "started probe " ] && [ "$deeper" = "" ] ;;
-    *) [ "$root" = "started probe " ] ;;
+    *" 0.160."*) [[ "$root" == *"started probe "* ]] && [ "$deeper" = "" ] ;;
+    *) [[ "$root" == *"started probe "* ]] ;;
   esac
   check "codex: root -c applies to review ('$root'); with a -c after review, the root list ('$deeper')" $?
   # The shim with the person's settings after `review`: all of them, and the
@@ -446,7 +448,7 @@ assert not servers["cmux"]["enabled"], servers["cmux"]
   (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper review "${probe[@]}" "${dead[@]}" "look at the readme" >/dev/null 2>&1)
   recorded=(); while IFS= read -r a; do recorded+=("$a"); done < "$D/codex-args"
   hoisted=$(run_review "$CODEX" "${recorded[@]}")
-  ! sed -n '/^review$/,$p' "$D/codex-args" | grep -qx -- -c && [ "$hoisted" = "started probe " ] \
+  ! sed -n '/^review$/,$p' "$D/codex-args" | grep -qx -- -c && [[ "$hoisted" == *"started probe "* ]] \
     && grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args"
   check "codex shim [review -c ...]: the real Codex runs the person's server after the hoist ('$hoisted'), beside the shim's settings" $?
 fi
