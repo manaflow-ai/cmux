@@ -419,7 +419,6 @@ public final class PaneToolbarView: NSView {
     /// The toggle's room and its gap to the slot right of it, when `kept`.
     private func terminalChatRoom(_ kept: Bool) -> CGFloat { kept ? PaneTerminalChatToggleView.width + Metrics.space1 / 2 : 0 }
 
-
     /// The bar's width beside a page whose own tools share the tab row (a chat's header): what it shows now and the
     /// trailing gap, never room kept for a hidden "…" or pin (``reservedCount``). That room is the selected tab's to
     /// keep the strip still; beside a chat it is an empty slot after the chat's own "…", and a pane whose other tabs
