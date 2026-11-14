@@ -31,6 +31,7 @@
 import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
+import { useAnswerHold } from "../answerHold";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { inlineText } from "./inlineText";
@@ -110,7 +111,9 @@ export function HatQuestions({
   }, [drawn, shown, shownId]);
   const [direction, setDirection] = useState<"next" | "previous">("next");
   const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState<string>();
+  // The answer that went, held until the question's source takes it away, ANSWER_HOLD_MS at most
+  // (answerHold.ts): a source that never does (the agent exited) leaves the band taking answers again.
+  const [sending, setSending] = useAnswerHold<string>();
   const [failed, setFailed] = useState<string>();
   // The reply field's text, its reveal (the `reveal` look) and whether the whole question shows.
   const [draft, setDraft] = useState("");
@@ -123,7 +126,7 @@ export function HatQuestions({
     setDraft("");
     setReplying(false);
     setWhole(false);
-  }, [shown?.id]);
+  }, [shown?.id, setSending]);
   // Revealed by a click (the `reveal` look), the field takes the cursor; drawn from the start, it
   // waits for one.
   const fieldRef = useRef<HTMLInputElement>(null);

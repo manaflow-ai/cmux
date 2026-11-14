@@ -146,7 +146,8 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     let scope = cmux_scope::Scope::new("list-replay-gate");
     let server_task = scope.spawn(async move {
         let features = ["list".to_owned()];
-        run(server_reader, server_writer, source, "v2-replay-gate", &features).await
+        run(server_reader, server_writer, source, "v2-replay-gate", &features, super::Role::Local)
+            .await
     });
     let (mut reader, mut writer_io) = tokio::io::split(client);
     hello(&mut writer_io, &mut reader).await;
