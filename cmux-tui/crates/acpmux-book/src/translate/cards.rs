@@ -184,7 +184,7 @@ impl State {
     fn card_at(&self, key: u64) -> Option<usize> {
         self.cards.iter().position(|card| card.key == key)
     }
-    fn card_bytes(&self) -> usize {
+    pub(super) fn card_bytes(&self) -> usize {
         self.cards.iter().map(Card::bytes).fold(0, usize::saturating_add)
     }
     /// Counts a cut where the translator first reads a string a card shows (decision 254): the
