@@ -160,7 +160,9 @@ impl Supervisor {
     /// match, best first (a prefix of the id or label, then of a word, then
     /// anywhere), each rank in provider and manifest order.
     pub(super) fn composer_mentions(&self, p: MentionParams) -> Value {
-        let limit = p.limit.map_or(DEFAULT_MENTIONS, |l| (l as usize).clamp(1, MAX_MENTIONS));
+        let limit = p.limit.map_or(DEFAULT_MENTIONS, |l| {
+            usize::try_from(l).unwrap_or(MAX_MENTIONS).clamp(1, MAX_MENTIONS)
+        });
         let query = p.query.trim().to_lowercase();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut found: Vec<(u8, Mention)> = Vec::new();
