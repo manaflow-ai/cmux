@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43647380205",
+  "recorded_at": "2026-11-14T22:29:09Z",
+  "reason": "cmux-tui 2540790a0d92 changes the image's cmux-tui (pinned babcb18cd895)",
+  "dry_run": false,
+  "cmux_tui": "2540790a0d92c7fe6433752851b307a7eea6b40c",
+  "fixes": [
+    {
+      "sha": "2540790a0d92c7fe6433752851b307a7eea6b40c",
+      "mergedAt": "2026-11-14T13:57:09-08:00",
+      "subject": "iOS terminal: bench bytes against render attach on a real daemon, and bytes received in the energy bench (#43256)"
+    },
+    {
+      "sha": "83fc04af40a999c8e0a8cba0b91ed28202e3a169",
+      "mergedAt": "2026-11-14T13:52:49-08:00",
+      "subject": "[next-no-huge-files] Split cmux-remote authorization database (#43263)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T22:29:09Z",
+    "snapshot_id": "sh-8b38b5bc42a4486591002e02c162a166",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43647380205): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8ddc4a4ce9a71adffcaea92e009f357a5fc5597d",
+    "image": "cloud-native-auto-2540790a-43647380205-1",
+    "revision": "ci-43647380205-1",
+    "at": "2026-11-14T22:29:09Z"
+  },
+  "rolled_back": false
+}
