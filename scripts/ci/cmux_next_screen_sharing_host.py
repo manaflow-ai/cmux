@@ -188,6 +188,7 @@ class Host:
         else:
             result = rpc(self.sock, "debug.device_hub", {"action": "capture_" + phase, **params}, timeout=30)
             verified = (result.get("ok") is True and result.get("verified_absent") is True
+                        and result.get("hub_quiescent") is True
                         and all(type(result.get(key)) is int and result[key] >= 0
                                 for key in ("identity_removed", "relays_removed")))
         if not verified or result.get("code") != "ok":
