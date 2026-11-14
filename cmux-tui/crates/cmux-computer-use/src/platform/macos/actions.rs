@@ -461,6 +461,10 @@ fn click_point(
 /// the app's hit test at the point, kept only when it is inside the target
 /// window. A label or image inside a control counts as the control.
 fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOutcome>> {
+    // A window off screen keeps refusing point clicks (pointer_route).
+    if !t.window.on_screen {
+        return Ok(None);
+    }
     let Ok((app, win)) = d.ax_window(t) else { return Ok(None) };
     let Some(hit) = app.element_at(at.x, at.y) else { return Ok(None) };
     if !hit.element("AXWindow").is_some_and(|w| w.same(&win)) {
@@ -481,13 +485,19 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     }
     let role = el.string("AXRole").unwrap_or_default();
     let actions = el.actions();
-    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), selectable(&el).is_some())
+    // A row already selected takes the click itself (an editable cell gets
+    // its caret from the events); only an unselected row is selected.
+    let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
+    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row)
     {
         roles::HitClick::Press => {
             d.refuse_denied_item(&el)?;
             d.refuse_submenu_open(&el)?;
             let before = el.value_text();
-            el.perform("AXPress").map_err(|e| ax_error(e, "pressing the element at the point"))?;
+            // A press the element refuses falls back to the events.
+            if el.perform("AXPress").is_err() {
+                return Ok(None);
+            }
             let mut out = outcome_after("ax_hit_press", before, &el);
             out.cursor_at = Some(at);
             Ok(Some(out))
@@ -515,7 +525,7 @@ fn enable_menu_item(
     element_id: &str,
 ) -> DResult<super::activation::KeyInApp> {
     let title = item.string("AXTitle").unwrap_or_default();
-    let key = super::activation::KeyInApp::enter(t.window.id).ok_or_else(|| {
+    let key = super::activation::KeyInApp::enter(t.window.id, t.window.pid).ok_or_else(|| {
         DesktopError::Unsupported(format!(
             "menu item {title:?} ({element_id}) is disabled while its app is in the background, and the window could not be made the app's key window; nothing was pressed. Use delivery foreground if it is allowed"
         ))
@@ -554,7 +564,7 @@ fn key_for_pointer(
 
 /// `t`'s window as its app's key window (to the app only), settled.
 fn key_in_app(t: &Target) -> Option<super::activation::KeyInApp> {
-    let key = super::activation::KeyInApp::enter(t.window.id)?;
+    let key = super::activation::KeyInApp::enter(t.window.id, t.window.pid)?;
     std::thread::sleep(KEY_SETTLE);
     Some(key)
 }
@@ -630,6 +640,7 @@ pub(super) fn click(
     let _key = if spec.delivery == Delivery::Background
         && in_menu_bar
         && el.bool("AXEnabled") == Some(false)
+        && !d.is_persons_app(&t)
     {
         Some(enable_menu_item(&t, &el, element_id)?)
     } else {
@@ -723,6 +734,8 @@ const KEY_DELETE: u16 = 51;
 /// window and it is not the app the person is typing in.
 fn mark_document_edited(d: &MacDesktop, t: &Target, el: &Ax, out: &mut ActionOutcome) {
     if out.evidence != "confirmed"
+        || out.route != "ax_insert_text"
+        || el.selected_range().is_none_or(|(_, len)| len != 0)
         || el.bool("AXFocused") != Some(true)
         || el.string("AXRole").as_deref() != Some("AXTextArea")
         || d.is_persons_app(t)
@@ -740,9 +753,10 @@ fn mark_document_edited(d: &MacDesktop, t: &Target, el: &Ax, out: &mut ActionOut
     {
         out.note = "a space and a Delete were typed after the text so the document counts it as an edit (an accessibility write alone leaves it unmodified, and Save would write nothing)".into();
     }
-    // The pair is net zero; anything else is said.
+    // The pair is net zero; anything else is said, and nothing is confirmed.
     std::thread::sleep(std::time::Duration::from_millis(60));
     if el.value_text() != before {
+        out.evidence = "delivered".into();
         out.note = "a space and a Delete were typed after the text to mark the document edited, but its text changed: check it".into();
     }
 }

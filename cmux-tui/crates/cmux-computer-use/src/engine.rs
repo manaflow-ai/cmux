@@ -1800,7 +1800,7 @@ mod menus_glue;
 
 /// The text a `delivered` result gets when the window looked the same after
 /// the action as in the agent's last capture of it.
-pub(crate) const NO_VISIBLE_CHANGE_NOTE: &str = "the window looks exactly as it did in your last screenshot of it, after waiting for it to redraw: if this action should have changed what it shows, it did not take effect. Try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An action with no visible effect (copy, save) may still have worked.";
+pub(crate) const NO_VISIBLE_CHANGE_NOTE: &str = "the window looks exactly as it did in your last screenshot of it, after waiting for it to redraw: if this action should have changed what it shows, it did not take effect. Try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An action with no visible effect in this window (copy, save, opening another window) may still have worked.";
 
 /// A result the route only delivered (nothing read back confirms it) whose
 /// settled capture is unchanged from the agent's last one reports that, so

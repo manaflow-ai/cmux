@@ -97,9 +97,9 @@ pub(super) fn record(kind: u8, window: u32, direction: u8) -> [u8; 0xF8] {
 }
 
 /// The process serial number of the window's owner.
-fn psn_of(c: &Calls, window: u32) -> Option<[u8; 8]> {
+fn psn_of(c: &Calls, window: u32) -> Option<[u32; 2]> {
     let mut owner = 0u32;
-    let mut psn = [0u8; 8];
+    let mut psn = [0u32; 2];
     // SAFETY: the calls with their signatures and live out-pointers.
     unsafe {
         if (c.owner)((c.connection)(), window, &mut owner) != 0 || owner == 0 {
@@ -112,7 +112,7 @@ fn psn_of(c: &Calls, window: u32) -> Option<[u8; 8]> {
     Some(psn)
 }
 
-fn post(c: &Calls, psn: &[u8; 8], r: &[u8; 0xF8]) -> bool {
+fn post(c: &Calls, psn: &[u32; 2], r: &[u8; 0xF8]) -> bool {
     // SAFETY: a live PSN and a 248-byte record, as the call takes them.
     unsafe { (c.post)(psn.as_ptr().cast(), r.as_ptr()) == 0 }
 }
@@ -122,7 +122,8 @@ fn post(c: &Calls, psn: &[u8; 8], r: &[u8; 0xF8]) -> bool {
 /// a record.
 pub(super) struct KeyInApp {
     window: u32,
-    psn: [u8; 8],
+    pid: i32,
+    psn: [u32; 2],
 }
 
 impl KeyInApp {
@@ -130,10 +131,10 @@ impl KeyInApp {
     /// owner. `None` when the private calls or the window's owner are
     /// missing, or a post failed (then nothing is left to undo but the focus
     /// record, which is undone).
-    pub(super) fn enter(window: u32) -> Option<KeyInApp> {
+    pub(super) fn enter(window: u32, pid: i32) -> Option<KeyInApp> {
         let c = calls()?;
         let psn = psn_of(c, window)?;
-        let scope = KeyInApp { window, psn };
+        let scope = KeyInApp { window, pid, psn };
         let ok = post(c, &psn, &record(RECORD_FOCUS, window, FOCUS_IN))
             && post(c, &psn, &record(RECORD_MAKE_KEY_DOWN, window, 0))
             && post(c, &psn, &record(RECORD_MAKE_KEY_UP, window, 0));
@@ -148,6 +149,11 @@ const HAND_BACK_AFTER: Duration = Duration::from_millis(60);
 impl Drop for KeyInApp {
     fn drop(&mut self) {
         std::thread::sleep(HAND_BACK_AFTER);
+        // The app became the active app meanwhile (the person switched to
+        // it): it keeps its focus.
+        if super::workspace::app_for_pid(self.pid).is_some_and(|a| a.active) {
+            return;
+        }
         if let Some(c) = calls() {
             post(c, &self.psn, &record(RECORD_FOCUS, self.window, FOCUS_OUT));
         }

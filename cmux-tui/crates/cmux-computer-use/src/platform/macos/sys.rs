@@ -229,6 +229,7 @@ pub const AX_NO_VALUE: AXError = -25212;
 
 pub const AX_VALUE_CGPOINT: u32 = 1;
 pub const AX_VALUE_CGSIZE: u32 = 2;
+pub const AX_VALUE_CFRANGE: u32 = 4;
 pub const AX_VALUE_ERROR: u32 = 5;
 
 /// A retained CoreFoundation object (+1), released on drop.

@@ -258,13 +258,14 @@ pub enum HitClick {
     Events,
 }
 
-/// A text field in a row counts as the row: a click in a row selects it
-/// first (Finder's file name is a text field; AppKit tables edit a cell only
-/// on a click in a row already selected).
-pub fn hit_click(role: &str, has_press: bool, in_selectable_row: bool) -> HitClick {
+/// A text field in a row that is not selected counts as the row: a click in
+/// a row selects it first (Finder's file name is a text field; AppKit tables
+/// edit a cell only on a click in a row already selected, which gets the
+/// events).
+pub fn hit_click(role: &str, has_press: bool, in_unselected_row: bool) -> HitClick {
     if has_press && is_press_role(role) {
         HitClick::Press
-    } else if !has_press && in_selectable_row {
+    } else if !has_press && in_unselected_row {
         HitClick::Select
     } else {
         HitClick::Events
