@@ -25,6 +25,7 @@ class ProofFailure(RuntimeError):
 
 ERROR_CODES = {
     "device_hub_configuration_timeout", "host_cloud_namespace_unavailable",
+    "host_admission_unverified", "host_staging_backend_unverified",
     "proof_incomplete", "proof_interrupted", "host_cleanup_failed", "runner_preflight_failed",
     "host_command_unavailable", "host_command_failed", "device_identity_secure_enclave_unavailable",
     "device_identity_corrupt_key_blob", "device_identity_unavailable",
@@ -252,6 +253,7 @@ def main(argv=None):
     host_api = host_module()
     if args.preflight:
         try:
+            host_api.require_admission(os.environ)
             host_api.preflight()
             if os.environ.get("CMUX_SCREEN_PROOF_MAC_JOB"):
                 host_api.job_receipt(os.environ["CMUX_SCREEN_PROOF_MAC_JOB"],
@@ -288,6 +290,7 @@ def main(argv=None):
         raise ProofFailure("Proof interrupted")
     previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
+        host_api.require_admission(os.environ)
         host_api.preflight()
         email, password = (os.environ.get(key, "") for key in
                            ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"))

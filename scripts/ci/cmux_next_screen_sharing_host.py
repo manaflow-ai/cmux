@@ -18,6 +18,17 @@ class HostFailure(RuntimeError):
     pass
 
 
+def require_admission(env):
+    # Defense in depth: the protected HQ job and its runner hook provide this
+    # identity. These fields do not acquire a lease or authorize an SSH caller.
+    expected = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "manaflow-ai/cmuxterm-hq",
+                "GITHUB_WORKFLOW_REF": "manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
+                "GLAEDA_JOB_CLAIM": "exclusive"}
+    if (any(env.get(key) != value for key, value in expected.items())
+            or not re.fullmatch(r"[0-9a-f]{64}", env.get("GLAEDA_HOOK_SHA256", ""))):
+        raise HostFailure("host_admission_unverified")
+
+
 def command(argv, *, timeout=60, env=None):
     try:
         result = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=timeout)
@@ -81,7 +92,7 @@ def identity_service(app, bundle, env):
     # environment table. DeviceHub uses auth_namespace (not auth_storage_namespace).
     try:
         selection = json.loads(command([str(app / "Contents/Resources/bin/cmux"),
-                                        "--json", "cloud", "env", "get"],
+                                        "--json", "cloud", "env", "get", "--backend", "staging"],
                                        env={**env, "CMUX_BUNDLE_ID": bundle}, timeout=30))
     except ValueError:
         raise HostFailure("host_cloud_namespace_unavailable") from None
@@ -90,6 +101,9 @@ def identity_service(app, bundle, env):
             or not isinstance(selection.get("auth_namespace"), str)
             or not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", selection["auth_namespace"])):
         raise HostFailure("host_cloud_namespace_unavailable")
+    if (selection.get("name") != "staging"
+            or selection.get("stack_project_id") != "454ecd03-1db2-4050-845e-4ce5b0cd9895"):
+        raise HostFailure("host_staging_backend_unverified")
     suffix = "" if selection["legacy_storage"] else ".cloud." + selection["auth_namespace"]
     return bundle + suffix + ".device-hub"
 
@@ -142,7 +156,8 @@ class Host:
         return rpc(self.sock, "debug.device_hub", params)
 
     def _launch(self, env, home):
-        self.proc = subprocess.Popen([str(self.app / "Contents/MacOS" / self.info["CFBundleExecutable"])],
+        self.proc = subprocess.Popen([str(self.app / "Contents/MacOS" / self.info["CFBundleExecutable"]),
+                                      "--cloud-backend", "staging"],
                                      cwd=home, env=env, stdout=self.log, stderr=subprocess.STDOUT)
 
     def _account(self):
@@ -179,7 +194,8 @@ class Host:
             env.pop(key, None)
         env.update(HOME=str(home), CFFIXED_USER_HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
                    CMUX_NEXT_CONFIG_FILE=str(config), CMUX_NEXT_SOCKET_PATH=str(self.sock),
-                   CMUX_NEXT_NO_ACTIVATE="1", CMUX_NEXT_SOCKET_MODE="automation")
+                   CMUX_NEXT_NO_ACTIVATE="1", CMUX_NEXT_SOCKET_MODE="automation",
+                   CMUX_NEXT_CLOUD_BACKEND="staging")
         # Resolve only after isolating the environment. Read attributes only,
         # never a key's value; 44 is errSecItemNotFound. Remote's separate key
         # scope is tied to the daemon state root beneath this private home.

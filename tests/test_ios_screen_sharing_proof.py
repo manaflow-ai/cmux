@@ -164,14 +164,14 @@ class HostTests(unittest.TestCase):
     def test_freshness_checks_resolved_app_identity_namespace(self):
         bundle = "com.cmuxterm.app.debug.capabc"
         for legacy in (False, True):
-            selection = dict(bundle_id=bundle, legacy_storage=legacy, auth_namespace="development",
-                             auth_storage_namespace="deliberately-different")
+            selection = dict(bundle_id=bundle, legacy_storage=legacy, auth_namespace="development", name="staging",
+                             stack_project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895", auth_storage_namespace="deliberately-different")
             with self.subTest(legacy=legacy), patch.object(self.host, "command", return_value=json.dumps(selection)) as command:
                 service = self.host.identity_service(Path("/tmp/owned.app"), bundle, {"HOME": "/tmp/owned"})
                 self.assertEqual(service, bundle + ("" if legacy else ".cloud.development") + ".device-hub")
                 self.assertEqual(command.call_args.kwargs["env"]["CMUX_BUNDLE_ID"], bundle)
                 self.assertEqual(command.call_args.kwargs["env"]["HOME"], "/tmp/owned")
-                self.assertEqual(command.call_args.args[0][-4:], ["--json", "cloud", "env", "get"])
+                self.assertEqual(command.call_args.args[0][-6:], ["--json", "cloud", "env", "get", "--backend", "staging"])
 
     def test_unknown_or_mismatched_namespace_fails_closed(self):
         valid = dict(bundle_id="cap", legacy_storage=False, auth_namespace="development")
@@ -184,7 +184,8 @@ class HostTests(unittest.TestCase):
 
     def test_existing_cloud_device_identity_refuses_before_launch(self):
         bundle = "com.cmuxterm.app.debug.capabc"
-        selected = dict(bundle_id=bundle, legacy_storage=False, auth_namespace="development")
+        selected = dict(bundle_id=bundle, legacy_storage=False, auth_namespace="development",
+                        name="staging", stack_project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895")
         def run(argv, **_):
             # The raw bundle has no identity; the namespace used by the app does.
             return Mock(returncode=0 if bundle + ".cloud.development.device-hub" in argv else 44)

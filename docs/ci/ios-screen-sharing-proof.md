@@ -4,7 +4,11 @@ Leo: “the buttons are a future optional potential; the other ways (command pal
 
 This manual proof exercises the iOS app in a new simulator and a physical managed Mac running an unchanged, completed capture bundle from the same source. It does not prove a physical iPhone. The optional Session Info buttons and the old live UI test rig are outside its scope.
 
-Dispatch `ios-screen-sharing-proof.yml` on `feat-cmux-next` with the landed full `ref`, completed `mac_job`, and its `artifact_sha256`. The workflow checks ancestry before running that source, uses the protected `ios-e2e` account, and takes the runner's GUI token with `glaeda-canonical-root take-gui --wait 900`. A missing helper or any nonzero admission result ends the attempt. A give-way result is a scheduling receipt, not permission to bypass the token. Job completion releases it.
+The protected capture workflow owns dispatch and account delivery. It must verify a landed full cmux `source_sha`, completed `mac_job`, and its `artifact_sha256` before executing this harness. There is no credential workflow in this repository. Admission requires a dedicated owned Mac under a whole-host exclusive, time-limited lease; a GUI token alone does not admit the proof. Missing admission ends the attempt before sign-in.
+
+Only the approved staging Cloud test account may be mapped to `CMUX_UITEST_STACK_EMAIL` and `CMUX_UITEST_STACK_PASSWORD`. The separate dogfood account is outside this proof's scope. The host launches unchanged with `--cloud-backend staging`, and its bundled resolver must confirm the staging environment and development Stack project before credentials are used. The phone uses the Demo configuration, whose DEBUG sign-in uses that same development Stack project and staging Cloud API.
+
+The harness expects the protected HQ `ios-screen-sharing-proof.yml` workflow on `main`, `GLAEDA_JOB_CLAIM=exclusive`, and the runner hook digest. Those environment checks are defense in depth; they do not acquire a lease and must never be fabricated for an SSH invocation. HQ workflow source and cmux application source are separate bindings.
 
 The runner must have Secure Enclave support, an installed fleet artifact client and `axe`, and the existing screen-recording/accessibility grants. The proof does not grant permissions, change a keychain search list, re-sign the Mac app, or add a software device identity. A reused capture tag with a prior device identity or restored account is refused. Use a fresh run-owned capture tag when building the artifact.
 
