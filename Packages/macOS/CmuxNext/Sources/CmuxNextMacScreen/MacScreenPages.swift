@@ -48,6 +48,8 @@ public final class MacScreenPages {
     public let hubHost: MacScreenHubHost
     /// The host's approval prompt for device hub requests.
     public let approval = MacScreenApprovalPrompt()
+    /// Set up cmux and Start cmux on the user's own Macs (the app sets its bundled cmux-tui as the runner).
+    public let deviceSetup = MacScreenDeviceSetup()
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
     /// pushes Mac Screen follows.
@@ -119,6 +121,12 @@ public final class MacScreenPages {
         }
         hubHost.hub = { [weak self] in self?.hub }
         approval.hub = { [weak self] in self?.hub }
+        // A Mac set up or started: read the devices again, so its row and tab show it online once it is.
+        deviceSetup.succeeded = { [weak self] _, _ in
+            guard let hub = self?.hub else { return }
+            // task-owner: one devices read after a finished run.
+            Task { await hub.refreshDevices() }
+        }
     }
 
     /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
@@ -388,6 +396,7 @@ public final class MacScreenPages {
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         actions.signIn = { [weak self] in self?.events.signIn() }
+        deviceSetup.readVerbsIfNeeded()
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }
@@ -407,6 +416,8 @@ public final class MacScreenPages {
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
+        pane.model.deviceSetup = deviceSetup
+        deviceSetup.readVerbsIfNeeded()
         return pane
     }
 }
