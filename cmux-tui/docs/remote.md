@@ -90,7 +90,7 @@ cmux-tui remote connect --invite-file invitation.txt
 
 `device-key --json` prints `{"public_key": ..., "fingerprint": ...}`, and creates the client identity first if there is none. The daemon enrolls the bound key as soon as it presents the invitation and refuses every other key with "invitation is bound to another device", without queuing a pending request. `--device-name` names the device in `enroll devices`; without it, the client's `--device-name` is used.
 
-A bound invitation is useless without the private key that matches its device key, which never leaves the VM, so it may travel over a logged channel. The five-minute expiry, the 60-second retry grace and revocation apply as to any invitation. A daemon without bound invitations would make one that needs approval; `enroll create --device-key` refuses to print it.
+A bound invitation is useless without the private key that matches its device key, which never leaves the VM, so it may travel over a logged channel. The five-minute expiry, the 60-second retry grace and revocation apply as to any invitation, and revoking a device also voids every unused invitation bound to its key. A daemon without bound invitations would make one that needs approval; `enroll create --device-key` refuses to print it.
 
 Inspect or revoke access without restarting the daemon:
 

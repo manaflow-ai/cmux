@@ -166,7 +166,13 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
             "--device-key" => {
                 require_create_action(action, "--device-key")?;
                 require_unique_flag(&mut seen, "--device-key")?;
-                parsed.device_key = Some(strict_option_value(args, &mut index, "--device-key")?);
+                // Not strict_option_value: a URL-safe base64 key may begin
+                // with `--`. The value is checked as a key below.
+                let key = args.get(index).cloned().ok_or_else(|| {
+                    anyhow!(catalog().remote_client.option_needs_value("--device-key"))
+                })?;
+                index += 1;
+                parsed.device_key = Some(key);
             }
             "--device-name" => {
                 require_create_action(action, "--device-name")?;

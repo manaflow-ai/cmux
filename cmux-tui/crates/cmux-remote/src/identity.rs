@@ -1236,6 +1236,18 @@ impl AuthDatabase {
                 .get_mut(device_id)
                 .ok_or_else(|| IdentityError::UnknownDevice(device_id.into()))?;
             device.revoked_at_unix = Some(now);
+            // An invitation bound to the revoked key was the owner's approval
+            // of it ahead of time; revocation withdraws that approval too, so
+            // a spare one cannot enroll the device again. Persisted with the
+            // revocation. Re-enrolling takes a new invitation. A claimed one
+            // stays: its claim path already refuses a revoked device.
+            state.invitations.retain(|_, invitation| {
+                invitation.claimed_by.is_some()
+                    || invitation
+                        .bound_device
+                        .as_ref()
+                        .is_none_or(|bound| bound.fingerprint() != device_id)
+            });
             state.revocation_generation = state
                 .revocation_generation
                 .checked_add(1)
