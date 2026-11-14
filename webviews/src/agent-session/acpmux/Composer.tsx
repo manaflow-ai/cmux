@@ -243,6 +243,10 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Reads `files` into chips as files of gesture `kind` (`external`: files another app sent to the
+  /// chat, composer/externalAttach.ts), the way a drop's are: the host may say where each is and
+  /// which app it came from, and saves what the composer can't attach.
+  attachFiles(files: File[], kind: DroppedKind): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
   /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
@@ -1027,6 +1031,9 @@ function ComposerFrame({
         });
       },
       attachLater,
+      attachFiles(files, kind) {
+        if (files.length) void attach(files, true, kind);
+      },
       detach(ids) {
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
         // Their places in the text go with them: no empty atom stays in the draft.
@@ -1127,7 +1134,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater, attachRefused],
+    [setAttachments, attachLater, attachRefused, attach],
   );
   useEffect(() => {
     if (!draft) return;

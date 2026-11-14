@@ -61,6 +61,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chooseAttachments: "chooseAttachments"
         case .attachDropped: "attachDropped"
         case .attachSource: "attachSource"
+        case .attachExternal: "attachExternal"
         case .attachmentSourceIcon: "attachmentSourceIcon"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"

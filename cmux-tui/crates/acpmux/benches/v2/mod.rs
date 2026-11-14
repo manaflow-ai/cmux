@@ -168,8 +168,35 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
+        done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (one catch-up nobody measures runs before both sides, stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "3b",
+        name: "v2.pr03b.tee_append_added",
+        done_when: "The hook's time inside v1's append (write_record_locked), god home against small, books on, each chat's book caught up first: best p95 of five rounds 1.2x, every sample's p95 2x. Rounds alternate.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3b",
+        name: "v2.pr03b.append_on_off",
+        done_when: "v1's append p95 in the god home with books on (god side) against off (small side): 1.2x, the hook's own time inside it. Rounds alternate.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "3b",
+        name: "v2.pr03b.catchup_ack",
+        done_when: "v1's ack p95 of an agent host's line (tap.rs append_logged(..).1) on a live chat while the god chat catches up from nothing, against the same with no catch-up: 1.2x. Rounds alternate.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -241,6 +268,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4b",
         name: "v2.pr04b.credit_slow_taker",
         done_when: "A caller taking one change per 10 ms stays within one credit window of uncredited daemon bytes, sees replay frames and an end, and converges to the hub's rows.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "4b",
+        name: "v2.pr04b.mirror_v1_rows",
+        done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -553,6 +589,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "5h",
+        name: "v2.pr05h.hub_row_submit",
+        done_when: "The tee's turn for one changed hub row (its mark drained to one submit) with 2,048 book rows and 11,000 closed rows against one book row and an empty index: p95 within 1.2x, the sides alternating rounds.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5g",
         name: "v2.pr05g.rebuild_cost",
         done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",
@@ -664,6 +709,24 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "7",
         name: "v2.pr07.sidebar_list_stream",
         done_when: "No \"Waiting for the agent service\" frame while the socket is up. Sidebar scroll frame time 1.2x at 11k against 20.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_wall",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): wall time within 1.2x with 11k closed beside them against the same 100 alone.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_bytes",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): reply bytes within 1.2x with 11k closed beside them against the same 100 alone.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -971,8 +1034,10 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04.chat_stopped_reader"];
+    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
+    /// two are held by plain tests of the client today and have no gate line yet.
+    const WAITS_ON_ANOTHER_PR: &[&str] =
+        &["v2.pr04.chat_stopped_reader", "v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";

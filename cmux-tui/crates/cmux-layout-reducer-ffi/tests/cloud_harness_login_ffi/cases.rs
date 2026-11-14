@@ -180,6 +180,16 @@ fn the_start_checks_answer() {
         json!({"check": "account-changed"})
     );
     assert_eq!(check(json!(["u", "a"]), json!(["u", "a"]), false), json!({"check": "list-unread"}));
+    let wait = |elapsed: u64, loaded: bool| {
+        call(
+            c"cloud_start_list_wait",
+            &json!({"elapsedMs": elapsed, "loaded": loaded, "signedIn": true}),
+        )
+        .1
+    };
+    assert_eq!(wait(0, false), json!({"next": "pause", "pauseMs": 2000, "readAfter": true}));
+    assert_eq!(wait(60_000, false), json!({"next": "unread"}));
+    assert_eq!(wait(0, true), json!({"next": "proceed"}));
     assert_eq!(
         call(c"cloud_folder_too_broad", &json!({"root": "/Users/me", "home": "/Users/me"})).1,
         json!({"tooBroad": true})

@@ -65,7 +65,7 @@ fn scripted_app_host() {
                 if export == "renderLive" {
                     send(FromHost::Subscribe {
                         sub: 1,
-                        stream: "workspace.changed".into(),
+                        stream: ctx["stream"].as_str().unwrap_or("workspace.changed").into(),
                         filter: json!({}),
                     });
                 }
@@ -309,7 +309,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g", "settings:read": "s" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -504,6 +504,7 @@ fn default_apps_are_installed_with_required_scopes() {
             "actions:run",
             "integration:github:read",
             "net:api.example.com",
+            "settings:read",
             "storage:local",
             "terminal:write",
             "workspace:read",
@@ -619,6 +620,31 @@ fn daemon_events_reach_subscribed_apps() {
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
+}
+
+/// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
+/// `reads` op is `settings.get`, not a `settings.list`/`theme.list` family op), and only that app.
+#[test]
+fn settings_and_theme_events_reach_apps_that_read_settings() {
+    for stream in ["settings.changed", "theme.changed"] {
+        let f = fixture();
+        f.install("cmux/demo");
+        f.install("local/spy");
+        f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.supervisor.logs(CLIENT, "cmux/demo", true);
+        f.supervisor.publish(stream, json!({}));
+        f.wait(stream, |e| e["event"] == "apps-log" && e["message"] == "event 1");
+        let heard = |app: &str| {
+            f.supervisor.logs(CLIENT, app, false)["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["message"] == "event 1")
+        };
+        assert!(heard("cmux/demo"), "{stream}: the app granted settings:read");
+        assert!(!heard("local/spy"), "{stream}: an app without settings:read");
+    }
 }
 
 #[test]
@@ -1013,6 +1039,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_chat_widget_tests.rs"]
+mod chat_widgets;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
