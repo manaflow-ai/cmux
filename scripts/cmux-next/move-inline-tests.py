@@ -5,8 +5,9 @@ The convention of cmux#38898: `mod tests { .. }` in src/a/foo.rs becomes
     #[path = "foo_tests.rs"]
     mod tests;
 with the body in src/a/foo_tests.rs, one indent level less; lines that continue a string literal are untouched.
-lib.rs, main.rs and mod.rs put a `tests` module in tests.rs. A module named X_tests (or X_test) goes to
-<stem>_X_tests.rs; any other name to <stem>_<name>_tests.rs, so every new file matches `_tests?.rs`.
+lib.rs, main.rs and mod.rs put a `tests` module in tests.rs. A module named X_tests goes to <stem>_X_tests.rs;
+any other name to <stem>_<name>_tests.rs, so every new file ends in `_tests.rs` (or is `tests.rs`). A file directly
+in src/bin, examples, benches or tests puts its tests in <stem>/, where Cargo does not make a target of them.
 
 Skipped: blocks not at column 0, blocks holding `mod x;`, `#[path`, `file!()`, `line!()`, `include!(`, and files
 whose target already exists. Each move is checked: the new file plus the declaration equal the old block with
@@ -88,15 +89,22 @@ def dedent(body, base, in_string):
     return "\n".join(out)
 
 
+AUTO_TARGETS = ("bin", "examples", "benches", "tests")  # Cargo makes a target of every .rs file directly in these
+
+
 def target_name(path, mod):
     stem = os.path.basename(path)[:-3]
-    if stem in ("lib", "main", "mod"):
-        return "tests.rs" if mod == "tests" else f"{mod}_tests.rs" if not re.search(r"_tests?$", mod) else f"{mod}.rs"
     if mod == "tests":
-        return f"{stem}_tests.rs"
-    if re.search(r"_tests?$", mod):
-        return f"{stem}_{mod}.rs"
-    return f"{stem}_{mod}_tests.rs"
+        name = "tests.rs"
+    elif mod.endswith("_tests"):
+        name = f"{mod}.rs"
+    else:
+        name = f"{mod}_tests.rs"
+    if stem in ("lib", "main", "mod"):
+        return name
+    if os.path.basename(os.path.dirname(path)) in AUTO_TARGETS:
+        return f"{stem}/{name}"  # a new file beside src/bin/foo.rs would be a binary of its own
+    return f"{stem}_tests.rs" if mod == "tests" else f"{stem}_{name}"
 
 
 COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
@@ -141,6 +149,8 @@ def plan(path, min_bytes):
             continue
         name = target_name(path, m.group(2))
         dest = os.path.join(os.path.dirname(path), name)
+        if "/" in name and re.search(r"\binclude_(str|bytes)!\(", body):
+            continue  # its relative paths would resolve from the new folder
         if os.path.exists(dest) or dest in taken:
             print(f"skip {path}:{m.group(2)}: {name} exists", file=sys.stderr)
             continue
@@ -174,6 +184,7 @@ def main():
         if apply:
             for start, end, decl, dest, new_body, _ in reversed(moves):
                 text = text[:start] + decl + text[end:]
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with open(dest, "w", encoding="utf-8") as f:
                     f.write(new_body)
             with open(path, "w", encoding="utf-8") as f:

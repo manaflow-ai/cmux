@@ -804,5 +804,5 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 }
 
 #[cfg(test)]
-#[path = "cmux-tui-hook_tests.rs"]
+#[path = "cmux-tui-hook/tests.rs"]
 mod tests;
