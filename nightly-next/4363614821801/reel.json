@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4363614821801",
+  "notes": "notes/4363614821801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43209,
+      "title": "acpmux: a bridged prompt id reaches the app once, across daemon restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43208,
+      "title": "bench: diff tab cells for the idle A/B measure",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43199,
+      "title": "cmux-next-ios: TerminalChatLiveTests imports CmuxMobileAgentChat for JSONValue (the kit's test build is red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43125,
+      "title": "acpmux v2 3c (part three): the daemon serves a chat's stream",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43216,
+      "title": "base_red_excuse: declare cmux-window-rules in the CmuxMobileKit job's reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43203,
+      "title": "webviews: jump-latest-motion waits out the rows' animations before it measures (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43067,
+      "title": "CMUX-572: defer congestion loss across jitter reordering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43116,
+      "title": "Toggle Terminal and Chat mid-turn (step B, Swift): the terminal shows at once and the same chat follows it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43172,
+      "title": "fix(cloud): buffer live records while the probe attaches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43153,
+      "title": "Agent chat: the page's thin store for a chat's rows (v2 row 6c)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43007,
+      "title": "Extensions open the links you click: cmux.opener/1 routes terminal links to the matching app",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
