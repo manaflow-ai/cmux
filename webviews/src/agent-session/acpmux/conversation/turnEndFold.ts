@@ -23,7 +23,7 @@ import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/
 import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { clippedBottom, ghostOf } from "./turnFold";
+import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
@@ -337,7 +337,16 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 }
 
 /// What one row of the fold plays now: how far from its place it started, and its animations.
-type Moving = { delta: number; fades: boolean; animations: Animation[]; clip?: number; end?: number; crop?: string };
+/// `covered`: a copy's clip under the rows that come over it (`coverClip`), as its keyframes' text.
+type Moving = {
+  delta: number;
+  fades: boolean;
+  animations: Animation[];
+  clip?: number;
+  end?: number;
+  covered?: string;
+  crop?: string;
+};
 
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
@@ -406,6 +415,11 @@ export function playTurnEnd(
     // Every place is read before anything plays, so a pass lays the page out once.
     const tops = layoutTops(nodes);
     const copyTops = layoutTops(copies);
+    // Each box's height and paddings, read with the places (only while a copy shows): where each row's
+    // and copy's text draws (`coverClip`).
+    const boxes = copies.length ? [...nodes, ...copies].map(boxOf) : [];
+    /// Each row's path on this clock, for the copies under or over it.
+    const paths: CoverPath[] = [];
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
     const line =
       tops.find((_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader) ??
@@ -483,6 +497,9 @@ export function playTurnEnd(
     const copyStarts = copies.map((copy) => startTop(copy, goneByCopy.get(copy)!.top));
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
+      // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
+      const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
+      if (path) paths.push(path);
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
@@ -507,6 +524,7 @@ export function playTurnEnd(
       const height = node.offsetHeight;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
@@ -564,12 +582,16 @@ export function playTurnEnd(
         ? `${cropFrom}|${cropTo}`
         : undefined;
       const ink = starts.get(copy)?.opacity ?? 1;
+      const box = boxes[nodes.length + order]!;
+      const cover = coverClip({ from, to: copyTops[order]! + end, ...box }, paths, clippedBottomOf(copy));
+      const covered = cover ? JSON.stringify(cover) : undefined;
       const last = copyMoves.get(copy);
       if (
         !grew &&
         last &&
         Math.abs(last.delta - at) < 0.5 &&
         Math.abs((last.end ?? at) - end) < 0.5 &&
+        last.covered === covered &&
         last.crop === crop
       )
         return;
@@ -598,7 +620,16 @@ export function playTurnEnd(
         ],
         timing,
       );
-      copyMoves.set(copy, { delta: at, fades: true, animations: [motion], end, crop });
+      // The clip on the rows' own clock (a stagger's delay is the copy's fade alone), held at its end.
+      const clipped = cover ? play(copy, cover, { fill: "both" }) : undefined;
+      copyMoves.set(copy, {
+        delta: at,
+        fades: true,
+        animations: clipped ? [motion, clipped] : [motion],
+        end,
+        covered,
+        crop,
+      });
     });
     nodes.forEach((node, index) => laid.set(node, tops[index]!));
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));

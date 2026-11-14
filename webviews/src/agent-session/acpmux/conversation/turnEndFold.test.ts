@@ -229,3 +229,37 @@ test("the fold's curve search for a 2000 px move stays under half a millisecond"
   const runs = Array.from({ length: 21 }, () => run(2000)).sort((a, b) => a - b);
   expect(runs[10]!).toBeLessThan(0.5);
 });
+
+test("a copy of a row that went draws only outside the rows that come over it", async () => {
+  // agent-pane-stream-row-overlap: the copy of a folded call ("Checked git status") fading where it
+  // was while the reply slid up over it drew its text under the reply's in the fold's first frames.
+  const { coverClip } = await import("./turnFold");
+  const row = (from: number, to: number, height: number) => ({ from, to, height, padTop: 0, padBottom: 8 });
+  // The copy at 100..132 (text to 124); the reply starts under it at 140 and slides up to 60.
+  const copy = { from: 100, to: 100, height: 32, padTop: 0, padBottom: 8 };
+  const reply = row(140, 60, 120);
+  const clip = coverClip(copy, [reply], 0)!;
+  // First frame: nothing of the reply is over the copy (it starts 8 px under its box). Last frame:
+  // the reply's top is at 60, so all of the copy's 32 px is hidden from the bottom up.
+  expect(clip[0].clipPath).toBe("inset(0px -4096px 0px -4096px)");
+  expect(clip[1].clipPath).toBe("inset(0px -4096px 72px -4096px)");
+  // At every frame between (both move linearly on one clock, and so does the clip) the copy's drawn
+  // text stays over the reply's top.
+  for (let step = 0; step <= 10; step += 1) {
+    const p = step / 10;
+    const replyTop = reply.from + (reply.to - reply.from) * p;
+    const shownBottom = Math.min(copy.from + copy.height - copy.padBottom, copy.from + copy.height - 72 * p);
+    if (shownBottom > copy.from) expect(shownBottom).toBeLessThanOrEqual(replyTop + 1e-9);
+  }
+  // A row that stays clear of the copy hides nothing of it.
+  expect(coverClip(copy, [row(0, 0, 40), row(200, 180, 40)], 0)).toBeUndefined();
+  // A row sliding up under the copy clips its bottom; the copy's own clip is kept.
+  const under = coverClip(copy, [row(140, 110, 40)], 4)!;
+  expect(under[0].clipPath).toBe("inset(0px -4096px 4px -4096px)");
+  expect(under[1].clipPath).toBe("inset(0px -4096px 22px -4096px)");
+  // A row over the copy that starts clipped at the copy's top (the reply over the live line when a
+  // lagging turn ends) draws nothing over it at first, and the fold moves the copy down to that row's
+  // bottom at rest (turnEndFold.ts `covers`): the copy keeps every line on every frame.
+  const above = { from: 20, to: 0, height: 120, padTop: 0, padBottom: 8, clip: 40 };
+  expect(coverClip({ ...copy, to: 120 }, [above], 0)).toBeUndefined();
+});

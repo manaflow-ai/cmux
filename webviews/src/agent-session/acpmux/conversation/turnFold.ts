@@ -148,6 +148,69 @@ export function ghostOf(row: HTMLElement): HTMLElement {
   return copy;
 }
 
+/// A row's path on the fold's clock, in the view's coordinates: its top where the clock starts and
+/// where it lands, and the band its text draws in (its box less its paddings: a row's bottom padding
+/// is its gap to the next row). `clip`: what a clip hides of its bottom where the clock starts, opening
+/// on the same clock (turnEndFold.ts clips a row that drew over the row under it when the turn ended).
+/// Its opening is not linear in the clock past the row's padding, so it is read at the first frame only;
+/// the turn end's fold keeps such a row's copies below its bottom at rest (`covers`), where it hides
+/// nothing of them at the last frame either.
+export type CoverPath = { from: number; to: number; height: number; padTop: number; padBottom: number; clip?: number };
+
+/// The bottom a ghost's own clip hides (ghostOf keeps the clip its row had when the turn ended).
+export function clippedBottomOf(copy: HTMLElement): number {
+  const inset = /^inset\(([^)]*)\)/.exec(copy.style.clipPath);
+  if (!inset) return 0;
+  const sides = inset[1]!.split(/\s+/).map((side) => Number.parseFloat(side) || 0);
+  return Math.max(0, sides[2] ?? sides[0] ?? 0);
+}
+
+/// The clip that keeps a copy of a row that went out from under the rows coming over it, as its two
+/// keyframes, or undefined when no row comes over it. The copy fades where it was (or tucks) while the
+/// rows that stay slide over its place; still faint, its text drew under theirs: the copy of a call
+/// the turn folded ("Checked git status") under the reply sliding up over it, in the fold's first
+/// frames (agent-pane-stream-row-overlap, since #41078 counted a copy's text: Leo, 2026-11-11, "a
+/// breif moment where ther'es overlapping text between the sent out text (from you) and the subequent
+/// tool calls/thinking"). So the copy draws only outside the rows over it, as a row under a glass card
+/// would: its bottom up to the text top of the rows that start under it, its top down to the text
+/// bottom of the rows that start over it. Every row and the copy move linearly in the fold's progress,
+/// so each overlap is linear in it too, and the clip at the first and the last frame, played on the
+/// same clock, covers every frame between (the largest of lines, read at both ends, is never under
+/// any of them). O(mounted rows) per copy, from what the pass already read.
+export function coverClip(copy: CoverPath, rows: readonly CoverPath[], own: number): [Keyframe, Keyframe] | undefined {
+  let bottomFrom = own;
+  let bottomTo = own;
+  let topFrom = 0;
+  let topTo = 0;
+  for (const row of rows) {
+    if (row.from >= copy.from) {
+      bottomFrom = Math.max(bottomFrom, copy.from + copy.height - (row.from + row.padTop));
+      bottomTo = Math.max(bottomTo, copy.to + copy.height - (row.to + row.padTop));
+    } else {
+      topFrom = Math.max(topFrom, row.from + row.height - Math.max(row.padBottom, row.clip ?? 0) - copy.from);
+      topTo = Math.max(topTo, row.to + row.height - row.padBottom - copy.to);
+    }
+  }
+  // Only what reaches past the copy's own paddings hides any of its text.
+  const hides =
+    Math.max(bottomFrom, bottomTo) > Math.max(own, copy.padBottom) + 0.5 ||
+    Math.max(topFrom, topTo) > copy.padTop + 0.5;
+  if (!hides) return undefined;
+  const inset = (top: number, bottom: number) =>
+    `inset(${Math.max(0, Math.ceil(top))}px -4096px ${Math.max(0, Math.ceil(bottom))}px -4096px)`;
+  return [{ clipPath: inset(topFrom, bottomFrom) }, { clipPath: inset(topTo, bottomTo) }];
+}
+
+/// A box's height and paddings: where its text draws (`coverClip`). One style read.
+export function boxOf(node: HTMLElement): { height: number; padTop: number; padBottom: number } {
+  const style = (node.ownerDocument.defaultView ?? window).getComputedStyle(node);
+  return {
+    height: node.offsetHeight,
+    padTop: Number.parseFloat(style.paddingTop) || 0,
+    padBottom: Number.parseFloat(style.paddingBottom) || 0,
+  };
+}
+
 /// Starts the fold of row `id` the reader toggled, or undefined when it applies at once. `opening`:
 /// the row was closed. Reads the rows as they are drawn now, before the toggle's render.
 export function startTurnFold(
@@ -277,6 +340,7 @@ export function playTurnFold(
   // second, is the only window this runs in) and only in a pass where a row left: the rows below the
   // line are indexed once for that pass.
   let index: Map<string, number> | undefined;
+  let paths: CoverPath[] | undefined;
   const below = rows[0]?.node ?? null;
   for (const [node, row] of fold.moving) {
     if (mounted.has(node)) continue;
@@ -322,6 +386,19 @@ export function playTurnFold(
     const motion = play(ghost, [first, end], "forwards");
     motion.onfinish = drop;
     motion.oncancel = drop;
+    // The copy draws only outside the rows sliding over its place, on the same clock, so its fading
+    // text never shows under theirs (`coverClip`, as the turn end's fold does: turnEndFold.ts).
+    // Read only in a pass where a copy is made: each mounted row's path and box, then the copy's.
+    paths ??= rows.flatMap(({ node: mountedNode }) => {
+      const moving = fold.moving.get(mountedNode);
+      return moving ? [{ from: moving.top + moving.delta, to: moving.top, ...boxOf(mountedNode) }] : [];
+    });
+    const cover = coverClip(
+      { from: row.top + row.delta, to: row.top + (end.translate === undefined ? row.delta : to), ...boxOf(ghost) },
+      paths,
+      clippedBottomOf(ghost),
+    );
+    if (cover) play(ghost, cover, "forwards");
     // A hidden page suspends its animations: the copy never outlasts the fold.
     setTimeout(drop, Math.max(0, fold.until - now));
   }
