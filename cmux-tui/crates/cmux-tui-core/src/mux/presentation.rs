@@ -18,6 +18,8 @@ use std::ops::Deref;
 
 mod decoration_walks;
 mod frontend_browser_history;
+#[cfg(test)]
+mod git_head_probe;
 use decoration_walks::surface_directories_in_state;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
@@ -113,6 +115,8 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    #[cfg(test)]
+    git_head_probe::on_read(directory);
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
@@ -452,6 +456,47 @@ impl Mux {
         }
         cache.insert(cwd.to_string(), (now, head.clone()));
         head
+    }
+
+    /// Test seam: makes each cached git HEAD older than [`GIT_HEAD_TTL`]. Whether it could (a
+    /// host that started less than that time ago has no older instant).
+    #[cfg(test)]
+    pub(crate) fn age_git_heads_for_test(&self) -> bool {
+        let age = GIT_HEAD_TTL.saturating_add(Duration::from_secs(1));
+        let mut cache = self.git_heads.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut aged = true;
+        for (checked, _) in cache.values_mut() {
+            match checked.checked_sub(age) {
+                Some(older) => *checked = older,
+                None => aged = false,
+            }
+        }
+        aged
+    }
+
+    /// Test seam: the git HEAD reads that this thread has made.
+    #[cfg(test)]
+    pub(crate) fn git_head_reads_on_this_thread() -> u64 {
+        git_head_probe::reads_on_this_thread()
+    }
+
+    /// Test seam: counts from zero the git HEAD reads of a directory below `root`, on each
+    /// thread, and holds each of them while `held`.
+    #[cfg(test)]
+    pub(crate) fn watch_git_head_reads_below(root: &Path, held: bool) {
+        git_head_probe::watch_reads_below(root, held);
+    }
+
+    /// Test seam: the git HEAD reads below the watched directory.
+    #[cfg(test)]
+    pub(crate) fn watched_git_head_reads() -> u64 {
+        git_head_probe::watched_reads()
+    }
+
+    /// Test seam: the background refreshes of git HEADs that run now.
+    #[cfg(test)]
+    pub(crate) fn git_head_refreshes_running() -> usize {
+        git_head_probe::refreshes_running()
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,

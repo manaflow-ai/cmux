@@ -540,6 +540,8 @@ impl MessageWriter {
         if !may_hold_a_conversation_kind(&text) {
             return Ok(text);
         }
+        #[cfg(test)]
+        REPLY_PARSES.with(|parses| parses.set(parses.get().saturating_add(1)));
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
         if !self.project_tab_kinds(&mut value) {
             return Ok(text);
@@ -567,6 +569,17 @@ impl MessageWriter {
         }
         changed
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static REPLY_PARSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Test seam: the messages that the outbound projection parsed from their text on this thread.
+#[cfg(test)]
+pub(super) fn message_parses_on_this_thread() -> u64 {
+    REPLY_PARSES.with(std::cell::Cell::get)
 }
 
 /// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites. The
