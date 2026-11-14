@@ -146,16 +146,27 @@ fn mcp_settings(
     if !choice.injects() {
         return Vec::new();
     }
-    // A resumed or forked session, a new worktree, a remote server: Codex's
-    // answer here is not the launch's, so nothing is turned off (asked or said).
+    let messages = &crate::localization::catalog().agent_wrapper;
+    // A resumed or forked session, a new worktree, a remote server, a
+    // subcommand: Codex's answer here is not the launch's, so Codex is not
+    // asked, nothing is turned off, and the person is told.
     let existing = if crate::codex_mcp_entry::probe_matches_launch(launch.args) {
         let config = crate::codex_mcp_entry::config_args(launch.args);
         let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
-        if existing == CodexEntry::Unknown {
-            warn(crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
+        match &existing {
+            CodexEntry::Unknown => warn(messages.codex_mcp_unknown),
+            // An entry with a url runs no cmux CLI, so it is never turned off.
+            CodexEntry::Found(entry)
+                if entry["transport"]["type"].as_str() != Some("stdio")
+                    && entry["enabled"].as_bool() == Some(true) =>
+            {
+                warn(messages.codex_mcp_kept);
+            }
+            _ => {}
         }
         existing
     } else {
+        warn(messages.codex_mcp_kept);
         CodexEntry::Unknown
     };
     crate::agent_mcp_choice::codex_settings(

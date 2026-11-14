@@ -166,12 +166,15 @@ const DIFFERENT_LAUNCH: [&str; 4] =
     ["--worktree", "--remote", "--remote-auth-token-env", "--ignore-user-config"];
 
 /// Whether this launch's session runs where, and with the config, that
-/// `codex mcp get` in the launch folder sees (Codex 0.160's CLI): a new
-/// session (`codex [PROMPT]`, `exec`/`e`, `review`, `exec review`), without
-/// [`DIFFERENT_LAUNCH`] options. A resumed or forked session (`resume`,
-/// `fork`, `exec resume`, `exec fork`) keeps the folder and config it was
-/// recorded with, and any other subcommand is no session cmux knows: there
-/// Codex's answer cannot be trusted for the launch, so nothing is turned off.
+/// `codex mcp get` in the launch folder sees: only an allowlist of new
+/// session forms (`codex`, `codex PROMPT`, `review`, `exec`/`e`, `exec
+/// review`, `exec PROMPT`), without [`DIFFERENT_LAUNCH`] options. Anything
+/// else is not probed: a resumed or forked session (`resume`, `fork`, `exec
+/// resume`) keeps the folder and config it was recorded with, and any other
+/// word that could name a subcommand (a single lowercase word, such as
+/// `execpolicy`, `cloud-tasks` or one a later Codex adds) may be no session at
+/// all. A one-word prompt (`codex hi`) reads as such a word too and is not
+/// probed either: that only costs the turn-off, never a launch.
 pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
     let mut args = args.iter();
     let mut positionals = Vec::new();
@@ -201,46 +204,18 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
     match positionals.as_slice() {
         [] | ["review", ..] => true,
         ["exec" | "e"] | ["exec" | "e", "review", ..] => true,
-        ["exec" | "e", next, ..] => {
-            !matches!(*next, "resume" | "fork") && !SUBCOMMANDS.contains(next)
-        }
-        [first, ..] => !SUBCOMMANDS.contains(first),
+        ["exec" | "e", next, ..] => !could_be_subcommand(next),
+        [first, ..] => !could_be_subcommand(first),
     }
 }
 
-/// Codex 0.160's subcommands (`codex --help`): a first word that is none of
-/// these is the prompt of a new session.
-const SUBCOMMANDS: [&str; 29] = [
-    "agents",
-    "exec",
-    "e",
-    "review",
-    "login",
-    "logout",
-    "mcp",
-    "plugin",
-    "app-server",
-    "remote-control",
-    "app",
-    "completion",
-    "update",
-    "doctor",
-    "sandbox",
-    "debug",
-    "apply",
-    "a",
-    "resume",
-    "queue",
-    "archive",
-    "delete",
-    "migrate-rollouts",
-    "unarchive",
-    "fork",
-    "cloud",
-    "exec-server",
-    "features",
-    "help",
-];
+/// Whether `word` could name a Codex subcommand: one lowercase word of
+/// letters, digits and dashes (`resume`, `cloud-tasks`, `stdio-to-uds`). A
+/// prompt is usually more (`"fix the bug"`).
+fn could_be_subcommand(word: &str) -> bool {
+    word.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
 
 /// Asks the Codex at `codex` for its `cmux` entry: `codex <config args> mcp
 /// get cmux --json` in `cwd` (joined with `-C`'s folder), with `PATH` set to

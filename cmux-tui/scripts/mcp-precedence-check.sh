@@ -167,18 +167,22 @@ done | { read -r times; echo "codex mcp get latency (ms, 10 runs, trusted projec
 # 5. The off switch
 dead=(-c 'model_provider="dead"' -c 'model_providers.dead={name="dead",base_url="http://127.0.0.1:9/v1",env_key="DEAD_KEY",wire_api="responses",request_max_retries=0,stream_max_retries=0}')
 switch=(-c "mcp_servers.cmux.command=\"$NODE\"" -c "mcp_servers.cmux.args=[\"$F\",\"X\",\"$L\"]" -c 'mcp_servers.cmux.enabled=false')
-session() { # FOLDER ARGS...: start a session, then what started ("started <label> ..." or empty) and whether Codex refused its config
+session() { # FOLDER ARGS...: start a session; print "<what started>|<config refused: 0/1>|<reached the model request: 0/1>"
   local at=$1; shift; : > "$L"
-  (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 12 "$CODEX" exec --skip-git-repo-check "${dead[@]}" "$@" hi \
+  (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 12 "$CODEX" exec --skip-git-repo-check "${dead[@]}" "$@" "say hi" \
      < /dev/null > "$D/session.out" 2>&1)
-  printf '%s|%s' "$(tr '\n' ' ' < "$L")" "$(grep -c 'invalid transport' "$D/session.out")"
+  local refused=0 reached=0
+  grep -qiE 'invalid transport|failed to load' "$D/session.out" && refused=1
+  # `codex exec` prints the prompt as the session starts, then asks the (dead) model.
+  grep -qx 'say hi' "$D/session.out" && grep -qiE 'reconnecting|stream|error sending|connection refused|network' "$D/session.out" && reached=1
+  printf '%s|%s|%s' "$(tr '\n' ' ' < "$L")" "$refused" "$reached"
 }
-off_case() { # NAME FOLDER LABEL ARGS...: alone the LABEL server starts; with the switch none does, no crash
+off_case() { # NAME FOLDER LABEL ARGS...: alone the LABEL server starts; with the switch none does, the config loads, the session reaches the model request
   local name=$1 at=$2 label=$3; shift 3
   local alone with
   alone=$(session "$at" "$@"); with=$(session "$at" "$@" "${switch[@]}")
-  { [ -z "$label" ] || [ "$alone" = "started $label |0" ]; } && [ "$with" = "|0" ]
-  check "codex off switch [$name]: alone '${alone%|*}', with the switch '${with%|*}', no invalid transport" $?
+  { [ -z "$label" ] || [ "${alone%|*|*}" = "started $label " ]; } && [ "$with" = "|0|1" ]
+  check "codex off switch [$name]: alone '${alone%|*|*}', with the switch '${with%|*|*}' (refused|reached: ${with#*|})" $?
 }
 cmux_entry() { printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s", "%s"]\n' "$NODE" "$F" "$1" "$L"; }
 cmux_entry user > "$CODEX_HOME/config.toml"
@@ -198,7 +202,7 @@ off_case "no entry" "$D/work" ""
 cmux_entry user > "$CODEX_HOME/config.toml"
 off_case "--ignore-user-config, entry only in the user layer" "$D/work" "" --ignore-user-config
 bare=$(session "$D/work" -c 'mcp_servers.cmux.enabled=false' --ignore-user-config)
-[ "${bare#*|}" != 0 ]
+[ "$(echo "$bare" | cut -d'|' -f2)" = 1 ]
 check "codex: a bare enabled=false where the session has no cmux entry fails with invalid transport" $?
 
 if [ -n "$CMUX" ]; then
@@ -223,8 +227,10 @@ if [ -n "$CMUX" ]; then
   # Codex: the shim asks Codex itself for the cmux entry (`mcp get`), then
   # places its server. A fake `codex` first on PATH records the launch's
   # arguments and hands `mcp get` to the real one.
-  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = mcp ] && exec %q "$@"; done\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %q\n' \
-    "$CODEX" "$D/codex-args" > "$D/bin/codex"
+  # Quoted for sh (single quotes; a ' inside becomes '\''): printf %q is bash's.
+  sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = mcp ] && exec %s "$@"; done\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' \
+    "$(sq "$CODEX")" "$(sq "$D/codex-args")" > "$D/bin/codex"
   chmod +x "$D/bin/codex"
   # The shim's PATH: the fake codex first, then node (an npm-installed Codex
   # is a node script) and the system tools.

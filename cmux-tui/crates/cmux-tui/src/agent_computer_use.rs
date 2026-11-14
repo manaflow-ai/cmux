@@ -46,7 +46,12 @@
 //!   session never loads, which fails Codex with "invalid transport".
 //!   In those cases, and when Codex loads an untrusted project's `cmux` entry
 //!   only after its trust prompt, the person's cmux entry can start beside
-//!   this build's server: a second cmux server for that session. Both are
+//!   this build's server: a second cmux server for that session. (`codex mcp
+//!   get` runs before the launch, without the trust prompt, so it never sees
+//!   such a project's entries. A project server of the person's own named
+//!   `cmux` then starts after the person trusts the project, as it would
+//!   without cmux; cmux never turns a server of the person's own off, and its
+//!   own server never shares that name.) Both are
 //!   cmux's own, and each reaches the app its own CLI and environment name
 //!   (the person's entry has no terminal socket, so its tools act for the
 //!   app that entry's CLI belongs to). Nothing here arbitrates Computer Use
@@ -203,15 +208,17 @@ pub(crate) fn codex_settings(
 /// launch: only another cmux's server ([`cmux_serve`]) that is on, never a
 /// server of the person's own, never an entry Codex did not report.
 ///
-/// The switch is complete on its own: it sends the reported transport with
-/// `enabled=false` (`command` and `args` for stdio, `url` for HTTP). Where
-/// the session has that entry (user, project or plugin), the values are the
-/// ones it already has; where it does not (the launch differs from what
-/// `codex mcp get` saw: a flag the probe missed, a new worktree, no user
-/// config), they make a valid entry that is off. A bare `enabled=false`
-/// there names a server with no transport, and Codex fails to start with
-/// "invalid transport". An entry whose transport cannot be written back is
-/// left on.
+/// The switch is complete on its own: it sends the reported stdio transport
+/// (`command` and `args`) with `enabled=false`. Where the session's `cmux`
+/// entry is that stdio entry (user, project or plugin), the values are the
+/// ones it already has; where the session has no `cmux` entry (the launch
+/// differs from what `codex mcp get` saw: a flag the probe missed, a new
+/// worktree, no user config), they make a valid entry that is off. Either
+/// way Codex starts: a bare `enabled=false` with no entry names a server with
+/// no transport, and Codex fails with "invalid transport". Only a stdio
+/// entry is ever turned off (cmux's server is a command; an entry with a
+/// `url` runs no cmux CLI), and one whose `command` or `args` cannot be
+/// written back is left on.
 fn turn_off_cmux(existing: &CodexEntry) -> Vec<OsString> {
     let CodexEntry::Found(entry) = existing else { return Vec::new() };
     if !serves_cmux(entry) || entry["enabled"].as_bool() != Some(true) {
@@ -219,28 +226,23 @@ fn turn_off_cmux(existing: &CodexEntry) -> Vec<OsString> {
     }
     let transport = &entry["transport"];
     let string = |value: &str| toml::Value::String(value.to_owned());
-    let mut values = match transport["type"].as_str() {
-        Some("stdio") => {
-            let Some(command) = transport["command"].as_str() else { return Vec::new() };
-            let Some(args) = transport["args"].as_array() else { return Vec::new() };
-            let Some(args) =
-                args.iter().map(|arg| arg.as_str().map(string)).collect::<Option<Vec<_>>>()
-            else {
-                return Vec::new();
-            };
-            vec![("command", string(command)), ("args", toml::Value::Array(args))]
-        }
-        Some("streamable_http") => {
-            let Some(url) = transport["url"].as_str() else { return Vec::new() };
-            vec![("url", string(url))]
-        }
-        _ => return Vec::new(),
+    if transport["type"].as_str() != Some("stdio") {
+        return Vec::new();
+    }
+    let Some(command) = transport["command"].as_str() else { return Vec::new() };
+    let Some(args) = transport["args"].as_array() else { return Vec::new() };
+    let Some(args) = args.iter().map(|arg| arg.as_str().map(string)).collect::<Option<Vec<_>>>()
+    else {
+        return Vec::new();
     };
-    values.push(("enabled", toml::Value::Boolean(false)));
-    values
-        .into_iter()
-        .map(|(key, value)| OsString::from(format!("mcp_servers.{SERVER}.{key}={value}")))
-        .collect()
+    [
+        ("command", string(command)),
+        ("args", toml::Value::Array(args)),
+        ("enabled", toml::Value::Boolean(false)),
+    ]
+    .into_iter()
+    .map(|(key, value)| OsString::from(format!("mcp_servers.{SERVER}.{key}={value}")))
+    .collect()
 }
 
 /// What an MCP server entry runs when it runs cmux's server (`cmux mcp
