@@ -20,7 +20,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if os(iOS)
 import CmuxMobileTerminal
 #endif
 
@@ -55,6 +55,7 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     private let featureFlags: MobileFeatureFlags
     /// The legacy connection-method choice used only by onboarding and migration UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -127,7 +128,6 @@ public struct CMUXMobileRootScene: View {
     private let diagnosticLog: DiagnosticLog?
     private let appLog: AppLog?
     #endif
-
     #if os(iOS)
     /// Creates the root scene.
     /// - Parameters:
@@ -172,6 +172,7 @@ public struct CMUXMobileRootScene: View {
         feedPerformanceObserver: (any MobileFeedPerformanceObserving)? = nil,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference,
         featureFlags: MobileFeatureFlags,
         connectionMethodStore: MobileConnectionMethodStore,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
@@ -199,6 +200,7 @@ public struct CMUXMobileRootScene: View {
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         self.featureFlags = featureFlags
         self.connectionMethodStore = connectionMethodStore
         self.autoConnectMigrationStore = autoConnectMigrationStore
@@ -266,7 +268,6 @@ public struct CMUXMobileRootScene: View {
         _toastCenter = State(initialValue: ToastCenter())
     }
     #endif
-
     private static func openPairedMacStore(
         diagnosticLog: DiagnosticLog?, configuration: MobileIrohV2Configuration? = nil
     ) -> (any MobilePairedMacStoring)? {
@@ -324,7 +325,6 @@ public struct CMUXMobileRootScene: View {
             return nil
         }
     }
-
     /// Build the team-scoped device-registry client over the auth coordinator.
     ///
     /// Tokens and the target team are read live through the coordinator so the
@@ -360,7 +360,6 @@ public struct CMUXMobileRootScene: View {
             }
         )
     }
-
     /// Wrap the local paired-Mac store with selected-team scoping, and then add
     /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
     /// service URL resolves. Team scoping is unconditional: selected-team
@@ -423,6 +422,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(keyboardCorrectionPreference)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
             .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)
