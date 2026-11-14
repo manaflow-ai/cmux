@@ -39,16 +39,25 @@ public final class BrowserExternalApps {
     }
     #endif
 
-    init(defaults: UserDefaults = .standard) {
+    private let appFor: (URL) -> URL?
+    private let opener: (URL) -> Void
+
+    init(defaults: UserDefaults = .standard,
+         appFor: @escaping (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) },
+         opener: @escaping (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) {
         self.defaults = defaults
+        self.appFor = appFor
+        self.opener = opener
     }
 
     /// Opens a main-frame link in its app, or asks first through the tab's
     /// prompt bar. Non-gesture navigations always require the app-opening
     /// prompt, including schemes that open immediately from a click.
+    /// `asking` says whether the tab's prompt bar already holds a question.
     func open(_ url: URL, from page: URL?, userGesture: Bool = true,
+              asking: (BrowserPromptKind, String) -> Bool = { _, _ in false },
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
-        guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
+        guard let scheme = url.scheme?.lowercased(), let app = appFor(url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's
         // remembered permission. The empty origin also hides "Always allow"
@@ -58,7 +67,11 @@ public final class BrowserExternalApps {
             return launch(url)
         }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
-        ask(.openExternalApp(app: name, scheme: scheme), site) { [weak self] response in
+        let kind = BrowserPromptKind.openExternalApp(app: name, scheme: scheme)
+        // A script can retry a navigation without a gesture in a loop: one
+        // open question per tab is enough (`asking`, the tab's pending prompts).
+        guard userGesture || !asking(kind, site) else { return }
+        ask(kind, site) { [weak self] response in
             switch response {
             case .allow:
                 self?.allowAlways(scheme, for: site)
@@ -92,6 +105,6 @@ public final class BrowserExternalApps {
             return
         }
         #endif
-        NSWorkspace.shared.openInBackground(url)
+        opener(url)
     }
 }
