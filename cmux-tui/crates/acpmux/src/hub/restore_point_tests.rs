@@ -33,13 +33,13 @@ impl PointStore {
         }
     }
 
-    /// A daemon start over this store: a hub with the chat listed and its log not read yet.
+    /// A daemon start over this store: a hub with the chat listed and its log not read yet, as
+    /// a start installs a stored chat (`install_stored_session`); the test reads it.
     fn start(&self) -> (Arc<Hub>, Arc<Session>) {
-        let hub = Hub::new(Config::default(), Box::new(self.clone()));
+        let hub = Hub::new_loading(Config::default(), Box::new(self.clone()), Mailbox::memory());
         let meta = hub.store.load(ID).unwrap().unwrap();
-        let session = hub.make_session(meta);
-        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
-        hub.catch_up(&session);
+        hub.install_stored_session(meta, false, false, true);
+        let session = hub.sessions.lock().unwrap().get(ID).cloned().unwrap();
         (hub, session)
     }
 }
@@ -207,13 +207,20 @@ fn a_load_from_the_restore_point_restores_what_a_whole_log_load_does() {
     assert_eq!(last, b.seq.load(Ordering::SeqCst), "the two logs differ before the loads");
 
     pointed.from.lock().unwrap().clear();
+    whole.from.lock().unwrap().clear();
     a_hub.load_session_log(&a);
     b_hub.load_session_log(&b);
 
+    // Every fold begins at the point. What still reads from the start is outside the folds:
+    // the cut turn's settlement (its continuation looks up its prompt, `restart_resume.rs`) and
+    // the inbox of a hub outside a runtime, read with its log (`Session::inbox`).
     let began = pointed.from.lock().unwrap().clone();
+    let whole_began = whole.from.lock().unwrap().clone();
+    let from_start = |b: &[u64]| b.iter().filter(|s| **s == 0).count();
     assert!(
-        !began.contains(&0),
-        "a load from a restore point read the log from its start: {began:?}"
+        from_start(&began) < from_start(&whole_began),
+        "a load from a restore point read as much from the log's start as a whole load: \
+         {began:?} against {whole_began:?}"
     );
     assert!(began.contains(&quiet_seq), "{began:?}");
     let (a, b) = (restored(&a_hub, &a, last), restored(&b_hub, &b, last));
