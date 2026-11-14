@@ -2,7 +2,7 @@
 use super::compaction::{Compaction, cleanup_stages};
 use super::{DiskSnapshot, IndexRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub struct IndexLog {
@@ -307,7 +307,7 @@ fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
     let mut probe = file.try_clone()?;
     probe.seek(SeekFrom::Start(offset))?;
     let mut header = [0; 8];
-    io::Read::read_exact(&mut probe, &mut header)?;
+    Read::read_exact(&mut probe, &mut header)?;
     let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as u64;
     if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
         return Ok(true);
