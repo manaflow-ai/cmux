@@ -286,4 +286,9 @@ extension SessionScope {
 final class MacScreenHubBox {
     var hub: DeviceHub?
     var configured = false
+    var startupError: String?
+    var startupMessage: String? {
+        guard startupError != nil else { return nil }
+        return L.t("devices.status.failed", "Couldn’t reach the device hub. cmux keeps trying.")
+    }
 }

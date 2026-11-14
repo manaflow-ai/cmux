@@ -1,4 +1,5 @@
 import AppKit
+import CCmuxDaemonConnFFI
 public import CmuxNextCompat
 import CmuxNextControl
 public import CmuxNextDevices
@@ -61,6 +62,7 @@ public final class DeviceHubService {
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
     private var loadingFor: (url: URL, user: String)?
+    private var loadingID: UUID?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
     /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
@@ -93,6 +95,12 @@ public final class DeviceHubService {
             stopHub(endingSessions: false, removed: true)
         }
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
+    }
+
+    nonisolated deinit {
+        loading?.cancel()
+        watch?.cancel()
+        removalWatch?.cancel()
     }
 
     /// Follows the hub address and the account from now on.
@@ -135,32 +143,53 @@ public final class DeviceHubService {
     private func startHub(url: URL, user: String) {
         let token = account.accessToken, bundleIdentifier = bundleIdentifier, loginKeychain = loginKeychain
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
+        let id = UUID()
         loadingFor = (url, user)
-        // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
-        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub
+        loadingID = id
+        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub, clock = retryClock
+        // task-owner: DeviceHubService.loading: identity attempts and backoff; stopHub cancels both
         loading = Task { [weak self] in
-            let made: DeviceHub?
-            if let remote = await makeRemoteHub?(url, user) {
-                made = remote
-            } else {
+            // Rust owns exponential spacing and jitter. Identity availability has no change event:
+            // one retry per capped delay continues until success, sign-out, removal or replacement.
+            var retry = cmux_retry_pacer_new(cmux_retry_policy_new(1_000_000_000, 30_000_000_000, 10, 0, true))
+            // wakeup-allow: every failed identity attempt suspends for Rust backoff (at least 0.8s); success/cancellation exits; no identity-ready event exists.
+            while !Task.isCancelled, self?.loadingID == id {
                 do {
-                    made = try await makeAppHub(url, bundleIdentifier, name, DeviceHubAccountToken(token), loginKeychain)
+                    let remote = await makeRemoteHub?(url, user)
+                    guard !Task.isCancelled, self?.loadingID == id else { return }
+                    let hub: DeviceHub
+                    if let remote { hub = remote } else {
+                        hub = try await makeAppHub(url, bundleIdentifier, name, DeviceHubAccountToken(token), loginKeychain)
+                    }
+                    guard let self, !Task.isCancelled, loadingID == id else { return }
+                    hub.deviceName = name
+                    loadingFor = nil
+                    loadingID = nil
+                    loading = nil
+                    pages.hubStartupError = nil
+                    install(hub, url: url, user: user)
+                    return
                 } catch {
-                    self?.logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
-                    made = nil
+                    guard !Task.isCancelled, self?.loadingID == id else { return }
+                    let code = Self.startupError(error)
+                    self?.pages.hubStartupError = code
+                    self?.logger.error("device hub identity unavailable: \(code, privacy: .public)")
                 }
+                let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
+                guard delay >= 0 else { return }
+                // wakeup-allow: cancellable backoff after an actual platform failure, paced by Rust and capped at 30s; no polling for readiness.
+                do { try await clock.sleep(for: .nanoseconds(delay)) } catch { return }
             }
-            guard let hub = made else {
-                guard let self, !Task.isCancelled else { return }
-                loadingFor = nil
-                loading = nil
-                return
-            }
-            hub.deviceName = name
-            guard let self, !Task.isCancelled, let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
-            self.loadingFor = nil
-            loading = nil
-            install(hub, url: url, user: user)
+        }
+    }
+
+    /// Platform error codes only: diagnostics must never include tokens or key material.
+    private static func startupError(_ error: any Error) -> String {
+        switch error as? DeviceIdentity.Failure {
+        case .secureEnclaveUnavailable: return "device_identity_secure_enclave_unavailable"
+        case let .keychain(status): return "device_identity_keychain_\(status)"
+        case .corruptKeyBlob: return "device_identity_corrupt_key_blob"
+        case nil: return "device_identity_unavailable"
         }
     }
 
@@ -200,6 +229,8 @@ public final class DeviceHubService {
         loading?.cancel()
         loading = nil
         loadingFor = nil
+        loadingID = nil
+        pages.hubStartupError = nil
         removalWatch?.cancel()
         removalWatch = nil
         guard let hub else { return }
