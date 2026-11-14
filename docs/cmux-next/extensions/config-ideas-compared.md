@@ -46,5 +46,23 @@ The cases:
 - `sidebar`: in cmux-next.json, `sidebar.density` changes.
 - `extension`: the customize folder's `main.js` is saved with a new section headline.
 
-Results: none yet. The first run, at 9536f6f0436 (fleet step c75cc10eacf394cd18e28d34), had not finished its build when
-this page was written.
+Results from fleet step c75cc10eacf394cd18e28d34: 9536f6f0436, bench build, aws-m4pro-7, 10 rounds per case.
+Times are ms from the end of the write.
+
+| Case | Upper bound, median | Upper bound, max | Last unchanged capture sent | Captures |
+| --- | --- | --- | --- | --- |
+| theme (`appearance.themeFile`) | 205 ms | 231 ms | 0 ms | 17.6 ms median |
+| sidebar (`sidebar.density`) | 72 ms | 77 ms | 0 ms | 17.9 ms median |
+| extension (customize `main.js`) | not seen | not seen | n/a | 17.4 ms median |
+
+How to read the theme and sidebar rows:
+- In every round, the first capture after the write still showed the old look. The second capture showed the new one.
+- The ordinary capture takes 17 ms, but that first one took about 190 ms (theme) or 55 ms (sidebar) to reply, because
+  it waited for the main actor while the app applied the change.
+- So the repaint falls somewhere between the write and the upper bound. The main thread is busy for most of that
+  window: about 190 ms for a theme switch and about 55 ms for a density change.
+
+The extension case recorded no change in the window, in all 10 rounds, within 3 s of each save. The capture taken 3 s
+after each save matched the one before it, so this is not a reload slower than 3 s: either the section never showed
+in the sidebar, or the save did not reach it. The step keeps only the JSON, not the captures. The next run should keep
+the last capture of each extension round and read `cmux apps list` to tell those two apart.
