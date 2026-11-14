@@ -430,8 +430,8 @@ fn set(slot: &mut Option<String>, value: String, what: &str) -> Result<(), Usage
     Ok(())
 }
 
-/// [`locate_with`] with no joined machines (tests of the other places).
-#[cfg(test)]
+/// [`locate_with`] with no joined machine for `--on` (`chat cd`, which goes to a Cloud chat
+/// only; a `HOST/NAME` session is still [`Place::Acp`]).
 pub(super) fn locate<T, L>(
     session: &str,
     on: Option<&str>,
