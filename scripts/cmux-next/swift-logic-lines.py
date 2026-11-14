@@ -17,7 +17,10 @@ It reads git objects at SHA only (no working tree), with the standard library an
 checkout): the scope, the comment and string blanking and the declaration patterns are arch_counts'.
 
 Scope: every tracked Swift file under the Sources of CmuxNext and its local `.package(path:)` closure at SHA
-(arch_counts.read_paths); a file's module is the directory after `Sources/` (arch_counts.package_of).
+(arch_counts.read_paths), less the packages only test targets reach (linked_scope): a dependency that a manifest's
+test targets name and none of its other targets do is not linked into the app (CmuxNextMobileTests pulled the old
+iOS app's packages, about 25,000 lines, into v2's count). A file's module is the directory after `Sources/`
+(arch_counts.package_of).
 
 Unit: each top-level declaration (class, struct, enum, actor, protocol, extension, also of a shorthand type such as
 `extension [UInt8]`, and file-scope func, var, let, typealias; at a line start or after a `}` or `;` on its line) of the
@@ -88,7 +91,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 METHOD = "swift-logic-lines"
-METHOD_VERSION = 2  # v2: the table key is per file; a main.swift's statements count (counts not comparable with v1)
+METHOD_VERSION = 3  # v2: the table key is per file; a main.swift's statements count (counts not comparable with v1)
+# v3: packages only test targets reach are out of the scope (linked_scope; counts not comparable with v2)
 TABLE = "plans/cmux-next/swift-logic-classes.tsv"
 LOGIC = "swift_logic_lines"
 MIRROR = "mirror_lines"
@@ -501,6 +505,45 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
                  frozenset(key[0] for key in table))
 
 
+def linked_scope(git, sha: str, scope):
+    """SCOPE less the packages that only test targets reach. From CmuxNext, a manifest's local dependency is followed
+    unless its test targets name it (`.product(package:)` or a by-name dependency matching its identity) and none of
+    its other targets do; a non-test target with a dependency the static reader cannot resolve follows them all (the
+    scope errs toward reading more, as arch_counts does). A dependency no target names stays, as before."""
+    paths = [f"{p}/Package.swift" for p in scope.packages if f"{p}/Package.swift" in scope.manifests]
+    raws = git.read([(sha, path) for path in paths])
+    reached, todo = {AC.PACKAGE_DIR}, [AC.PACKAGE_DIR]
+    while todo:
+        package = todo.pop()
+        raw = raws.get((sha, f"{package}/Package.swift"))
+        if raw is None:
+            continue
+        deps = AC.local_dependencies(raw, package)
+        tested, linked, every = set(), set(), False
+        for target in AC.parse_manifest(raw).targets.values():
+            names = {pkg.lower() for _, pkg in target.products} | {dep.lower() for dep in target.deps}
+            if target.kind == "testTarget":
+                tested |= names
+            else:
+                linked |= names
+                every = every or bool(target.unresolved)
+        identities = collections.defaultdict(set)
+        for identity, path in deps.items():
+            identities[path].add(identity)
+        for path, names in sorted(identities.items()):
+            if not every and names & tested and not names & linked:
+                continue  # only a test target uses it
+            if path in scope.packages and path not in reached:
+                reached.add(path)
+                todo.append(path)
+    kept = tuple(p for p in scope.packages if p in reached)
+    return dataclasses.replace(
+        scope, packages=kept,
+        manifests={m: b for m, b in scope.manifests.items() if m.rsplit("/", 1)[0] in reached},
+        modules={m: tuple(p for p in ps if p in reached) for m, ps in scope.modules.items()
+                 if any(p in reached for p in ps)})
+
+
 def count(repo: Path, rev: str = "HEAD", cache: bool = True, table_text: str | None = None) -> Count:
     """The count at REV, from git objects: the closure's Swift (arch_counts.read_paths) and the table at REV (or
     TABLE_TEXT: a baseline of a revision that has no table yet)."""
@@ -508,7 +551,7 @@ def count(repo: Path, rev: str = "HEAD", cache: bool = True, table_text: str | N
     sha = git.rev(rev)
     store = AC.FactsCache(git, cache)
     try:
-        scope = AC._scope(git, sha, store)
+        scope = linked_scope(git, sha, AC._scope(git, sha, store))
         scope.check()
         blobs = git.swift_blobs(sha, scope)
         files: dict[str, list[Unit]] = {}

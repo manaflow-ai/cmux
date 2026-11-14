@@ -1034,9 +1034,12 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
                     for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
         probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
         expected[probe.name] = probe.read_text(encoding="utf-8")
-        self.assertEqual(sorted(written), sorted(expected))
+        sync = "run scripts/cmux-next/media/tours/sync_customize_templates.py"
+        self.assertEqual(sorted(written), sorted(expected), f"the tour and the template folders differ: {sync}")
         for key, text in expected.items():
-            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
+            self.assertEqual(written[key], text, f"{key}: the tour types a stale copy: {sync}")
+        self.assertTrue(all(text.endswith("\r") for text in texts if "echo saved " in text),
+                        f"every template step presses Return after typing: {sync}")
 
 
 if __name__ == "__main__":

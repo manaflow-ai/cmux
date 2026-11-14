@@ -326,6 +326,7 @@ async fn reconcile_corrects_a_stale_typed_archived_bit() {
     let (_, task) = start_v2_tee(v1, v2.clone());
     let tee = tokio::spawn(task);
     let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    // timeout: Test-only deadline detects an archive that never reaches the v2 row; no user request is cancelled.
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             if v2.hub.snapshot().get("archived").is_some_and(|row| row.archived) {
@@ -383,6 +384,7 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     assert!(subscription.receiver.try_next().is_none(), "the old crossing must be rescheduled");
 
     let crossing =
+        // timeout: Test-only deadline detects a quiet-turn crossing that never fires; no user request is cancelled.
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
             .expect("quiet-turn deadline did not mark the row");
@@ -406,6 +408,7 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     assert!(subscription.receiver.try_next().is_none(), "the fired crossing must be rescheduled");
     drop(config_guard);
     let second =
+        // timeout: Test-only deadline detects a repeated crossing that never fires; no user request is cancelled.
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
             .expect("repeated quiet-turn deadline did not mark the row");
