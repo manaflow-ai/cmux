@@ -798,4 +798,6 @@ fn a_server_in_a_call_is_never_ended_as_idle() {
     let result = held.join().unwrap().unwrap();
     assert_eq!(result["content"][0]["text"], "held");
     assert!(gone_within(pid, Duration::from_secs(10)), "idle after its call, it still runs");
+    // Ended for idling, not by the server's drop: this test still holds it.
+    assert!(!server.lock().unwrap().started());
 }
