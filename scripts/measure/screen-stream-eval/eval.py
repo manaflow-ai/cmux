@@ -54,8 +54,12 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
         if not rows:
             kbps[name] = fps[name] = encode[name] = decode[name] = None
             continue
-        kbps[name] = round(sum(s["bytes"] for s in rows) * 8 / 1000 / len(rows), 1)
-        fps[name] = round(sum(s["frames"] for s in rows) / len(rows), 1)
+        # A viewer that does not expose a count (frames: a third-party viewer, gui-viewer.sh) leaves it
+        # null in its rows, and the phase's number is null rather than a sum of what was not measured.
+        byte_counts = [s.get("bytes") for s in rows]
+        frame_counts = [s.get("frames") for s in rows]
+        kbps[name] = round(sum(byte_counts) * 8 / 1000 / len(rows), 1) if None not in byte_counts else None
+        fps[name] = round(sum(frame_counts) / len(rows), 1) if None not in frame_counts else None
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
         encode[name] = round(statistics.median(enc), 2) if enc else None

@@ -4141,11 +4141,16 @@
       "title" : "End Sharing When cmux Quits",
       "type" : "boolean"
     },
-    "remote.ultraMode" : {
-      "default" : false,
-      "description" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+    "remote.ultra" : {
+      "default" : "auto",
+      "description" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection.",
+      "enum" : [
+        "off",
+        "auto",
+        "always"
+      ],
       "title" : "Ultra Connection Mode",
-      "type" : "boolean"
+      "type" : "string"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -5294,7 +5299,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
+      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
       "items" : {
         "enum" : [
           "splitRight",

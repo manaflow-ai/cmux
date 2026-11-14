@@ -661,6 +661,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  jitteredDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -8305,9 +8306,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             failingSince = Date.now();
             setRelinkingSince(failingSince);
             // A client lost soon after it connected keeps the backoff growing: a daemon that drops
-            // the pane right after every connect is not asked again every 250 ms.
+            // the pane right after every connect is not asked again every 250 ms. Jittered so the
+            // tabs that lost one daemon together do not ask it again in lockstep.
             const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
-            retryTimer = window.setTimeout(() => void connectHost(), lost.wait);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
             retryDelay = lost.next;
           },
           mockModule
@@ -9760,7 +9762,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // in flight asks again itself when it ends.
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
             retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
         }
@@ -9889,6 +9891,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         throw error;
       },
     );
+  };
+  /// A start refused because a chat is already starting in this tab (`unavailable_now`): the same prompt and folder
+  /// go to a new Cloud chat, as the held send's refusal offers; this card closes and the composer keeps the prompt.
+  const openNewCloudChatForStart = () => {
+    const start = cloudStart;
+    if (!start) return;
+    const attempt = lastCloudAttempt.current;
+    const cwd = attempt?.key === start.key ? attempt.request.cwd : undefined;
+    dismissCloudFailure();
+    void openCloudChatWith({ prompt: start.task, ...(cwd ? { cwd } : {}) }).catch(() => undefined);
   };
   /// A harness's local command typed alone (localCommands.ts): its GUI answer, now, mid-turn too.
   /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
@@ -13292,6 +13304,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  onOpenNewCloudChat={openNewCloudChatForStart}
                                   {...cloudTooBigActions}
                                 />
                               ),
@@ -13830,6 +13843,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    onOpenNewCloudChat={openNewCloudChatForStart}
                     {...cloudTooBigActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
