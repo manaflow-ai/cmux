@@ -309,7 +309,7 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
     // Each layout is refused for its own cause.
     let layouts = [
         ("outside", &outside, "is not in the work tree that git gives"),
-        ("named", &named, "do not name each other"),
+        ("named", &named, "names a git folder whose own name is `.git`"),
     ];
     let before = entries(&trees);
     for (layout, folder, cause) in layouts {
@@ -328,7 +328,9 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
     }
     // A checkpoint operation makes the folders of the daemon's checkpoint store, in the state
     // folder, before the open. The store gets no file for a folder that is refused.
-    for store in folders_with_the_name(&top.join("state"), "git-checkpoints") {
+    let stores = folders_with_the_name(&top.join("state"), "git-checkpoints");
+    assert!(!stores.is_empty(), "the checkpoint store is not found below the state folder");
+    for store in stores {
         let mut kept = entries(&store);
         kept.retain(|_, (state, _)| !state.starts_with("folder"));
         assert!(kept.is_empty(), "the checkpoint store has {:?}", kept.keys());
