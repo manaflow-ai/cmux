@@ -92,15 +92,33 @@ jobs:
       # GitHub refuses (the installation's rate limit answered HTTP 403 in run
       # 43618862433 while the gate ran on) is retried, never taken as the
       # verdict; the job's timeout bounds the wait.
+      #
+      # Every dispatch shares the gate's one concurrency group, so a newer
+      # dispatch (feat-cmux-next moved) replaces a queued one, which ends
+      # cancelled with no job run (gate run 43622919851, readiness run
+      # 43622910673). A cancelled run was superseded: the wait follows the
+      # newest live gate run this workflow dispatched after it, and carries
+      # that run's verdict on the newer feat-cmux-next.
       - name: Wait for the gate's verdict
         env:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
         run: |
           set -uo pipefail
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          run_id="$RUN_ID"
           while :; do
-            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.status + " " + (.conclusion // "")')" \
+            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status + " " + (.conclusion // "")')" \
               || { echo "::warning::could not read $url; retrying in 2 min"; sleep 120; continue; }
+            if [[ "$state" == "completed cancelled" ]]; then
+              next="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&per_page=50" \
+                --jq "[.workflow_runs[] | select(.path == \".github/workflows/ios-review-gate.yml\" and .actor.login == \"github-actions[bot]\" and .conclusion != \"cancelled\" and .id > $run_id)][0].id // empty")" \
+                || { echo "::warning::could not list the gate's runs; retrying in 2 min"; sleep 120; continue; }
+              if [[ "$next" =~ ^[0-9]+$ ]]; then
+                echo "Gate run $url was cancelled for a newer dispatch; following run $next"
+                run_id="$next"
+                continue
+              fi
+            fi
             case "$state" in
               "completed success") echo "The App Review gate passed: $url"; exit 0 ;;
               completed*) echo "::error::the App Review gate concluded ${state#completed }: $url"; exit 1 ;;
