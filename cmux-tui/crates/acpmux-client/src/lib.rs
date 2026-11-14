@@ -3,7 +3,7 @@
 pub mod ffi;
 pub mod wire;
 
-use acpmux_book::index::Summary;
+use acpmux_book::index::{OriginState, RowKey, Summary};
 
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -153,6 +153,19 @@ struct MirrorState {
     // Decision 166: a window or a successful page permits one immediate retry.
     read_error_since_progress: bool,
     reads_stopped: bool,
+    parent_facts: HashMap<(String, String), ParentFacts>,
+    child_parent: HashMap<(String, String), (String, String)>,
+    parent_children: HashMap<(String, String), HashSet<(String, String)>>,
+    internal_wanted: HashSet<(String, String)>,
+    caller_wanted: HashSet<(String, String)>,
+    origin_states: HashMap<String, OriginState>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ParentFacts {
+    answered: bool,
+    archived: bool,
+    parent: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -573,6 +586,8 @@ where
                 return Err(FrameError::InvalidLength(mirror.wanted.len()));
             }
             mirror.wanted.insert(id, key.clone());
+            mirror.caller_wanted.insert(Self::row_identity(&key));
+            mirror.internal_wanted.remove(&Self::row_identity(&key));
             mirror.pending_wanted.push_back(key);
         }
         // An explicit want may read pending keys after a stop, but does not
@@ -596,7 +611,11 @@ where
             return Err(FrameError::RequestInFlight);
         };
         for key in keys {
-            mirror.wanted.remove(&Self::row_identity(&key));
+            let id = Self::row_identity(&key);
+            mirror.caller_wanted.remove(&id);
+            if !mirror.internal_wanted.contains(&id) {
+                mirror.wanted.remove(&id);
+            }
             mirror.pending_wanted.retain(|pending| pending != &key);
         }
         Ok(())
@@ -682,6 +701,186 @@ where
 
     fn value_key<U: Serialize>(row: &U) -> Option<ListKey> {
         serde_json::to_value(row).ok().and_then(|value| Self::row_key(&value))
+    }
+
+    fn rows_v1(&self, sid: &str) -> bool {
+        self.subscriptions.get(sid).and_then(|sub| sub.mirror.as_ref()).is_some()
+            && self
+                .subscriptions
+                .get(sid)
+                .is_some_and(|sub| sub.request.rows.as_deref() == Some("v1"))
+    }
+
+    fn parent_identity(summary: &Summary) -> Option<(String, String)> {
+        summary
+            .parent
+            .as_ref()
+            .map(|parent| (parent.origin.to_string(), parent.chat_id.to_string()))
+    }
+
+    fn synthetic_parent(&self, sid: &str, id: &(String, String)) -> Option<Summary> {
+        let facts = self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .and_then(|mirror| mirror.parent_facts.get(id))?;
+        if !facts.answered {
+            return None;
+        }
+        let mut parent = Summary::new(id.1.clone());
+        parent.origin = id.0.clone();
+        parent.archived = facts.archived;
+        parent.parent = facts.parent.as_ref().map(|(origin, chat_id)| RowKey::new(origin, chat_id));
+        Some(parent)
+    }
+
+    fn record_summary(&mut self, sid: &str, summary: &Summary) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        let id = (summary.origin.clone(), summary.chat_id.clone());
+        let parent = Self::parent_identity(summary);
+        let previous = mirror.parent_facts.insert(
+            id.clone(),
+            ParentFacts { answered: true, archived: summary.archived, parent: parent.clone() },
+        );
+        if let Some(old_parent) = previous.as_ref().and_then(|facts| facts.parent.clone())
+            && Some(old_parent.clone()) != parent
+            && let Some(children) = mirror.parent_children.get_mut(&old_parent)
+        {
+            children.remove(&id);
+        }
+        if let Some(parent) = parent.clone() {
+            mirror.child_parent.insert(id.clone(), parent.clone());
+            mirror.parent_children.entry(parent.clone()).or_default().insert(id.clone());
+            let parent_missing =
+                !mirror.parent_facts.get(&parent).is_some_and(|facts| facts.answered)
+                    && !mirror.held.contains_key(&parent)
+                    && !mirror.wanted.contains_key(&parent);
+            if parent_missing && mirror.wanted.len() < 4096 {
+                let key = ListKey {
+                    last_activity: 0,
+                    chat_id: parent.1.clone(),
+                    origin: parent.0.clone(),
+                };
+                mirror.wanted.insert(parent.clone(), key.clone());
+                mirror.internal_wanted.insert(parent);
+                mirror.pending_wanted.push_back(key);
+            }
+        } else {
+            mirror.child_parent.remove(&id);
+        }
+        let parent_changed = previous.is_some_and(|old| {
+            old.answered != true || old.archived != summary.archived || old.parent != parent
+        });
+        if parent_changed {
+            if let Some(children) = mirror.parent_children.get(&id).cloned() {
+                for child in children {
+                    if let Some(key) = mirror.held.get(&child).cloned()
+                        && !mirror
+                            .pending_wanted
+                            .iter()
+                            .any(|pending| Self::row_identity(pending) == child)
+                    {
+                        mirror.pending_wanted.push_back(key);
+                    }
+                }
+            }
+        }
+        if !summary.is_live() && mirror.parent_children.contains_key(&id) {
+            if let Some(key) =
+                mirror.held.get(&id).cloned().or_else(|| mirror.wanted.get(&id).cloned())
+            {
+                if !mirror.wanted.contains_key(&id) && mirror.wanted.len() < 4096 {
+                    mirror.wanted.insert(id.clone(), key.clone());
+                }
+                mirror.internal_wanted.insert(id);
+                if !mirror
+                    .pending_wanted
+                    .iter()
+                    .any(|pending| Self::row_identity(pending) == Self::row_identity(&key))
+                {
+                    mirror.pending_wanted.push_back(key);
+                }
+            }
+        }
+    }
+
+    fn prepare_rows(&mut self, sid: &str, rows: &[T]) {
+        if !self.rows_v1(sid) {
+            return;
+        }
+        let summaries: Vec<Summary> = rows
+            .iter()
+            .filter_map(|row| {
+                serde_json::to_value(row).ok().and_then(|value| serde_json::from_value(value).ok())
+            })
+            .collect();
+        for summary in &summaries {
+            self.record_summary(sid, summary);
+        }
+    }
+
+    fn record_origin_state(&mut self, sid: &str, origin: String, state: OriginState) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        mirror.origin_states.insert(origin.clone(), state);
+        if state == OriginState::Removed {
+            let affected: Vec<_> = mirror
+                .parent_facts
+                .iter_mut()
+                .filter_map(|((row_origin, row_id), facts)| {
+                    (row_origin == &origin && facts.answered).then(|| {
+                        facts.answered = false;
+                        (row_origin.clone(), row_id.clone())
+                    })
+                })
+                .collect();
+            for id in affected {
+                if let Some(children) = mirror.parent_children.get(&id).cloned() {
+                    for child in children {
+                        if let Some(key) = mirror.held.get(&child).cloned() {
+                            mirror.pending_wanted.push_back(key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn release_parent_if_unused(&mut self, sid: &str, child: &(String, String)) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        let Some(parent) = mirror.child_parent.get(child).cloned() else { return };
+        let child_held = mirror
+            .parent_children
+            .get(&parent)
+            .is_some_and(|children| children.iter().any(|id| mirror.held.contains_key(id)));
+        if !child_held && !mirror.caller_wanted.contains(&parent) {
+            mirror.internal_wanted.remove(&parent);
+            mirror.wanted.remove(&parent);
+            mirror.pending_wanted.retain(|key| Self::row_identity(key) != parent);
+        }
+    }
+
+    fn render_row(&self, sid: &str, row: T) -> T {
+        if !self.rows_v1(sid) {
+            return row;
+        }
+        let Ok(value) = serde_json::to_value(&row) else { return row };
+        let Ok(summary) = serde_json::from_value::<Summary>(value) else { return row };
+        let origin_state = self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .and_then(|mirror| mirror.origin_states.get(&summary.origin).copied())
+            .unwrap_or(OriginState::Connected);
+        let parent = Self::parent_identity(&summary).and_then(|id| self.synthetic_parent(sid, &id));
+        let rendered = v1_row(&summary, origin_state, parent.as_ref());
+        serde_json::from_value(rendered).unwrap_or(row)
+    }
+
+    fn render_rows(&self, sid: &str, rows: Vec<T>) -> Vec<T> {
+        rows.into_iter().map(|row| self.render_row(sid, row)).collect()
     }
 
     fn summary_is_live(value: &Value) -> bool {
@@ -805,6 +1004,8 @@ where
             (sub.cursor, stale)
         };
         for key in stale {
+            let id = Self::row_identity(&key);
+            self.release_parent_if_unused(sid, &id);
             self.push_change(
                 Change::Gone {
                     sid: sid.to_owned(),
@@ -902,6 +1103,13 @@ where
                     self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
                 let mirror =
                     self.subscriptions.get(&sid).and_then(|sub| sub.mirror.as_ref()).is_some();
+                let raw_rows = window.rows.clone();
+                if mirror {
+                    for origin in &window.origins {
+                        self.record_origin_state(&sid, origin.id.clone(), origin.state);
+                    }
+                    self.prepare_rows(&sid, &raw_rows);
+                }
                 if let Some(sub) = self.subscriptions.get_mut(&sid) {
                     sub.cursor = Cursor(window.cursor);
                     sub.edition = window.edition;
@@ -910,7 +1118,7 @@ where
                     if let Some(mirror) = sub.mirror.as_mut() {
                         mirror.read_error_since_progress = false;
                         mirror.reads_stopped = false;
-                        for row in &window.rows {
+                        for row in &raw_rows {
                             if let Some(key) = Self::value_key(row) {
                                 let id = Self::row_identity(&key);
                                 mirror.seen.insert(id.clone(), key.clone());
@@ -918,6 +1126,9 @@ where
                             }
                         }
                     }
+                }
+                if mirror {
+                    window.rows = self.render_rows(&sid, raw_rows);
                 }
                 self.push_change(Change::Window(window), Some(sid.clone()), frame_bytes, true);
                 if replaying {
@@ -988,6 +1199,10 @@ where
                     mirror.read_error_since_progress = false;
                 }
                 let state = self.pages.remove(&sid).unwrap_or_default();
+                let raw_rows = page.rows.clone();
+                if self.rows_v1(&sid) && matches!(state.purpose, PagePurpose::User) {
+                    self.prepare_rows(&sid, &raw_rows);
+                }
                 if matches!(state.purpose, PagePurpose::User | PagePurpose::MirrorWalk) {
                     page.rows.retain(|row| {
                         let Some(value) = serde_json::to_value(row).ok() else { return true };
@@ -1007,6 +1222,9 @@ where
                 }
                 match state.purpose {
                     PagePurpose::User => {
+                        if self.rows_v1(&sid) {
+                            page.rows = self.render_rows(&sid, page.rows);
+                        }
                         self.push_change(Change::Page(page), Some(sid.clone()), frame_bytes, true);
                         let restart_walk = self
                             .subscriptions
@@ -1142,8 +1360,12 @@ where
     fn accept_mirror_walk_page(&mut self, page: PageResult<T>, frame_bytes: u64) {
         let sid = page.sid.clone();
         let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor).unwrap_or_default();
+        let raw_rows = page.rows.clone();
+        if self.rows_v1(&sid) {
+            self.prepare_rows(&sid, &raw_rows);
+        }
         let mut emitted = false;
-        for row in page.rows.iter().cloned() {
+        for row in raw_rows {
             let key = Self::value_key(&row);
             if let Some(key) = key.clone()
                 && let Some(sub) = self.subscriptions.get_mut(&sid)
@@ -1153,6 +1375,7 @@ where
                 mirror.seen.insert(id.clone(), key.clone());
                 mirror.held.insert(id, key);
             }
+            let row = self.render_row(&sid, row);
             self.push_change(
                 Change::Summary { sid: sid.clone(), seq: cursor.0, summary: row, replay: false },
                 Some(sid.clone()),
@@ -1203,25 +1426,48 @@ where
         requested_keys: Vec<ListKey>,
     ) {
         let sid = page.sid.clone();
+        let raw_rows = page.rows.clone();
+        if self.rows_v1(&sid) {
+            self.prepare_rows(&sid, &raw_rows);
+        }
         let mut emitted = false;
         let mut answered = 0usize;
-        for row in page.rows.iter().cloned() {
+        for row in raw_rows {
             let Some(key) = Self::value_key(&row) else { continue };
             let id = Self::row_identity(&key);
             answered = answered.saturating_add(1);
+            let live =
+                serde_json::to_value(&row).ok().is_some_and(|value| Self::summary_is_live(&value));
+            let internal_only =
+                self.subscriptions.get(&sid).and_then(|sub| sub.mirror.as_ref()).is_some_and(
+                    |mirror| {
+                        mirror.internal_wanted.contains(&id) && !mirror.caller_wanted.contains(&id)
+                    },
+                );
             if let Some(sub) = self.subscriptions.get_mut(&sid)
                 && let Some(mirror) = sub.mirror.as_mut()
             {
-                mirror.held.insert(id, key);
+                if live || mirror.caller_wanted.contains(&id) {
+                    mirror.held.insert(id.clone(), key.clone());
+                } else {
+                    mirror.held.remove(&id);
+                }
             }
             let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor.0).unwrap_or_default();
-            self.push_change(
-                Change::Summary { sid: sid.clone(), seq: cursor, summary: row, replay: false },
-                Some(sid.clone()),
-                frame_bytes,
-                !emitted,
-            );
-            emitted = true;
+            if !internal_only {
+                self.push_change(
+                    Change::Summary {
+                        sid: sid.clone(),
+                        seq: cursor,
+                        summary: self.render_row(&sid, row),
+                        replay: false,
+                    },
+                    Some(sid.clone()),
+                    frame_bytes,
+                    !emitted,
+                );
+                emitted = true;
+            }
         }
         for key in page.missing {
             answered = answered.saturating_add(1);
@@ -1257,7 +1503,11 @@ where
             } else if let Some(sub) = self.subscriptions.get_mut(&sid)
                 && let Some(mirror) = sub.mirror.as_mut()
             {
-                mirror.wanted.remove(&Self::row_identity(&key));
+                let id = Self::row_identity(&key);
+                mirror.internal_wanted.remove(&id);
+                if !mirror.caller_wanted.contains(&id) {
+                    mirror.wanted.remove(&id);
+                }
             }
         }
         for key in page.unknown {
@@ -1372,6 +1622,13 @@ where
                     let value = serde_json::to_value(&summary).ok();
                     let key = value.as_ref().and_then(Self::row_key);
                     let live = value.as_ref().is_some_and(Self::summary_is_live);
+                    if self.rows_v1(&sid)
+                        && let Ok(typed) = value.clone().map(serde_json::from_value).transpose()
+                    {
+                        if let Some(typed) = typed {
+                            self.record_summary(&sid, &typed);
+                        }
+                    }
                     let (live_view, held, wanted, mirrored) = self
                         .subscriptions
                         .get(&sid)
@@ -1390,8 +1647,19 @@ where
                             )
                         })
                         .unwrap_or((false, false, false, false));
+                    let internal_only = key.as_ref().is_some_and(|key| {
+                        let id = Self::row_identity(key);
+                        self.subscriptions
+                            .get(&sid)
+                            .and_then(|sub| sub.mirror.as_ref())
+                            .is_some_and(|mirror| {
+                                mirror.internal_wanted.contains(&id)
+                                    && !mirror.caller_wanted.contains(&id)
+                            })
+                    });
                     let left = live_view && !live && held && !wanted;
-                    let deliver = !mirrored || !live_view || live || held || wanted;
+                    let deliver =
+                        !mirrored || !live_view || live || held || wanted && !internal_only;
                     if let Some(sub) = self.subscriptions.get_mut(&sid)
                         && let Some(mirror) = sub.mirror.as_mut()
                         && let Some(key) = key
@@ -1400,18 +1668,26 @@ where
                         if mirror.walking {
                             mirror.touched.insert(id.clone());
                         }
-                        if live || mirror.wanted.contains_key(&id) {
+                        if live || mirror.caller_wanted.contains(&id) {
                             mirror.held.insert(id, key);
                         } else {
                             mirror.held.remove(&id);
                         }
+                    }
+                    if !live && let Some(key) = value.as_ref().and_then(Self::row_key) {
+                        self.release_parent_if_unused(&sid, &Self::row_identity(&key));
                     }
                     if left {
                         let charge = !charged;
                         charged = true;
                         emitted = true;
                         self.push_change(
-                            Change::Left { sid: sid.clone(), seq, summary, replay },
+                            Change::Left {
+                                sid: sid.clone(),
+                                seq,
+                                summary: self.render_row(&sid, summary),
+                                replay,
+                            },
                             Some(sid.clone()),
                             frame_bytes,
                             charge,
@@ -1421,7 +1697,12 @@ where
                         charged = true;
                         emitted = true;
                         self.push_change(
-                            Change::Summary { sid: sid.clone(), seq, summary, replay },
+                            Change::Summary {
+                                sid: sid.clone(),
+                                seq,
+                                summary: self.render_row(&sid, summary),
+                                replay,
+                            },
                             Some(sid.clone()),
                             frame_bytes,
                             charge,
@@ -1445,7 +1726,9 @@ where
                         }
                         mirror.held.remove(&id);
                         mirror.wanted.remove(&id);
+                        mirror.internal_wanted.remove(&id);
                     }
+                    self.release_parent_if_unused(&sid, &(origin.clone(), chat_id.clone()));
                     let why = raw.get("why").and_then(Value::as_str).map(str::to_owned);
                     self.push_change(
                         Change::Gone { sid: sid.clone(), seq, origin, chat_id, why, replay },
@@ -1456,6 +1739,7 @@ where
                 }
                 Ok(DeltaOp::Origin { seq, origin }) => {
                     self.advance(&sid, seq);
+                    self.record_origin_state(&sid, origin.id.clone(), origin.state);
                     let charge = !charged;
                     charged = true;
                     emitted = true;
@@ -1550,6 +1834,9 @@ where
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
+        }
+        if self.rows_v1(&sid) {
+            self.maybe_start_wanted(&sid);
         }
         if replay_end {
             let was_replaying = self.subscriptions.get(&sid).is_some_and(|sub| sub.replaying);
@@ -2923,6 +3210,52 @@ tail"#;
         assert_eq!(row.get("spawnedBy"), Some(&Value::String("parent".into())));
         assert_eq!(row.get("stale"), Some(&Value::Bool(true)));
         assert_eq!(row.get("custom"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn mirror_v1_rows_convert_window_and_keep_parent_facts_bounded() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+
+        let mut parent = Summary::new("parent");
+        parent.state = "idle".into();
+        parent.title = "Parent".into();
+        let mut child = Summary::new("child");
+        child.state = "waiting".into();
+        child.parent = Some(parent.key());
+        let mut sub = Sub::new("m", "list");
+        sub.rows = Some("v1".into());
+        sub.view = Some(ListView::Live);
+        client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+        let _ = client.take_send();
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"m","cursor":1,
+                "rows":[serde_json::to_value(&parent).unwrap(),serde_json::to_value(&child).unwrap()],
+                "hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        let Some(Change::Window(window)) = client.next_change() else { panic!("window") };
+        assert_eq!(window.rows[0].get("sessionId"), Some(&Value::String("parent".into())));
+        assert_eq!(window.rows[1].get("spawnedBy"), Some(&Value::String("parent".into())));
+        assert_eq!(window.rows[1].get("status"), Some(&Value::String("waiting".into())));
+        let mirror = client.subscriptions["m"].mirror.as_ref().unwrap();
+        assert_eq!(mirror.parent_facts.len(), 2);
+        assert!(
+            mirror.parent_children[&(String::from("local"), String::from("parent"))]
+                .contains(&(String::from("local"), String::from("child")))
+        );
     }
 
     #[cfg(feature = "tokio")]
