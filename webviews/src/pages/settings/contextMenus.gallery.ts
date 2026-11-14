@@ -16,6 +16,8 @@ const variant = (focus: string, note: string, menus = base): SettingsPageVariant
 
 const movePicker = (key: string, note: string, menus = base): SettingsPageVariant => ({
   ...variant("workspaceRow", note, menus),
+  // Keep the fallback picker below the complete preview in the captured frame.
+  height: 1100,
   steps: [
     shown,
     { selector: `.menu-row[data-key="${key}"] [data-action="move-to"]`, action: "click" },
