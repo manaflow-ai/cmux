@@ -484,6 +484,59 @@ fn a_git_head_refresh_sends_tab_changed_only_for_a_branch_that_changed() {
     session.end();
 }
 
+/// A client that holds a tree asks with `known` and gets `unchanged` while nothing that the
+/// tree shows changed. A branch that changes with no change of directory has no event of its
+/// own: the refresh that reads it counts in the tree revision, so the next `known` request gets
+/// the whole tree with the new branch. A refresh that reads each branch as it was leaves the
+/// revision as it is, so it sends no client back to the whole tree.
+#[test]
+fn a_git_head_refresh_moves_the_tree_revision_only_for_a_branch_that_changed() {
+    let session = Session::of("list-counts-tree-revision", 2);
+    let mux = &session.mux;
+    let (moving, still) =
+        (session.repository("moving", "main"), session.repository("still", "main"));
+    session.give_directories(&[moving.clone(), still]);
+    let render = Arc::new(RenderService::new());
+    let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
+    let since = |known: &Value| -> Value {
+        let reply = app.command(mux, json!({"id": 1, "cmd": "list-workspaces", "known": known}));
+        let mut reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        reply["data"].take()
+    };
+    let first = since(&json!({}));
+    assert_eq!(first["workspaces"].as_array().map(Vec::len), Some(2), "the whole tree");
+    let known = json!({
+        "registry_id": first["registry_id"],
+        "generation": first["generation"],
+        "workspace_revision": first["workspace_revision"],
+        "pane_revision": first["pane_revision"],
+        "terminal_revision": first["terminal_revision"],
+        "tree_revision": first["tree_revision"],
+    });
+    assert!(known["tree_revision"].is_string(), "{known}");
+    assert_eq!(since(&known)["unchanged"], json!(true), "nothing changed");
+
+    // A refresh that finds each branch as it was.
+    assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+    app.list(mux);
+    wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
+    assert_eq!(since(&known)["unchanged"], json!(true), "a refresh with no change of a branch");
+
+    // The branch of the first terminal's repository changes with no change of its directory.
+    set_branch(&moving, "next");
+    assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+    app.list(mux);
+    wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
+    let next = since(&known);
+    assert!(next.get("unchanged").is_none(), "the tree changed: {next}");
+    assert_ne!(next["tree_revision"], known["tree_revision"]);
+    let text = next.to_string();
+    assert_eq!(text.matches("\"git_branch\":\"next\"").count(), 1, "{}", start_of(&text));
+    assert_eq!(text.matches("\"git_branch\":\"main\"").count(), 1, "{}", start_of(&text));
+    session.end();
+}
+
 /// A v2 reply was made from its text: the message was written, parsed, changed and written a
 /// second time (`send_control`). It is now changed as a value and written one time
 /// (`send_control_value`). Each connection gets the same bytes from the two.

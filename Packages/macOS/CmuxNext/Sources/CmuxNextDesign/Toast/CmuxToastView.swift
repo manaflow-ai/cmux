@@ -165,7 +165,9 @@ public final class CmuxToastView: NSView {
         row.edgeInsets = NSEdgeInsets(top: pad(tuning.verticalPadding), left: pad(tuning.horizontalPadding) + (look.accentBar ? Self.accentBarWidth : 0),
                                       bottom: pad(tuning.verticalPadding), right: pad(tuning.trailingPadding))
         if look.showsIcon {
-            let icon = NSImageView()
+            let icon = ThemedImageView()
+            let tone = toast.tone
+            icon.themeTint = { tone.color }
             icon.image = NSImage(systemSymbolName: iconSymbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: look.compact ? 13 : 16, weight: TypeScale.regular))
             icon.translatesAutoresizingMaskIntoConstraints = false

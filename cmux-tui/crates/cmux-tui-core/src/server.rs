@@ -123,6 +123,9 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[path = "server/list_workspaces_page.rs"]
+mod list_workspaces_page;
+use list_workspaces_page::*;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -164,7 +167,6 @@ pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 mod line_value;
 pub(crate) mod tree_reply_flight;
-mod tree_reply_nodes;
 pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -1085,7 +1087,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    ListWorkspaces,
+    /// `known` and `limit`: server/list_workspaces_page.rs.
+    ListWorkspaces {
+        known: Option<cmd_workspaces::KnownTree>,
+        limit: Option<usize>,
+    },
     GetFrontendProjection {
         frontend: String,
         scope: String,
@@ -3101,26 +3107,6 @@ fn handle_command(
 
 mod command_dispatch;
 use command_dispatch::handle_command_with_cancellation;
-
-/// The `list-workspaces` reply: the tree plus the registry identity it
-/// belongs to. The launch snapshot stores the same value.
-fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
-    // Concurrent readers share one build that starts after each arrived.
-    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
-}
-
-fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
-    // One hold of the state lock, for a copy of the state. The nodes of the whole tree are
-    // built from the copy with no lock held: a request that needs the state does not wait for
-    // the build, which is the long part of this reply in a large session.
-    let (state, notifications) = mux.tree_state_and_decorations();
-    let mut workspaces = tree_reply_nodes::tree_nodes(&state, &notifications);
-    let (registry_id, generation) = mux.registry_identity();
-    workspaces.set("registry_id", json!(registry_id));
-    workspaces.set("generation", json!(generation));
-    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
-    Ok(workspaces)
-}
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {

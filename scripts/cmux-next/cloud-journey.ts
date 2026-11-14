@@ -1359,7 +1359,7 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
   turns: [countingTurnScript(), feltTurnScript()],
 };
 
@@ -2322,12 +2322,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
     // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
     // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's
-    // first shared team; recorded, never fatal, so the rest of the journey still runs.
-    const scopedTeam = team ?? (await api.read("user.teams.list", {}).then(
-      (v: any) => (Array.isArray(v?.teams) ? v.teams.find((t: any) => t?.kind !== "personal" && typeof t?.id === "string")?.id : undefined),
-      () => undefined,
-    ));
-    if (!scopedTeam) J.skip("team-scoped install token", "the account has no shared team (pass --team to name one)");
+    // first shared team; recorded, never fatal, so the rest of the journey still runs. user.teams.list heals an
+    // unmirrored team itself before the mint sees it, so only --team exercises the mint's own heal (review F2 on
+    // cmux#42958); the step says which it was. A list that failed or came back incomplete fails the step instead
+    // of skipping it as "no shared team".
+    const found: { team?: string; why?: string } = team ? { team } : await api.read("user.teams.list", {}).then(
+      (v: any) => {
+        const shared = Array.isArray(v?.teams) ? v.teams.find((t: any) => t?.kind !== "personal" && typeof t?.id === "string")?.id : undefined;
+        return shared ? { team: shared as string } : { why: v?.incomplete ? "user.teams.list came back incomplete with no shared team" : "" };
+      },
+      (error: unknown) => ({ why: `user.teams.list failed: ${String((error as Error)?.message ?? error).slice(0, 300)}` }),
+    );
+    const scopedTeam = found.team;
+    const via = team ? "--team" : "user.teams.list (which heals the team before the mint)";
+    if (!scopedTeam && !found.why) J.skip("team-scoped install token", "the account has no shared team (pass --team to name one)");
+    else if (!scopedTeam) await J.step("team-scoped install token", async () => { throw new Error(found.why); }).catch(() => undefined);
     else await J.step("team-scoped install token", async () => {
       const userId = user.id ?? user.user?.id;
       const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id, team: scopedTeam }, {});
@@ -2339,7 +2348,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} after ${ms} ms ${short(tok.body.error ?? tok.body)}`);
       J.secrets.push(tok.body.access_token);
       if (tok.body.team !== scopedTeam) throw new Error(`token names team ${tok.body.team}, asked for ${scopedTeam}`);
-      return { value: null, detail: `team ${scopedTeam}, minted in ${ms} ms` };
+      return { value: null, detail: `team ${scopedTeam} via ${via}, minted in ${ms} ms` };
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;

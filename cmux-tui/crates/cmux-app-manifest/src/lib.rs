@@ -37,6 +37,7 @@ mod presentation;
 mod rules;
 mod scopes;
 mod toolbar;
+mod web_pane;
 
 pub use capabilities::{Capabilities, OpCapability, OpClass, OpScope, scope_info};
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
@@ -49,6 +50,10 @@ pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
+pub use web_pane::{
+    APP_PAGE_SCHEME, PageFileRefusal, STRICT_PAGE_CSP, WebPage, app_page_host, effective_csp,
+    resolve_request, web_pages,
+};
 
 use serde_json::Value;
 use std::sync::OnceLock;

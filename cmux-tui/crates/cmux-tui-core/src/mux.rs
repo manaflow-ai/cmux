@@ -230,6 +230,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -771,6 +772,8 @@ pub struct Mux {
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     /// Git HEAD lookups keyed by directory, with their background refresh.
     git_heads: Arc<presentation::GitHeadCache>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -1178,26 +1181,6 @@ impl Mux {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
-
-    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
-        if runtime.surface != Some(id) {
-            return false;
-        }
-        runtime.surface = None;
-        runtime.failures = runtime.failures.saturating_add(1);
-        let delay = sidebar_retry_delay(runtime.failures);
-        runtime.last_error = Some("sidebar plugin exited".to_string());
-        runtime.retry_at = Some(Instant::now() + delay);
-        drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
-        true
-    }
-}
-
-fn sidebar_retry_delay(failures: u32) -> Duration {
-    let shift = failures.saturating_sub(1).min(5);
-    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
@@ -1220,4 +1203,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

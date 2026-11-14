@@ -71,6 +71,14 @@ extension ConversationViewController {
 
     private func startTimestampDrawerRelease(_ release: TimestampDrawerPhysics.Release) {
         stopTimestampDrawerRelease()
+        // Reduce Motion: the drawer closes at once instead of springing shut
+        // (the drag itself still follows the finger). Long after release the
+        // critically damped return has reached rest.
+        if UIView.reducesMotion {
+            _ = timestampDrawer.settle(release, elapsed: 60)
+            setTimestampReveal(timestampDrawer.fraction)
+            return
+        }
         timestampDrawerRelease = release
         timestampDrawerReleaseStart = nil
         let link = CADisplayLink(target: TimestampDrawerFrameTarget(self), selector: #selector(TimestampDrawerFrameTarget.step(_:)))

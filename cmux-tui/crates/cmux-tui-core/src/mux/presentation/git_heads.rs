@@ -130,12 +130,18 @@ impl Mux {
         }
         let head = read_git_head(Path::new(cwd));
         let mut cache = self.git_heads.inner.lock().recover_poison();
-        if cache.heads.len() >= GIT_HEAD_CACHE_LIMIT {
+        let cleared = cache.heads.len() >= GIT_HEAD_CACHE_LIMIT;
+        if cleared {
             cache.heads.clear();
         }
         cache
             .heads
             .insert(cwd.to_string(), Entry { checked: now, head: head.clone(), refreshing: false });
+        drop(cache);
+        if cleared {
+            // The cache forgot what a refresh could compare with (tree_revision.rs).
+            self.tree_revision.bump();
+        }
         head
     }
 
@@ -174,8 +180,11 @@ impl Mux {
         }
     }
 
-    /// Sends `tab-changed` for each placed tab whose directory is in `directories`.
+    /// Counts the change in the tree revision (a branch switched with no change of directory
+    /// has no event of its own, tree_revision.rs) and sends `tab-changed` for each placed tab
+    /// whose directory is in `directories`. The cache has the new values before this call.
     fn emit_git_head_changes(&self, directories: &HashSet<String>) {
+        self.tree_revision.bump();
         let surfaces: Vec<SurfaceId> = self.with_state(|state| {
             surface_directories_in_state(state)
                 .into_iter()
