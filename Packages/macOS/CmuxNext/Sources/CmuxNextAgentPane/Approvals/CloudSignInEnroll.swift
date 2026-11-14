@@ -1,5 +1,5 @@
 public import CmuxNextCloud
-import CmuxNextWakeups
+import CmuxNextCompat
 import Foundation
 
 /// Signing in enrolls this Mac on the hub (Leo: "Signing in enrolls the machine."). acpmux decides
