@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43612939190",
+  "recorded_at": "2026-11-14T16:08:54Z",
+  "reason": "cmux-tui 730164900be9 changes the image's cmux-tui (pinned b758ed2a119f)",
+  "dry_run": false,
+  "cmux_tui": "730164900be9271ceae39cc4d81d96be81c4161e",
+  "fixes": [
+    {
+      "sha": "730164900be9271ceae39cc4d81d96be81c4161e",
+      "mergedAt": "2026-11-14T07:35:50-08:00",
+      "subject": "CMUX-572: add deterministic rd netem metrics (#43042)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:08:54Z",
+    "snapshot_id": "sh-6b1d51d8c29446eab0e1d606a9846cf5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43612939190): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ed6e9676407fbad76048ad8e17974546b5037210",
+    "image": "cloud-native-auto-73016490-43612939190-1",
+    "revision": "ci-43612939190-1",
+    "at": "2026-11-14T16:08:54Z"
+  },
+  "rolled_back": false
+}
