@@ -133,6 +133,7 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
+    let started = Instant::now();
     run_passes(
         || {
             connection_pass(
@@ -145,6 +146,7 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
             )
         },
         thread::sleep,
+        || started.elapsed(),
     );
     Ok(())
 }

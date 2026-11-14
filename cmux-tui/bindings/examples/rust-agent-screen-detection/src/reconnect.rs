@@ -32,8 +32,13 @@ pub enum Pass {
 /// Runs connection passes until one is [`Pass::Done`]. `wait` blocks for the
 /// time that it gets: [`RECONNECT_WAIT_MIN`] after a pass that scanned, and
 /// 2 times the last wait, to [`RECONNECT_WAIT_MAX`], after each pass that
-/// did not.
-pub fn run_passes(mut pass: impl FnMut() -> Pass, mut wait: impl FnMut(Duration)) {
+/// did not. `_now` is a clock that only goes up; the loop does not read it
+/// yet.
+pub fn run_passes(
+    mut pass: impl FnMut() -> Pass,
+    mut wait: impl FnMut(Duration),
+    _now: impl FnMut() -> Duration,
+) {
     let mut next = RECONNECT_WAIT_MIN;
     loop {
         match pass() {

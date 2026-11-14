@@ -11,11 +11,12 @@
 //!
 //! These tests run the scenario of `at_rest_writers.rs` (30 printing
 //! terminals, 5 simulated minutes; 1, 60 and 826 workspaces) with the 2
-//! streams that the detector opens on one connection (`scanner.rs`,
+//! streams that the detector opens on one session (`scanner.rs`,
 //! `scan_connection`): its journal stream through `session.journal.subscribe`
 //! (the detector's own list, compiled in from its file) and its
-//! `session.events` stream, which a thread reads to its end as the detector's
-//! connection does. The detector's rows are appended before the span through
+//! `session.events` stream, which a thread reads to its end. The detector
+//! has a connection for each stream; this test has both streams on one
+//! connection. The detector's rows are appended before the span through
 //! `session.journal.append`. The span must add no journal row, no revision,
 //! no WAL commit and no WAL byte, and the events stream must get the live
 //! facts of the span as items that move no revision.
