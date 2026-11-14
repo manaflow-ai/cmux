@@ -76,6 +76,10 @@ final class TerminalFlickerTrace: NSObject {
         var surfaceTop: CGFloat = 0
         var surfaceBottom: CGFloat = 0
         var following = false
+        /// The legible band's top (under the toolbar) and the document's
+        /// height, for the drawn blank test.
+        var legibleTop: CGFloat = 0
+        var contentHeight: CGFloat = 0
     }
 
     private let sample: () -> Sample?
@@ -230,7 +234,7 @@ final class TerminalFlickerTrace: NSObject {
             if !now.held, now.gridTop - now.clipTop > now.cellHeight { count("band") }
         } else {
             value = now.stackTop - now.contentBottom
-            if now.legibleBlank { count("blank") }
+            if drawnBlank(now) { count("blank") }
         }
         let reference = reference ?? value
         self.reference = reference
@@ -312,6 +316,20 @@ final class TerminalFlickerTrace: NSObject {
             count("bandf")
             largestBand = max(largestBand, topGap - topRest)
         }
+    }
+
+    /// Background where the document has rows in the legible band (toolbar
+    /// to composer), from the drawn geometry: the page's own check
+    /// (`legibleRowsBlank`) reads model frames, which run ahead of what is
+    /// drawn while the keyboard moves the offset in its animation.
+    private func drawnBlank(_ now: Sample) -> Bool {
+        guard now.cellHeight > 0 else { return false }
+        let documentTop = now.contentBottom - now.contentHeight
+        let top = max(now.legibleTop, documentTop)
+        let bottom = min(now.stackTop, now.contentBottom)
+        guard bottom - top >= now.cellHeight else { return false }
+        let uncovered = max(0, now.surfaceTop - top) + max(0, bottom - now.surfaceBottom)
+        return uncovered >= now.cellHeight
     }
 
     private var shownPinRest: CGFloat?

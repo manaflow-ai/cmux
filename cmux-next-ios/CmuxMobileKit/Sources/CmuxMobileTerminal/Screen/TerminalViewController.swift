@@ -778,6 +778,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.surfaceTop = drawn.minY
             sample.surfaceBottom = drawn.maxY
             sample.following = following
+            sample.legibleTop = frame.minY + scrollView.contentInset.top
+            sample.contentHeight = scrollView.contentSize.height
         }
         return sample
     }
