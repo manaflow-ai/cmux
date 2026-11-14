@@ -64,7 +64,7 @@ class Restoration(unittest.TestCase):
             ChatFixture(self.fixture.output)
 
     def test_seed_waits_for_the_selected_agent_page_before_creating_a_session(self):
-        """An accepted open action can precede the native agent view's first frame."""
+        """A new-chat page paints before a conversation exists to emit chat paint."""
         page = {"opened": False, "selected": False, "painted": False}
         state = {}
 
@@ -97,10 +97,13 @@ class Restoration(unittest.TestCase):
                 self.marks = {}
 
             def wait_for(self, mark, *args, **kwargs):
-                if mark == bench.AGENT_MARK:
-                    page["painted"] = page["selected"]
-                    return page["painted"]
-                return True
+                wanted = [mark] if isinstance(mark, str) else mark
+                self.marks["daemon.first_tree_applied"] = 50
+                page["painted"] = page["selected"]
+                if page["painted"]:
+                    self.marks["agent_pane.newtab_painted"] = 100
+                landed = any if kwargs.get("any_of") else all
+                return landed(name in self.marks for name in wanted)
 
             def quit(self):
                 pass
