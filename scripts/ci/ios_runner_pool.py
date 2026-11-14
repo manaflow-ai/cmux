@@ -193,9 +193,14 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml",
+                 "ios-review-gate.yml")
 # The workflows that pick with the kit lane: one simulator job on one Mac.
 KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml")
+# The App Review gate: its iPhone and Duo walks pick with the review-gate lane,
+# two simulator jobs on two Macs. Its iPad leg holds the agent pass's token and
+# stays on Blacksmith, so it is never charged.
+REVIEW_GATE_WORKFLOWS = ("/ios-review-gate.yml",)
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -214,7 +219,7 @@ PICKER_JOB = "runner"
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
 SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)"
-                     r"|phone cells \(iOS simulator\)")
+                     r"|phone cells \(iOS simulator\)|Reviewer path \(.*\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -243,6 +248,8 @@ LANES = {
     "screenshots": Lane(jobs=1, measured=False),
     # The kit job builds one iOS simulator target on one Mac.
     "kit": Lane(jobs=1, measured=True),
+    # ios-review-gate.yml's iPhone and Duo walks, side by side.
+    "review-gate": Lane(jobs=2, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -300,6 +307,8 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
     if lane in ("screenshots", "kit"):
         return 1
+    if lane == "review-gate":
+        return LANES[lane].jobs
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
         return 0
@@ -512,6 +521,18 @@ def screenshots_run(run: Mapping[str, Any]) -> bool:
     return str(run.get("path") or "").split("@", 1)[0].endswith("/ios-screenshots.yml")
 
 
+def fixed_lane(run: Mapping[str, Any]) -> str:
+    """The lane of a run whose need its workflow alone fixes (one machine and simulator per job), or ""."""
+    path = str(run.get("path") or "").split("@", 1)[0]
+    if screenshots_run(run):
+        return "screenshots"
+    if path.endswith(KIT_WORKFLOWS):
+        return "kit"
+    if path.endswith(REVIEW_GATE_WORKFLOWS):
+        return "review-gate"
+    return ""
+
+
 def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = None,
                      now: dt.datetime | None = None) -> int:
     """The simulator jobs an in-flight iOS run may hold, read from its title; in full when unsure.
@@ -519,11 +540,12 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
-    if screenshots_run(run) or kit_run:
-        if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
+    lane = fixed_lane(run)
+    if lane:
+        if lane != "screenshots" and placements is not None \
+                and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
             return 0
-        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
+        return LANES[lane].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -541,9 +563,9 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
-    if screenshots_run(run) or kit_run:
-        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
+    lane = fixed_lane(run)
+    if lane:
+        return LANES[lane].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
