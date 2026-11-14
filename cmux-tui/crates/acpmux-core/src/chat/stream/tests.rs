@@ -1379,6 +1379,136 @@ fn a_resume_that_cannot_be_measured_past_a_damaged_header_ends_its_step_in_a_reb
     );
 }
 
+/// A live op that no frame can hold for one subscriber (its sid alone is past a frame's bound)
+/// drops that subscriber, which resumes from its cursor; the others take the op.
+#[test]
+fn a_frame_that_fails_to_build_drops_its_subscriber() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let mut state = ready_state(&chat);
+    let sink = Arc::new(Recorder::default());
+    let huge = "s".repeat(crate::wire::MAX_FRAME_BYTES);
+    for sid in ["before", huge.as_str(), "after"] {
+        let sub = subscriber(&state, sid, sink.clone(), Phase::Live);
+        state.subs.list.push(sub);
+    }
+    let seq = state.log.last_seq();
+    offer_live(&mut state, br#"{"op":"text","seq":1,"rowId":1,"text":"x"}"#, seq);
+    let left: Vec<&str> = state.subs.list.iter().map(|sub| sub.sid.as_str()).collect();
+    assert_eq!(left, ["before", "after"]);
+    assert_eq!(*sink.dropped.lock().unwrap(), [huge.clone()]);
+    let offers = sink.offers.lock().unwrap().clone();
+    let took = |sid: &str| (sid.to_owned(), FrameKind::Delta);
+    assert_eq!(offers, [took("before"), took("after")]);
+}
+
+/// A source whose `hint` blocks while `hold` is set, so a caught-up actor stops taking its
+/// mailbox; `parked` says it is blocked there.
+struct Parked {
+    inner: Box<dyn RawSource>,
+    hold: Arc<AtomicBool>,
+    parked: Arc<AtomicBool>,
+}
+
+impl RawSource for Parked {
+    fn read_chunk(&mut self, place: u64) -> std::io::Result<Chunk> {
+        self.inner.read_chunk(place)
+    }
+    fn holds(&mut self, place: u64) -> std::io::Result<bool> {
+        self.inner.holds(place)
+    }
+    fn hint(&self) -> std::io::Result<u64> {
+        while self.hold.load(Ordering::Acquire) {
+            self.parked.store(true, Ordering::Release);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        self.parked.store(false, Ordering::Release);
+        self.inner.hint()
+    }
+    fn sync_through(&mut self, place: u64) -> std::io::Result<()> {
+        self.inner.sync_through(place)
+    }
+    fn identity(&self) -> &[u8] {
+        self.inner.identity()
+    }
+    fn stamp(&self) -> u64 {
+        self.inner.stamp()
+    }
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> std::io::Result<source::Piece> {
+        self.inner.read_at(place, offset, max)
+    }
+}
+
+/// A resume the actor's full mailbox refuses ends the subscription as `dropped`, so the client
+/// resumes instead of waiting. The actor still holds the old entry for the sid; the next `sub`
+/// on it replaces that entry, so each live op reaches the client once.
+#[test]
+fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_next_sub_replaces_the_entry() {
+    runtime().block_on(async {
+        let hold = Arc::new(AtomicBool::new(false));
+        let parked = Arc::new(AtomicBool::new(false));
+        let (gate, seen) = (hold.clone(), parked.clone());
+        let chat = Chat::with_source(
+            &turn(1, "hello"),
+            Arc::new(move |raw| {
+                let inner = source::FileSource::open(&raw)?;
+                Ok(Box::new(Parked {
+                    inner: Box::new(inner),
+                    hold: gate.clone(),
+                    parked: seen.clone(),
+                }) as Box<dyn RawSource>)
+            }),
+        );
+        let route = Arc::new(Mutex::new(None::<Arc<dyn Source>>));
+        let held = route.clone();
+        let mut client = chat.connect_with(1, &["chat"], move |inner| {
+            *held.lock().unwrap() = Some(inner.clone());
+            inner
+        });
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        // The actor parks in its source's hint; its mailbox fills.
+        hold.store(true, Ordering::Release);
+        while !parked.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let handle = chat.registry.get("chat").unwrap();
+        while handle.wake().is_ok() {}
+        assert!(matches!(handle.wake(), Err(ChatError::MailboxFull)));
+        let route = route.lock().unwrap().clone().unwrap();
+        route.resume("s", Cursor(window.cursor));
+        let dropped = client
+            .until(&mut Vec::new(), |frame| {
+                let value = frame.decode_json::<Value>().ok()?;
+                (frame.kind == FrameKind::Dropped).then(|| value["sid"].as_str().map(str::to_owned))
+            })
+            .await;
+        assert_eq!(dropped.as_deref(), Some("s"));
+        hold.store(false, Ordering::Release);
+        client.sub("s", json!({})).await;
+        client.ready_window("s").await;
+        chat.append(&turn(2, "once-a"));
+        chat.append(&turn(3, "once-b"));
+        // Every delta on `s` until the last turn's reply: none twice, as a second entry for the
+        // sid would send each.
+        let mut seen = std::collections::HashSet::new();
+        loop {
+            let frame = client.recv().await;
+            if frame.kind != FrameKind::Delta {
+                continue;
+            }
+            let delta: ChatDelta = frame.decode_json().unwrap();
+            assert_eq!(delta.sid, "s");
+            let payload = frame.payload().to_vec();
+            let text = String::from_utf8_lossy(&payload).into_owned();
+            assert!(seen.insert(payload), "a delta reached the client twice: {text}");
+            if text.contains("once-b") {
+                break;
+            }
+        }
+    });
+}
+
 /// Row 3c's release gates, beside the tests whose chats and clients they use.
 #[cfg(target_os = "linux")]
 #[path = "gates_tests.rs"]
