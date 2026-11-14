@@ -410,6 +410,67 @@ mod tests {
         u16::from_be_bytes([ext[0], ext[1]])
     }
 
+    fn report(core: &mut SenderCore, seqs: impl IntoIterator<Item = u16>, at_us: i64, now_us: u64) {
+        let mut recorder = Recorder::new(9);
+        for seq in seqs {
+            recorder.record(core.config.ssrc, seq, at_us);
+        }
+        core.on_rtcp(&recorder.build_feedback_packet(), now_us);
+    }
+
+    #[test]
+    fn reordered_twcc_chunks_do_not_invent_loss_or_cut_bitrate() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        let start = core.state().target_bps;
+        for _ in 0..300 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        report(&mut core, 200..300, 25_000, 50_000);
+        report(&mut core, 100..200, 25_000, 75_000);
+        report(&mut core, 0..100, 25_000, 100_000);
+        for i in 0..12 {
+            let now = 125_000 + i * 50_000;
+            let seq = core.twcc_seq;
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, [seq], now as i64 + 25_000, now + 50_000);
+        }
+        assert_eq!(core.state().loss, 0.0);
+        assert!(core.state().target_bps >= start);
+    }
+
+    #[test]
+    fn deferred_loss_uses_settled_packet_weight_not_current_twcc_size() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        let start = core.state().target_bps;
+        for _ in 0..100 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        // One of the first four packets is lost; the other96 arrive later.
+        // The first tiny settlement must not become a25% congestion sample.
+        report(&mut core, [0, 1, 3], 25_000, 50_000);
+        report(&mut core, 4..100, 25_000, 100_000);
+        for i in 0..12 {
+            let now = 100_000 + i * 50_000;
+            let seq = core.twcc_seq;
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, [seq], now as i64 + 25_000, now + 50_000);
+        }
+        assert!(core.state().target_bps >= start, "a1% loss window must not lower the target");
+    }
+
+    #[test]
+    fn path_change_discards_pending_loss_before_new_path_feedback() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        for _ in 0..100 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        report(&mut core, 90..100, 25_000, 50_000);
+        core.on_path_change(75_000);
+        core.stamp(&mut Packet::default(), 100_000);
+        report(&mut core, [100], 125_000, 200_000);
+        assert_eq!(core.state().loss, 0.0);
+    }
+
     #[test]
     fn frames_get_consecutive_sequence_numbers_a_marker_and_the_capture_timestamp() {
         let mut core = SenderCore::new(SenderConfig::default(), super::super::DEFAULT_TWCC_EXT_ID);
