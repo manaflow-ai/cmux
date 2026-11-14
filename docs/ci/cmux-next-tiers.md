@@ -60,6 +60,10 @@ handlers before launch. Both fast-tier routes select only this suite for a pure
 re-pin; the other test, generated, daemon and scheme tiers stay off.
 `cmux-next checks` still runs "Check the app FFI pin". A source-only catalog PR
 still tests the current pin; this check catches the mismatch when the new pin arrives.
+The direct-base pin helper compares the candidate release's action catalog crate
+with the installed pin's source. Any catalog change goes through the re-pin PR
+and this runtime check, even when its C headers are additive. Unrelated additive
+FFI releases keep the direct-base path.
 
 Other Package.swift changes keep their usual routing. On 2026-11-10 re-pin
 #40576 waited 2 h 49 min behind the full Mac tier queue. The narrow runtime
