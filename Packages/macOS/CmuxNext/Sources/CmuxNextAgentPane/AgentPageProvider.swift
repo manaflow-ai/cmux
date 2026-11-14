@@ -418,6 +418,7 @@ public final class AgentPageProvider: PageProvider {
             case .failure(let error): throw PageError(code: error.code, message: error.message)
             }
         }
+        AgentPaneTailCache.keepHandOver(of: method, params: params.foundationObject as? [String: Any], pageGeneration: tailGeneration)
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
