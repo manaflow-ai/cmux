@@ -14,10 +14,11 @@ import UIKit
 private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
-/// terminals, browsers) as TabsKit tabs, opening on the active tab of the
-/// leftmost, topmost pane of the Mac's layout unless the open asked for a tab
-/// (`AppStore.openingTab`). Every activation is remembered
-/// (`AppStore.noteOpened`), so a relaunch restores the tab on screen.
+/// terminals, browsers) as TabsKit tabs, opening on the tab the open asked for, else
+/// the tab left on screen in this workspace in this launch, else the active tab of the
+/// leftmost, topmost pane of the Mac's layout (`AppStore.openingTab`). Every activation
+/// is remembered (`AppStore.noteOpened`), so going back in, or a relaunch, restores the
+/// tab on screen.
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
@@ -107,7 +108,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func opened() {
         hasAppeared = true
         if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
-        // `init` already opened on the requested tab: the next open starts at the layout's top-left again.
+        // `init` already opened on the requested tab: the next open starts where this screen is left.
         store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
     }
@@ -243,7 +244,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
            !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = opening
-            // Taken outside this rebuild (an action), so the next open starts at the layout's top-left.
+            // Taken outside this rebuild (an action), so the next open starts where this screen is left.
             Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
         }
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
