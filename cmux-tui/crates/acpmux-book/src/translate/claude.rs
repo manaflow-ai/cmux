@@ -19,6 +19,8 @@ struct Record<'a> {
     is_sidechain: bool,
     is_meta: bool,
     is_compact_summary: bool,
+    /// A `result` record's own name for it, not under `rename_all`.
+    #[serde(rename = "is_error")]
     is_error: bool,
     #[serde(borrow)]
     subtype: Cow<'a, str>,
@@ -42,8 +44,9 @@ struct Message<'a> {
     content: Option<&'a RawValue>,
     #[serde(borrow)]
     stop_reason: Option<Cow<'a, str>>,
+    /// Read apart from the line, so a `usage` that is no object (`null`) reads as none.
     #[serde(borrow)]
-    usage: Usage<'a>,
+    usage: Option<&'a RawValue>,
 }
 /// A model call's usage. Claude names its fresh input apart from the cache's reads and writes.
 #[derive(Deserialize, Default)]
@@ -144,13 +147,22 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                         notice,
                         body: Some(body),
                         images: None,
+                        // Claude's own lines name no sender and no prompt id a claim could name.
+                        sender: super::user::Sender::default(),
+                        inline_parts: None,
+                        pasted: None,
+                        place: 0,
+                        span: 0,
                     },
                     out,
                 )?;
             }
         }
         "assistant" => {
-            let usage = &message.usage;
+            let usage: Usage<'_> = message
+                .usage
+                .and_then(|raw| serde_json::from_str(raw.get()).ok())
+                .unwrap_or_default();
             if let Some(output) = input::count(usage.output_tokens) {
                 state.claude_call(
                     &message.id,
