@@ -411,7 +411,7 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
 # change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
 # which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
 # also failed and named neither of the two tests that were its own.
-BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check(?: \(\d+\))?$")  # matrix entries use the shard suffix
+BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, 12 before
 BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
 BASE_CHECK_ROOT = "webviews/"
 

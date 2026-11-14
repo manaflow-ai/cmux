@@ -315,7 +315,8 @@ class FlakyOnly(unittest.TestCase):
 
 
 class OneBaseCheck(unittest.TestCase):
-    """react-apps-base-check is one matrix entry per head shard, so each replay reads only its own artifact."""
+    """react-apps-base-check is one job for all head shards (it was one a head shard: in run 43409592440 11 of those 12
+    took 0.3-0.9 min with the early base results). It joins the shards' artifacts and keeps each shard's re-run cap."""
 
     def shard(self, root, i, results, logs=None, runner=True):
         here = root / history.HEAD_ARTIFACT.format(i)
@@ -381,22 +382,22 @@ class OneBaseCheck(unittest.TestCase):
             files.write_text("")
             self.assertEqual(fits(str(Path(tmp, "shards.json"))), 1)
 
-    def test_each_matrix_job_reads_only_its_head_shard_before_it_replays(self):
+    def test_the_one_job_joins_every_head_shard_before_it_reads_them(self):
         import yaml
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         check = jobs["react-apps-base-check"]
-        self.assertEqual(check["strategy"]["fail-fast"], False)
-        self.assertEqual(check["strategy"]["matrix"]["include"], [{"shard": i} for i in range(1, 13)])
-        self.assertEqual(check["name"], "react-apps-base-check (${{ matrix.shard }})")
+        self.assertNotIn("strategy", check)
+        self.assertEqual(check["name"], "react-apps-base-check")
         steps = {s["name"]: s for s in check["steps"]}
         names = [s["name"] for s in check["steps"]]
         download = steps["Download head webview results"]["with"]
-        self.assertEqual(download["name"], "react-apps-head-results-shard${{ matrix.shard }}")
-        self.assertEqual(download["path"], "${{ runner.temp }}/head-shard/react-apps-head-results-shard1")
-        prepare = steps["Prepare this shard's head results"]
-        self.assertIn('--count 1', prepare["run"])
-        self.assertIn('--out "$RUNNER_TEMP/head-results"', prepare["run"])
-        self.assertLess(names.index("Prepare this shard's head results"), names.index("Use the merge parent as the base"))
+        self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
+        self.assertNotIn("merge-multiple", download)
+        join = steps["Join the head shards' results"]
+        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
+        self.assertNotIn("continue-on-error", join)
+        self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))
         compare = steps["Run base reds and compare"]["run"]
         self.assertIn("rerun-fits", compare)
         self.assertIn("--cap 25", compare)

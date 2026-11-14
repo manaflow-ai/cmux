@@ -76,7 +76,7 @@ TRACKED = (
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
 # The webview tests' own base comparison (ci-web.yml), and its annotations' title for each new red test.
-BASE_CHECK = re.compile(r"^web / react-apps-base-check(?: \(\d+\))?$")  # matrix entries use (N)
+BASE_CHECK = re.compile(r"^web / react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, (N) a shard before
 NEW_TEST_TITLE = "Webview test red on this change"
 NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never

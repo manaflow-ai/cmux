@@ -851,38 +851,22 @@ jobs:
 
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
-  # build. Keep one comparison job per head shard so a red shard replays only its
-  # own files and the base and head passes run in parallel across the matrix.
+  # build; doing that after the head suite in one 40-minute job made shard 3 hit
+  # the timeout before it could publish a verdict. The early base shards above
+  # run the recorded base reds in parallel with the head suite; this one job
+  # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-    # 55: the base replay and the head re-run of up to 25 files for this shard.
+    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone).
     timeout-minutes: 55
     # actions: read: the base's webview test history is an artifact of its newest push.
     permissions:
       contents: read
       actions: read
-    # One job for every head shard. A shard with no red stops after its small
-    # artifact read; a failing shard pays only for its own base replay and head
-    # re-run. The matrix verdict is the required base-check result.
-    name: react-apps-base-check (${{ matrix.shard }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: 1
-          - shard: 2
-          - shard: 3
-          - shard: 4
-          - shard: 5
-          - shard: 6
-          - shard: 7
-          - shard: 8
-          - shard: 9
-          - shard: 10
-          - shard: 11
-          - shard: 12
+    # One job joins every head shard after the parallel head and early-base work.
+    name: react-apps-base-check
     steps:
       # The base is the merge commit's first parent, the commit the head shards
       # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
@@ -895,17 +879,19 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Read only this matrix entry's head result. The artifact contains the
-      # runner and raw logs; the one-shard join below also writes the map used by
-      # the per-shard head re-run cap.
+      # Each head shard's artifact in a folder of its own name (no merge-multiple: every shard has the same file names).
       - name: Download head webview results
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          name: react-apps-head-results-shard${{ matrix.shard }}
-          path: ${{ runner.temp }}/head-shard/react-apps-head-results-shard1
+          pattern: react-apps-head-results-shard*
+          path: ${{ runner.temp }}/head-shards
 
-      - name: Prepare this shard's head results
-        run: python3 scripts/ci/webviews_test_history.py heads "$RUNNER_TEMP/head-shard" --count 1 --out "$RUNNER_TEMP/head-results"
+      # A shard that published no results fails the check here, as its missing download failed its own base check.
+      - name: Join the head shards' results
+        env:
+          # react-apps-check-shard's matrix size (tests/test_webviews_test_history.py holds them equal).
+          HEAD_SHARDS: "12"
+        run: python3 scripts/ci/webviews_test_history.py heads "$RUNNER_TEMP/head-shards" --count "$HEAD_SHARDS" --out "$RUNNER_TEMP/head-results"
 
       # Every early shard's verdicts (react-apps-base-early): any shard's head reds may be any early shard's files.
       - name: Download the early base results
