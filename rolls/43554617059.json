@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43554617059",
+  "recorded_at": "2026-11-14T04:13:25Z",
+  "reason": "cmux-tui 0be1b442ef37 changes the image's cmux-tui (pinned ff3fc9c79521)",
+  "dry_run": false,
+  "cmux_tui": "0be1b442ef3788db4da131f43e960d39e4451901",
+  "fixes": [
+    {
+      "sha": "0be1b442ef3788db4da131f43e960d39e4451901",
+      "mergedAt": "2026-11-13T19:39:41-08:00",
+      "subject": "link: the cmux link runs this machine's node key, the one WireGuard key on a Mac (one-link slice 4) (#39120)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T04:13:25Z",
+    "snapshot_id": "sh-a157241a455c40f09b7c97e51c9d986d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43554617059): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cc04f0c2be1ce63479365090faa5bde843101702",
+    "image": "cloud-native-auto-0be1b442-43554617059-1",
+    "revision": "ci-43554617059-1",
+    "at": "2026-11-14T04:13:25Z"
+  },
+  "rolled_back": false
+}
