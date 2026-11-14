@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43654767941",
+  "recorded_at": "2026-11-14T23:52:22Z",
+  "reason": "cmux-tui a1a54cf11e38 changes the image's cmux-tui (pinned be3f21d9aa0e)",
+  "dry_run": false,
+  "cmux_tui": "a1a54cf11e38d4216c1c32cc68f6825acdfa9868",
+  "fixes": [
+    {
+      "sha": "a1a54cf11e38d4216c1c32cc68f6825acdfa9868",
+      "mergedAt": "2026-11-14T15:25:39-08:00",
+      "subject": "Make the dev-build hand-off part of finishing a task (Mac + iOS) (#42255)"
+    },
+    {
+      "sha": "c675567ad417d786bb06c9a3887bba7de7e1b192",
+      "mergedAt": "2026-11-14T15:24:01-08:00",
+      "subject": "cmux-host: report the image's pre-ready update timing (#42995)"
+    },
+    {
+      "sha": "1f687db56a0acd62431f7cb73f1c85be0208fabf",
+      "mergedAt": "2026-11-14T15:23:32-08:00",
+      "subject": "R1: reduce daemon replay frame allocation (hq#10843) (#43073)"
+    },
+    {
+      "sha": "387615ca1bafb7d63f255da52edde22e64132fe5",
+      "mergedAt": "2026-11-14T15:20:20-08:00",
+      "subject": "fix(capture): own auth cleanup decisions in Rust (#43131)"
+    },
+    {
+      "sha": "a3bead27e6599480e2d2654816f9ecdff99ecaf2",
+      "mergedAt": "2026-11-14T15:15:11-08:00",
+      "subject": "remote browser host: one shared host serves every remote tab, each with its own cookies; a crash reopens every tab (#43239)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T23:52:22Z",
+    "snapshot_id": "sh-26aef358e52040d598bc811a4ab4fbf1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43654767941): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bdda5b886134bcc13a635301687ea7f30f474d02",
+    "image": "cloud-native-auto-a1a54cf1-43654767941-1",
+    "revision": "ci-43654767941-1",
+    "at": "2026-11-14T23:52:22Z"
+  },
+  "rolled_back": false
+}
