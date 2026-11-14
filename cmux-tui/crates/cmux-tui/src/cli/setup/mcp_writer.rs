@@ -67,6 +67,13 @@ pub(super) fn writer(exe: &Path, getenv: impl Fn(&str) -> Option<OsString>) -> W
         ));
     }
     let exe = resolved(exe);
+    if temporary_cache(&exe) {
+        return Writer::Terminals(
+            "this cmux runs from a temporary cache (npx, uvx, pipx run, bunx or pnpm dlx), which \
+             can be gone after this run, so it leaves your agents' own settings alone"
+                .to_owned(),
+        );
+    }
     if let Some(why) = dev_build(&exe) {
         return Writer::Terminals(format!(
             "this cmux is a development build ({why}), so it leaves your agents' own settings alone"
@@ -135,26 +142,37 @@ fn parts(path: &Path) -> Vec<&str> {
         .collect()
 }
 
+/// Whether `path` is in a package runner's disposable cache, gone after the
+/// run or the next cleanup: npx (`_npx`), uvx (`archive-v0`), `pipx run`
+/// (`pipx/.cache`), bunx (`bunx-…`) or `pnpm dlx` (`pnpm/dlx`).
+pub(super) fn temporary_cache(path: &Path) -> bool {
+    let parts = parts(path);
+    parts.iter().any(|part| *part == "_npx" || *part == "archive-v0" || part.starts_with("bunx-"))
+        || parts.windows(2).any(|pair| pair == ["pipx", ".cache"] || pair == ["pnpm", "dlx"])
+}
+
 /// Whether `path`, outside any app bundle, is where a shipped release
-/// installs cmux's CLI: npm's platform package
+/// installs cmux's CLI for good: npm's platform package
 /// (`node_modules/cmux-tui-<platform>/bin/cmux-tui`,
 /// cmux-tui/dist/npm/cmux/bin/cmux.js) or the PyPI wheel
-/// (`site-packages/cmux_tui/bin/cmux-tui`, cmux-tui/dist/scripts/package_pypi.py),
-/// never npx's or uv's disposable caches. Any other unbundled binary (a
-/// cargo target, `cargo install`, a custom target folder) is a development
-/// build. The app's own `cmux` link (`/usr/local/bin/cmux`) resolves into
-/// its bundle and is judged there.
+/// (`site-packages/cmux_tui/bin/cmux-tui`, or Debian's and Ubuntu's
+/// `dist-packages`; cmux-tui/dist/scripts/package_pypi.py), never a package
+/// runner's [`temporary_cache`]. Any other unbundled binary (a cargo target,
+/// `cargo install`, a custom target folder) is a development build. The
+/// app's own `cmux` link (`/usr/local/bin/cmux`) resolves into its bundle and
+/// is judged there.
 fn known_install(path: &Path) -> bool {
-    let parts = parts(path);
-    if parts.iter().any(|part| *part == "_npx" || *part == "archive-v0") {
+    if temporary_cache(path) {
         return false;
     }
+    let parts = parts(path);
     let [.., package_parent, package, bin, _file] = parts.as_slice() else {
         return false;
     };
     *bin == "bin"
         && ((*package_parent == "node_modules" && package.starts_with("cmux-tui-"))
-            || (*package_parent == "site-packages" && *package == "cmux_tui"))
+            || (matches!(*package_parent, "site-packages" | "dist-packages")
+                && *package == "cmux_tui"))
 }
 
 /// Why the cmux at `command` is a development build, or `None`. A cmux app
@@ -173,6 +191,9 @@ pub(super) fn dev_build(command: &Path) -> Option<String> {
         return Some("it runs from Xcode's DerivedData".to_owned());
     }
     let Some(bundle) = containing_app_bundle(&command) else {
+        if temporary_cache(&command) {
+            return Some("it runs from a temporary cache".to_owned());
+        }
         return (!known_install(&command))
             .then(|| "it runs from outside any installed cmux".to_owned());
     };
@@ -256,6 +277,7 @@ mod tests {
             // npm's platform package and the PyPI wheel, installed for good.
             dir.path().join("lib/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
             dir.path().join("venv/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui"),
+            dir.path().join("usr/lib/python3/dist-packages/cmux_tui/bin/cmux-tui"),
         ];
         for exe in &shipped {
             assert_eq!(writer(exe, env(base())), Writer::Global, "{exe:?}");
@@ -290,6 +312,27 @@ mod tests {
         for exe in &dev {
             assert!(matches!(writer(exe, env(base())), Writer::Terminals(_)), "{exe:?}");
             assert!(dev_build(exe).is_some(), "{exe:?}");
+        }
+        // A package runner's disposable cache says so, not "development build".
+        let temporary = [
+            dir.path().join("home/.npm/_npx/1a2b/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
+            dir.path().join(
+                "home/.cache/uv/archive-v0/x/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui",
+            ),
+            dir.path().join(
+                "home/.local/pipx/.cache/abc/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui",
+            ),
+            dir.path()
+                .join("tmp/bunx-501-cmux@latest/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
+            dir.path().join(
+                "home/Library/Caches/pnpm/dlx/x/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui",
+            ),
+        ];
+        for exe in &temporary {
+            let Writer::Terminals(why) = writer(exe, env(base())) else { panic!("{exe:?}") };
+            assert!(why.contains("temporary cache"), "{exe:?}: {why}");
+            assert!(!why.contains("development build"), "{exe:?}: {why}");
+            assert!(dev_build(exe).is_some_and(|why| why.contains("temporary cache")), "{exe:?}");
         }
         // The release build on its own settings file writes nothing either.
         let mut own = base();

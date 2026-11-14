@@ -38,9 +38,10 @@
 //! settings file, never from a global entry.
 //!
 //! A shipped build writes its own path (`this_cli`) with no `env`. It
-//! replaces a `cmux` entry whose command is gone, runs from a DEV build, or
-//! names a settings file (`CMUX_NEXT_CONFIG_FILE` in its `env`); the undo
-//! line puts it back.
+//! replaces a `cmux` entry whose command is gone or runs from a DEV build
+//! (decided by the command alone), or that names a settings file which is
+//! gone; the undo line puts it back. An entry with anything setup cannot put
+//! back is left alone (`keep`).
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -393,8 +394,8 @@ enum Plan {
     /// Already gives the cmux server.
     Ok,
     Add,
-    /// Replaces the `cmux` entry whose command is gone, runs from a DEV
-    /// build, or names a settings file.
+    /// Replaces the `cmux` entry whose command is gone or runs from a DEV
+    /// build, or that names a settings file which is gone.
     Replace,
     /// The person must act: this `user_action`.
     Person(Value),
@@ -539,9 +540,10 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
 /// `agents.cmuxMcp` says: taking cmux out never oversteps.
 ///
 /// With `only_unshipped` (a DEV build, [`Writer::Terminals`]) it takes out
-/// only an entry a shipped build did not write ([`Entry::shipped`]): one whose
-/// command runs from a DEV bundle, DerivedData or a cargo target, or that
-/// names another settings file. A shipped build's entry stays, and says so.
+/// only an entry whose command runs from a development build or a temporary
+/// cache ([`Entry::shipped`] is false: a DEV bundle, DerivedData, an
+/// unbundled build outside a release install). The settings file an entry
+/// names does not count. Any other entry stays, and says so.
 fn remove(request: &Request, only_unshipped: bool) -> Outcome {
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
@@ -685,9 +687,9 @@ fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
                 "why": why,
                 "shims": shims,
                 "text": format!(
-                    "{why}: --remove takes out only entries a development build wrote (its \
-                     command runs from a DEV bundle, DerivedData or a cargo target, or it names \
-                     another settings file); a shipped cmux's entry stays"
+                    "{why}: --remove takes out only entries whose command runs from a \
+                     development build of cmux (a DEV app, DerivedData, a build folder) or a \
+                     temporary cache; any other entry stays"
                 ),
             }),
         );
@@ -941,7 +943,8 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
 }
 
 /// Adds the cmux server to `client`, removing `old` (the `cmux` entry whose
-/// command is gone, is a DEV build's or that names a settings file) first,
+/// command is gone or is a DEV build's, or that names a settings file which
+/// is gone) first,
 /// and answers the line that undoes it. When the add fails after the remove,
 /// the error names the line that puts `old` back.
 fn apply(
@@ -1026,8 +1029,11 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
 /// exact command for the person to run once they have kept what they need.
 fn keep(client: Client, lost: &[String], removing: bool) -> Value {
     let remove = client.line(&client.remove());
+    // This cmux's own path, quoted, as `apply` writes it: a bare `cmux` can be
+    // another install's.
+    let cli = this_cli().map(|cli| quote_arg(&cli)).unwrap_or_else(|_| "cmux".to_owned());
     let command =
-        if removing { remove } else { format!("{remove} && cmux setup mcp {}", client.id()) };
+        if removing { remove } else { format!("{remove} && {cli} setup mcp {}", client.id()) };
     json!({
         "kind": "keep",
         "text": format!(
