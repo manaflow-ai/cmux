@@ -85,6 +85,7 @@ struct SidebarDocRefusalNoticeTests {
         Self.move(store)
         await store.settled()
         #expect(shown == [SidebarDocStrings.refused(code)], "\(code): \(shown)")
+        #expect(shown.first.map { $0 != code && $0.hasSuffix(".") } == true, "\(code) showed no sentence of its own: \(shown)")
     }
 
     @Test func eachRefusalCodeHasItsOwnText() {
@@ -92,6 +93,7 @@ struct SidebarDocRefusalNoticeTests {
         #expect(Set(texts).count == Self.codes.count, "codes share a text: \(Dictionary(grouping: Self.codes, by: SidebarDocStrings.refused).filter { $0.value.count > 1 })")
         for (code, text) in zip(Self.codes, texts) {
             #expect(!text.isEmpty && !text.localizedCaseInsensitiveContains("did not make this move"), "\(code): \(text)")
+            #expect(text != code && text.hasSuffix("."), "\(code) has no text from Rust: \(text)")
             #expect(text != SidebarDocStrings.refused("failed"), "\(code) reads as a plain failure")
         }
     }
@@ -118,7 +120,7 @@ struct SidebarDocRefusalNoticeTests {
         #expect(shown == [SidebarDocStrings.refused("failed")], "\(shown)")
     }
 
-    /// The refused move springs back to where the person saw it, in one redraw.
+    /// The refused move springs back to where the person saw it (a guard: the old code dropped it too).
     @Test func thePersonsRefusedMoveSpringsBack() async throws {
         let store = try await Self.store(Remote([SidebarMirror.Refusal(code: "nesting")]))
         let before = store.projection(live: SidebarOptimisticSaveTests.live)

@@ -3,7 +3,7 @@ import os
 
 /// Strings of the sidebar document path. The text of a refused or failed change is Rust's, beside the reducer
 /// (cmux-layout-reducer `sidebar_doc::change_failure_text`, FFI op `sidebar_change_failure`): one copy per code.
-enum SidebarDocStrings {
+nonisolated enum SidebarDocStrings {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.doc")
 
     static var move: String { String(localized: "sidebar.doc.move", defaultValue: "Move", bundle: .module) }

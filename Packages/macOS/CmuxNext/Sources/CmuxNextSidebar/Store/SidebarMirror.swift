@@ -14,7 +14,7 @@ public final class SidebarMirror {
     public private(set) static var calls: [String: Int] = [:]
 
     /// Why an intent was not applied (`cross_machine`, `provider_owned`, ...).
-    public struct Refusal: Error, Hashable, Sendable {
+    public nonisolated struct Refusal: Error, Hashable, Sendable {
         public var code: String
 
         /// `code`: the reducer's refusal, from the mirror or from the daemon's `validation.invalid` reason.
