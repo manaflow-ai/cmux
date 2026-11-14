@@ -50,7 +50,14 @@ await requireBrowserLane("composer-grow-motion-off.test.ts", async () => {
       await page.keyboard.press("Control+End");
       const moving = () =>
         page.evaluate((selector) => document.querySelector(selector)!.getAnimations().length > 0, FIELD);
-      await page.waitForFunction((selector) => document.querySelector(selector)!.getAnimations().length === 0, FIELD);
+      const rest = () =>
+        page.waitForFunction((selector) => document.querySelector(selector)!.getAnimations().length === 0, FIELD);
+      await rest();
+      // A second line first: Codex's look (the default since #42247) holds two lines' room at rest
+      // (composerLook.css --acpmux-codex-editor-min), so only the third line grows the field.
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("a second line");
+      await rest();
 
       await page.keyboard.press("Shift+Enter");
       expect(await moving()).toBe(true);
