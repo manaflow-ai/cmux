@@ -5,11 +5,13 @@ does not provision credentials, replace identity storage, or borrow a host.
 Only a complete start/frame/input/stop sequence can produce a passing receipt.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
 import os
 import signal
+import shutil
 import subprocess
 import tempfile
 import re
@@ -21,6 +23,18 @@ from pathlib import Path
 
 class ProofFailure(RuntimeError):
     """Fixed descriptions only: account, device and session values stay private."""
+
+
+@contextmanager
+def private_workspace(can_remove):
+    # A failed remote cleanup may leave a lease marker here. Keep it on the
+    # quarantined host for recovery rather than losing ownership evidence.
+    directory = tempfile.mkdtemp(prefix="cmux-ss-", dir="/tmp")
+    try:
+        yield directory
+    finally:
+        if can_remove():
+            shutil.rmtree(directory)
 
 
 ERROR_CODES = {
@@ -306,7 +320,7 @@ def main(argv=None):
                            ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"))
         if not email or not password:
             raise ProofFailure("Protected test account unavailable")
-        with tempfile.TemporaryDirectory(prefix="cmux-ss-", dir="/tmp") as directory:
+        with private_workspace(lambda: host is None or host.cleanup_ok is True) as directory:
             work = Path(directory)
             app, info = host_api.fetch_app(args.mac_job, args.source_sha, args.artifact_sha256, work)
             ocr = work / "ocr"

@@ -158,16 +158,18 @@ class ProofTests(unittest.TestCase):
             self.assertFalse(proof.export_receipt({"passed": True, "start": True}, directory))
 
     def test_private_home_removal_is_required_before_cleanup_receipt(self):
-        for failure in (None, "raises", "survives"):
+        for failure in (None, "raises", "survives", "host_cleanup"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 work = Path(directory) / "private"
                 work.mkdir()
-                class Workspace:
-                    def __enter__(self): return str(work)
-                    def __exit__(self, *_):
-                        if failure == "raises": raise OSError("private cleanup failed")
-                        if failure is None: work.rmdir()
-                host = MagicMock(cleanup_ok=True)
+                marker = work / "capture-lease"
+                marker.write_text("owned lease")
+                def remove_workspace(*_args, **_kwargs):
+                    if failure == "raises": raise OSError("private cleanup failed")
+                    if failure != "survives":
+                        marker.unlink()
+                        work.rmdir()
+                host = MagicMock(cleanup_ok=failure != "host_cleanup")
                 host.__enter__.return_value = host
                 api = Mock(HostFailure=RuntimeError)
                 api.Host.return_value = host
@@ -177,7 +179,8 @@ class ProofTests(unittest.TestCase):
                 out = Path(directory) / "receipt"
                 with patch.object(proof, "host_module", return_value=api), \
                         patch.object(proof, "Phone"), patch.object(proof, "ScreenProof", return_value=attempt), \
-                        patch.object(proof.tempfile, "TemporaryDirectory", return_value=Workspace()), \
+                        patch.object(proof.tempfile, "mkdtemp", return_value=str(work)), \
+                        patch("shutil.rmtree", side_effect=remove_workspace) as remove, \
                         patch.dict(proof.os.environ, CMUX_UITEST_STACK_EMAIL="test", CMUX_UITEST_STACK_PASSWORD="test"):
                     result = proof.main(["--source-sha", "a" * 40, "--mac-job", "b" * 24,
                                          "--artifact-sha256", "c" * 64, "--sims", "/owned-sims",
@@ -186,6 +189,9 @@ class ProofTests(unittest.TestCase):
                 public = json.loads((out / "screen-sharing-proof.json").read_text())
                 self.assertEqual(public["cleanup"], failure is None)
                 self.assertEqual(result, 0 if failure is None else 1)
+                if failure == "host_cleanup":
+                    remove.assert_not_called()
+                    self.assertEqual(marker.read_text(), "owned lease")
 
 
 class HostTests(unittest.TestCase):
