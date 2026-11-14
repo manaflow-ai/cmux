@@ -206,18 +206,18 @@ test("the hidden section grip takes no press; it takes the pointer only while it
 /// A box whose rows scroll in a list of their own (Outputs, the ended subagents): open at first.
 function ScrolledList() {
   const [all, setAll] = useState(true);
-  const fold = useFoldMotion<HTMLDivElement>(all, () => 2 * 28);
-  const rows = fold.drawn ? [1, 2, 3, 4, 5] : [1, 2];
+  const { ref, drawn, toggle } = useFoldMotion<HTMLDivElement>(all, () => 2 * 28);
+  const rows = drawn ? [1, 2, 3, 4, 5] : [1, 2];
   return (
     <>
-      <div ref={fold.ref}>
+      <div ref={ref}>
         <ul className="scroller">
           {rows.map((row) => (
             <li key={row}>{row}</li>
           ))}
         </ul>
       </div>
-      <button type="button" onClick={() => fold.toggle(!all, setAll)}>
+      <button type="button" onClick={() => toggle(!all, setAll)}>
         fold
       </button>
     </>
