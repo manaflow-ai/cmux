@@ -126,17 +126,19 @@ fn a_setting_outside_the_manifest_schema_is_refused_and_nothing_changes() {
 fn a_host_that_starts_later_loads_the_stored_values() {
     let f = prefs_fixture();
     f.install("cmux/prefs");
-    f.supervisor.logs(CLIENT, "cmux/prefs", true);
     set(&f, "k1", json!({ "size": "large" })).unwrap();
+    // The host logs its init settings before the first scene, which `mount` waits past: read the
+    // app's log, which holds every line the host sent before that scene.
     f.mount("p", "cmux/prefs", "cmux.palette.scope/1", json!({}));
-    let init = f.wait("init settings", |e| {
-        e["event"] == "apps-log"
-            && e["message"].as_str().is_some_and(|m| m.starts_with("init-settings "))
-    });
-    let values: Value = serde_json::from_str(
-        init["message"].as_str().unwrap().trim_start_matches("init-settings "),
-    )
-    .unwrap();
+    let logs = f.supervisor.logs(CLIENT, "cmux/prefs", false);
+    let init = logs["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|line| line["message"].as_str()?.strip_prefix("init-settings "))
+        .next()
+        .expect("the host logged the settings it loaded with");
+    let values: Value = serde_json::from_str(init).unwrap();
     assert_eq!(values["size"], "large");
     assert_eq!(values["greeting"], "Hello");
 }
