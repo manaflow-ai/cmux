@@ -486,6 +486,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     while (index < log.events.length) {
       const burst = inBurst.get(log.events[index]!.seq);
       if (burst) {
+        // EXPERIMENT (not for merge): BURST_SETTLE=rest|gc settles the page before each burst.
+        if (process.env.BURST_SETTLE === "rest") await rest(page);
+        if (process.env.BURST_SETTLE === "gc") await cdp.send("HeapProfiler.collectGarbage");
         await paint(page, 2);
         if (PROFILE) await cdp.send("Profiler.start");
         const taskBefore = await metric(cdp, "TaskDuration");
