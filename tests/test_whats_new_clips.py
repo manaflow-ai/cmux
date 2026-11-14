@@ -740,7 +740,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_iphone_clips_have_their_own_nightly_workflow_with_no_pull_request_job(self):
         import yaml
-        # The media workflow plans only Mac clips; a pull request starts no iPhone job (the PR job budget).
+        # The media workflow plans only Mac clips; a pull request starts no iPhone job.
         self.assertIn("plan --app mac", self.step("route", "clips")["run"])
         self.assertNotIn("iphone-clips", self.jobs)
         doc = yaml.safe_load((SCRIPT.parents[3] / ".github/workflows/cmux-next-iphone-clips.yml").read_text())

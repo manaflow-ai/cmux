@@ -64,7 +64,12 @@ fn handle_frame(
     // The slow request log's record of this line, from here to its reply written
     // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
     let _slow_log = mux.connection_stats().request_log().map(|log| {
-        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+        let (name, declared) = mux.control_clients.log_labels(client);
+        // The connection of the session's journal plugin has the kind word `plugin`, also when
+        // it declared nothing: one load of the connection's kind for each line.
+        let plugin = writer.kind.get() == ClientKind::Plugin;
+        let kind = if plugin { crate::diagnostics::request_log::Label::plugin() } else { declared };
+        log.begin(client, (name, kind), &writer.open, message)
     });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);

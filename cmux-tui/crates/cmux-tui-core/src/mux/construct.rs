@@ -380,6 +380,7 @@ impl Mux {
             terminal_publisher: Default::default(),
             terminal_live: Default::default(),
             terminal_tail_pins: Default::default(),
+            terminal_port_watch: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -520,6 +521,12 @@ impl Mux {
             // Do not drop a late exit callback here. The reducer uses the
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
+        })));
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_restart_handler(Some(Arc::new(move |restart| {
+            if let Some(mux) = weak_mux.upgrade() {
+                mux.record_journal_plugin_restart(restart);
+            }
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;

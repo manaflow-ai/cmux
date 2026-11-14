@@ -320,7 +320,9 @@ cmd_all() {
   for t in "${TARGETS[@]}"; do
     use_target "$t" "${MIN_OS[$t]}"
     local start; start=$(date +%s)
-    local build="cargo build --release --locked --target $t"
+    # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
+    # the fat-LTO link of the "bin" unit). It changes no output.
+    local build="cargo build --release --locked --timings --target $t"
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \

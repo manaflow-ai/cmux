@@ -82,6 +82,20 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     ));
                 }
             }
+            for (list, key) in [("commands", "name"), ("items", "id")] {
+                let mut seen = std::collections::HashSet::new();
+                let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
+                for (i, entry) in entries.into_iter().flatten().enumerate() {
+                    let Some(name) = entry.get(key).and_then(Value::as_str) else { continue };
+                    if !seen.insert(name) {
+                        out.push(Issue::error(
+                            format!("{at}/options/{list}/{i}/{key}"),
+                            "interface.options.duplicate",
+                            format!("{name} is listed twice"),
+                        ));
+                    }
+                }
+            }
             if imp.get("server").is_some() && m.get("server").is_none() {
                 out.push(Issue::error(
                     format!("{at}/server"),
