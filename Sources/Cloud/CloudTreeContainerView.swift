@@ -51,6 +51,10 @@ final class CloudTreeContainerView: NSView {
         outlineView.onMoveMachine = { [weak coordinator] delta in coordinator?.moveSelectedMachine(by: delta) ?? false }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }
         outlineView.onQuickSearch = { [weak coordinator] query in coordinator?.selectQuickSearchMatch(query: query) }
+        outlineView.onViewportChange = { [weak coordinator] in
+            guard let coordinator else { return }
+            coordinator.portsDemand.schedule(coordinator: coordinator)
+        }
         outlineView.onNativeDragPointerBoundary = { [weak coordinator, weak outlineView] in
             guard let outlineView else { return }
             coordinator?.prepareForNativeDragBoundary(on: outlineView)

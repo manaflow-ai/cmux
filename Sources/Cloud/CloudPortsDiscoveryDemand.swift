@@ -1,8 +1,7 @@
 import AppKit
 import CmuxSurfaceCatalogModel
 
-/// Starts a scan for visible Cloud machines so the Ports tab count stays current
-/// before the person opens the tab.
+/// Starts a scan for expanded Cloud machines in the outline viewport.
 @MainActor
 final class CloudPortsDiscoveryDemand {
     private var scheduled: Task<Void, Never>?
@@ -33,10 +32,14 @@ final class CloudPortsDiscoveryDemand {
         // the visibility boundary so an already visible machine is not missed.
         outline.layoutSubtreeIfNeeded()
         for root in candidates where !requested.contains(root.machine) {
-            // The machine row is the visibility boundary. Port discovery is a
-            // lightweight cached scan, and waiting for a detail tab to open
-            // leaves its count stale while a dev server starts in a terminal.
-            guard outline.row(forItem: root) >= 0 else { continue }
+            // A collapsed machine has a visible title row but no visible Ports
+            // summary. Keep its scan lazy until the machine is expanded. Rows
+            // outside the viewport are likewise deferred until scrolling brings
+            // them on screen.
+            let row = outline.row(forItem: root)
+            guard outline.isItemExpanded(root),
+                  row >= 0,
+                  outline.rect(ofRow: row).intersects(outline.visibleRect) else { continue }
             requested.insert(root.machine)
             coordinator.nodeActions.discoverPorts(root.machine)
         }
