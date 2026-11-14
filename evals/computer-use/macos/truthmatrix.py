@@ -45,13 +45,13 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bgmatrix as bm  # noqa: E402
 import aside_arm  # noqa: E402,F401  (registers the aside arm with bgmatrix)
+from truthmatrix_claims import POLICY_RE, POSITIVE, claim_of, confusion_cell  # noqa: E402,F401
 
 HOME = os.path.expanduser("~")
 FIXTURE_DIR = os.environ.get("CUEVAL_MACOS_FIXTURES", os.path.join(HOME, "cu/fixture-build"))
 LAB_APP = "CU Eval Fixture"
 ACTING = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "set_value", "perform_action",
           "invoke_menu", "repl"}
-POLICY_RE = re.compile(r"(denied|not allowed|target_not_allowed|forbidden|refus|blocked|privacy|kept private)", re.I)
 LATE_DEFAULT = 3.5
 
 
@@ -87,50 +87,6 @@ def _app_pid(name):
 
 
 bm.app_pid = _app_pid
-
-
-def claim_of(arm_id, rec):
-    """The tool's own claim about one call."""
-    if rec is None:
-        return None
-    txt = rec.get("result") or ""
-    if rec.get("is_error"):
-        return "refused" if POLICY_RE.search(txt) else "error"
-    if arm_id.startswith("aside"):
-        if re.match(r"^\s*(Uncaught\s+)?\w*Error\b", txt):
-            return "error"
-        if re.search(r"returns? without acting|did not act|was not performed", txt, re.I):
-            return "no_visible_change"
-        return "ok"
-    m = re.search(r'"evidence"\s*:\s*"(\w+)"', txt)
-    if m:
-        return m.group(1)
-    if arm_id.startswith("cua") and re.search(r"\bconfirmed\b", txt, re.I):
-        return "confirmed"
-    return "ok"
-
-
-POSITIVE = {"confirmed", "delivered", "ok"}
-
-
-def confusion_cell(claim, truth, expect_none=False):
-    """TP / FP / FN / TN / SIDE for one scored action.
-    expect_none: the correct outcome is no effect (a disabled menu item); then 'none' is the right result
-    and a positive claim about it is still a false claim (the tool said it did something)."""
-    if claim is None:
-        return "no_action"
-    pos = claim in POSITIVE
-    if truth == "extra":
-        return "SIDE"
-    if expect_none:
-        if truth == "none":
-            return "FP" if pos else "TN"
-        return "FP" if pos else "FN"
-    if truth == "correct":
-        return "TP" if pos else "FN"
-    if truth in ("none", "wrong"):
-        return "FP" if pos else "TN"
-    return "?"
 
 
 # ------------------------------------------------------------------ the lab fixture
@@ -250,7 +206,9 @@ def find(nodes, name=None, roles=None, pred=None, contains=False):
         if pred and not pred(n):
             continue
         return n
-    raise bm.ToolError(f"element name={name!r} roles={roles} not in the arm's tree")
+    seen = [f"{n['role']}:{(n.get('name') or str(n.get('value') or ''))[:20]}" for n in nodes
+            if not roles or n["role"] in roles or n["role"] in ("tab", "tabgroup", "radio", "unknown")][:40]
+    raise bm.ToolError(f"element name={name!r} roles={roles} not in the arm's tree ({len(nodes)} nodes; {seen})")
 
 
 def right_click_el(arm, w, n):

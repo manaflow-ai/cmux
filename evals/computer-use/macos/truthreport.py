@@ -25,6 +25,10 @@ import html
 import json
 import os
 from collections import Counter, defaultdict
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import truthmatrix_claims as tc  # noqa: E402
 
 KEYS = ("TP", "FP", "FN", "TN", "SIDE")
 
@@ -258,7 +262,12 @@ def main():
     arms = {}
     for spec in a.ins:
         label, path = spec.split("=", 1)
-        arms.setdefault(label, []).extend(r for r in load(path) if "outcome" in r)
+        rows = [r for r in load(path) if "outcome" in r]
+        for r in rows:  # claims are re-derived from the stored result, so a refined mapping applies to old rows
+            if r.get("scored_call") and r["outcome"] not in ("unsupported",):
+                r["claim"] = tc.claim_of(r["arm"], r["scored_call"])
+                r["outcome"] = tc.confusion_cell(r["claim"], r["truth"], r.get("expect_none"))
+        arms.setdefault(label, []).extend(rows)
     print(build(arms, a.agent, a.out, a.video))
 
 
