@@ -288,6 +288,7 @@ fn a_torn_patch_restores_the_previous_revision() {
     let old = b"old revision".to_vec();
     let next = b"new revision".to_vec();
     let old_index;
+    let new_index;
     {
         let (mut log, _) = open(&book);
         log.append_settled(1, 1, RawRange::NONE, &old).unwrap();
@@ -295,6 +296,7 @@ fn a_torn_patch_restores_the_previous_revision() {
         old_index = fs::read(book.join("rows.idx")).unwrap();
         let file = log.append_raw_file(b"events/patch").unwrap();
         log.patch(1, 2, RawRange { file, off: 0, len: 1 }, &next).unwrap();
+        new_index = fs::read(book.join("rows.idx")).unwrap();
     }
     let segment = book.join("rows/000001.seg");
     let whole = fs::read(&segment).unwrap();
@@ -304,11 +306,13 @@ fn a_torn_patch_restores_the_previous_revision() {
         copy_book(&book, &copy);
         let record_end = cut.min(whole.len());
         fs::write(copy.join("rows/000001.seg"), &whole[..record_end]).unwrap();
-        // The patch's index is written only after its complete record has been synced.
+        // Exercise both sides of the index write ordering. A torn record with the new index
+        // already visible must be repaired from rows.undo; a kill before the index write keeps
+        // the old entry and needs no undo.
         let mut partial_index = old_index.clone();
-        let index_bytes = cut.saturating_sub(whole.len());
-        let new_index = fs::read(book.join("rows.idx")).unwrap();
-        partial_index[16..16 + index_bytes].copy_from_slice(&new_index[16..16 + index_bytes]);
+        if cut >= whole.len() {
+            partial_index[16..32].copy_from_slice(&new_index[16..32]);
+        }
         fs::write(copy.join("rows.idx"), &partial_index).unwrap();
         let (mut log, recovered) = open(&copy);
         assert_eq!(recovered.scanned_bytes, (record_end - patch_at) as u64, "cut {cut}");
@@ -326,6 +330,97 @@ fn a_torn_patch_restores_the_previous_revision() {
         drop(log);
         fs::remove_dir_all(copy).unwrap();
     }
+}
+
+#[test]
+fn a_torn_patch_with_a_durable_new_index_restores_from_undo() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let old = b"old revision";
+    let next = b"new revision";
+    {
+        let (mut log, _) = open(&book);
+        log.append_settled(1, 1, RawRange::NONE, old).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, next).unwrap();
+    }
+    let whole = fs::read(segment(&book)).unwrap();
+    let new_index = fs::read(book.join("rows.idx")).unwrap();
+    let patch_at = SEGMENT_HEADER_LEN as usize + old.len() + RECORD_OVERHEAD;
+    let copy = home.path().join("durable-index-cut");
+    copy_book(&book, &copy);
+    fs::write(segment(&copy), &whole[..patch_at + 1]).unwrap();
+    fs::write(copy.join("rows.idx"), new_index).unwrap();
+
+    let (mut log, _) = open(&copy);
+    let row = log.row(1).expect("undo restores the prior index");
+    assert_eq!(row.rev, 1);
+    assert_eq!(texts(&mut log, &[row]).0[0], old);
+}
+
+#[test]
+fn a_cut_patch_without_undo_requests_rebuild() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let mark_len;
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        mark_len = fs::metadata(segment(&book)).unwrap().len();
+        log.patch(1, 2, RawRange::NONE, &text(1)).unwrap();
+        log.sync().unwrap();
+    }
+    let path = segment(&book);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes.truncate(mark_len as usize);
+    fs::write(path, bytes).unwrap();
+    fs::write(book.join("rows.undo"), []).unwrap();
+    let (mut log, _) = Log::open(&book, Options::default()).unwrap();
+    assert!(matches!(log.patch(1, 3, RawRange::NONE, b"replay"), Err(Error::CorruptRow { .. })));
+}
+
+#[test]
+fn a_source_change_cuts_the_replay_suffix_to_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let mark_len;
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        mark_len = fs::metadata(segment(&book)).unwrap().len();
+        log.patch(1, 2, RawRange::NONE, b"new revision").unwrap();
+        log.append_settled(2, 1, RawRange::NONE, &text(2)).unwrap();
+        log.sync().unwrap();
+        log.cut_to_checkpoint(&[]).unwrap();
+        assert_eq!(log.last_seq(), 1);
+        assert_eq!(log.max_row(), 1);
+        assert!(log.row(2).is_none());
+        let row = log.row(1).expect("the cut restores the checkpoint row");
+        assert_eq!(row.rev, 1);
+        assert_eq!(texts(&mut log, &[row]).0[0], text(1));
+        assert_eq!(fs::metadata(segment(&book)).unwrap().len(), mark_len);
+        assert_eq!(log.patch(1, 2, RawRange::NONE, b"patched after cut").unwrap(), 2);
+    }
+    let (log, recovered) = open(&book);
+    assert_eq!(recovered.replayed, 1);
+    assert_eq!(log.last_seq(), 2);
+    assert_eq!(log.row(1).unwrap().rev, 2);
+    assert!(log.row(2).is_none());
+}
+
+#[test]
+fn a_checkpoint_open_row_can_settle_again_after_a_cut() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let (mut log, _) = open(&book);
+    log.write_checkpoint(&[], &[1]).unwrap();
+    log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap();
+    log.cut_to_checkpoint(&[1]).unwrap();
+    assert!(log.row(1).is_none());
+    assert_eq!(log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap(), 1);
+    assert_eq!(log.row(1).unwrap().rev, 1);
 }
 
 #[test]

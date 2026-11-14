@@ -60,7 +60,7 @@ import {
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting, lostRetryDelay } from "./hostRetry";
+import { hostIsReconnecting, lostRetryDelay } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -111,6 +111,8 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  hostTailOf,
+  type TailHandOver,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -1131,13 +1133,15 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
 /// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
 /// and the page cannot see whether the journal kept the prompt). Tests shorten them.
-/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting before it
-/// fails with Retry (sendWhenReady.ts), the pane's one deadline for a recovery.
+/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting
+/// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
+/// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
+/// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
-  hostWaitMs: HOST_ERROR_DEADLINE_MS,
+  hostWaitMs: Number.POSITIVE_INFINITY,
 };
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -1391,6 +1395,9 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
 /// record streamed since it opened, and a lag read or a repaired turn refolded all of them.
 export const REBUILD_WINDOW = 5_000;
+/// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice the rebuild's
+/// window, so a cut always keeps a whole `REBUILD_WINDOW` and sheds at most once per that many records.
+export const HELD_RECORDS = 2 * REBUILD_WINDOW;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -3448,6 +3455,9 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
+  /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
+  private following = true;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -3621,6 +3631,19 @@ export class AcpmuxDirectClient {
   /// the flow this cache exists for.
   handOverCurrentTail(): void {
     this.rememberCurrentTail();
+  }
+
+  /// The chat on screen for a pane about to open on it (`chat.subagentPane`): kept on this page as
+  /// `handOverCurrentTail` keeps it, and returned for the request to carry (`handOver`) instead of
+  /// a `chat.tail` of its own, which could reach the host after the pane's open had read it (#36650).
+  tailHandOver(): TailHandOver | undefined {
+    const kept = this.rememberCurrentTail(true, false);
+    const tail = kept && hostTailOf(kept.tail);
+    if (kept && tail) return { sessionId: kept.sessionId, tail };
+    // Nothing to carry, or nothing fits the host's bound: the host hears it as before (a tail cut
+    // to nothing forgets what it held).
+    if (kept) this.rememberCurrentTail();
+    return undefined;
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it
@@ -4453,11 +4476,14 @@ export class AcpmuxDirectClient {
   /// (`replayThrough`, a fork's preview), would be kept half-read.
   ///
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
-  /// host alone and not into this page's map (tailCache.ts `rememberTail`).
-  private rememberCurrentTail(forThisPage = true): void {
+  /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
+  /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
-    if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+    if (!sessionId || !tail) return undefined;
+    rememberTail(sessionId, tail, forThisPage, toHost);
+    return { sessionId, tail };
   }
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
@@ -7537,8 +7563,44 @@ export class AcpmuxDirectClient {
     this.reduce(event);
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
-    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId)
+    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
+      this.shedOlderHeld();
+    }
+  }
+
+  /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
+  setFollowing(following: boolean): void {
+    this.following = following;
+  }
+
+  /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
+  /// its newest page holds only those: what it holds, and the work of each streamed update over the rows drawn
+  /// from it, stay the same however long the chat runs (Leo, 2026-11-12: "even if a chat is long, there should
+  /// be no percievable difference"; bench/transcript-replay.bench.ts god log: 4.4x the heap of a small chat and
+  /// 2.1-2.4x the work per token). Only at a turn's end, while the view follows the latest row and no paging,
+  /// replay or held snapshot is under way, and at a turn start (`rebuildCut`, which also keeps a subagent still
+  /// running whole), so the rows kept are drawn as a fresh open of the same page draws them. The rows above the
+  /// cut leave the transcript; scrolling up reads them again as any older page (`loadOlder`). One full refold of
+  /// at most `HELD_RECORDS` records, once per `REBUILD_WINDOW` records at most: O(1) per record over a stream.
+  private shedOlderHeld(): void {
+    if (this.events.length <= HELD_RECORDS || !this.following) return;
+    if (this.replayThrough !== undefined || this.loadingOlder || this.snapshotHold) return;
+    if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
+    // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
+    if ((this.events[0]?.seq ?? 1) < 1) return;
+    let openSince = Infinity;
+    for (const agent of this.subagents.all())
+      if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
+    const cut = rebuildCut(this.events, Infinity, openSince);
+    if (cut <= 0) return;
+    this.events = this.events.slice(cut);
+    this.historyExhausted = false;
+    this.turnOpener = undefined;
+    // An older page in flight, or read ahead, was read for the held history that just went.
+    this.historyEpoch += 1;
+    this.cancelOlderPaging();
+    this.rebuildKeepingLiveState();
   }
 
   /// A turn that just ended live is drawn from its stored records, not only from the ones that
@@ -11049,6 +11111,12 @@ export class AcpmuxDirectClient {
     /// Ends this prompt's count in the composer's "Sending when ready" (sendWhenReady.ts): set while
     /// the prompt waits for acpmux, released once acpmux took it or the send ended.
     let unhold: (() => void) | undefined;
+    /// The prompt is between tries, waiting for acpmux to answer (sendWhenReady.ts): no request of it
+    /// is out, so its no-answer deadline below does not run down meanwhile.
+    let heldForHost = false;
+    /// When the last hold ended (`Date.now()`): the no-answer deadline counts from there, so a prompt
+    /// that waited out an outage gets its whole wait once acpmux is back.
+    let heldUntil: number | undefined;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -11108,46 +11176,53 @@ export class AcpmuxDirectClient {
           else if (state === "delivered" && this.optimisticPromptRows.has(promptId)) this.checkStall(sessionId);
         }, deliveryTiming.slowMs),
       );
-      timers.push(
-        setTimeout(
-          () => {
-            if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
-            // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
-            // copy as a failed row.
-            if (accepted !== undefined && !released) return;
-            this.queue = this.queue.filter((entry) => entry.id !== promptId);
-            const shownRow = this.rows.get(rowId) ?? {
-              id: rowId,
-              version: 1,
-              at,
-              kind: "user",
-              text,
-              images: attachedImages(attachments),
-              retryAttachments: attachments,
-              ...(inline ? { inlineParts: inline.parts } : {}),
-            };
-            this.rows.set(rowId, {
-              ...shownRow,
-              pending: false,
-              failed: true,
-              error: translate("prompt.delivery.noAnswer"),
-              version: shownRow.version + 1,
-            });
-            this.deliveries.get(promptId)!.rowId = rowId;
-            this.failedPrompts.set(rowId, { input, attachments, promptId });
-            this.setDelivery(promptId, {
-              state: "failed",
-              failedAt: Date.now(),
-              hop: "acpmux",
-              code: "timeout",
-              error: translate("prompt.delivery.noAnswer"),
-            });
-            this.noteUnsentFailure(promptId);
-            this.emit();
-          },
-          this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
-        ),
-      );
+      const failUnanswered = () => {
+        if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
+        // A prompt held for an acpmux that is away (a restart, its machine rebooting) has no
+        // request out to go unanswered: it waits on, and goes once acpmux answers (Leo,
+        // 2026-11-12: "it should just automatically do stuff"). Its deadline starts again then.
+        const failAfter = this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs;
+        const sinceHold = heldUntil === undefined ? failAfter : Date.now() - heldUntil;
+        if (heldForHost || sinceHold < failAfter) {
+          this.deliveries
+            .get(promptId)
+            ?.timers.push(setTimeout(failUnanswered, heldForHost ? failAfter : failAfter - sinceHold));
+          return;
+        }
+        // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
+        // copy as a failed row.
+        if (accepted !== undefined && !released) return;
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
+        const shownRow = this.rows.get(rowId) ?? {
+          id: rowId,
+          version: 1,
+          at,
+          kind: "user",
+          text,
+          images: attachedImages(attachments),
+          retryAttachments: attachments,
+          ...(inline ? { inlineParts: inline.parts } : {}),
+        };
+        this.rows.set(rowId, {
+          ...shownRow,
+          pending: false,
+          failed: true,
+          error: translate("prompt.delivery.noAnswer"),
+          version: shownRow.version + 1,
+        });
+        this.deliveries.get(promptId)!.rowId = rowId;
+        this.failedPrompts.set(rowId, { input, attachments, promptId });
+        this.setDelivery(promptId, {
+          state: "failed",
+          failedAt: Date.now(),
+          hop: "acpmux",
+          code: "timeout",
+          error: translate("prompt.delivery.noAnswer"),
+        });
+        this.noteUnsentFailure(promptId);
+        this.emit();
+      };
+      timers.push(setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs));
     }
     this.emit();
     // A send with nothing to upload goes to its own chat however late its ticket comes: its row is
@@ -11161,8 +11236,10 @@ export class AcpmuxDirectClient {
     try {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
       const answer = await untilHostAnswers(
-        () =>
-          this.request(
+        () => {
+          if (heldForHost) heldUntil = Date.now();
+          heldForHost = false;
+          return this.request(
             "session/prompt",
             {
               sessionId,
@@ -11183,11 +11260,13 @@ export class AcpmuxDirectClient {
             },
             undefined,
             emptyContinuation,
-          ),
+          );
+        },
         {
           deadlineMs: deliveryTiming.hostWaitMs,
           stop: () => taken || this.closed || this.deliveries.get(promptId)?.delivery.state !== "sending",
           waiting: () => {
+            heldForHost = true;
             unhold ??= sendsHeldForHost.hold();
             if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
           },

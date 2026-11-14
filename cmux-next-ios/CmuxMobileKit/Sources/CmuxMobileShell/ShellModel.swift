@@ -297,6 +297,8 @@ final class ShellModel {
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
+            // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
+            live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend

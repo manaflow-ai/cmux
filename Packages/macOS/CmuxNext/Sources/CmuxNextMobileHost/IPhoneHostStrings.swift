@@ -93,14 +93,6 @@ enum IPhoneHostStrings {
     static func pairKey(_ fingerprint: String) -> String {
         String(format: String(localized: "iphone.pair.key", defaultValue: "Device key %@", table: "IPhone", bundle: .module), fingerprint)
     }
-    static func phoneAccessTitle(_ name: String, key: String) -> String {
-        String(format: String(localized: "iphone.pair.phoneAccessTitle", defaultValue: "Allow “%1$@” (%2$@) to use this Mac?",
-                              table: "IPhone", bundle: .module), name, key)
-    }
-    static var irohAdmissionBody: String {
-        String(localized: "iphone.pair.irohBody", defaultValue: "It can use this Mac’s terminals and agent chats. Remove it in Settings > Mobile to ask again.",
-               table: "IPhone", bundle: .module)
-    }
     static var pairAllow: String { String(localized: "iphone.pair.allow", defaultValue: "Allow", table: "IPhone", bundle: .module) }
     static var pairAllowFullAccess: String {
         String(localized: "iphone.pair.allowFullAccess", defaultValue: "Allow and turn on Full access", table: "IPhone", bundle: .module)

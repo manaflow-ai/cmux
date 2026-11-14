@@ -126,9 +126,6 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
 | `cmux-platform-staging.debussy.workers.dev` | connects | cmux Cloud platform API on staging, only when chosen |
-| `cmux-v2.debussy.workers.dev` | connects | the iPhone app's host API (production) |
-| `cmux-v2-development.debussy.workers.dev` | connects | the iPhone app's host API in development builds |
-| `cmux-v2-staging.debussy.workers.dev` | connects | the iPhone app's host API on staging, only when chosen |
 | `cmux-vnc-signal.debussy.workers.dev` | connects | screen sharing signaling between your devices |
 | `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `www.artic.edu` | connects | museum art for backgrounds, when you search for art |

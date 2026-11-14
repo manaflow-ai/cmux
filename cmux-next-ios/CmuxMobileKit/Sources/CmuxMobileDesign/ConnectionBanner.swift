@@ -27,6 +27,11 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
                                        text: String(localized: "This device was signed out. Sign in again"),
                                        offersRetry: true, actionTitle: String(localized: "Sign in"))
+    /// The Mac is connected but a list did not load (Home's last read failed): Retry reads again.
+    public static func refreshFailed(identity: String? = nil) -> Self {
+        Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
+             offersRetry: true, identity: identity)
+    }
     public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
