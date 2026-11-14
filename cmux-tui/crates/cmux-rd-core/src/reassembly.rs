@@ -5,7 +5,10 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, REF_NONE, flags};
+use cmux_rd_proto::{
+    DatagramHeader, DatagramKind, FrameBody, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE,
+    flags,
+};
 
 use crate::fec;
 
@@ -29,6 +32,7 @@ pub enum FrameLoss {
 #[derive(Debug)]
 struct Pending {
     first_seen_us: u64,
+    last_nack_us: Option<u64>,
     flags: u8,
     count: u16,
     shard_len: Option<usize>,
@@ -118,6 +122,7 @@ impl Reassembler {
         let total = usize::from(header.count) + usize::from(header.fec_count);
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
             first_seen_us: now_us,
+            last_nack_us: None,
             flags: header.flags,
             count: header.count,
             shard_len: None,
@@ -159,6 +164,43 @@ impl Reassembler {
                 let missing =
                     (0..p.count).filter(|&i| p.shards[usize::from(i)].is_none()).collect();
                 (frame, missing)
+            })
+            .collect()
+    }
+
+    /// The next missing-shard request: first after the reorder grace, then
+    /// at the retry cadence. Each frame has its own deadline, so feedback
+    /// for another frame cannot delay this frame's first repair request.
+    pub fn next_nack_us(&self, after_us: u64, retry_us: u64) -> Option<u64> {
+        self.pending
+            .values()
+            .filter(|p| !Self::decodable(p))
+            .map(|p| Self::nack_at(p, after_us, retry_us))
+            .min()
+    }
+
+    fn nack_at(p: &Pending, after_us: u64, retry_us: u64) -> u64 {
+        p.last_nack_us.map_or_else(
+            || p.first_seen_us.saturating_add(after_us),
+            |last| last.saturating_add(retry_us.max(1)),
+        )
+    }
+
+    /// Takes the due NACKs that fit in one feedback packet. Only requests
+    /// actually returned advance their retry deadlines. Repaired frames
+    /// disappear from this schedule as soon as their data is complete.
+    pub fn take_nacks(&mut self, now_us: u64, after_us: u64, retry_us: u64) -> Vec<Nack> {
+        self.pending
+            .iter_mut()
+            .filter(|(_, p)| !Self::decodable(p) && now_us >= Self::nack_at(p, after_us, retry_us))
+            .take(MAX_NACK_FRAMES)
+            .map(|(&frame, p)| {
+                let indexes = (0..p.count)
+                    .filter(|&i| p.shards[usize::from(i)].is_none())
+                    .take(MAX_NACK_INDEXES)
+                    .collect();
+                p.last_nack_us = Some(now_us);
+                Nack { frame, indexes }
             })
             .collect()
     }

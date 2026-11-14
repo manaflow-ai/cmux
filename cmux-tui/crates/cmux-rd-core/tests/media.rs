@@ -187,6 +187,48 @@ fn missing_lists_absent_data_shards() {
 }
 
 #[test]
+fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(1_000_000);
+    let mut repairs = Vec::new();
+    // More gaps than one feedback packet can carry must not starve the tail.
+    for frame in 1..=6 {
+        let out = p.packetize(frame, 0, &body(frame, 5000, frame == 1), 0).expect("packetize");
+        repairs.push(out.datagrams[0].clone());
+        for d in out.datagrams.iter().skip(1) {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            assert!(r.push(&h, payload, 25_000).is_empty());
+        }
+    }
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    assert!(r.take_nacks(29_999, 5_000, 50_000).is_empty());
+    let first = r.take_nacks(30_000, 5_000, 50_000);
+    assert_eq!(first.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    let rest = r.take_nacks(30_000, 5_000, 50_000);
+    assert_eq!(rest.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![5, 6]);
+    assert!(first.iter().chain(&rest).all(|n| n.indexes == vec![0]));
+    assert!(r.take_nacks(30_000, 5_000, 50_000).is_empty());
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(80_000));
+
+    // A new frame does not inherit the retry deadline of previous gaps.
+    let out = p.packetize(7, 0, &body(7, 5000, false), 0).expect("packetize");
+    for d in out.datagrams.iter().skip(1) {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert!(r.push(&h, payload, 40_000).is_empty());
+    }
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(45_000));
+    assert_eq!(r.take_nacks(45_000, 5_000, 50_000)[0].frame, 7);
+    for d in repairs.iter().chain(std::iter::once(&out.datagrams[0])) {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert_eq!(r.push(&h, payload, 75_000).len(), 1);
+    }
+    assert_eq!(r.next_nack_us(5_000, 50_000), None);
+    assert!(r.take_nacks(80_000, 5_000, 50_000).is_empty());
+    assert!(!r.need_recovery());
+}
+
+#[test]
 fn parity_scales_with_loss() {
     assert_eq!(parity_for(10, 0.0, true), 0);
     assert_eq!(parity_for(10, 0.02, false), 1);
