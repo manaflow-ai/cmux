@@ -881,6 +881,7 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
+        spillIfOffScreen()
         refreshDerived()
         // A record after a reattach can end `.disconnected` without a `.status` event.
         updateQuietStatus()
@@ -1249,6 +1250,58 @@ public final class AgentChatStore {
 
     private func refreshEarlierHistory() {
         assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
+    }
+
+    // MARK: Off screen
+
+    /// The lists showing this chat now (`ChatTranscriptList`), held weakly: a list that goes
+    /// stops counting. Such a list keeps the window itself, knowing where the reader is.
+    @ObservationIgnored private var viewers: [WeakViewer] = []
+    private struct WeakViewer { weak var owner: AnyObject? }
+    /// Set by the store's owner (`boundsMemoryOffScreen`): a chat kept for a tab keeps the
+    /// on-screen window while no list shows it. Off for the stores built for one page of
+    /// history (`prependEarlier`), which must hold every turn they read.
+    @ObservationIgnored private(set) var boundsOffScreen = false
+
+    /// Whether a list shows this chat.
+    public var isShown: Bool { viewers.contains { $0.owner != nil } }
+
+    /// `owner` (a transcript list) shows this chat from now on.
+    public func shown(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        viewers.append(WeakViewer(owner: owner))
+    }
+
+    /// `owner` no longer shows this chat: its window is kept from now on by the store.
+    public func hidden(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        spillIfOffScreen()
+    }
+
+    /// A chat that stays in memory while the person is elsewhere (its tab's store, made for the
+    /// chat, Home and Feed cards) spills like the one on screen: past `windowTrigger` turns the
+    /// oldest go to disk, keeping `windowKeep`, and a memory warning brings it down to
+    /// `pressureKeep`. Opening it shows the same newest turns and scrolling up reads the rest
+    /// back (`loadEarlier`), as after the on-screen spill.
+    public func boundsMemoryOffScreen() { boundsMemoryOffScreen(memoryPressure: .shared) }
+
+    func boundsMemoryOffScreen(memoryPressure: MemoryPressure) {
+        guard !boundsOffScreen else { return }
+        boundsOffScreen = true
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressureOffScreen() }
+    }
+
+    /// The on-screen window (`ChatTranscriptList.spillIfResting`), for a chat no list shows.
+    private func spillIfOffScreen() {
+        guard boundsOffScreen, turns.count > Self.windowTrigger, !isShown else { return }
+        spillOlder(keeping: Self.windowKeep)
+    }
+
+    /// A memory warning, for a chat no list shows (the list's own handler covers the one on
+    /// screen, keeping the turn the reader is on).
+    func relieveMemoryPressureOffScreen() {
+        guard !isShown else { return }
+        spillOlder(keeping: Self.pressureKeep)
     }
 
     /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from

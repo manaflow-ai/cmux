@@ -215,6 +215,9 @@ impl Log {
     /// `max_bytes` of row text ([`MAX_FRAME_BYTES`] at most), always at least one when one
     /// exists. Reads index entries only: the cost is the window's, for a book of any length.
     pub fn window(&self, anchor: Anchor, rows: usize, max_bytes: usize) -> Window {
+        if self.broken {
+            return Window::default();
+        }
         let mut budget = Budget {
             rows: rows.min(MAX_ROWS),
             bytes: max_bytes.min(MAX_FRAME_BYTES) as u64,
@@ -281,6 +284,9 @@ impl Log {
     /// from the others), so [`Log::fill`] of a page is always exactly one read; the caller asks
     /// for the next page from `lo` or `hi`. Reads index entries only.
     pub fn page(&self, edge: Edge, max_bytes: usize) -> Window {
+        if self.broken {
+            return Window::default();
+        }
         let mut budget = Budget {
             rows: MAX_ROWS,
             bytes: max_bytes.min(MAX_PAGE_BYTES) as u64,
@@ -308,6 +314,9 @@ impl Log {
     /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
     /// records before it), never the book. A cursor at or past the last seq gets nothing.
     pub fn since(&mut self, cursor: u64, max_bytes: usize) -> Result<Since, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
         let mut since = Since { rows: Vec::new(), cursor: cursor.min(self.last_seq), more: false };
         if cursor >= self.last_seq {
             return Ok(since);
@@ -325,7 +334,12 @@ impl Log {
         let mut left = max_bytes.min(MAX_FRAME_BYTES) as u64;
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
-            let read = self.read_segment(seg, offset, &mut chunk)?;
+            let read = self.read_segment(seg, offset, &mut chunk).map_err(|error| match error {
+                Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Error::Corrupt("resume points to a missing segment")
+                }
+                other => other,
+            })?;
             if read == 0 {
                 // The end of a segment: the next record starts the next one.
                 if seg >= self.tail.seg {

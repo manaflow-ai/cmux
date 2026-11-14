@@ -308,6 +308,12 @@ pub struct Counters {
     pub queue_overflowed: u64,
 }
 impl State {
+    /// Whether raw is currently inside a turn, independent of its open body rows.
+    /// `turn` outlives the turn so late background rows keep its id; the key ends with it.
+    pub fn in_turn(&self) -> bool {
+        !self.turn_key.is_empty()
+    }
+
     pub fn counters(&self) -> Counters {
         Counters {
             forced_rows: self.forced_rows,
