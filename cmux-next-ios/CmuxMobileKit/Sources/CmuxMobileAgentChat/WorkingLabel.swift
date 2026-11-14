@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import os
 import SwiftUI
 
 /// SPEC 4.5: label2 text with a highlight band sweeping left to right (1.6 s), elapsed time after 5 s.
@@ -21,10 +22,10 @@ public struct WorkingLabel: View {
                 Text(text).font(font)
             }
             if let since {
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    let elapsed = Int(context.date.timeIntervalSince(since))
-                    if elapsed >= 5 {
-                        Text("· \(elapsed < 60 ? "\(elapsed)s" : "\(elapsed / 60)m \(elapsed % 60)s")")
+                TimelineView(Self.elapsedSchedule(since: since)) { context in
+                    let _ = Self.noteRedraw()
+                    if let elapsed = Self.elapsedText(since: since, at: context.date) {
+                        Text(elapsed)
                             .font(.footnote.monospacedDigit())
                             .foregroundStyle(.tertiary)
                             .contentTransition(.numericText())
@@ -34,6 +35,32 @@ public struct WorkingLabel: View {
         }
         .accessibilityElement(children: .combine)
     }
+
+    /// The time after the label at `date`: nothing for the first 5 s, then "· 12s", "· 1m 5s".
+    static func elapsedText(since: Date, at date: Date) -> String? {
+        let elapsed = Int(date.timeIntervalSince(since))
+        guard elapsed >= 5 else { return nil }
+        return "· \(elapsed < 60 ? "\(elapsed)s" : "\(elapsed / 60)m \(elapsed % 60)s")"
+    }
+
+    /// When the elapsed time redraws: when the row appears, then each second from 5 s on
+    /// (before that the text is nothing, and a redraw would draw nothing again).
+    static func elapsedSchedule(since: Date) -> ElapsedTextSchedule {
+        ElapsedTextSchedule(since: since, quietSeconds: 5)
+    }
+
+    /// DEBUG and Demo: in the list rig's running chat (`CMUX_MOBILE_LIST_HOLD_TURN=1`), one
+    /// `FRAMELOG list-stress label-tick` line per redraw of the time; the energy bench counts
+    /// them, so it shows whether the time still redraws off screen or in the background.
+    static func noteRedraw() {
+        #if DEBUG
+        if ListStressSettings.shared.logsLabelTicks { tickLog.notice("FRAMELOG list-stress label-tick") }
+        #endif
+    }
+
+    #if DEBUG
+    private static let tickLog = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+    #endif
 }
 
 /// Text shimmer: label2 base, a 40% band of label sweeping across every 1.6 s. The band's

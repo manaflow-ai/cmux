@@ -38,7 +38,7 @@ use somebody else's thing for that as well."
 | CI status of my branch, deploy status, on-call | sidebar section | `cmux.net.fetch` with `net:<host>`, `cmux.timer.every` | Buildable now |
 | Calendar: next meeting and a Join button | sidebar section | `cmux.net.fetch`, `openBrowser` | Buildable now (needs the person's own token) |
 | Linear or Jira issues assigned to me | sidebar section | `cmux.net.fetch` | Buildable now |
-| A card in a Home chat (PR, deploy, poll) | chat bubble | `cmux.chat.widget/1` | Sample `samples/apps/pr-card` |
+| A card under an agent's tool call (PR, deploy, poll) | agent chat, under the call | `cmux.chat.widget/1` (`options.tools` names the tools it answers) | Example `examples/extensions/pr-card`; the transcript drawing lands separately |
 
 ## Hardcore: a pane of my own, a tool other people install
 
