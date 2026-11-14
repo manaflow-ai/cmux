@@ -10,8 +10,19 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
     private var activeWriters = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var freezeWaiters: [CheckedContinuation<Void, Never>] = []
+    private let admissionClosed: (@Sendable () -> Void)?
 
-    public init(base: any StackAuthTokenStoreProtocol) { self.base = base }
+    public init(base: any StackAuthTokenStoreProtocol) {
+        self.base = base
+        admissionClosed = nil
+    }
+
+    /// An internal lifecycle observation seam: the callback fires only after
+    /// new operations are refused and before the existing operations drain.
+    init(base: any StackAuthTokenStoreProtocol, admissionClosed: @escaping @Sendable () -> Void) {
+        self.base = base
+        self.admissionClosed = admissionClosed
+    }
     public func getStoredAccessToken() async -> String? {
         guard beginWrite() else { return nil }
         defer { endWrite() }
@@ -51,6 +62,7 @@ public actor CaptureFencedTokenStore: StackAuthTokenStoreProtocol {
             return
         }
         freezing = true
+        admissionClosed?()
         await waitForWriters()
         await base.captureAwaitIdle()
         frozen = true

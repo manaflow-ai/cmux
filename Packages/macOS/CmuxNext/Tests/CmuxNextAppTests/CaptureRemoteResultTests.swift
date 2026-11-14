@@ -42,7 +42,8 @@ import Testing
 
     @Test func missingOrMalformedProducerFieldsNeverProveCleanup() {
         guard case .object(let valid) = result() else { Issue.record("fixture must be an object"); return }
-        for field in ["worker_started", "identity_removed", "relays_removed"] {
+        for field in ["code", "ok", "lease_bound", "worker_started", "identity_removed", "relays_removed",
+                      "verified_absent", "worker_quiescent", "worker_pid_exited", "descendants_exited"] {
             var missing = valid
             missing[field] = nil
             #expect(CmuxRemoteService.strictCaptureResult(.object(missing), exited: true)["ok"] == .bool(false))

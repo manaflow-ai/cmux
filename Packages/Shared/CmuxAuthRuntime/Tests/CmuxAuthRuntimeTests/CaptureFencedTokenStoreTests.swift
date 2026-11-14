@@ -5,13 +5,33 @@ import Testing
 @Suite struct CaptureFencedTokenStoreTests {
     @Test func freezeJoinsMigrationReadBeforeRejectingLateWriter() async {
         let base = MigrationReadStore()
-        let fenced = CaptureFencedTokenStore(base: base)
+        let (events, observer) = AsyncStream<Void>.makeStream()
+        let fenced = CaptureFencedTokenStore(base: base, admissionClosed: {
+            observer.yield(())
+            observer.finish()
+        })
         await base.armRefreshRead()
 
         let read = Task { await fenced.getStoredRefreshToken() }
         await base.waitForRefreshRead()
         let freeze = Task { await fenced.freezeForCapture() }
-        await Task.yield()
+        let admissionObserved = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in events { return true }
+                return false
+            }
+            group.addTask {
+                do { try await Task.sleep(for: .seconds(2)) } catch { return false }
+                return false
+            }
+            let observed = await group.next() ?? false
+            group.cancelAll()
+            return observed
+        }
+        #expect(admissionObserved)
+        // The earlier migration read is still parked. A getter arriving after
+        // this causal admission event must not reach the backing store either.
+        #expect(await fenced.getStoredAccessToken() == nil)
 
         await base.releaseRefreshRead()
         #expect(await read.value == "refresh")
@@ -25,7 +45,7 @@ import Testing
 }
 
 private actor MigrationReadStore: StackAuthTokenStoreProtocol {
-    private var access: String?
+    private var access: String? = "stored-access"
     private var refresh: String? = "refresh"
     private var writes = 0
     private var gate = false
