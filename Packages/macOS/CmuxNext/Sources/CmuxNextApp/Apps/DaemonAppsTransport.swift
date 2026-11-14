@@ -121,9 +121,7 @@ final class DaemonAppsTransport: AppsTransport {
         AppsWireDecoding().list(try await send(AppsListRequest()))
     }
 
-    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.panelsList))) }
-
-    func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest.composerList)) }
+    func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op))) }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,

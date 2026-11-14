@@ -25,8 +25,6 @@ public struct AppsStoreRequest: DaemonRequest, VerbatimFieldsRequest {
 
     /// `apps.panels.list`: the Session Info sections of installed, visible apps.
     public static let panelsList = AppsStoreRequest(op: "apps.panels.list")
-    /// `apps.composer.list`: the agent chat composer's extension slash commands and mention providers.
-    public static let composerList = AppsStoreRequest(op: "apps.composer.list")
 
     public init(op: String, args: JSONValue = .object([:])) {
         self.op = op
