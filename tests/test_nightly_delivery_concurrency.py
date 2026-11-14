@@ -96,7 +96,7 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # sign stage (nightly_next_sign_stage) takes the sign group, which works like the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
                     r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_loop_retry != ''\) && vars\.NIGHTLY_NEXT_ONE_JOB != 'on' && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
+                    r"inputs\.nightly_next_loop_retry != ''\) && \(vars\.NIGHTLY_NEXT_ONE_JOB != 'on' [^)]*\) && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
                     r"inputs\.nightly_next_sign_stage != '' && 'sign' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
     assert "nightly_next_post_publish" not in top, top
@@ -244,7 +244,9 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
     assert all(len(ttls) == 1 for ttls in by_key.values()), by_key
     # publish-nightly takes it only on nightly-next; classic and RC keep their group.
     lock = next(s for s in jobs["publish-nightly"]["steps"] if "publish-lease.sh lock" in str(s.get("run", "")))
-    assert lock["if"] == "needs.decide.outputs.track == 'nightly-next'", lock.get("if")
+    # nightly-next-one shares the step; there it also skips once the run left the push slot (LEFT_SLOT).
+    assert lock["if"] in ("needs.decide.outputs.track == 'nightly-next'",
+                          "needs.decide.outputs.track == 'nightly-next' && !env.LEFT_SLOT"), lock.get("if")
     # The notes job's sparse tooling checkout carries the lease's scripts.
     notes_checkout = next(s for s in jobs["publish-release-notes"]["steps"] if s.get("with", {}).get("path") == ".publish-tooling")
     for path in ("scripts/ci/nightly-steps/publish-lease.sh", "scripts/ci/r2_cas.py", "scripts/ci/upload-r2-object.py",
