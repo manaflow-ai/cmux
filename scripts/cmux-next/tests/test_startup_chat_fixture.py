@@ -28,16 +28,18 @@ class Client:
 
 class SeedClient:
     """A create can take effect even when its acknowledgement times out."""
-    def __init__(self, error=None, state=None):
+    def __init__(self, error=None, state=None, create_applies=True):
         self.sock = mock.Mock()
         self.error = error
         self.state = state or {}
+        self.create_applies = create_applies
         self.creates = self.sends = 0
 
     def call(self, method, params):
         if params["action"] == "new_chat":
             self.creates += 1
-            self.state["sessionId"] = "new-session"
+            if self.create_applies:
+                self.state["sessionId"] = "new-session"
             if self.error:
                 return {"ok": True, "result": {"pane": "chat-pane", "error": self.error}}
         elif params["action"] == "send_prompt":
@@ -99,6 +101,13 @@ class Restoration(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "existing"):
             self.fixture.seed("test", client, 1)
         self.assertEqual(client.creates, 0)
+        self.assertEqual(client.sends, 0)
+
+    def test_creation_timeout_without_a_session_fails_without_replay(self):
+        client = SeedClient('timedOut("DevTools Runtime.evaluate (5.0 seconds)")', create_applies=False)
+        with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+            self.fixture.seed("test", client, 0.01)
+        self.assertEqual(client.creates, 1)
         self.assertEqual(client.sends, 0)
 
     def test_explicit_creation_error_is_not_treated_as_a_timeout(self):

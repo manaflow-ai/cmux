@@ -11,10 +11,16 @@ import tempfile
 import time
 
 
+class RPCError(RuntimeError):
+    def __init__(self, response):
+        super().__init__(f"startup chat RPC failed: {response}")
+        self.response = response
+
+
 def unwrap(value):
     while isinstance(value, dict):
         if value.get("error") or value.get("ok") is False:
-            raise RuntimeError(f"startup chat RPC failed: {value}")
+            raise RPCError(value)
         if "result" not in value:
             return value
         value = value["result"]
@@ -52,8 +58,19 @@ class ChatFixture:
     def seed(self, tag, client, timeout):
         marker = "STARTUP_FIXTURE_" + tag
         client.sock.settimeout(timeout)
-        unwrap(client.call("debug.agent_pane", {"action": "new_chat", "harness": "startup-fixture",
-                                               "cwd": str(self.roots[tag] / "project")}))
+        before = unwrap(client.call("debug.agent_pane", {"action": "chat_state"}))
+        if before.get("sessionId") or transcript(before) or before.get("isWorking") or before.get("queued"):
+            raise RuntimeError("startup fixture refuses to replace an existing conversation")
+        reply = client.call("debug.agent_pane", {"action": "new_chat", "harness": "startup-fixture",
+                                                "cwd": str(self.roots[tag] / "project")})
+        (self.roots[tag] / "create-reply.json").write_text(json.dumps(reply, indent=2) + "\n")
+        try:
+            unwrap(reply)
+        except RPCError as error:
+            if not str(error.response.get("error", "")).startswith('timedOut("DevTools Runtime.evaluate ('):
+                raise
+            # The page may have created the session before its evaluation reply
+            # timed out. Read back that single request; never replay the mutation.
         self.until(client, lambda state: bool(state.get("sessionId")), timeout)
         unwrap(client.call("debug.agent_pane", {"action": "send_prompt", "text": marker}))
         state = self.until(client, lambda state: not state.get("isWorking") and
