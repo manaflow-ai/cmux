@@ -1111,6 +1111,7 @@ where
             for key in &stale {
                 Self::remove_held(mirror, &Self::row_identity(key));
             }
+            Self::prune_parent_tracking(mirror);
             mirror.walking = false;
             mirror.whole = true;
             mirror.seen.clear();
@@ -1506,11 +1507,6 @@ where
                 !emitted,
             );
             emitted = true;
-        }
-        if let Some(sub) = self.subscriptions.get_mut(&sid)
-            && let Some(mirror) = sub.mirror.as_mut()
-        {
-            Self::prune_parent_tracking(mirror);
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
