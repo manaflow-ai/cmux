@@ -386,6 +386,19 @@ enum TerminalImageTransferPlanner {
         return true
     }
 
+    /// A regular file this process cannot open, such as a clipboard manager's copy
+    /// inside its sandbox container. Opens the file rather than checking POSIX bits:
+    /// macOS app-data protection denies reads there even when the mode allows them.
+    /// Non-regular URLs return false without being opened, so a FIFO can't block.
+    private static func isUnreadableRegularFileURL(_ fileURL: URL) -> Bool {
+        guard isRemoteUploadableFileURL(fileURL) else { return false }
+        guard let handle = try? FileHandle(forReadingFrom: fileURL.standardizedFileURL) else {
+            return true
+        }
+        try? handle.close()
+        return false
+    }
+
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
         let normalizedFileURL = fileURL.standardizedFileURL
         guard normalizedFileURL.isFileURL,
@@ -418,8 +431,13 @@ enum TerminalImageTransferPlanner {
         }
 
         // Preserve file selections after resolving an image copy's auxiliary URLs.
+        // A URL the terminal program cannot open never outranks resolved text.
+        let candidateFileURLs = fileURLs(from: pasteboard)
+        let selectedFileURLs = text?.isEmpty == false
+            ? candidateFileURLs.filter { !isUnreadableRegularFileURL($0) }
+            : candidateFileURLs
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
-            fileURLs(from: pasteboard),
+            selectedFileURLs,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
                 pasteboard.types ?? []
             )
@@ -483,7 +501,12 @@ enum TerminalImageTransferPlanner {
         // Finder adds image previews to file selections. Preserve the original
         // files without decoding those previews for either paste or drop.
         // Folder, web, and expired URLs can still accompany actual image copies.
-        guard !urls.isEmpty, urls.allSatisfy(isRemoteUploadableFileURL) else { return nil }
+        // So can files the terminal program cannot open, such as a clipboard
+        // manager's copy inside its sandbox container; let the pixels win when
+        // none of the files can be opened. A partly readable selection is kept.
+        guard !urls.isEmpty,
+              urls.allSatisfy(isRemoteUploadableFileURL),
+              !urls.allSatisfy(isUnreadableRegularFileURL) else { return nil }
         guard let durableURLs = pasteboardService.durableDroppedFileURLs(
             urls,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])

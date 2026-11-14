@@ -166,6 +166,117 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(try Data(contentsOf: source) == png)
     }
 
+    // Clipboard managers such as Paste copy image pixels together with a file URL
+    // inside their own sandbox container, which macOS blocks other apps from
+    // reading. Pasting that path hands the terminal program a file it cannot open.
+    @Test("Image pixels win over a backing file the terminal cannot read", arguments: [TerminalImageTransferMode.paste, .drop])
+    func unreadableBackingFileFallsBackToPixels(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unreadable-backing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("clipboard-manager.png")
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try png.write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: source.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path) }
+        try #require(FileHandle(forReadingAtPath: source.path) == nil, "test needs an unreadable file")
+
+        let pasteboard = NSPasteboard(name: .init("cmux-unreadable-backing-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setData(png, forType: .png))
+        #expect(item.setString(source.absoluteString, forType: .fileURL))
+        #expect(pasteboard.writeObjects([item]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let urls) = prepared, let imageURL = urls.first else {
+            Issue.record("Expected an image attachment, got \(prepared)")
+            return
+        }
+        #expect(urls.count == 1)
+        #expect(imageURL.standardizedFileURL != source.standardizedFileURL)
+        #expect(service.isOwnedTemporaryImageFile(imageURL))
+        #expect(try Data(contentsOf: imageURL) == png)
+    }
+
+    @Test(
+        "A selection with any readable file keeps every file over its preview",
+        arguments: [TerminalImageTransferMode.paste, .drop]
+    )
+    func mixedReadabilitySelectionKeepsFiles(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mixed-backing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let readable = directory.appendingPathComponent("readable.png")
+        let unreadable = directory.appendingPathComponent("unreadable.png")
+        try png.write(to: readable)
+        try png.write(to: unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: unreadable.path) }
+        try #require(FileHandle(forReadingAtPath: unreadable.path) == nil, "test needs an unreadable file")
+        let preview = try #require(NSImage(data: png)?.tiffRepresentation)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-mixed-backing-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let first = NSPasteboardItem()
+        #expect(first.setString(readable.absoluteString, forType: .fileURL))
+        #expect(first.setData(preview, forType: .tiff))
+        let second = NSPasteboardItem()
+        #expect(second.setString(unreadable.absoluteString, forType: .fileURL))
+        #expect(pasteboard.writeObjects([first, second]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        #expect(TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        ) == .fileURLs([readable.standardizedFileURL, unreadable.standardizedFileURL]))
+    }
+
+    @Test("Visible text wins over an unreadable backing file copied with image pixels")
+    func unreadableBackingFileYieldsToVisibleText() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-unreadable-backing-text-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("clipboard-manager.png")
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try png.write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: source.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path) }
+        try #require(FileHandle(forReadingAtPath: source.path) == nil, "test needs an unreadable file")
+
+        let pasteboard = NSPasteboard(name: .init("cmux-unreadable-backing-text-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setData(png, forType: .png))
+        #expect(item.setString(source.absoluteString, forType: .fileURL))
+        #expect(item.setString("<p>visible caption</p>", forType: .html))
+        #expect(item.setString("visible caption", forType: .string))
+        #expect(pasteboard.writeObjects([item]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .paste,
+            pasteboardService: service
+        )
+        guard case .insertText(let text) = prepared else {
+            Issue.record("Expected the visible text, got \(prepared)")
+            return
+        }
+        #expect(text.contains("visible caption"))
+        #expect(!text.contains(source.lastPathComponent))
+    }
+
     @Test("An image drop reaches the TUI as one bracketed paste", arguments: [false, true])
     func imageDropDeliversBracketedPaste(throughDropController: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
