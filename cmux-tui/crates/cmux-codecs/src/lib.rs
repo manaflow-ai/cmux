@@ -15,6 +15,39 @@ pub mod vp9;
 
 pub mod bench;
 
+/// Which H.264 encoder a row uses: OpenH264 (what Linux and Windows hosts send) or the
+/// OS hardware encoder (VideoToolbox, what macOS hosts send; macOS only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum H264Impl {
+    #[default]
+    OpenH264,
+    VideoToolbox,
+}
+
+impl H264Impl {
+    /// The bench's name for an H.264 encoder: `h264` or `h264-vt`.
+    pub fn label(self) -> &'static str {
+        match self {
+            H264Impl::OpenH264 => "h264",
+            H264Impl::VideoToolbox => "h264-vt",
+        }
+    }
+}
+
+/// The H.264 encoder `imp`, `None` when this platform has none (VideoToolbox off macOS).
+pub fn open_h264(imp: H264Impl, cfg: &EncCfg) -> Res<Option<Box<dyn VideoEncoder>>> {
+    Ok(match imp {
+        H264Impl::OpenH264 => Some(Box::new(OpenH264::new(cfg, OpenH264Api::from_source())?)),
+        // Constrained baseline like OpenH264's, so both send the same profile.
+        #[cfg(target_os = "macos")]
+        H264Impl::VideoToolbox => Some(Box::new(cmux_encode::videotoolbox::VideoToolbox::new(
+            cfg.width, cfg.height, cfg.fps, cfg.kbps, true,
+        )?)),
+        #[cfg(not(target_os = "macos"))]
+        H264Impl::VideoToolbox => None,
+    })
+}
+
 /// The encoder for `codec`, `None` when this build leaves it out.
 pub fn open_encoder(codec: Codec, cfg: &EncCfg) -> Res<Option<Box<dyn VideoEncoder>>> {
     Ok(match codec {

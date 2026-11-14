@@ -14,7 +14,8 @@ public struct TerminalTabContext {
     /// Finger travel on the page (positive = finger down); collapses and
     /// expands the tab toolbar.
     public var reportScroll: @MainActor (CGFloat) -> Void
-    /// A web link tapped in the terminal: a cmux browser tab beside it, in the same
+    /// A terminal web link that opens on the Mac (one only the Mac reaches, or Open on Mac):
+    /// a cmux browser tab beside the terminal, in the same
     /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
     public var openLink: (@MainActor (URL) -> Void)?
 

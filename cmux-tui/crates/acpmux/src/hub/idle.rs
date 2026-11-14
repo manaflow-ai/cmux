@@ -34,6 +34,10 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
+use futures::StreamExt as _;
+
+/// How many due harnesses one idle pass ends at once (`stop_idle_children`).
+const IDLE_EXITS_AT_ONCE: usize = 16;
 
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
@@ -204,110 +208,119 @@ impl Hub {
                 .filter(|s| s.last_active.load(Ordering::Relaxed).saturating_add(idle) <= now)
                 .collect(),
         );
-        for session in due {
-            if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
-                continue;
-            }
-            let has_child = session.child.try_lock().map(|c| c.is_some()).unwrap_or(true);
-            if !has_child {
-                continue;
-            }
-            // In use at its deadline: a full idle period starts now.
-            let busy = session.turn_lock.try_lock().is_err()
-                || session.spawn_lock.try_lock().is_err()
-                || session.harness_use.try_write().is_err();
-            // A recap the person will want is asked before the process goes (`away_recap.rs`).
-            if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
-                self.touch(&session);
-                continue;
-            }
-            // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
-            let Some(child) = session.child.lock().await.clone() else { continue };
-            let sidecars = self.sidecars(&child).await;
-            // Held until the harness is ended: no turn, start, mode change, fork or stop
-            // begins meanwhile, and one that already began keeps the harness up.
-            let turn = session.turn_lock.try_lock();
-            let using = session.harness_use.try_write();
-            let spawning = session.spawn_lock.try_lock();
-            let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
-            if turn.is_err()
-                || using.is_err()
-                || spawning.is_err()
-                || !same
-                || !self.idle_eligible(&session)
-            {
-                // In use at its deadline: a full idle period starts now.
-                self.touch(&session);
-                continue;
-            }
-            // Nothing it did not report may end with it (`idle_census.rs`).
-            let census = self.idle_census(child.pid, sidecars).await;
-            if !matches!(census, super::idle_census::Census::Clear) {
-                self.note_refusal(&session, &census);
-                self.touch(&session);
-                continue;
-            }
-            // Anything that happened while the census ran moved the deadline.
-            if session.last_active.load(Ordering::SeqCst).saturating_add(idle) > self.clock_now()
-                || !self.idle_eligible(&session)
-            {
-                continue;
-            }
-            let idle_for = now.saturating_sub(session.last_active.load(Ordering::SeqCst));
-            let began = std::time::Instant::now();
-            // A hosted child whose link is closed cannot take a Terminate
-            // frame: end its host with the nonce proof, as closing does.
-            let link_lost = child.host_record().is_some() && !child.is_alive().await;
-            // Marked before the harness ends: typing or a click while it ends wakes it again,
-            // its start waiting for the spawn lock this pass holds. One that came between the
-            // deadline read above and the mark either sees the mark (and wakes it) or moved
-            // `last_active`, read again here after the mark (both SeqCst): then the session is in
-            // use and stays up. What the agent sent and the reader already queued (a turn Claude
-            // Code starts itself, its `system/init`) is handled first and counts: drained, then
-            // every gate read again. An exit the drain handles is no hibernation's (the mark is
-            // set after it).
-            let seen = session.last_active.load(Ordering::SeqCst);
-            Self::drain_inbound(&session).await;
-            if session.last_active.load(Ordering::SeqCst) != seen
-                || seen.saturating_add(idle) > self.clock_now()
-                || !self.idle_eligible(&session)
-            {
-                self.touch(&session);
-                continue;
-            }
-            session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
-            if session.last_active.load(Ordering::SeqCst) != seen {
-                self.clear_hibernation(&session);
-                continue;
-            }
-            self.detach_child(&session).await;
-            if link_lost {
-                self.end_unadopted_host(&session).await;
-            }
-            // Stopped meanwhile (`kill` clears the mark): its next start is no wake, and this
-            // was no hibernation. The leases stay held through the stored mark, so no Stop (it
-            // takes `harness_use`) and no wake (it takes `spawn_lock`) clears it in between.
-            if session.status() == SessionStatus::Closed
-                || session.hibernated_at.load(Ordering::SeqCst) == 0
-            {
-                self.clear_hibernation(&session);
-                tracing::info!(session = %session.id, "stopped while the idle exit ended it: not hibernated");
-                continue;
-            }
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
-                crate::store::now_ms().max(1);
-            self.save_meta(&session);
-            drop((turn, using, spawning));
-            tracing::info!(
-                session = %session.id,
-                cause = "idle",
-                idle_secs = idle_for / 1_000_000_000,
-                exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
-                 servers running under it; the harness and its MCP servers exited and the session \
-                 wakes on its next prompt"
-            );
+        // Each due harness on its own, several at once: an exit waits on its harness (or its host)
+        // to end, tens of ms, and one after another 1,000 idle agents took minutes (cmux#43143).
+        // Each holds its own session's leases; the pass lock above keeps passes apart.
+        futures::stream::iter(due)
+            .for_each_concurrent(IDLE_EXITS_AT_ONCE, |session| self.idle_exit(session, idle, now))
+            .await;
+    }
+
+    /// One due session of [`Self::stop_idle_children`]: its harness exits when it is still idle,
+    /// nothing but its MCP servers runs under it, and nothing moved its deadline meanwhile.
+    async fn idle_exit(&self, session: Arc<Session>, idle: u64, now: u64) {
+        if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
+            return;
         }
+        let has_child = session.child.try_lock().map(|c| c.is_some()).unwrap_or(true);
+        if !has_child {
+            return;
+        }
+        // In use at its deadline: a full idle period starts now.
+        let busy = session.turn_lock.try_lock().is_err()
+            || session.spawn_lock.try_lock().is_err()
+            || session.harness_use.try_write().is_err();
+        // A recap the person will want is asked before the process goes (`away_recap.rs`).
+        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+            self.touch(&session);
+            return;
+        }
+        // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
+        let Some(child) = session.child.lock().await.clone() else { return };
+        let sidecars = self.sidecars(&child).await;
+        // Held until the harness is ended: no turn, start, mode change, fork or stop
+        // begins meanwhile, and one that already began keeps the harness up.
+        let turn = session.turn_lock.try_lock();
+        let using = session.harness_use.try_write();
+        let spawning = session.spawn_lock.try_lock();
+        let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
+        if turn.is_err()
+            || using.is_err()
+            || spawning.is_err()
+            || !same
+            || !self.idle_eligible(&session)
+        {
+            // In use at its deadline: a full idle period starts now.
+            self.touch(&session);
+            return;
+        }
+        // Nothing it did not report may end with it (`idle_census.rs`).
+        let census = self.idle_census(child.pid, sidecars).await;
+        if !matches!(census, super::idle_census::Census::Clear) {
+            self.note_refusal(&session, &census);
+            self.touch(&session);
+            return;
+        }
+        // Anything that happened while the census ran moved the deadline.
+        if session.last_active.load(Ordering::SeqCst).saturating_add(idle) > self.clock_now()
+            || !self.idle_eligible(&session)
+        {
+            return;
+        }
+        let idle_for = now.saturating_sub(session.last_active.load(Ordering::SeqCst));
+        let began = std::time::Instant::now();
+        // A hosted child whose link is closed cannot take a Terminate
+        // frame: end its host with the nonce proof, as closing does.
+        let link_lost = child.host_record().is_some() && !child.is_alive().await;
+        // Marked before the harness ends: typing or a click while it ends wakes it again,
+        // its start waiting for the spawn lock this pass holds. One that came between the
+        // deadline read above and the mark either sees the mark (and wakes it) or moved
+        // `last_active`, read again here after the mark (both SeqCst): then the session is in
+        // use and stays up. What the agent sent and the reader already queued (a turn Claude
+        // Code starts itself, its `system/init`) is handled first and counts: drained, then
+        // every gate read again. An exit the drain handles is no hibernation's (the mark is
+        // set after it).
+        let seen = session.last_active.load(Ordering::SeqCst);
+        Self::drain_inbound(&session).await;
+        if session.last_active.load(Ordering::SeqCst) != seen
+            || seen.saturating_add(idle) > self.clock_now()
+            || !self.idle_eligible(&session)
+        {
+            self.touch(&session);
+            return;
+        }
+        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
+        if session.last_active.load(Ordering::SeqCst) != seen {
+            self.clear_hibernation(&session);
+            return;
+        }
+        self.detach_child(&session).await;
+        if link_lost {
+            self.end_unadopted_host(&session).await;
+        }
+        // Stopped meanwhile (`kill` clears the mark): its next start is no wake, and this
+        // was no hibernation. The leases stay held through the stored mark, so no Stop (it
+        // takes `harness_use`) and no wake (it takes `spawn_lock`) clears it in between.
+        if session.status() == SessionStatus::Closed
+            || session.hibernated_at.load(Ordering::SeqCst) == 0
+        {
+            self.clear_hibernation(&session);
+            tracing::info!(session = %session.id, "stopped while the idle exit ended it: not hibernated");
+            return;
+        }
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
+            crate::store::now_ms().max(1);
+        self.save_meta(&session);
+        drop((turn, using, spawning));
+        tracing::info!(
+            session = %session.id,
+            cause = "idle",
+            idle_secs = idle_for / 1_000_000_000,
+            exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
+             servers running under it; the harness and its MCP servers exited and the session \
+             wakes on its next prompt"
+        );
     }
 
     /// `session` is no longer hibernated (woken, stopped, or its hibernation given up): its
