@@ -77,10 +77,13 @@ extension AgentNotificationRegressionTests {
         #expect(resolutions.first?.draft.sessionId == "feed-session")
     }
 
-    /// A turn's end clears the request's attention by itself. A resolution
-    /// journaled after it would read as work resuming, so none is sent, and
-    /// the request is not resolved later by the next turn's tools either.
-    @Test func aTimedOutRequestIsNotResolvedAfterTheTurnEnds() async throws {
+    /// A Stop journals no resolution, but it can leave background work
+    /// running with the request's attention still held, so the next tool
+    /// still resolves it. A SessionEnd drops the request for good.
+    @Test(arguments: [(WorkstreamEvent.HookEventName.stop, 1), (.sessionEnd, 0)])
+    func aTimedOutRequestAcrossAStopOrSessionEnd(
+        endHook: WorkstreamEvent.HookEventName, resolvedByTheNextTool: Int
+    ) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let databaseURL = root.appendingPathComponent("journal.sqlite")
@@ -110,21 +113,22 @@ extension AgentNotificationRegressionTests {
         }
         func hook(_ name: WorkstreamEvent.HookEventName, sentAt: Int) -> WorkstreamEvent {
             WorkstreamEvent(sessionId: session, hookEventName: name, source: "claude",
-                workspaceId: workspace, surfaceId: surface, toolName: name == .stop ? nil : "Bash",
-                toolInputJSON: name == .stop ? nil : #"{"command":"pwd"}"#,
+                workspaceId: workspace, surfaceId: surface, toolName: name == .preToolUse ? "Bash" : nil,
+                toolInputJSON: name == .preToolUse ? #"{"command":"pwd"}"# : nil,
                 extraFieldsJSON: #"{"_hook_sent_at_ms":\#(sentAt)}"#)
         }
-        _ = FeedCoordinator.shared.ingestRevalidatedOnMainActor(hook(.stop, sentAt: 2_000))
+        func resolutions(through marker: String) async throws -> Int {
+            journal.observe(AgentJournalEventDraft(eventId: marker, kind: .sessionStarted, occurredAtMs: 1,
+                source: "claude", agentKey: "claude_code", sessionId: "marker",
+                workspaceId: workspace, surfaceId: surface))
+            return try await Self.journaledEvents(at: databaseURL, through: marker).filter {
+                $0.draft.kind == .attentionResolved && $0.draft.attention?.requestIdentity == requestID
+            }.count
+        }
+        _ = FeedCoordinator.shared.ingestRevalidatedOnMainActor(hook(endHook, sentAt: 2_000))
+        #expect(try await resolutions(through: "marker-end-\(UUID().uuidString)") == 0)
         _ = FeedCoordinator.shared.ingestRevalidatedOnMainActor(hook(.preToolUse, sentAt: 3_000))
-
-        let marker = "marker-\(UUID().uuidString)"
-        journal.observe(AgentJournalEventDraft(eventId: marker, kind: .sessionStarted, occurredAtMs: 1,
-            source: "claude", agentKey: "claude_code", sessionId: "marker",
-            workspaceId: workspace, surfaceId: surface))
-        let events = try await Self.journaledEvents(at: databaseURL, through: marker)
-        #expect(!events.contains {
-            $0.draft.kind == .attentionResolved && $0.draft.attention?.requestIdentity == requestID
-        })
+        #expect(try await resolutions(through: "marker-tool-\(UUID().uuidString)") == resolvedByTheNextTool)
     }
 
     /// Reads the journal once `marker` is stored. The reader opens inside the

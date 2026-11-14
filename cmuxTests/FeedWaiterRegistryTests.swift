@@ -224,11 +224,21 @@ struct FeedWaiterRegistryTests {
         }
         registry.cleanupStored(requestID: timedOut.requestID, groupID: timedOut.groupID)
 
+        // A conflicting registration that arrives before the timed-out group's
+        // cleanup is refused and leaves the handoff in place.
+        let lingering = try #require(registry.register(requestID: "lingering",
+            event: stamped(.permissionRequest, sentAt: 2_100, request: "lingering")))
+        #expect(registry.finish(lingering).shouldCancel)
+        #expect(registry.register(requestID: "lingering", event: WorkstreamEvent(sessionId: "session",
+            hookEventName: .permissionRequest, source: "claude", toolName: "Other", toolInputJSON: "{}",
+            requestId: "lingering")) == nil)
+        registry.cleanupStored(requestID: lingering.requestID, groupID: lingering.groupID)
+
         #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 1_990)).isEmpty)
         #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: nil)).isEmpty)
         #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000, session: "other")).isEmpty)
         let retired = registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000))
-        #expect(retired.map(\.requestID) == ["request"])
+        #expect(Set(retired.map(\.requestID)) == ["request", "lingering"])
         #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 4_000)).isEmpty)
     }
 

@@ -38,16 +38,19 @@ final class FeedWaiterRegistry: Sendable {
     private let groups = OSAllocatedUnfairLock(initialState: [String: Group]())
     /// Requests nobody answered in cmux before the hook timed out. The hook
     /// hands those back to the agent's own prompt, so they stay here until a
-    /// later hook from the same agent shows they were answered there.
+    /// later hook from the same agent shows they were answered there. Only
+    /// touched while holding `groups`, so a group's timeout and its handoff
+    /// are one step for every other registry operation.
     private let handedOff = OSAllocatedUnfairLock(initialState: [String: WorkstreamEvent]())
 
     func register(requestID: String, event: WorkstreamEvent) -> Registration? {
         let token = UUID()
         let semaphore = DispatchSemaphore(value: 0)
-        handedOff.withLock { _ = $0.removeValue(forKey: requestID) }
         return groups.withLock { groups in
             let existing = groups[requestID]
             if let existing, !Self.matches(existing.event, event) { return nil }
+            // A retry of a timed-out request owns it again.
+            handedOff.withLock { _ = $0.removeValue(forKey: requestID) }
             var group = existing ?? Group(id: UUID(), event: event)
             group.subscribers[token] = semaphore
             groups[requestID] = group
@@ -125,7 +128,7 @@ final class FeedWaiterRegistry: Sendable {
     }
 
     func finish(_ registration: Registration) -> Finished {
-        let finished = groups.withLock { groups in
+        groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else {
                 return Finished(outcome: .init(result: .unavailable, authoritativeEvent: nil),
                     target: nil, shouldCancel: false, itemID: nil)
@@ -148,15 +151,13 @@ final class FeedWaiterRegistry: Sendable {
             } else {
                 groups[registration.requestID] = group
             }
+            // Only a stamped request can later be shown superseded.
+            if cancel, case .timedOut = result, group.event.feedHookSentAtMs != nil {
+                handedOff.withLock { $0[registration.requestID] = group.event }
+            }
             return Finished(outcome: .init(result: result, authoritativeEvent: group.event),
                 target: target, shouldCancel: cancel, itemID: group.itemID)
         }
-        // Only a stamped request can later be shown superseded.
-        if finished.shouldCancel, case .timedOut = finished.outcome.result,
-           let event = finished.outcome.authoritativeEvent, event.feedHookSentAtMs != nil {
-            handedOff.withLock { $0[registration.requestID] = event }
-        }
-        return finished
     }
 
     func cleanupStored(requestID: String, groupID: UUID) {
@@ -169,12 +170,12 @@ final class FeedWaiterRegistry: Sendable {
     }
 
     func invalidate(requestID: String, source: String, sessionID: String) -> (Reply, UUID?)? {
-        handedOff.withLock { handedOff in
-            if let event = handedOff[requestID], Self.belongs(event, source: source, sessionID: sessionID) {
-                handedOff.removeValue(forKey: requestID)
+        groups.withLock { groups in
+            handedOff.withLock { handedOff in
+                if let event = handedOff[requestID], Self.belongs(event, source: source, sessionID: sessionID) {
+                    handedOff.removeValue(forKey: requestID)
+                }
             }
-        }
-        return groups.withLock { groups in
             guard var group = groups[requestID], group.decision == nil, !group.cleanupClaimed,
                   group.event.source == source else { return nil }
             let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: source, rawValue: group.event.sessionId)
@@ -194,10 +195,10 @@ final class FeedWaiterRegistry: Sendable {
     /// before its SessionEnd hook ran, so cleanup cannot depend on knowing the
     /// individual request ids that were pending on that session.
     func invalidate(source: String, sessionID: String) -> [(Reply, UUID?)] {
-        handedOff.withLock { handedOff in
-            handedOff = handedOff.filter { !Self.belongs($0.value, source: source, sessionID: sessionID) }
-        }
-        return groups.withLock { groups in
+        groups.withLock { groups in
+            handedOff.withLock { handedOff in
+                handedOff = handedOff.filter { !Self.belongs($0.value, source: source, sessionID: sessionID) }
+            }
             var invalidated: [(Reply, UUID?)] = []
             for (requestID, var group) in groups {
                 guard group.decision == nil, group.terminalResult == nil,
@@ -241,10 +242,12 @@ final class FeedWaiterRegistry: Sendable {
     /// agent's own prompt, by the same rule as `supersede(by:)`.
     func retireHandedOff(supersededBy event: WorkstreamEvent) -> [(requestID: String, event: WorkstreamEvent)] {
         guard event.feedHookSentAtMs != nil else { return [] }
-        return handedOff.withLock { handedOff in
-            let retired = handedOff.filter { Self.isSuperseded($0.value, by: event) }
-            for requestID in retired.keys { handedOff.removeValue(forKey: requestID) }
-            return retired.map { (requestID: $0.key, event: $0.value) }
+        return groups.withLock { _ in
+            handedOff.withLock { handedOff in
+                let retired = handedOff.filter { Self.isSuperseded($0.value, by: event) }
+                for requestID in retired.keys { handedOff.removeValue(forKey: requestID) }
+                return retired.map { (requestID: $0.key, event: $0.value) }
+            }
         }
     }
 
@@ -262,8 +265,10 @@ final class FeedWaiterRegistry: Sendable {
     }
 
     func discardInactive() {
-        groups.withLock { $0 = $0.filter { !$0.value.subscribers.isEmpty } }
-        handedOff.withLock { $0.removeAll() }
+        groups.withLock { groups in
+            groups = groups.filter { !$0.value.subscribers.isEmpty }
+            handedOff.withLock { $0.removeAll() }
+        }
     }
 
     func subscriberCount(_ requestID: String) -> Int { groups.withLock { $0[requestID]?.subscribers.count ?? 0 } }
