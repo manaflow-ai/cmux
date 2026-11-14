@@ -1606,19 +1606,32 @@ def _top_level(text: str, operator: str) -> list[str] | None:
 
 
 def _unwrapped(text: str) -> str:
-    """TEXT without the parentheses that enclose all of it (`(a || b)` is `a || b`; `(a) || (b)` stays)."""
-    while text.startswith("(") and text.endswith(")"):
-        depth, quoted = 0, False
-        for n, char in enumerate(text):
-            if char == "'":
-                quoted = not quoted
-            elif not quoted:
-                depth += char == "("
-                depth -= char == ")"
-                if not depth and n < len(text) - 1:
-                    return text
-        text = text[1:-1].strip()
-    return text
+    """TEXT without the parentheses that enclose all of it (`((a || b))` is `a || b`; `(a) || (b)` stays), in one pass
+    over it: each `(` outside quotes is matched to its `)`, then the outer layers whose `(` closes at the matching end
+    are peeled. Unbalanced text is returned stripped and unpeeled (its _top_level is None)."""
+    text = text.strip()
+    closes: dict[int, int] = {}
+    opened: list[int] = []
+    quoted = False
+    for n, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            opened.append(n)
+        elif not quoted and char == ")":
+            if not opened:
+                return text
+            closes[opened.pop()] = n
+    if opened or quoted:
+        return text
+    start, end = 0, len(text) - 1
+    while start < end and closes.get(start) == end:
+        start, end = start + 1, end - 1
+        while start <= end and text[start].isspace():
+            start += 1
+        while end >= start and text[end].isspace():
+            end -= 1
+    return text[start:end + 1]
 
 
 def _failure_ids(expression: str) -> set[str] | None:
