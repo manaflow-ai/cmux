@@ -119,6 +119,8 @@ import Testing
         #expect(made.allSatisfy { store.workspace(id: $0.id) == nil })
         #expect(failures == ["Trust web on the Mac first.", "Trust web on the Mac first."])
         #expect(creator.taskDraft == draft)
+        // Given back and saved at once (the app may be gone before the composer reopens).
+        #expect(creator.taskDrafts.entry(draft.id)?.prompt == "Try this")
         // The composer says why, and the toast that the draft is back.
         #expect(creator.taskRefusal == "Trust web on the Mac first.")
         #expect(made.allSatisfy { creator.wasRefusedTask($0.id) })
@@ -132,9 +134,12 @@ import Testing
         #expect(creator.taskDraft.prompt == "Something else")
         #expect(creator.taskRefusal == nil)
         #expect(again.allSatisfy { creator.refusedTaskPlace($0.id) == .drafts })
+        // The first refusal was saved to Drafts too (review 2026-11-14), so both refused tasks
+        // are kept; the newest is the one refused over the task being written.
         let saved = try #require(creator.taskDrafts.drafts.first)
-        #expect(creator.taskDrafts.drafts.count == 1 && saved.prompt == "Try again")
+        #expect(saved.prompt == "Try again")
         #expect(saved.picks.map(\.harness) == ["claude", "claude-cr"])
+        #expect(Set(creator.taskDrafts.drafts.map(\.prompt)) == ["Try this", "Try again"])
     }
 
     /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
