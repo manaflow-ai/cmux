@@ -112,10 +112,31 @@ struct AgentPaneAttachExternalTests {
         ]))
     }
 
-    /// Send to cmux Chat takes the image files Finder selected, else a picture's bytes, PNG first.
-    @Test func theServiceTakesImageFilesElseAPicture() async throws {
+    /// Send to cmux Chat takes the image files Finder selected, and keeps a picture's bytes under
+    /// Chat Uploads as a file the route can hand on.
+    @Test func theServiceTakesImageFilesAndKeepsAPicture() async throws {
         #expect(AgentPaneDroppedPaths.imageFiles(["/tmp/a.png", "/tmp/b.txt", "/tmp/c.HEIC", "/tmp/docs"]).map(\.path)
             == ["/tmp/a.png", "/tmp/c.HEIC"])
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("uploads-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let written = await AgentPaneDroppedPaths.save(Data([3]), ext: "png", in: ChatUploadFolders(root: root))
+        let saved = try #require(written)
+        #expect(saved.lastPathComponent == "Image.png")
+        #expect(saved.path.hasPrefix(root.path))
+        #expect(try Data(contentsOf: saved) == Data([3]))
+    }
+
+    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
+    /// every write fails and every read returns nil (as `AttachmentSourceTests` finds).
+    nonisolated private static let hasPasteboard: Bool = {
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-external-probe-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
+    }()
+
+    /// Without image files the Service takes a picture's bytes, PNG first, else TIFF.
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server")) func theServiceReadsAPicturePNGFirst() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("external-image-data-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
@@ -125,14 +146,6 @@ struct AgentPaneAttachExternalTests {
         pasteboard.setData(Data([3]), forType: .png)
         let picture = try #require(AgentPaneDroppedPaths.imageData(on: pasteboard))
         #expect(picture.data == Data([3]) && picture.ext == "png")
-        // Kept under Chat Uploads as a file the route can hand on.
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("uploads-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let written = await AgentPaneDroppedPaths.save(picture.data, ext: picture.ext, in: ChatUploadFolders(root: root))
-        let saved = try #require(written)
-        #expect(saved.lastPathComponent == "Image.png")
-        #expect(saved.path.hasPrefix(root.path))
-        #expect(try Data(contentsOf: saved) == Data([3]))
     }
 
     /// Files that come while a new chat opens for earlier ones join them: one new chat, not two;
