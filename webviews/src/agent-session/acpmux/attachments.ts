@@ -616,8 +616,10 @@ export type LinkItem = { path: string; folder: boolean };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
-/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
-export type DroppedKind = "drop" | "paste" | "choose";
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop, or
+/// files another app sent to the chat (`external`: the Send to cmux Chat service, an image opened
+/// with cmux), which the page takes from the host as a drop's (composer/externalAttach.ts).
+export type DroppedKind = "drop" | "paste" | "choose" | "external";
 /// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
 export type SourceKind = DroppedKind;
 
