@@ -1458,9 +1458,13 @@ pub(crate) async fn pending_output(
         let d = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
         for p in d.get("pending").and_then(Value::as_array).cloned().unwrap_or_default() {
             let req = p.get("request").cloned().unwrap_or(Value::Null);
-            let title =
-                req.pointer("/toolCall/title").and_then(Value::as_str).unwrap_or("permission").to_owned();
-            let kind = req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
+            let title = req
+                .pointer("/toolCall/title")
+                .and_then(Value::as_str)
+                .unwrap_or("permission")
+                .to_owned();
+            let kind =
+                req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
             let options: Vec<Value> =
                 req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
             let hint = crate::question_answer::pending_hint(&req, &name);

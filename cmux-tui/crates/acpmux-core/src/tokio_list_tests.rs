@@ -2,12 +2,12 @@
 //! walk that holds at most one page, rows by key, rows as v1 gave them, and a mirror that
 //! survives random changes, a drop and a resume.
 
+use crate::conn::{self, HubSource};
+use crate::hub::Hub;
 use acpmux_book::index::{RowKey, Summary, SummaryIndex};
 use acpmux_client::Change;
 use acpmux_client::tokio_list::{self, ListConnection, Opened, Read};
 use acpmux_client::wire::{Frame, FrameDecoder, ListKey, ListView, OriginState};
-use crate::conn::{self, HubSource};
-use crate::hub::Hub;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,7 +44,8 @@ fn daemon(hub: Arc<Hub>, upgrade: bool) -> Halves {
         let reply = json!({"jsonrpc":"2.0","id":id,"result":{"upgrade":true}});
         writer.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
         let source = Arc::new(HubSource::new(hub));
-        let _ = conn::run(reader, writer, source, "test", &["list".into()], conn::Role::Local).await;
+        let _ =
+            conn::run(reader, writer, source, "test", &["list".into()], conn::Role::Local).await;
     });
     tokio::io::split(client)
 }
@@ -195,7 +196,8 @@ async fn a_walk_holds_at_most_one_page_it_has_not_handed_out() {
     }
     let hub = Arc::new(hub);
     let mut connection = open(&hub).await;
-    let mut reading = connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
+    let mut reading =
+        connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
     let mut rows = Vec::new();
     let mut pages = 0;
     while let Some(page) = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap() {
@@ -228,7 +230,8 @@ async fn a_page_refused_with_no_sid_ends_the_read() {
         Opened::List(connection) => *connection,
         Opened::Fallback { .. } => panic!("the daemon upgraded"),
     };
-    let mut reading = connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
+    let mut reading =
+        connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
     // The window comes; the page after it is refused, and the read says so.
     let window = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap().unwrap();
     assert!(!window.rows.is_empty() && window.rows.len() < 300);
@@ -245,10 +248,8 @@ async fn a_window_reads_the_newest_rows_of_a_view() {
     }
     let hub = Arc::new(hub);
     let mut connection = open(&hub).await;
-    let mut reading = connection
-        .read(Read::Window { view: ListView::All, filter: None, rows: 5 })
-        .await
-        .unwrap();
+    let mut reading =
+        connection.read(Read::Window { view: ListView::All, filter: None, rows: 5 }).await.unwrap();
     let page = reading.next().await.unwrap().unwrap();
     assert_eq!(
         page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
@@ -270,7 +271,8 @@ async fn rows_by_key_go_a_hundred_a_request_and_say_what_is_missing() {
         chat_id: id.to_owned(),
         origin: origin.to_owned(),
     };
-    let mut keys: Vec<ListKey> = (0..250).map(|index| key("local", &format!("chat-{index}"))).collect();
+    let mut keys: Vec<ListKey> =
+        (0..250).map(|index| key("local", &format!("chat-{index}"))).collect();
     keys.push(key("local", "nobody"));
     keys.push(key("peer-a", "theirs"));
     let asked_before = connection.pages_asked();
@@ -315,7 +317,8 @@ async fn rows_as_v1_gave_them_read_a_parent_that_is_not_among_them() {
     settle(&hub, |index| index.iter().count() == 6).await;
 
     let mut connection = open(&hub).await;
-    let mut reading = connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
+    let mut reading =
+        connection.read(Read::Walk { view: ListView::Live, filter: None }).await.unwrap();
     let mut rows = Vec::new();
     while let Some(page) = reading.next().await.unwrap() {
         rows.extend(page.rows);
@@ -339,7 +342,11 @@ async fn rows_as_v1_gave_them_read_a_parent_that_is_not_among_them() {
         });
         assert_eq!(
             by_id[summary.chat_id.as_str()],
-            &acpmux_client::v1_row(summary, connection.origin_state(&summary.origin), parent.as_ref())
+            &acpmux_client::v1_row(
+                summary,
+                connection.origin_state(&summary.origin),
+                parent.as_ref()
+            )
         );
     }
 }
@@ -398,8 +405,12 @@ async fn a_follow_holds_the_hubs_live_rows_through_changes_a_drop_and_a_resume()
     let hub = Arc::new(hub);
     tokio::spawn(writer.run());
     for index in 0..40_u64 {
-        hub.submit(row(&format!("chat-{index}"), if index % 3 == 0 { "closed" } else { "idle" }, index))
-            .unwrap();
+        hub.submit(row(
+            &format!("chat-{index}"),
+            if index % 3 == 0 { "closed" } else { "idle" },
+            index,
+        ))
+        .unwrap();
     }
     settle(&hub, |index| index.iter().count() == 40).await;
 
