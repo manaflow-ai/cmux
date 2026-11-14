@@ -242,6 +242,20 @@ class HostTests(unittest.TestCase):
             with self.assertRaises(subprocess.SubprocessError):
                 self.host.stop(proc)
 
+    def test_permission_denied_signals_require_group_absence(self):
+        for state in ("123 Z\n456 S\n", "123 S\n"):
+            with self.subTest(state=state):
+                proc = Mock(pid=123)
+                with patch.object(self.host.os, "killpg", side_effect=PermissionError), \
+                        patch.object(self.host.subprocess, "run", return_value=Mock(returncode=0, stdout=state)), \
+                        patch.object(self.host.time, "monotonic", side_effect=[0, 0, 11, 11, 11]), \
+                        patch.object(self.host.time, "sleep"):
+                    if "123 S" in state:
+                        with self.assertRaisesRegex(subprocess.SubprocessError, "owned_group_still_running"):
+                            self.host.stop(proc)
+                    else:
+                        self.host.stop(proc)
+
     def test_protected_whole_host_admission_rejects_gui_only_or_other_workflow(self):
         admitted = dict(GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmuxterm-hq",
                         GITHUB_WORKFLOW_REF="manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
