@@ -6,6 +6,11 @@
   and keeps Restart to Update; this PR preserves base's download default and does not carry that default change.
   Detector: `UpdateOneClickInstallTests.offByDefault`, `UpdatesOneClickInstallSettingTests`, and the existing
   one-click and two-ask flow tests. Generated settings references come from their generators.
+- 2026-11-14 (New Tab rounder, #42717): a sidebar row's fill reads its corner on every layout, not once when the row
+  is made, so it is the tab's corner at the density now. Lucas, verbatim: "the left sidebar tab becoems too circular.
+  however the tabs at the top are fine. so match the sidebar item roundness to the tab roundness". A row made at a
+  roomier density had kept that density's corner after a switch (about 10 pt on Compact's 20 pt row beside 5 pt tabs).
+  `SidebarRowView.layout()`; `SidebarRowCornerFollowsDensityTests`.
 - 2026-11-13 (density targets, round 2): every row fill and top control rounds at a tab's ratio on its own height
   (8 on 30) at every density. Lucas, verbatim: "need more roudness here (match tabs)" (Spacious's selected row),
   "i think biggest take away is to match SAME ROUNDNESS (proportionally) to the different densiite.s" and "this also
