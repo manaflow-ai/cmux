@@ -5759,5 +5759,11 @@
     "unavailableTitle": "Vi kunne ikke bekræfte dit login",
     "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
     "retry": "Prøv igen"
+  },
+  "emailSignInCallback": {
+    "title": "Afslut login i cmux-appen",
+    "body": "Gå tilbage til cmux-appen, og indtast koden på 6 tegn fra denne e-mail. At åbne dette link logger ikke appen ind.",
+    "browserPrompt": "Vil du hellere bruge cmux i denne browser?",
+    "browserSignIn": "Log ind på cmux.com"
   }
 }

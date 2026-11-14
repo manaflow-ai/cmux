@@ -5762,5 +5762,11 @@
     "unavailableTitle": "Impossibile confermare l'accesso",
     "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
     "retry": "Riprova"
+  },
+  "emailSignInCallback": {
+    "title": "Completa l’accesso nell’app cmux",
+    "body": "Torna all’app cmux e inserisci il codice di 6 caratteri contenuto in questa email. Aprire questo link non esegue l’accesso nell’app.",
+    "browserPrompt": "Vuoi usare cmux in questo browser?",
+    "browserSignIn": "Accedi su cmux.com"
   }
 }

@@ -312,13 +312,15 @@ public final class AuthCoordinator {
     // MARK: - Sign-in flows
 
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.
-    public func sendCode(to email: String) async throws {
+    public func sendCode(to typedEmail: String) async throws {
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
 
-        if launch.includesDevAuth,
-           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
+        // Autofill and QuickType can leave whitespace around the address; the
+        // sign-in service rejects it as a malformed email.
+        let email = typedEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if launch.includesDevAuth, email == "42" {
             let creds = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "abc123")
             try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
             debugCredentials = creds

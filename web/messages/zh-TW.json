@@ -5761,5 +5761,11 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "emailSignInCallback": {
+    "title": "請在 cmux App 中完成登入",
+    "body": "回到 cmux App，輸入這封郵件中的 6 碼驗證碼。開啟此連結不會讓 App 登入。",
+    "browserPrompt": "想在此瀏覽器中使用 cmux？",
+    "browserSignIn": "在 cmux.com 登入"
   }
 }

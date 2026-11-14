@@ -5762,5 +5762,11 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "emailSignInCallback": {
+    "title": "Conclua o login no app cmux",
+    "body": "Volte ao app cmux e digite o código de 6 caracteres deste e-mail. Abrir este link não faz login no app.",
+    "browserPrompt": "Prefere usar o cmux neste navegador?",
+    "browserSignIn": "Entrar em cmux.com"
   }
 }

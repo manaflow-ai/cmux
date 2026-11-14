@@ -5761,5 +5761,11 @@
     "unavailableTitle": "No pudimos confirmar tu inicio de sesión",
     "unavailableBody": "Nuestro proveedor de inicio de sesión está ocupado. Espera unos segundos y vuelve a abrir la invitación. No necesitas iniciar sesión de nuevo.",
     "retry": "Reintentar"
+  },
+  "emailSignInCallback": {
+    "title": "Termina de iniciar sesión en la app de cmux",
+    "body": "Vuelve a la app de cmux y escribe el código de 6 caracteres de este correo. Abrir este enlace no inicia sesión en la app.",
+    "browserPrompt": "¿Prefieres usar cmux en este navegador?",
+    "browserSignIn": "Iniciar sesión en cmux.com"
   }
 }

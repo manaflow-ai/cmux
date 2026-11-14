@@ -5759,5 +5759,11 @@
     "unavailableTitle": "로그인을 확인할 수 없습니다",
     "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
     "retry": "다시 시도"
+  },
+  "emailSignInCallback": {
+    "title": "cmux 앱에서 로그인을 완료하세요",
+    "body": "cmux 앱으로 돌아가 이 이메일에 있는 6자리 코드를 입력하세요. 이 링크를 열어도 앱에는 로그인되지 않습니다.",
+    "browserPrompt": "이 브라우저에서 cmux를 사용하시겠어요?",
+    "browserSignIn": "cmux.com에서 로그인"
   }
 }

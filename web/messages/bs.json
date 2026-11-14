@@ -5762,5 +5762,11 @@
     "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
     "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
     "retry": "Pokušaj ponovo"
+  },
+  "emailSignInCallback": {
+    "title": "Završite prijavu u aplikaciji cmux",
+    "body": "Vratite se u aplikaciju cmux i unesite kod od 6 znakova iz ovog e-maila. Otvaranje ovog linka ne prijavljuje aplikaciju.",
+    "browserPrompt": "Želite li umjesto toga koristiti cmux u ovom pregledniku?",
+    "browserSignIn": "Prijavite se na cmux.com"
   }
 }

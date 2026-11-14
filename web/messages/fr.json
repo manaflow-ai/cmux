@@ -5764,5 +5764,11 @@
     "unavailableTitle": "Impossible de confirmer votre connexion",
     "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
     "retry": "Réessayer"
+  },
+  "emailSignInCallback": {
+    "title": "Terminez la connexion dans l’app cmux",
+    "body": "Revenez dans l’app cmux et saisissez le code à 6 caractères de cet e-mail. Ouvrir ce lien ne connecte pas l’app.",
+    "browserPrompt": "Vous préférez utiliser cmux dans ce navigateur ?",
+    "browserSignIn": "Se connecter sur cmux.com"
   }
 }

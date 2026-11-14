@@ -152,7 +152,7 @@ function handleHostAndMachineRoutes(
     return NextResponse.next();
   }
 
-  if (pathname === "/coderouter/auth/complete" || pathname === "/coderouter/auth/complete/") {
+  if (isUnlocalizedAuthLandingPath(pathname)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
     return NextResponse.next({ request: { headers: requestHeaders } });
@@ -651,6 +651,21 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
   return locale === routing.defaultLocale
     ? "/opengraph-image"
     : `/${locale}/opengraph-image`;
+}
+
+// Fixed auth landing URLs that serve their own page in the request's
+// preferred locale instead of a /<locale>/ rewrite. /auth/callback is the link
+// target shipped iOS and macOS apps put in the email sign-in message; a locale
+// rewrite made it a 404.
+const unlocalizedAuthLandingPaths = new Set([
+  "/coderouter/auth/complete",
+  "/coderouter/auth/complete/",
+  "/auth/callback",
+  "/auth/callback/",
+]);
+
+function isUnlocalizedAuthLandingPath(pathname: string): boolean {
+  return unlocalizedAuthLandingPaths.has(pathname);
 }
 
 /** coderouter's one hostname-independent landing page (see the note in `middleware`). */

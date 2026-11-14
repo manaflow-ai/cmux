@@ -5762,5 +5762,11 @@
     "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
     "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
     "retry": "Erneut versuchen"
+  },
+  "emailSignInCallback": {
+    "title": "Anmeldung in der cmux-App abschließen",
+    "body": "Kehre zur cmux-App zurück und gib den 6-stelligen Code aus dieser E-Mail ein. Das Öffnen dieses Links meldet die App nicht an.",
+    "browserPrompt": "Möchtest du cmux stattdessen in diesem Browser verwenden?",
+    "browserSignIn": "Bei cmux.com anmelden"
   }
 }

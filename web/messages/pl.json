@@ -5762,5 +5762,11 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "emailSignInCallback": {
+    "title": "Dokończ logowanie w aplikacji cmux",
+    "body": "Wróć do aplikacji cmux i wpisz 6-znakowy kod z tego e-maila. Otwarcie tego linku nie loguje aplikacji.",
+    "browserPrompt": "Chcesz zamiast tego używać cmux w tej przeglądarce?",
+    "browserSignIn": "Zaloguj się na cmux.com"
   }
 }
