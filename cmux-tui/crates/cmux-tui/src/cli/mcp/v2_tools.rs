@@ -188,6 +188,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("browser_import.read", BROWSER_IMPORT_REASON),
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
@@ -302,6 +303,8 @@ const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's O
      list; agents close and open tabs through the tab and browser tools, never the stash.";
 const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
      the plan and records what it made; agents never import.";
+const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
+     bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
