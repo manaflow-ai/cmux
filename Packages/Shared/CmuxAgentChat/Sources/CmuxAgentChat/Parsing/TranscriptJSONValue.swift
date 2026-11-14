@@ -25,11 +25,57 @@ enum TranscriptJSONValue: Sendable, Equatable, Codable {
     ///
     /// - Parameter jsonLine: The raw line text.
     init?(jsonLine: String) {
-        let data = Data(jsonLine.utf8)
-        guard let value = try? JSONDecoder().decode(TranscriptJSONValue.self, from: data) else {
+        // Foundation's parser, not `init(from:)`: probing each value's shape
+        // through `Decoder` costs a failed decode per guess at every level,
+        // which dominates large records. The pool frees the Foundation objects
+        // per line, because a parse loop never returns to a runloop.
+        let value: TranscriptJSONValue? = autoreleasepool {
+            guard let parsed = try? JSONSerialization.jsonObject(
+                with: Data(jsonLine.utf8),
+                options: .fragmentsAllowed
+            ) else {
+                return nil
+            }
+            return TranscriptJSONValue(foundationValue: parsed)
+        }
+        guard let value else { return nil }
+        self = value
+    }
+
+    /// Converts `JSONSerialization` output, or answers `nil` for anything else.
+    private init?(foundationValue value: Any) {
+        switch value {
+        case let string as String:
+            self = .string(string)
+        case let number as NSNumber:
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                self = .bool(number.boolValue)
+            } else if let integer = Int(exactly: number) {
+                self = .integer(integer)
+            } else {
+                self = .number(number.doubleValue)
+            }
+        case let object as [String: Any]:
+            var converted: [String: TranscriptJSONValue] = [:]
+            converted.reserveCapacity(object.count)
+            for (key, member) in object {
+                guard let member = TranscriptJSONValue(foundationValue: member) else { return nil }
+                converted[key] = member
+            }
+            self = .object(converted)
+        case let array as [Any]:
+            var converted: [TranscriptJSONValue] = []
+            converted.reserveCapacity(array.count)
+            for element in array {
+                guard let element = TranscriptJSONValue(foundationValue: element) else { return nil }
+                converted.append(element)
+            }
+            self = .array(converted)
+        case is NSNull:
+            self = .null
+        default:
             return nil
         }
-        self = value
     }
 
     /// Creates a value by trying each JSON shape in turn.

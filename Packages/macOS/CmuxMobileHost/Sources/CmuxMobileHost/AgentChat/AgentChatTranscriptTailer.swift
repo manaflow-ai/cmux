@@ -9,6 +9,11 @@ import Foundation
 /// Seq stability: `seq` equals the absolute transcript line index. The
 /// initial backfill may skip a long head (bounded memory), in which case
 /// pages before the cache report `hasMore` honestly.
+///
+/// Reads are bounded in bytes as well as lines: a transcript can hold gigabytes
+/// in few lines, so ``TranscriptTailLimits`` caps both the window and any one
+/// record. A record over the cap keeps its `seq` and appears as an
+/// ``ChatMessageKind/unsupported(_:)`` row. The transcript is never modified.
 public actor AgentChatTranscriptTailer {
     /// A live transcript change: newly appended messages and in-place
     /// updates (tool results that completed earlier messages).
@@ -29,7 +34,11 @@ public actor AgentChatTranscriptTailer {
     private let path: String
     private let onBatch: @Sendable (Batch) async -> Void
 
-    private let maxInitialLines: Int
+    /// The `rawType` of the row standing in for a record over the size limit.
+    static let oversizedRecordRawType = "oversized_record"
+    private static let appendChunkBytes = 1024 * 1024
+
+    private let limits: TranscriptTailLimits
     private let maxCachedMessages: Int
 
     private var cache: [ChatMessage] = []
@@ -40,12 +49,22 @@ public actor AgentChatTranscriptTailer {
     /// rotation is detected even when the new file is the same size or
     /// larger (seeking to the old offset would otherwise skip its head).
     private var fileInode: UInt64?
-    private var pendingFragment = Data()
+    private var assembler: TranscriptLineAssembler
     private var headTruncated = false
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
-    private var started = false
+    private var startTask: Task<Void, Never>?
+    private var loadTask: Task<LoadedTail?, any Error>?
+    private var initialLoadFinished = false
+    private var stopped = false
     private var reportedTitle = false
+
+    /// Whether ``stop()`` ended this tailer before its first read completed, so
+    /// its cache says nothing about the transcript. A caller wanting history
+    /// must use a new tailer.
+    public var didAbandonInitialLoad: Bool {
+        stopped && !initialLoadFinished
+    }
 
     /// Creates a tailer.
     ///
@@ -53,7 +72,10 @@ public actor AgentChatTranscriptTailer {
     ///   - sessionID: The session this transcript belongs to.
     ///   - agentKind: Selects the parser (claude or codex).
     ///   - path: Absolute transcript JSONL path.
-    ///   - maxInitialLines: Backfill bound for the first read.
+    ///   - maxInitialLines: Backfill line bound for the first read.
+    ///   - maxInitialBytes: Backfill byte bound for the first read, and the
+    ///     most appended bytes parsed into one batch.
+    ///   - maxRecordBytes: Size above which one record is not decoded.
     ///   - maxCachedMessages: In-memory cache cap; oldest fall out.
     ///   - onBatch: Receives live change batches after the initial load.
     public init(
@@ -61,41 +83,65 @@ public actor AgentChatTranscriptTailer {
         agentKind: ChatAgentKind,
         path: String,
         maxInitialLines: Int = 2000,
+        maxInitialBytes: Int = 32 * 1024 * 1024,
+        maxRecordBytes: Int = 8 * 1024 * 1024,
         maxCachedMessages: Int = 4000,
         onBatch: @escaping @Sendable (Batch) async -> Void
     ) {
         self.sessionID = sessionID
         self.agentKind = agentKind
         self.path = path
-        self.maxInitialLines = maxInitialLines
+        self.limits = TranscriptTailLimits(
+            maxLines: maxInitialLines,
+            maxBytes: maxInitialBytes,
+            maxRecordBytes: maxRecordBytes
+        )
+        self.assembler = TranscriptLineAssembler(maxRecordBytes: maxRecordBytes)
         self.maxCachedMessages = maxCachedMessages
         self.onBatch = onBatch
     }
 
     /// Performs the initial backfill (idempotent) and starts watching for
-    /// growth.
+    /// growth. Every caller returns once the backfill has finished or
+    /// ``stop()`` has cancelled it; the read runs off this actor.
     public func start() async {
-        guard !started else { return }
-        started = true
-        loadInitialTail()
-        let watcher = FileWatcher(path: path, throttle: .milliseconds(200))
-        self.watcher = watcher
-        watchTask = Task { [weak self] in
-            for await _ in watcher.events {
-                guard let self else { return }
-                await self.drainNewContent()
-            }
+        guard !stopped else { return }
+        if startTask == nil {
+            startTask = Task { await self.loadThenWatch() }
         }
+        await startTask?.value
     }
 
-    /// Stops watching and releases resources.
+    /// Cancels any read in progress, stops watching and releases resources.
     public func stop() async {
+        stopped = true
+        loadTask?.cancel()
         watchTask?.cancel()
         watchTask = nil
         if let watcher {
             await watcher.stop()
         }
         watcher = nil
+    }
+
+    private func loadThenWatch() async {
+        let loaded = await loadTail()
+        guard !stopped else { return }
+        if let loaded {
+            commit(loaded)
+        }
+        initialLoadFinished = true
+        let watcher = FileWatcher(path: path, throttle: .milliseconds(200))
+        self.watcher = watcher
+        watchTask = Task { [weak self] in
+            // Lines written after the scan and before the watcher attached have
+            // no event of their own, and an idle agent may never write again.
+            await self?.drainNewContent()
+            for await _ in watcher.events {
+                guard let self else { return }
+                await self.drainNewContent()
+            }
+        }
     }
 
     /// Serves one history page from the cache, keeping equal-seq groups
@@ -142,43 +188,101 @@ public actor AgentChatTranscriptTailer {
 
     // MARK: - Reading
 
-    private func loadInitialTail() {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return }
-        defer { try? handle.close() }
-        // Memory-mapped read: newline scanning walks the file without
-        // copying it; only the bounded tail is decoded into strings.
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe) else {
-            return
-        }
-        var lineStarts: [Int] = [0]
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            for index in 0..<raw.count where raw[index] == 0x0A {
-                lineStarts.append(index + 1)
-            }
-        }
-        // A trailing partial line (no terminating newline) is carried as the
-        // pending fragment; only complete lines are parsed and counted.
-        let completeLineCount = lineStarts.count - 1
-        let lastCompleteEnd = lineStarts[completeLineCount]
-        if lastCompleteEnd < data.count {
-            pendingFragment = Data(data[lastCompleteEnd...])
-        }
-        byteOffset = UInt64(data.count)
-        lineCount = completeLineCount
-        fileInode = Self.inode(ofPath: path)
+    /// The result of one tail read, built off the actor and committed whole.
+    private struct LoadedTail: Sendable {
+        let window: TranscriptTailWindow
+        let messages: [ChatMessage]
+        let state: ChatTranscriptParseState
+        let assembler: TranscriptLineAssembler
+    }
 
-        let parseStartLine = max(0, completeLineCount - maxInitialLines)
-        headTruncated = parseStartLine > 0
-        var lines: [String] = []
-        lines.reserveCapacity(completeLineCount - parseStartLine)
-        for lineIndex in parseStartLine..<completeLineCount {
-            let range = lineStarts[lineIndex]..<(lineStarts[lineIndex + 1] - 1)
-            lines.append(String(decoding: data[range], as: UTF8.self))
+    private func loadTail() async -> LoadedTail? {
+        let path = path
+        let agentKind = agentKind
+        let limits = limits
+        let task = Task.detached(priority: .utility) {
+            try Self.readTail(path: path, agentKind: agentKind, limits: limits)
         }
-        let outcome = parse(lines: lines, startingSeq: parseStartLine)
-        cache = outcome.messages
-        parseState = outcome.state
+        loadTask = task
+        defer { loadTask = nil }
+        // `stop()` may have run between creating the task and publishing it.
+        if stopped { task.cancel() }
+        return try? await task.value
+    }
+
+    /// Reads and parses the tail on the calling task, one record at a time.
+    private static func readTail(
+        path: String,
+        agentKind: ChatAgentKind,
+        limits: TranscriptTailLimits
+    ) throws -> LoadedTail? {
+        guard let reader = TranscriptTailReader(path: path) else { return nil }
+        let window = try reader.scan(limits: limits)
+        let outcome = parse(
+            lines: reader.lines(in: window.lineRanges, maxRecordBytes: limits.maxRecordBytes),
+            startingSeq: window.firstLine,
+            state: ChatTranscriptParseState(),
+            agentKind: agentKind
+        )
+        // The line sequence ends early on cancellation, leaving a partial parse.
+        try Task.checkCancellation()
+        return LoadedTail(
+            window: window,
+            messages: insertingOversizedRows(
+                into: outcome.messages,
+                oversizedSeqs: window.oversizedLines,
+                fallbackTimestamp: outcome.state.lastTimestamp
+            ),
+            state: outcome.state,
+            assembler: TranscriptLineAssembler(
+                maxRecordBytes: limits.maxRecordBytes,
+                fragmentByteCount: window.trailingFragment.upperBound - window.trailingFragment.lowerBound,
+                fragment: { reader.data(in: window.trailingFragment) }
+            )
+        )
+    }
+
+    private func commit(_ loaded: LoadedTail) {
+        cache = loaded.messages
+        parseState = loaded.state
+        assembler = loaded.assembler
+        byteOffset = loaded.window.byteCount
+        lineCount = loaded.window.completeLineCount
+        fileInode = loaded.window.inode
+        // A positive first line means older lines exist that this tailer won't serve.
+        headTruncated = loaded.window.firstLine > 0
         trimCacheIfNeeded()
+    }
+
+    /// Adds a row for each skipped record, keeping ascending `seq` order.
+    private static func insertingOversizedRows(
+        into messages: [ChatMessage],
+        oversizedSeqs: [Int],
+        fallbackTimestamp: Date?
+    ) -> [ChatMessage] {
+        guard !oversizedSeqs.isEmpty else { return messages }
+        var merged: [ChatMessage] = []
+        merged.reserveCapacity(messages.count + oversizedSeqs.count)
+        var next = messages.startIndex
+        for seq in oversizedSeqs {
+            while next < messages.endIndex, messages[next].seq < seq {
+                merged.append(messages[next])
+                next += 1
+            }
+            merged.append(
+                ChatMessage(
+                    id: "line-\(seq)",
+                    seq: seq,
+                    role: .system,
+                    timestamp: merged.last?.timestamp
+                        ?? fallbackTimestamp
+                        ?? Date(timeIntervalSince1970: 0),
+                    kind: .unsupported(ChatUnsupportedPayload(rawType: oversizedRecordRawType))
+                )
+            )
+        }
+        merged.append(contentsOf: messages[next...])
+        return merged
     }
 
     private func drainNewContent() async {
@@ -193,9 +297,12 @@ public actor AgentChatTranscriptTailer {
             // new file's head). Reset, re-read from scratch, and tell
             // clients explicitly: the seq space restarted, and id-based
             // heuristics can't always detect that (codex line-N ids repeat).
+            // The old state keeps serving history until the new read is ready.
+            let loaded = await loadTail()
+            guard !stopped else { return }
             byteOffset = 0
             lineCount = 0
-            pendingFragment = Data()
+            assembler = TranscriptLineAssembler(maxRecordBytes: limits.maxRecordBytes)
             cache = []
             parseState = ChatTranscriptParseState()
             headTruncated = false
@@ -203,62 +310,97 @@ public actor AgentChatTranscriptTailer {
             // the file) carries a new first prompt; allow it to be rediscovered
             // and re-emitted as the title instead of keeping the stale one.
             reportedTitle = false
-            loadInitialTail()
+            if let loaded {
+                commit(loaded)
+            }
             await onBatch(Batch(appended: [], updated: [], discoveredTitle: nil, didReset: true))
             return
         }
         guard size > byteOffset else { return }
         try? handle.seek(toOffset: byteOffset)
-        guard let newData = try? handle.readToEnd(), !newData.isEmpty else { return }
-        byteOffset += UInt64(newData.count)
-
-        var buffer = pendingFragment
-        buffer.append(newData)
-        var lines: [String] = []
-        var sliceStart = buffer.startIndex
-        for index in buffer.indices where buffer[index] == 0x0A {
-            lines.append(String(decoding: buffer[sliceStart..<index], as: UTF8.self))
-            sliceStart = buffer.index(after: index)
+        // Read in chunks and publish every `maxBytes`, so a long backlog never
+        // sits in memory whole and one record can't grow past its limit.
+        var lines: [TranscriptLineAssembler.Line] = []
+        var bufferedBytes = 0
+        while !Task.isCancelled, !stopped {
+            let chunk = autoreleasepool { try? handle.read(upToCount: Self.appendChunkBytes) }
+            guard let chunk, !chunk.isEmpty else { break }
+            byteOffset += UInt64(chunk.count)
+            bufferedBytes += chunk.count
+            lines.append(contentsOf: assembler.consume(chunk))
+            if bufferedBytes >= limits.maxBytes {
+                await publish(lines)
+                lines = []
+                bufferedBytes = 0
+            }
         }
-        pendingFragment = Data(buffer[sliceStart...])
-        guard !lines.isEmpty else { return }
+        await publish(lines)
+    }
 
+    private func publish(_ lines: [TranscriptLineAssembler.Line]) async {
+        guard !lines.isEmpty, !stopped else { return }
         let startingSeq = lineCount
         lineCount += lines.count
-        let outcome = parse(lines: lines, startingSeq: startingSeq)
+        var records: [String] = []
+        records.reserveCapacity(lines.count)
+        var oversizedSeqs: [Int] = []
+        for (offset, line) in lines.enumerated() {
+            switch line {
+            case .record(let text):
+                records.append(text)
+            case .oversized:
+                // An empty line consumes its seq and the parser drops it.
+                records.append("")
+                oversizedSeqs.append(startingSeq + offset)
+            }
+        }
+        let outcome = Self.parse(
+            lines: records,
+            startingSeq: startingSeq,
+            state: parseState,
+            agentKind: agentKind
+        )
         parseState = outcome.state
-        var updated = outcome.updatedMessages
-        for update in updated {
+        let appended = Self.insertingOversizedRows(
+            into: outcome.messages,
+            oversizedSeqs: oversizedSeqs,
+            fallbackTimestamp: outcome.state.lastTimestamp
+        )
+        for update in outcome.updatedMessages {
             if let index = cache.firstIndex(where: { $0.id == update.id }) {
                 cache[index] = update
             }
         }
-        cache.append(contentsOf: outcome.messages)
+        cache.append(contentsOf: appended)
         trimCacheIfNeeded()
         // Updates for messages that already fell out of the cache are still
         // pushed: a live client may hold them in its window.
-        guard !outcome.messages.isEmpty || !updated.isEmpty else { return }
+        guard !appended.isEmpty || !outcome.updatedMessages.isEmpty else { return }
         var discoveredTitle: String?
         if !reportedTitle, let title {
             reportedTitle = true
             discoveredTitle = title
         }
-        updated = outcome.updatedMessages
         await onBatch(
             Batch(
-                appended: outcome.messages,
-                updated: updated,
+                appended: appended,
+                updated: outcome.updatedMessages,
                 discoveredTitle: discoveredTitle
             )
         )
     }
 
-    private func parse(lines: [String], startingSeq: Int) -> ChatTranscriptParseResult {
+    private static func parse(
+        lines: some Sequence<String>,
+        startingSeq: Int,
+        state: ChatTranscriptParseState,
+        agentKind: ChatAgentKind
+    ) -> ChatTranscriptParseResult {
         switch agentKind {
         case .codex:
-            return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
+            return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: state)
         case .claude, .other:
-            return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
+            return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: state)
         }
     }
 
