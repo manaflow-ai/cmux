@@ -80,9 +80,10 @@ struct AgentCursorTail {
         var stretchHalfSpeed = 250.0
         var stretchSpring = 90.0
         var stretchFriction = 9.0
-        /// Limits: the root segment's direction stays in rootRange (so the tail never swings
-        /// through the pointer), and no joint bends more than maxBend from its pose.
-        var rootRange: ClosedRange<Double> = (-185.0 * .pi / 180)...(50.0 * .pi / 180)
+        /// Limits: every segment points within `directions` (from left-and-a-little-down, round
+        /// through down, to right-and-a-little-up; never up into the pointer, so the tail can never
+        /// curl behind the arrow), and no joint bends more than maxBend from its pose.
+        var directions: ClosedRange<Double> = (-165.0 * .pi / 180)...(20.0 * .pi / 180)
         var maxBend = 58.0 * .pi / 180
         /// The longest substep of the integration.
         var maxSubstep = 1.0 / 240
@@ -336,14 +337,8 @@ struct AgentCursorTail {
             spins[i] += scratchTorque[i] * h
             angles[i] += spins[i] * h
         }
-        // Limits: the root's direction range and each joint's bend.
-        if angles[0] < tuning.rootRange.lowerBound {
-            angles[0] = tuning.rootRange.lowerBound
-            spins[0] = max(spins[0], 0)
-        } else if angles[0] > tuning.rootRange.upperBound {
-            angles[0] = tuning.rootRange.upperBound
-            spins[0] = min(spins[0], 0)
-        }
+        // Limits: each joint's bend, then every segment's direction (so a bend never points one
+        // into the pointer).
         for i in 1..<n {
             let bend = angles[i] - angles[i - 1] - Self.rest.relative[i]
             if bend > tuning.maxBend {
@@ -352,6 +347,15 @@ struct AgentCursorTail {
             } else if bend < -tuning.maxBend {
                 angles[i] = angles[i - 1] + Self.rest.relative[i] - tuning.maxBend
                 spins[i] = max(spins[i], spins[i - 1])
+            }
+        }
+        for i in 0..<n {
+            if angles[i] < tuning.directions.lowerBound {
+                angles[i] = tuning.directions.lowerBound
+                spins[i] = max(spins[i], 0)
+            } else if angles[i] > tuning.directions.upperBound {
+                angles[i] = tuning.directions.upperBound
+                spins[i] = min(spins[i], 0)
             }
         }
         // Never into the pointer: a step that would put a point inside it is undone, and if the

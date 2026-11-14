@@ -56,13 +56,13 @@ import UniformTypeIdentifiers
         #expect(worst == 0, "the root left the stem by \(worst)")
     }
 
-    @Test func itNeverExceedsItsLengthNorEntersThePointer() {
+    @Test func itNeverExceedsItsLengthNorEntersOrCurlsBehindThePointer() {
         var tail = AgentCursorTail(session: "bounds", animates: true)
         // A violent zig-zag: short, long and diagonal moves in every direction, with clicks,
         // typing and a droop on top.
         var random = SplitMix64(seed: 42)
         var at = CGPoint(x: 600, y: 400)
-        var frames = 0, finite = true, longest = 0.0, inside = 0
+        var frames = 0, finite = true, longest = 0.0, inside = 0, behind = 0, outOfCone = 0
         for move in 0..<60 {
             let to = CGPoint(x: 50 + random.unit() * 1300, y: 50 + random.unit() * 800)
             if move % 3 == 0 { tail.click() }
@@ -75,6 +75,9 @@ import UniformTypeIdentifiers
                 finite = finite && points.allSatisfy { $0.x.isFinite && $0.y.isFinite }
                 longest = max(longest, Self.length(points))
                 inside += points.dropFirst().filter { AgentCursorTail.pointerContains($0) }.count
+                // Never curled behind the arrow: the arrow's body lies up and left of the stem.
+                behind += points.dropFirst().filter { $0.x < AgentCursorTail.root.x - 0.5 && $0.y > AgentCursorTail.root.y + 0.5 }.count
+                outOfCone += tail.angles.filter { !tail.tuning.directions.contains($0) }.count
             }
             at = to
         }
@@ -82,6 +85,8 @@ import UniformTypeIdentifiers
         #expect(finite)
         #expect(longest <= AgentCursorTail.maxLength + 1e-9, "longest \(longest), max \(AgentCursorTail.maxLength)")
         #expect(inside == 0, "\(inside) points inside the pointer")
+        #expect(behind == 0, "\(behind) points curled behind the arrow")
+        #expect(outOfCone == 0, "\(outOfCone) segments pointing up into the pointer")
     }
 
     @Test func aStopOvershootsThenSettlesBackToTheIdleLife() {
