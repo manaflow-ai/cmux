@@ -173,7 +173,7 @@ extension TerminalController {
                     panelApplied = SurfaceCatalog.shared.submitCloudPanelRename(
                         workspace: workspace, panelID: resolvedPanelId, title: title, source: .auto,
                         context: CloudAgentNameContext(wire: params["cloud_name_context"])
-                    ) ?? workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+                    ) ?? workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto, renameOrigin: "agent")
                 }
             }
         }
