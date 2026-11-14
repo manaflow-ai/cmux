@@ -127,7 +127,7 @@ import Testing
                      TabItem(id: TabID("new"), title: "New Tab")]
         let view = PaneContentView(stripModel: TabStripModel(tabs: items, selectedID: TabID("chat")), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         view.toolbar = toolbar
         view.frame = NSRect(x: 0, y: 0, width: width, height: 300)
         window.contentView?.addSubview(view)

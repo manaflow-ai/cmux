@@ -23,6 +23,7 @@ struct DensityOverlayView: View {
                 canvas.padding(Metrics.space5)
                     .contentShape(Rectangle())
                     .onTapGesture { if model.mode == .flip { model.flip() } }
+                    .thinScrollers()
             }
             Rectangle().fill(SettingsStyle.separator).frame(height: Metrics.dividerThickness)
             Text(status)

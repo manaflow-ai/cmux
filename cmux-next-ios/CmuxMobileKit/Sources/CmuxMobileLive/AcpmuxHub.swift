@@ -2,6 +2,7 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -1472,17 +1473,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if let failure = error as? PhoneKeys.Failure { return "Not approved: \(failure.message)" }
         if let error = error as? AcpmuxConnection.RPCError {
-            switch error.reason {
-            case "permission.person_required":
-                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
-            case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
-            case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
-            case "remote.full_access_required": return AgentChatStore.fullAccessOffNotice
-            default:
-                if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
-                // An agent's raw JSON error (a model the account lacks) reads as a sentence.
-                return TurnFailureCopy.plain(error.message)
+            // The chat clears this notice by its exact text when full access turns on.
+            if error.reason == "remote.full_access_required" { return AgentChatStore.fullAccessOffNotice }
+            // An agent's own refusal ("model unavailable") says what is wrong in the chat;
+            // a dump (a type name, JSON) or an empty message falls through to the type's copy.
+            let raw = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if error.reason == nil, !raw.hasPrefix("no pending permission"), UserFacingError.displayable(raw) != nil {
+                return TurnFailureCopy.plain(raw)
             }
+            // RPCError's copy (reasons, "Already answered", an agent's JSON error) lives on the type.
+            if let text = error.errorDescription { return text }
         }
         return LinkController.reason(error)
     }

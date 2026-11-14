@@ -54,8 +54,15 @@ public struct TerminalDemoRoot: View {
                 .accessibilityIdentifier("debug.terminal-demo")
         }
         .task {
-            // The host grid demo is a still: no scripted phases.
-            guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
+            // The host grid demo is a still: no scripted phases. Its page's
+            // layout goes in the step label, for UI tests.
+            guard TerminalHostGridDemoSession.requestedSpec == nil else {
+                for _ in 0..<20 {
+                    try? await ContinuousClock().sleep(for: .milliseconds(250))
+                    model.demoNote = "hostgrid " + (model.controller?.debugState ?? "-")
+                }
+                return
+            }
             let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
                 .split(separator: ",").map(String.init)
             await TerminalDemoDriver(model: model).run(phases: phases)

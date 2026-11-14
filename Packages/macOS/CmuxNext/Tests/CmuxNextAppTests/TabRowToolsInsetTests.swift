@@ -42,9 +42,9 @@ import Testing
         let items = (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Chat \($0)") }
         let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
-        // The chat is selected (kind nil: no "…"); `paneKinds` is what the pane's other tabs offer.
-        toolbar.update(target: "t0", kind: nil, paneKinds: paneKinds)
+        let toolbar = PaneToolbar(registry: { registry })
+        // The chat is selected (kind nil: no pins); `paneKinds` is what the pane's other tabs offer, with Split Right pinned.
+        toolbar.update(target: "t0", kind: nil, pinned: ["splitRight"], paneKinds: paneKinds)
         pane.toolbar = toolbar
         pane.frame = NSRect(x: 0, y: 0, width: width, height: 400)
         window.contentView?.addSubview(pane)
@@ -63,27 +63,27 @@ import Testing
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        // Left: a pane that also holds a terminal (its toolbar keeps "…"'s room). Right: chats only (no room kept).
+        // Left: a pane that also holds a terminal (its toolbar keeps the pin's room). Right: chats only (no room kept).
         let (left, leftChat) = pane(width: CGFloat(width), paneKinds: [.terminal], in: window)
         let (right, rightChat) = pane(width: CGFloat(width), paneKinds: [], in: window)
-        #expect(left.toolbar?.view.reservedCount == 1, "the terminal's \"…\" keeps its room for the strip")
+        #expect(left.toolbar?.view.reservedCount == 1, "the terminal's pin keeps its room for the strip")
         let leftInset = try #require(leftChat.inset), rightInset = try #require(rightChat.inset)
         #expect(leftInset == rightInset, "one right inset in every pane: \(leftInset) vs \(rightInset)")
-        // The inset is the toolbar's shown buttons (none beside a chat) and its trailing gap: no slot for a hidden "…".
+        // The inset is the toolbar's shown buttons (none beside a chat) and its trailing gap: no slot for a hidden pin.
         #expect(leftInset == PaneToolbarView.trailingGap)
-        #expect(leftInset < left.toolbarWidth(shown: left.shownStripHeight), "the hidden \"…\"'s room is not the chat's")
+        #expect(leftInset < left.toolbarWidth(shown: left.shownStripHeight), "the hidden pin's room is not the chat's")
         // The strip ends where the chat's tools begin, in both panes alike.
         #expect(left.stripView.frame.maxX == right.stripView.frame.maxX)
         #expect(left.stripView.frame.maxX + leftChat.need + leftInset == CGFloat(width))
     }
 
-    /// The bar beside a chat is the sum of what it shows: no reserved slot, "…" counted only while it shows.
+    /// The bar beside a chat is the sum of what it shows: no reserved slot, Exit Zoom counted only while it shows.
     @Test func theRowWidthIsItsShownButtons() {
         let view = PaneToolbarView()
-        view.show([], more: false, lit: false, reserving: 3)
+        view.show([], reserving: 3)
         #expect(view.tabRowWidth == PaneToolbarView.trailingGap)
         #expect(view.intrinsicContentSize.width > view.tabRowWidth, "the strip keeps the reserved room")
-        view.show([], more: true, lit: false, reserving: 3)
+        view.show([], zoomed: true, reserving: 3)
         #expect(view.tabRowWidth == PaneToolbarView.trailingGap + TitlebarBandButton.side)
     }
 }
