@@ -1249,6 +1249,20 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamAgentKeyAgent = "claude" | "codex"
+
+export type TeamAgentKeyKind = "api_key" | "oauth"
+
+export type TeamAgentKeyState = {
+  readonly agent: TeamAgentKeyAgent
+  readonly set: boolean
+  readonly kind: TeamAgentKeyKind | null
+  readonly generation: number
+  readonly updated_at: number | null
+  readonly updated_by: UserId | null
+  readonly hint: string | null
+}
+
 export type TeamAiLimitMember = {
   readonly user: UserId
   readonly display_name: string
@@ -3813,6 +3827,36 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** Remove the team's shared key for an agent (owners and admins). Members' Cloud machines go back to their own keys. */
+  readonly "team.agent_key.remove": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+    }
+    readonly result: {
+      readonly agent: TeamAgentKeyAgent
+      readonly removed: boolean
+    }
+  }
+  /** Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned. */
+  readonly "team.agent_key.set": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+      readonly kind: TeamAgentKeyKind
+      readonly secret: string
+    }
+    readonly result: TeamAgentKeyState
+  }
+  /** Whether the team has a shared key for each agent (members). Never returns a key. */
+  readonly "team.agent_key.status": {
+    readonly params: {
+      readonly team?: TeamId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly can_manage: boolean
+      readonly agents: ReadonlyArray<TeamAgentKeyState>
+    }
+  }
   /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
   readonly "team.ai_limit.get": {
     readonly params: {
@@ -4370,6 +4414,9 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.agent_key.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.member.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
   "team.ai_limit.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },

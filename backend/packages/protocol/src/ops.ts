@@ -36,6 +36,7 @@ import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
+import { teamAgentKeyOps } from "./team-agent-key-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
 import { cloudEnvironmentOps } from "./cloud-environment-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
@@ -273,6 +274,7 @@ export const cloudOps = [
   ...teamAiLimitOps,
   ...teamGroupOps,
   ...teamSshOps,
+  ...teamAgentKeyOps,
   ...cloudMachineOps,
   ...cloudEnvironmentOps,
   ...cloudVmOps,

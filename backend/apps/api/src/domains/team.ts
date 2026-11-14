@@ -68,7 +68,10 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "team_vm.retired.delete",
   "team_vm.retired.export",
   // Removing a Stack team's member calls Stack first (team-member-admin.ts).
-  "team.members.remove"
+  "team.members.remove",
+  // Team shared agent keys: the key travels only in the HTTP request and is sealed outside the reducer (team-agent-keys.ts).
+  "team.agent_key.set",
+  "team.agent_key.remove"
 ])
 
 /** Every audit record is also an `audit` row in the same commit (team-audit-rows.ts, team.audit.list). */
@@ -316,6 +319,14 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted", retired_exported: "retired team VM files exported" }[t.action ?? ""]
         if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
+      }
+      case "team.agent_key.audit": {
+        // TeamDO's own submit after an owner or admin set, replaced or removed a shared agent key (team-agent-keys.ts): audit only, never the key.
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { action?: string; agent?: string; kind?: string; generation?: number; by?: string }
+        const what = { set: "added", replaced: "replaced", removed: "removed" }[t.action ?? ""]
+        if (!what || typeof t.by !== "string" || typeof t.agent !== "string") return reject("validation.invalid", "action, agent and by required")
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `Team shared ${t.agent} key ${what} by ${t.by} (generation ${t.generation})`, detail: params } }, state.team.id, ctx, op)
       }
       case "team.github.token_minted": {
         // Delivered by the team's own ConnectionDO outbox (integrations/github-tokens.ts): audit only.
