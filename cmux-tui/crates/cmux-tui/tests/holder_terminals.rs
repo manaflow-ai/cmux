@@ -1306,3 +1306,138 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// Tabs that print while the holder is SIGKILLed (`a_holder_killed_mid_output_under_fifty_tabs_loses_no_shell_or_line`).
+const CRASH_TABS: usize = 50;
+/// Numbered lines each tab prints, a few at a time, before it waits for input.
+const CRASH_LINES: usize = 3000;
+
+/// Leo's "never close a tab" with the holder as the default (cmux#43143): one process
+/// then holds every terminal, so its crash must cost nothing a person sees. 50 tabs print
+/// numbered lines, and the holder is SIGKILLed (its own pid) while they all print. Every
+/// shell must live, every tab must end with every line in order (no gap), and every tab
+/// must take input again. It prints the recovery time (kill to the last tab echoing input)
+/// and what was lost, as `HOLDER-CRASH` lines.
+#[test]
+fn a_holder_killed_mid_output_under_fifty_tabs_loses_no_shell_or_line() {
+    let mut daemon = Daemon::start();
+    let script = daemon.dir.join("print.sh");
+    fs::write(
+        &script,
+        format!(
+            r#"stty -echo
+tab=$1
+printf 'ready %s\n' "$tab"
+read go
+i=0
+while [ $i -lt {CRASH_LINES} ]; do
+  printf 'tab %02d line %06d\n' "$tab" "$i"
+  i=$((i + 1))
+  [ $((i % 25)) -eq 0 ] && sleep 0.02
+done
+printf 'done %s\n' "$tab"
+while read line; do printf 'got %s\n' "$line"; done
+"#
+        ),
+    )
+    .unwrap();
+    let mut tabs = Vec::new();
+    for tab in 0..CRASH_TABS {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/sh", script.to_str().unwrap(), tab.to_string()],
+                "new_workspace": true, "name": format!("crash-{tab}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        tabs.push(surface);
+    }
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains(&daemon.socket, *surface, &format!("ready {tab}"));
+    }
+    let shells: Vec<i32> = tabs.iter().map(|surface| shell_pid(&daemon.socket, *surface)).collect();
+    let holder = parent_of(shells[0]);
+    assert!(holder > 1 && shells.iter().all(|shell| parent_of(*shell) == holder));
+
+    // Every tab starts printing; the holder dies once each has printed some of its lines.
+    for surface in &tabs {
+        request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "go\n"}));
+    }
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains(&daemon.socket, *surface, &format!("tab {tab:02} line 0001"));
+    }
+    let killed = Instant::now();
+    // SAFETY: SIGKILL of the holder this test's daemon started (its own pid, read above).
+    unsafe { libc::kill(holder, libc::SIGKILL) };
+
+    let lost_shells = shells.iter().filter(|shell| !alive(**shell)).count();
+    // Recovered: every tab finished its lines and echoes input again.
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains_within(
+            &daemon.socket,
+            *surface,
+            &format!("done {tab}"),
+            Duration::from_secs(120),
+        );
+        send(&daemon.socket, *surface, &format!("ping-{tab}"));
+    }
+    for (tab, surface) in tabs.iter().enumerate() {
+        screen_contains(&daemon.socket, *surface, &format!("got ping-{tab}"));
+    }
+    let recovered = killed.elapsed();
+
+    let mut lost_lines = 0usize;
+    let mut kept_min = usize::MAX;
+    let mut worst = String::new();
+    for (tab, surface) in tabs.iter().enumerate() {
+        let mut rows: Vec<String> =
+            history(&daemon.socket, *surface).iter().map(row_text).collect();
+        rows.extend(screen_lines(&daemon.socket, *surface));
+        let prefix = format!("tab {tab:02} line ");
+        let mut seen: Vec<usize> =
+            rows.iter().filter_map(|row| row.strip_prefix(&prefix)?.trim().parse().ok()).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        // The oldest lines may scroll out of the retained history; none after the first kept
+        // one may be missing.
+        let first = seen.first().copied().unwrap_or(CRASH_LINES);
+        let missing = (first..CRASH_LINES).filter(|line| seen.binary_search(line).is_err()).count();
+        if missing > 0 && worst.is_empty() {
+            worst = format!("tab {tab}: {missing} lines missing after line {first}");
+        }
+        lost_lines += missing;
+        kept_min = kept_min.min(seen.len());
+    }
+    eprintln!(
+        "HOLDER-CRASH tabs={CRASH_TABS} lines_per_tab={CRASH_LINES} shells_lost={lost_shells} \
+         lines_lost={lost_lines} kept_lines_min={kept_min} recover_ms={}",
+        recovered.as_millis()
+    );
+    assert_eq!(lost_shells, 0, "shells died with the holder");
+    assert_eq!(lost_lines, 0, "lines were lost at the holder crash: {worst}");
+}
+
+/// The visible screen of `surface`, line by line.
+fn screen_lines(socket: &Path, surface: u64) -> Vec<String> {
+    let text = request(socket, json!({"cmd": "read-screen", "surface": surface}))["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    text.lines().map(|line| line.trim_end().to_string()).collect()
+}
+
+/// [`screen_contains`] with a longer bound: 50 tabs print while the holder is replaced.
+fn screen_contains_within(socket: &Path, surface: u64, marker: &str, limit: Duration) {
+    let deadline = Instant::now() + limit;
+    loop {
+        let text = request(socket, json!({"cmd": "read-screen", "surface": surface}))["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if text.contains(marker) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "surface {surface} never showed {marker:?}:\n{text}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
