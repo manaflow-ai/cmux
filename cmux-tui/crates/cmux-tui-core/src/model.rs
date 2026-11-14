@@ -12,6 +12,7 @@ use crate::resource::{
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
 mod layout_columns;
+mod layout_fit;
 mod layout_rows;
 mod split_around;
 
@@ -832,6 +833,8 @@ impl State {
     }
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(self.workspaces.len());
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {

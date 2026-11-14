@@ -28,14 +28,19 @@
 //! credential only from a loopback address (the end of a TLS terminator or
 //! an ssh tunnel on this machine), as it does the peer token.
 //!
-//! Full access, per machine, off by default (Leo: "#2 seems
+//! Full access, per machine: on by default for a `phone`, off by default for a
+//! `client` machine. It began off for every machine (Leo: "#2 seems
 //! reasonable i think... it's a gate that you can enable for your phone,
-//! which is an attack vector you opt in to"). A chat a remote connection
+//! which is an attack vector you opt in to"); phones moved to on by default
+//! (Aziz, 2026-11-13: "Make it so that the default for all iphones is full
+//! access"), since only the person issues a phone's credential and a phone
+//! the person paired is the person's own. A chat a remote connection
 //! starts has the policy `ask` (`server/remote_guard.rs`), which holds it in
 //! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
 //! machine or `phone` move such a chat out of it (not one held by deny-all, and not a
 //! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
-//! on the unix socket only, and turning it on needs the person
+//! on the unix socket only (an off is kept, so a phone stays off once turned
+//! off), and turning it on needs the person
 //! (`hub/person.rs`), so an agent on this machine cannot grant it to a
 //! machine it paired itself. The setting is on the device's record, so
 //! revoking the machine ends it; it is read again on every request
@@ -200,7 +205,7 @@ impl Pairing {
         let store = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
                 tracing::warn!("pairing.json does not parse ({e}); starting with no tickets");
-                let _ = std::fs::rename(&path, path.with_extension("json.bad"));
+                let _ = crate::home_fs::rename(&path, path.with_extension("json.bad"));
                 Store::default()
             }),
             Err(_) => Store::default(),

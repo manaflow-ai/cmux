@@ -8,8 +8,10 @@ impl Surface {
     /// building its surface, so a caller can launch several hosts in
     /// parallel outside the creation transaction and finish each one with
     /// [`Surface::spawn_prelaunched`] inside it. Dropping the result before
-    /// then exact-kills the host (the attachment's launch guard); a protocol
-    /// v4 host also never starts its child before activation. The host starts
+    /// then exact-kills the host (the attachment's launch guard). A protocol
+    /// v4 host starts its child at the Launch frame and holds the child's
+    /// output until activation; the child can connect to the daemon in that
+    /// time, and the host's seat names its terminal. The host starts
     /// with Kitty graphics disabled; its share of the image budget is applied
     /// once the surface commits. `standby` is a host process started ahead
     /// (R81, the pool's spare); `None` starts one now. The host's first
@@ -43,6 +45,7 @@ impl Surface {
             terminal_id,
             standby,
             workspace_key,
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Ok(PrelaunchedHost {
             id,
@@ -88,6 +91,7 @@ impl Surface {
             terminal_id,
             None,
             (seed, ""),
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Self::spawn_hosted(
             id,

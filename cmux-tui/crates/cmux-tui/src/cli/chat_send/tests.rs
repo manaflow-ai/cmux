@@ -24,7 +24,12 @@ fn a_send_to_a_session_is_this_files_and_a_send_to_a_chief_is_not() {
     assert_eq!(command(&["chat", "send", "s-1", "hi"]), Some(strings(&["s-1", "hi"])));
     assert_eq!(command(&["chat", "send", "--to", "chief", "--text", "hi"]), None);
     assert_eq!(command(&["chat", "send", "--to=chief", "hi"]), None);
-    assert_eq!(command(&["chat", "send", "--help"]), None);
+    // `cmux chat --help` points at `cmux chat send --help` for the session form; with --to
+    // the help is the Chief form's.
+    assert_eq!(command(&["chat", "send", "--help"]), Some(strings(&["--help"])));
+    assert_eq!(command(&["chat", "send", "-h"]), Some(strings(&["-h"])));
+    assert_eq!(command(&["chat", "send", "--to", "chief", "--help"]), None);
+    assert_eq!(command(&["chat", "send", "--text", "hi", "-h"]), None);
     assert_eq!(
         command(&["chat", "--resume", "s-1", "go on"]),
         Some(strings(&["--resume", "s-1", "go on"]))
@@ -166,6 +171,48 @@ fn a_zero_timeout_is_refused() {
         );
     }
     assert_eq!(sent(&["s-1", "--timeout", "5", "hi"], true).timeout, Some(Duration::from_secs(5)));
+}
+
+/// A joined machine's chat: `HOST/NAME` goes to acpmux without the app's lookup, and `--on`
+/// with the machine's name qualifies a bare session with its hub host.
+#[test]
+fn a_joined_machines_chat_goes_to_acpmux() {
+    let qualified =
+        locate("studio/run-tests-abcd", None, || panic!("topology"), || panic!("listed"));
+    assert_eq!(qualified, Ok(Place::Acp("studio/run-tests-abcd".into())));
+    let desk = || {
+        Some(Ok(JoinedMachine {
+            id: Some("m_desk".into()),
+            name: "Desk Mac".into(),
+            host: "mini-2".into(),
+        }))
+    };
+    let on = |session: &str, on: &str| {
+        locate_with(session, Some(on), || panic!("topology"), || panic!("listed"), |_| desk())
+    };
+    assert_eq!(on("lane-a", "Desk Mac"), Ok(Place::Acp("mini-2/lane-a".into())));
+    assert_eq!(on("mini-2/lane-a", "joined:m_desk"), Ok(Place::Acp("mini-2/lane-a".into())));
+    // A refused machine says why; reserved selectors never ask for a joined machine.
+    let offline = locate_with(
+        "lane-a",
+        Some("attic"),
+        || panic!("topology"),
+        || panic!("listed"),
+        |_| Some(Err(json!({"code": "chat_target.unavailable"}))),
+    );
+    assert_eq!(offline.unwrap_err()["code"], "chat_target.unavailable");
+    let reserved = locate_with(
+        "s",
+        Some("cloud"),
+        || panic!("topology"),
+        || panic!("listed"),
+        |_| panic!("asked"),
+    );
+    assert_eq!(reserved.unwrap_err()["code"], "chat_target.no_route");
+    // Not joined: no route, as before.
+    let none =
+        locate_with("s", Some("nowhere"), || panic!("topology"), || panic!("listed"), |_| None);
+    assert_eq!(none.unwrap_err()["code"], "chat_target.no_route");
 }
 
 /// Before, `cmux chat read <uuid>` and `cmux chat wait <uuid>` went to the Chief ("the Chief is

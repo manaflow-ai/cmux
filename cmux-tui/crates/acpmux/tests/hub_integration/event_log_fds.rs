@@ -58,7 +58,8 @@ async fn a_stopped_session_does_not_keep_its_event_log_open() {
 }
 
 /// However many sessions a daemon writes, it holds a bounded number of logs
-/// open (64): the rest are opened again when they are next written.
+/// open (`store::open_logs`: at least 64, more under a higher open-file limit):
+/// the rest are opened again when they are next written.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn writing_many_sessions_holds_a_bounded_number_of_logs_open() {
@@ -74,12 +75,17 @@ fn writing_many_sessions_holds_a_bounded_number_of_logs_open() {
         msg: json!({"n": seq}),
         host_seq: None,
     };
-    for n in 0..200 {
+    let bound = acpmux::store::open_logs::now();
+    let written = bound + 136;
+    for n in 0..written {
         store.append(&format!("session-{n:03}"), &record(1)).unwrap();
     }
     // The chats' logs only: the event journal's own files under the home stay open by design.
     let open = open_files_under(&dir.join("sessions")).len();
-    assert!(open <= 64, "{open} event logs open after writing 200 sessions");
+    assert!(
+        open <= bound,
+        "{open} event logs open after writing {written} sessions (bound {bound})"
+    );
     // A session whose log was closed keeps appending to the same segment.
     store.append("session-000", &record(2)).unwrap();
     let events = store.events("session-000", 0, usize::MAX).unwrap();

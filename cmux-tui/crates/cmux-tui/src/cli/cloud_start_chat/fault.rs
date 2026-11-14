@@ -75,12 +75,15 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
     });
     let stdin = stdin.get();
     let request = match parsed {
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         Ok(Parsed::Help) => {
             print!("{}", crate::cli::cloud_help::START_CHAT_USAGE);
             return Some(0);
         }
-        Err(error) => return Some(usage(error, global.output)),
+        Err(error) => {
+            let refused = super::folder_refused(&error, global.output);
+            return Some(refused.unwrap_or_else(|| usage(error, global.output)));
+        }
     };
     let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();

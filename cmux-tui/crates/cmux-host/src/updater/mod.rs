@@ -2,11 +2,12 @@
 //! acpmux, the Cloud receiver and `cmux host` itself, plus cmux-tui-hook)
 //! on the newest feat-cmux-next build by itself, with no image bake in the
 //! way (plans/cmux-next/vm-image.md 4.5). The image is a cache: a machine
-//! from a stale image only boots one update later.
+//! from a stale image takes the channel's build before it first reports ready
+//! ([`first_ready`]), within a bound; past it, one update later.
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on
-//! every resume, and every minute. When the channel names another
+//! every resume, and every 15 s. When the channel names another
 //! build than the current profile links, it:
 //!
 //! 1. waits until no acpmux session runs a turn or waits on a permission,
@@ -45,8 +46,11 @@
 
 pub mod carrier;
 pub mod channel;
+#[cfg(target_os = "linux")]
+pub mod first_ready;
 #[cfg(unix)]
 pub mod gate;
+pub mod look;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -95,6 +99,10 @@ pub struct State {
     pub last: Option<String>,
     #[serde(default)]
     pub last_at: u64,
+    /// The last check and update run as codes, for the Cloud status report
+    /// ([`look`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<look::Look>,
 }
 
 /// An update whose new build has not proved itself yet.

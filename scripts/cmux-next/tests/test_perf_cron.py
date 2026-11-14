@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-god"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -61,15 +61,45 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(cron.empty_state(T0), T0, None, None, lambda sha: ALL, None)
         self.assertEqual(d["action"], "none")
 
-    def test_a_busy_github_fleet_holds_the_mac_parts_but_not_the_linux_part(self):
+    def test_a_busy_github_fleet_holds_the_mac_parts_of_a_runner_host_but_not_the_linux_part(self):
+        busy = "nightly.yml waits for a runner"
         state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, "nightly.yml waits for a runner")
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs built the app
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual(d["action"], "none")
         self.assertTrue(d["yielded"])
         self.assertIsNotNone(state["current"])
-        state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, "nightly.yml waits for a runner")
+        state["current"]["parts_todo"].append("diff-viewer")
+        d = cron.decide(state, at(1), None, None, lambda sha: ALL, busy)
         self.assertEqual((d["action"], d["part"], d["linux_part"]), ("part", "", "diff-viewer"))
+
+    def test_a_measurement_held_by_a_busy_fleet_gives_its_runner_host_up_for_the_bench_host(self):
+        # Nightly runs start about every 25 minutes, so a job of one is queued at most ticks: a pinned measurement
+        # that only waited would never run a Mac part again.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+        d = cron.decide(state, at(1 + cron.HOST_WAIT_HOURS + 0.1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("worker")), ("part", cron.BENCH_WORKER))
+        self.assertNotIn("host", state["current"])
+        self.assertEqual(state["current"]["gave_up"][0]["host"], "aws-m4pro-9")
+
+    def test_a_busy_github_fleet_sends_the_mac_parts_to_the_bench_host(self):
+        # 2026-11-13 16:43Z to 11-14 02:29Z: no Mac part ran. Every tick found a nightly job queued for a signing
+        # runner and measured nothing, while cmux20-bench, which runs no CI job, could have taken the part.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        self.assertIn(busy, d["reason"])
+        self.assertNotIn("host", state["current"], "the part's result pins the measurement, not the request")
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
 
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
@@ -411,6 +441,15 @@ class DisplayTests(OneRunRule):
             self.assertEqual(state["history"][-1]["failed_parts"], ["motion"])
             self.assertEqual(state["history"][-1]["status"], "incomplete")
             self.assertEqual(state["last_good"]["sha"], "a" * 40, "partial budgets never establish a baseline")
+            # 2026-11-11..13: four tip measurements in a row ended incomplete on the same five parts, and the issue
+            # said only "no finished measurement", guessing a busy fleet.
+            why = "panes.close.4x2.frame: missing current p95"
+            self.assertEqual(state["history"][-1]["failed_why"], {"motion": why})
+            self.assertEqual(state["last_tried"]["failed_why"], {"motion": why})
+            body = cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1))
+            self.assertIn(f"is not the last measurement: 1 part(s) did not finish: motion (`{why}`).", body)
+            self.assertIn("the last 1 tip measurement(s) each ran and ended incomplete, every one without motion", body)
+            self.assertNotIn("no measure host had idle time", body)
 
     def test_the_issue_says_which_frame_rows_were_not_compared(self):
         state = cron.empty_state(T0)
@@ -539,6 +578,14 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_state_growth_rows_have_their_own_part_god_rows_too(self):
+        self.assertTrue(cron.is_linux_part("web-ui-growth"))
+        self.assertEqual(cron.part_for_row("webui.state_growth.session_churn.entries_per_op@linux"), "web-ui-growth")
+        self.assertEqual(cron.part_for_row("webui.state_growth.god.chat_reopen.heap_bytes_per_op@linux"), "web-ui-growth")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-growth")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "state-growth"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -761,6 +808,36 @@ class IssueTests(unittest.TestCase):
         self.assertNotIn("why", cron.record_part(cur, "launch", {"state": "done", "tail": ["ok"]}, "r"))
         self.assertIn("Failed parts of the measurement in flight: switch: `artifact not read: <HTTPError 403: 'Forbidden'>`",
                       cron.issue_body(state, "o/r", T0))
+
+    def test_an_incomplete_reports_reason_is_short_and_names_the_row(self):
+        self.assertEqual(cron.incomplete_why({"incomplete": [
+            {"name": "sidebar\\.\\d+\\.workspace_switch\\.click_to_idle", "reason": "manifest row not measured"}]}),
+            "sidebar.\\d+.workspace_switch.click_to_idle: manifest row not measured")
+        scaling = [{"workspaces": 1, "probe": "instant", "exit": 1, "report": "/Users/x/report.json"},
+                   {"workspaces": 1, "probe": "typing", "exit": 2},
+                   {"workspaces": 1, "probe": "instant", "command": "new_workspace", "incomplete": "missing_summary"},
+                   {"workspaces": 100, "probe": "instant", "exit": 1}]
+        self.assertEqual(cron.incomplete_why({"incomplete": scaling}),
+                         "workspaces 1 probe instant exit 1; workspaces 1 probe typing exit 2; "
+                         "workspaces 1 probe instant command new_workspace incomplete missing_summary; and 1 more")
+        self.assertEqual(cron.incomplete_why({"incomplete": ["ui-stability: exit 1"]}), "ui-stability: exit 1")
+        self.assertEqual(cron.incomplete_why({}), "")
+
+    def test_the_stale_line_names_the_parts_every_incomplete_measurement_lacked(self):
+        state = cron.empty_state(T0)
+        tip = {"kind": "tip", "status": "incomplete"}
+        state["history"] = [
+            {**tip, "status": "good", "failed_parts": []},
+            {**tip, "failed_parts": ["sidebar", "web-ui", "launch"]},
+            {"kind": "bisect", "status": "good"},
+            {**tip, "status": "abandoned"},
+            {**tip, "failed_parts": ["sidebar", "web-ui"]}]
+        self.assertEqual(len(cron.incomplete_streak(state)), 2)
+        body = cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1))
+        self.assertIn("the last 2 tip measurement(s) each ran and ended incomplete, every one without sidebar, web-ui (", body)
+        state["history"].append({**tip, "status": "good", "failed_parts": []})
+        self.assertIn("no measure host had idle time", cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1)),
+                      "no streak: the cause is not a part")
 
     def test_stale_opens_once(self):
         state = cron.empty_state(T0)
@@ -1172,11 +1249,13 @@ class Review2Tests(OneRunRule):
     def test_yielding_does_not_count_against_abandon_hours(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs: its parts wait for the build
         cron.decide(state, at(1), None, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
         d = cron.decide(state, at(cron.ABANDON_HOURS + 6), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["sha"], "a" * 40, "17 h old, but only 1 h of it active")
-        self.assertTrue(d["yielded"])
+        # The runner host was given up after HOST_WAIT_HOURS; the wait stays a yield until a part answers.
+        self.assertEqual(d["worker"], cron.BENCH_WORKER)
         cron.record_part(state["current"], "build", {"state": "done"}, "r", at(cron.ABANDON_HOURS + 7))
         self.assertAlmostEqual(state["current"]["yield_hours"], cron.ABANDON_HOURS + 6)
         cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")

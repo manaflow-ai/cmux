@@ -34,6 +34,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_perf;
 mod classic;
 mod events;
 mod group_create;
@@ -179,6 +180,12 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
+    /// `app chat perf`: `agent.chat.perf`, one chat page's frames and record-to-paint times over
+    /// `seconds` (app/chat_perf.rs).
+    ChatPerf {
+        params: Value,
+        seconds: u64,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -299,6 +306,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
+            chat_perf::parse(rest)?
+        }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
         // or a pixel of the screen.
@@ -956,6 +966,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
         }
+        AppCommand::ChatPerf { params, seconds } => {
+            return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
@@ -1142,9 +1155,10 @@ fn names_a_target(error: &Value) -> bool {
 /// `unavailable` is one only when the app says so in `data.state: "not_run"`: the read barrier on
 /// a daemon connection that was reconnecting (#32724). Every other `unavailable` is a refusal the
 /// app decided (`state: "rejected"`, or no state from an app before it said one: a pane that
-/// cannot split, a person-only action), which no second try changes: it is reported at once,
-/// never held to the request's deadline (`cmux action run splitDown` on the agent chat took
-/// 45 s to say why). One that may have started (`in_progress`) is reported too.
+/// cannot split, a person-only action, a window that is not ready). The same request gets the
+/// same answer, so it is reported at once, never held to the request's deadline
+/// (`cmux action run splitDown` on the agent chat took 45 s to say why); its text says when a
+/// new request can pass. One that may have started (`in_progress`) is reported too.
 fn retry_before_running(error: &Value) -> bool {
     match error_code(error) {
         Some("busy" | "timeout") => refused_before_running(error),

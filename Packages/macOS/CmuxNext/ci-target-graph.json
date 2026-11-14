@@ -13,7 +13,6 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
-    "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
@@ -229,17 +228,6 @@
       "packages": [],
       "reads": []
     },
-    "CmuxNextAgentQuestion": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
-      "targets": [
-        "CmuxNextDesign",
-        "CmuxNextIcons"
-      ],
-      "packages": [
-        "CmuxAgentQuestion"
-      ]
-    },
     "CmuxNextAgentUpdates": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
@@ -267,7 +255,6 @@
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
-        "CmuxNextAgentQuestion",
         "CmuxNextAgentUpdates",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
@@ -430,6 +417,7 @@
         "CmuxNextAppHealth",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
         "CmuxNextChecklist",
@@ -519,6 +507,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
+        "Resources/markdown-viewer/ondine.min.js",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
@@ -528,6 +517,7 @@
         "schemas/agent-cursor-visibility/vectors.json",
         "schemas/agent-pane/wake-state.json",
         "schemas/keybindings/keybinding-vectors.json",
+        "schemas/theme/chrome-layer-colors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "scripts/cmux-next/web-bundle-key.py",
@@ -892,6 +882,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextPages",
+        "CmuxNextPalette",
         "CmuxNextSettings"
       ],
       "packages": []
@@ -1020,6 +1011,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -1270,6 +1262,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextSignposts"
       ],
@@ -1610,8 +1603,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CMUXMobileCore",
-        "CmuxIrxTransport"
+        "CMUXMobileCore"
       ]
     },
     "CmuxNextMobileHost": {
@@ -1672,7 +1664,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
@@ -1790,10 +1784,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
-        "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextSettings"
       ],
@@ -1975,7 +1967,9 @@
         "CmuxNextTestSupport"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/"
+      ]
     },
     "CmuxNextServer": {
       "kind": "regular",
@@ -2064,10 +2058,12 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar",
       "targets": [
         "CCmuxAppFFI",
+        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
+        "CmuxNextPalette",
         "CmuxNextResources",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -2084,6 +2080,7 @@
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextSettings",
+        "CmuxNextSettingsWindow",
         "CmuxNextSidebar"
       ],
       "packages": []
@@ -2253,6 +2250,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
