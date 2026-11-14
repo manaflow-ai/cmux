@@ -1,15 +1,19 @@
 #if DEBUG
+import CmuxRemoteSession
+
 extension RemoteTmuxControlConnection {
     func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) {
         stdinWriter = writer
     }
 
+    /// Handles `message` as if the parser had just produced it.
     func handleMessageForTesting(_ message: RemoteTmuxControlMessage) {
         handle(message)
     }
 
+    /// The commands awaiting a reply, oldest first.
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
-        pendingCommands
+        Array(pendingCommands)
     }
 
     func hasPendingSizingSettlementWork(windowId: Int) -> Bool {

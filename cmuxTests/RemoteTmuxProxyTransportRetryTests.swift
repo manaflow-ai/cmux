@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -1027,7 +1028,6 @@ import Testing
     }
 
     // MARK: - Seam 2: telling a stall from a death
-
 
     /// The property that makes the probe necessary in the first place.
     ///

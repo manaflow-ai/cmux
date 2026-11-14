@@ -63,7 +63,7 @@ public struct RemoteTmuxNotificationOSCFilter {
         onNotification: (_ title: String, _ body: String) -> Void
     ) -> Data {
         // Hot path: not mid-sequence and no ESC in the chunk — nothing to do.
-        if state == .text, !data.contains(0x1b) { return data }
+        if state == .text, !data.containsEscapeByte { return data }
         var out = [UInt8]()
         out.reserveCapacity(data.count)
         for byte in data {

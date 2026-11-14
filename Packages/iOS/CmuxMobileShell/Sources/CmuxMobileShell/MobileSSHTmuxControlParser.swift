@@ -1,7 +1,7 @@
 import Foundation
 
 /// One message from a tmux control-mode stream (`tmux -C`), ported from the
-/// Mac's `RemoteTmuxControlStreamParser` (`Sources/RemoteTmuxControlStreamParser.swift`)
+/// Mac's `RemoteTmuxControlStreamParser` (`Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/RemoteTmux/RemoteTmuxControlStreamParser.swift`)
 /// with the fields the phone needs: command replies keep tmux's `flags`
 /// (only blocks with flag 1 answer this client's commands) and their raw
 /// line bytes (capture-pane rows carry escape sequences and UTF-8).
