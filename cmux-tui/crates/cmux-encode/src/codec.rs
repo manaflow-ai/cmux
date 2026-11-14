@@ -85,14 +85,13 @@ pub trait VideoDecoder {
 
 /// Annex-B NAL units of `au` (start codes 00 00 01 or 00 00 00 01).
 pub fn annexb_nals(au: &[u8]) -> impl Iterator<Item = &[u8]> {
+    // Payload starts: the byte after each 00 00 01 (start codes never overlap).
     let mut starts = Vec::new();
-    let mut i = 0;
-    while i + 3 <= au.len() {
-        if au[i] == 0 && au[i + 1] == 0 && au[i + 2] == 1 {
+    let mut skip_to = 0;
+    for (i, w) in au.windows(3).enumerate() {
+        if i >= skip_to && w == [0, 0, 1] {
             starts.push(i + 3);
-            i += 3;
-        } else {
-            i += 1;
+            skip_to = i + 3;
         }
     }
     let ends: Vec<usize> = starts
@@ -100,12 +99,12 @@ pub fn annexb_nals(au: &[u8]) -> impl Iterator<Item = &[u8]> {
         .skip(1)
         .map(|&s| {
             // The next start code begins 3 bytes before its payload, 4 with a leading zero.
-            let e = s - 3;
-            if e > 0 && au[e - 1] == 0 { e - 1 } else { e }
+            let e = s.saturating_sub(3);
+            if e > 0 && au.get(e - 1) == Some(&0) { e - 1 } else { e }
         })
         .chain(std::iter::once(au.len()))
         .collect();
-    starts.into_iter().zip(ends).map(move |(s, e)| &au[s..e.max(s)])
+    starts.into_iter().zip(ends).filter_map(move |(s, e)| au.get(s..e.max(s)))
 }
 
 fn h264_is_idr(au: &[u8]) -> bool {
