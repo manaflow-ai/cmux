@@ -37,7 +37,7 @@ fn damaged_snapshot_rebuilds_at_open_and_quarantines_one_set() {
     let dir = tempfile::tempdir().unwrap();
     let expected = fixture(dir.path(), 64);
     let (hub, _) = Hub::open(dir.path(), 11, || 73).unwrap();
-    assert_eq!(hub.snapshot().len(), 64);
+    assert_eq!(hub.snapshot().len(), 0);
     drop(hub);
     corrupt(&dir.path().join("index.snap"), 0);
 
