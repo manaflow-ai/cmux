@@ -16,6 +16,7 @@
 # 5: no target measured a window).
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -29,6 +30,9 @@ for arg in "$@"; do
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
+    netem-rtt-ms=*) netem_rtt_ms="${arg#netem-rtt-ms=}" ;;
+    netem-loss-pct=*) netem_loss_pct="${arg#netem-loss-pct=}" ;;
+    netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
     # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
@@ -38,7 +42,20 @@ for arg in "$@"; do
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
 [[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+[[ -z "$netem_rtt_ms" || "$netem_rtt_ms" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-rtt-ms= is non-negative milliseconds" >&2; exit 2; }
+[[ "$netem_loss_pct" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-loss-pct= is a percentage" >&2; exit 2; }
+[[ "$netem_seed" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: netem-seed= is a non-negative integer" >&2; exit 2; }
+if ! python3 -I - "$netem_loss_pct" <<'PY'
+import sys
+value = float(sys.argv[1])
+if value > 100:
+    raise SystemExit("screen-stream-eval.sh: netem-loss-pct= must be in [0, 100]")
+PY
+then
+  exit 2
+fi
 export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+export EVAL_NETEM_RTT_MS="$netem_rtt_ms" EVAL_NETEM_LOSS_PCT="$netem_loss_pct" EVAL_NETEM_SEED="$netem_seed"
 if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
@@ -131,7 +148,7 @@ elif [[ -n "$lan" ]]; then
 fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(rev)" display "$display" samples "$samples" repeats "$repeats" \
-  rd_input_frame_now "$input_frame_now" \
+  rd_input_frame_now "$input_frame_now" netem_rtt_ms "$netem_rtt_ms" netem_loss_pct "$netem_loss_pct" netem_seed "$netem_seed" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
@@ -386,7 +403,8 @@ for name in "${names[@]}"; do
       raw="$EVAL_STATE/window-$rep.raw"
       rm -f "$raw" "$raw.clock" "$raw.span"
       view window-view "$window_s" "$dir/viewer-frame-$rep" "$go" "$raw" || err "window $rep failed"
-      with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
+      EVAL_SOURCE_FRAME="$dir/host-$rep.png" EVAL_VIEWER_FRAME="$dir/viewer-frame-$rep" \
+        with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
     else
       err "host did not start for window $rep: $why"
       touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO

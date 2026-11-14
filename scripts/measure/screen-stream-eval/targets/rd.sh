@@ -10,6 +10,21 @@ shift
 crate="$EVAL_ROOT/cmux-tui/crates/cmux-rd-host"
 rd="$EVAL_BIN/cmux-rd"
 port=4103
+netem_port=4104
+
+stop_pid() {
+  local file=$1
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid=$(cat "$file")
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$file"
+}
 
 now_ms() {
   python3 -c 'import time; print(time.time_ns() // 1_000_000)'
@@ -29,7 +44,13 @@ host_start() {
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
-    grep -q listening "$EVAL_STATE/host.log" && return 0
+    if grep -q listening "$EVAL_STATE/host.log"; then
+      if netem_start; then
+        return 0
+      fi
+      stop_pid "$EVAL_STATE/host.pid"
+      return 1
+    fi
     kill -0 "$(cat "$EVAL_STATE/host.pid")" 2>/dev/null || break
     sleep 0.1 # bounded wait for the host's listening line (10 s)
   done
@@ -38,8 +59,38 @@ host_start() {
   return 1
 }
 
+netem_start() {
+  [[ -n "${EVAL_NETEM_RTT_MS:-}" ]] || return 0
+  [[ -z "${EVAL_BIND:-}" || "${EVAL_BIND}" == 127.0.0.1 ]] || {
+    echo "rd: netem is supported only for the local loopback target (EVAL_BIND=${EVAL_BIND})" >&2
+    return 1
+  }
+  [[ -z "${EVAL_PEER:-}" || "${EVAL_PEER}" == 127.0.0.1 ]] || {
+    echo "rd: netem is supported only for the local loopback target (EVAL_PEER=${EVAL_PEER})" >&2
+    return 1
+  }
+  : >"$EVAL_STATE/netem.log"
+  python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/netem.py" \
+    --listen-host 127.0.0.1 --listen-port "$netem_port" \
+    --upstream-host 127.0.0.1 --upstream-port "$port" \
+    --rtt-ms "$EVAL_NETEM_RTT_MS" --loss-pct "${EVAL_NETEM_LOSS_PCT:-0}" \
+    --seed "${EVAL_NETEM_SEED:-1}" >>"$EVAL_STATE/netem.log" 2>&1 &
+  echo $! >"$EVAL_STATE/netem.pid"
+  for _ in $(seq 1 100); do
+    grep -q 'netem: listening' "$EVAL_STATE/netem.log" && return 0
+    kill -0 "$(cat "$EVAL_STATE/netem.pid")" 2>/dev/null || break
+    sleep 0.1
+  done
+  echo "rd: netem relay did not start" >&2
+  tail -20 "$EVAL_STATE/netem.log" >&2
+  stop_pid "$EVAL_STATE/netem.pid"
+  return 1
+}
+
 bench() {
-  "$rd" bench --addr "${EVAL_PEER:-127.0.0.1}:$port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
+  local bench_port=$port
+  [[ -n "${EVAL_NETEM_RTT_MS:-}" ]] && bench_port=$netem_port
+  "$rd" bench --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
@@ -56,16 +107,8 @@ case "$verb" in
     ;;
   host-start) host_start ;;
   host-stop)
-    if [[ -f "$EVAL_STATE/host.pid" ]]; then
-      pid=$(cat "$EVAL_STATE/host.pid")
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 50); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1 # bounded wait for the host to exit and free its port or room (5 s)
-      done
-      kill -9 "$pid" 2>/dev/null || true
-      rm -f "$EVAL_STATE/host.pid"
-    fi
+    stop_pid "$EVAL_STATE/netem.pid"
+    stop_pid "$EVAL_STATE/host.pid"
     ;;
   latency-view)
     # latency-view INPUT SAMPLES RAW: INPUT is key or pointer (a click on the marker's pad).
@@ -184,6 +227,9 @@ json.dump({"series": series, "extra": {"first_frame_ms": first, "cpu_pct": raw.g
                                        "decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
                                        "welcome": raw.get("welcome"), "ended": raw.get("ended")}}, open(sys.argv[2], "w"))
 EOF
+    python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/rd-metrics.py" \
+      "$raw" "$out" "$EVAL_STATE/timing.jsonl" \
+      "${EVAL_SOURCE_FRAME:-/dev/null}" "${EVAL_VIEWER_FRAME:-/dev/null}"
     ;;
   *) echo "rd.sh: unknown verb $verb" >&2; exit 2 ;;
 esac

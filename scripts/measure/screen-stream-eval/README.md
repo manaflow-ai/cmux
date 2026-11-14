@@ -7,11 +7,15 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
   --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] \
-  [--arg=input-frame-now=1]
+  [--arg=input-frame-now=1] [--arg=netem-rtt-ms=50 --arg=netem-loss-pct=2 --arg=netem-seed=7]
 ```
 
 `input-frame-now=1` starts the rd host with `--input-frame-now 1` (an input lifts its frame-rate cap
 for 100 ms), for a before/after against a run without it at the same commit.
+
+`netem-rtt-ms`, `netem-loss-pct`, and `netem-seed` add a deterministic user-space relay to the `rd`
+target's loopback connection. The relay applies half the RTT in each direction and seeded UDP loss;
+TCP is delayed but not dropped. This measurement mode is rejected for two-Mac runs.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
@@ -125,7 +129,10 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. Each target also leaves its raw files under
+`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records timing
+attempts, received frames, skips, IDRs, P frames, bytes, bitrate, on-time FPS, and paired-image PSNR
+when the source PNG and viewer PPM have matching dimensions. Missing or unpaired values remain null.
+Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
 
