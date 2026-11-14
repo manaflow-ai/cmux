@@ -271,11 +271,19 @@ def main(argv=None):
     if args.finalize_cleanup:
         path = args.out / "screen-sharing-proof.json"
         receipt = json.loads(path.read_text()) if path.exists() else {}
-        receipt["simulator_cleanup"] = args.status == 0
-        receipt["passed"] = args.status == 0 and not receipt.get("error_code") and all(
+        simulator_absent = False
+        if args.sims:
+            try:
+                Path(args.sims).lstat()
+            except FileNotFoundError:
+                simulator_absent = True
+            except OSError:
+                pass  # An unreadable path cannot prove removal.
+        receipt["simulator_cleanup"] = args.status == 0 and simulator_absent
+        receipt["passed"] = receipt["simulator_cleanup"] and not receipt.get("error_code") and all(
             receipt.get(key) is True for key in
             ("start", "live_frame", "host_input", "viewer_stop", "host_stopped", "cleanup"))
-        if args.status != 0:
+        if not receipt["simulator_cleanup"]:
             receipt.update(cleanup=False, passed=False)
             receipt.setdefault("error_code", "host_cleanup_failed")
         return 0 if export_receipt(receipt, args.out) else 1

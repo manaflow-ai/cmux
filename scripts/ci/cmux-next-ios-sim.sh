@@ -362,7 +362,7 @@ cleanup() {
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
   if [[ "$mode" == screen-proof ]]; then
-    python3 -I scripts/ci/cmux_next_screen_sharing_proof.py --finalize-cleanup --status "$result" --out "$out" || result=1
+    python3 -I scripts/ci/cmux_next_screen_sharing_proof.py --finalize-cleanup --status "$result" --sims "$sims" --out "$out" || result=1
     exit "$result"
   fi
   return "$result"
