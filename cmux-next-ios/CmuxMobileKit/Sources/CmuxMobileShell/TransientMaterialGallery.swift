@@ -64,7 +64,6 @@ struct TransientMaterialGallery: View {
         .sheet(isPresented: $showsSheet) {
             TeamAppearanceEditor(team: Team(id: "transient-gallery", name: "Development"), material: material) { _ in showsSheet = false }
         }
-        .accessibilityIdentifier("transient.gallery.\(surface).\(variant)")
     }
 
     /// Stable, neutral content beneath the veil makes translucency inspectable.

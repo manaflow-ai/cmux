@@ -43,6 +43,21 @@ public struct RecoveryGalleryRoot: View {
     public var body: some View {
         Group {
             switch scene {
+            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu":
+                // A container identifier overrides these fixtures' leaf identifiers
+                // in SwiftUI's accessibility tree, hiding their capture controls.
+                TransientMaterialGallery(surface: scene)
+            default:
+                legacyScene.accessibilityIdentifier("recoveryGallery.\(scene)")
+            }
+        }
+        .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
+        .preferredColorScheme(scheme)
+    }
+
+    private var legacyScene: some View {
+        Group {
+            switch scene {
             case "terminal":
                 TerminalConnectingView(topInset: 60)
                     .background(Color.black)
@@ -58,17 +73,12 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
-            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu":
-                TransientMaterialGallery(surface: scene)
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             default:
                 states
             }
         }
-        .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
-        .accessibilityIdentifier("recoveryGallery.\(scene)")
-        .preferredColorScheme(scheme)
     }
 
     private var states: some View {
