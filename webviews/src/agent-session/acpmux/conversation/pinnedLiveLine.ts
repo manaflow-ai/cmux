@@ -30,8 +30,19 @@ export const PIN_LIVE_ATTR = "data-pin-live";
 
 type Pinned = {
   live: HTMLElement;
-  /// The rows over the live line that its held place can cover, with their layout bottoms.
+  /// The rows over the live line read so far (`reachAbove`), nearest first, with their layout bottoms:
+  /// those its held place reaches now, and each that played a glide of its own while pinned. Each one
+  /// read stays listed for the pin, so a clip set on it is cleared with the pin.
   above: { row: HTMLElement; bottom: number }[];
+  /// The rows `above` lists.
+  listed: Set<Element>;
+  /// The next row up not yet read, and its layout bottom; null past the thread's first row.
+  next: HTMLElement | null;
+  nextBottom: number;
+  nextHeight: number;
+  /// The farthest the line's held place may reach above its top this pin (a viewport, or the chase's
+  /// offset when it is drawn further away): no row past it is ever read.
+  reach: number;
   /// The live line's layout top in the thread.
   top: number;
   /// The thread offset last drawn against.
@@ -76,6 +87,36 @@ function rowsAbove(live: HTMLElement, reach: number): { row: HTMLElement; bottom
   return out;
 }
 
+/// The row over `from` (it, or its nearest earlier sibling row) as the next one `reachAbove` reads.
+function stepUp(rows: Pinned, from: Element | null): void {
+  for (let at = from; at; at = at.previousElementSibling)
+    if (at instanceof HTMLElement && at.classList.contains("acpmux-row")) {
+      rows.next = at;
+      rows.nextHeight = at.offsetHeight;
+      rows.nextBottom = at.offsetTop + rows.nextHeight;
+      return;
+    }
+  rows.next = null;
+}
+
+/// Lists the rows over the live line that end within `px` above its top (at most the pin's `reach`),
+/// reading each row once a pin, nearest first: O(rows the line's held place reaches), never every
+/// row in view. A streamed token holds the line back by a line at most, so a pass reads a row or two;
+/// a pass over 60 rows in view read all 60, 3 layout reads each (Leo, 2026-11-04: "never ...
+/// acceptable ... linear time growth degradation").
+function reachAbove(rows: Pinned, px: number): void {
+  const floor = rows.top - Math.min(Math.max(px, 0), rows.reach);
+  while (rows.next && rows.nextBottom >= floor) {
+    const row = rows.next;
+    const [bottom, height] = [rows.nextBottom, rows.nextHeight];
+    stepUp(rows, row.previousElementSibling);
+    if (height > 0 && !rows.listed.has(row)) {
+      rows.above.push({ row, bottom });
+      rows.listed.add(row);
+    }
+  }
+}
+
 /// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
 function dropClipGlides(playing: readonly Animation[]) {
   for (const animation of playing) {
@@ -86,18 +127,39 @@ function dropClipGlides(playing: readonly Animation[]) {
 
 const NONE: readonly Animation[] = [];
 
-/// The animations on each of `rows` themselves (not their children or pseudo-elements, as `row.getAnimations()`
+/// `Node.DOCUMENT_POSITION_PRECEDING`: the other node comes before this one.
+const PRECEDING = 2;
+
+/// The animations on each row over the line (not their children or pseudo-elements, as `row.getAnimations()`
 /// reads them), from one read of the thread's: O(animations playing in it). A read per row cost each streamed
 /// update a style check per row in view, 1.4 ms of a token or tool call in a chat of short turns (60 rows in
 /// view, against 0.04 to 0.19 ms with 31; bench/transcript-replay.bench.ts PROFILE=1, FIXTURE=god).
-function playingOn(thread: HTMLElement, rows: readonly { row: HTMLElement }[]): Map<Element, Animation[]> {
+/// A row over the line not yet listed that plays a translate of its own (a glide, tailGlide.ts) is listed
+/// now, within the pin's reach: drawn down from its place it can pass the line's top from farther up than
+/// the held place reaches, and only it can.
+function playingOn(thread: HTMLElement, rows: Pinned): Map<Element, Animation[]> {
   const out = new Map<Element, Animation[]>();
-  if (rows.length === 0 || typeof thread.getAnimations !== "function") return out;
-  const wanted = new Set<Element>(rows.map(({ row }) => row));
+  if (typeof thread.getAnimations !== "function") return out;
+  const listed = rows.listed;
   for (const animation of thread.getAnimations({ subtree: true })) {
     const effect = animation.effect as KeyframeEffect | null;
     const target = effect?.target;
-    if (!target || effect.pseudoElement || !wanted.has(target)) continue;
+    if (!target || effect.pseudoElement) continue;
+    if (!listed.has(target)) {
+      if (
+        target.parentElement !== thread ||
+        !(target instanceof HTMLElement) ||
+        !target.classList.contains("acpmux-row") ||
+        !(rows.live.compareDocumentPosition(target) & PRECEDING) ||
+        translatingOf([animation]).length === 0
+      )
+        continue;
+      const height = target.offsetHeight;
+      const bottom = target.offsetTop + height;
+      if (height <= 0 || bottom < rows.top - rows.reach) continue;
+      rows.above.push({ row: target, bottom });
+      listed.add(target);
+    }
     const list = out.get(target);
     if (list) list.push(animation);
     else out.set(target, [animation]);
@@ -115,8 +177,10 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   rows.x = x;
   // Held back by what the thread is drawn away past the line's cap.
   const held = x - rows.cap;
-  // Read every gliding offset before changing any row's translate or clip.
-  const playing = playingOn(thread, rows.above);
+  // Read every gliding offset before changing any row's translate or clip: first the rows the held
+  // place reaches, then any row farther up that a glide draws down.
+  reachAbove(rows, held);
+  const playing = playingOn(thread, rows);
   const above = rows.above.map(({ row, bottom }) => {
     const own = playing.get(row) ?? NONE;
     const slides = translatingOf(own);
@@ -209,7 +273,20 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     // turn-transition-jumps steer-tools, the line taken again mid-chase after a steer's rise).
     const kept = was?.live === live;
     const cap = kept ? was.cap : Math.max(0, x);
-    pinned.set(thread, { live, above: rowsAbove(live, reach), top: live.offsetTop, x: kept ? was.x : x, cap });
+    const rows: Pinned = {
+      live,
+      above: [],
+      listed: new Set(),
+      next: null,
+      nextBottom: 0,
+      nextHeight: 0,
+      reach,
+      top: live.offsetTop,
+      x: kept ? was.x : x,
+      cap,
+    };
+    stepUp(rows, live.previousElementSibling);
+    pinned.set(thread, rows);
     thread.setAttribute(PIN_LIVE_ATTR, "");
     drawPinned(thread, x);
     return undefined;

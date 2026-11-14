@@ -130,6 +130,31 @@ mod apps {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_root_symlinked_out_of_the_app_is_refused() {
+        let tmp = std::env::temp_dir().join(format!("cmux-web-pane-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let app = tmp.join("app");
+        let outside = tmp.join("outside");
+        std::fs::create_dir_all(&app).expect("mkdir");
+        std::fs::create_dir_all(&outside).expect("mkdir");
+        std::fs::write(outside.join("passwd"), "secret").expect("write");
+        std::fs::write(outside.join("index.html"), "<p>no</p>").expect("write");
+        std::os::unix::fs::symlink(&outside, app.join("web")).expect("symlink");
+        assert_eq!(resolve_request(&app, "web", "/passwd"), Err(PageFileRefusal::OutsideRoot));
+        assert_eq!(resolve_request(&app, "web", "/"), Err(PageFileRefusal::OutsideRoot));
+        // A root that links back to the app folder itself is refused too.
+        std::os::unix::fs::symlink(&app, app.join("self")).expect("symlink");
+        assert_eq!(resolve_request(&app, "self", "/web/passwd"), Err(PageFileRefusal::OutsideRoot));
+        // A symlinked root that stays inside the app still serves.
+        std::fs::create_dir_all(app.join("real")).expect("mkdir");
+        std::fs::write(app.join("real/index.html"), "<p>ok</p>").expect("write");
+        std::os::unix::fs::symlink(app.join("real"), app.join("inside")).expect("symlink");
+        assert!(resolve_request(&app, "inside", "/").is_ok());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn the_csp_is_the_app_csp_intersected_with_the_strict_policy() {
         // codemirror: default-src 'self'; style-src 'self' 'unsafe-inline'.

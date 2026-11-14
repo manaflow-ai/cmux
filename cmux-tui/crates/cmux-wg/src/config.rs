@@ -16,7 +16,7 @@ use base64::Engine;
 use ip_network::IpNetwork;
 use zeroize::Zeroizing;
 
-use crate::UltraMode;
+use crate::UltraChoice;
 
 /// The WireGuard default interface MTU, used when the config sets none.
 pub const DEFAULT_MTU: u16 = 1420;
@@ -104,11 +104,11 @@ pub struct WgConfig {
     /// there. Empty when the config does not say, and probes then use the
     /// base address of the peer's first allowed network.
     pub peer_addresses: Vec<IpAddr>,
-    /// The ultra mode an app setting asks for (desktop `remote.ultraMode`,
-    /// the iPhone's "Ultra mode on cellular"), never read from the wg-quick
-    /// file. `None`: off. `CMUX_WG_ULTRA`, when set, wins over it
-    /// ([`UltraMode::resolve`]).
-    pub ultra: Option<UltraMode>,
+    /// The ultra choice an app setting asks for (Off, Auto or Always:
+    /// desktop `remote.ultra`, the iPhone's Settings > Transport > Ultra
+    /// Mode), never read from the wg-quick file. `CMUX_WG_ULTRA`, when set,
+    /// wins over it ([`UltraChoice::resolve`]).
+    pub ultra: UltraChoice,
 }
 
 impl fmt::Debug for WgConfig {
@@ -301,7 +301,7 @@ impl WgConfig {
             endpoint,
             persistent_keepalive,
             peer_addresses,
-            ultra: None,
+            ultra: UltraChoice::Off,
         })
     }
 

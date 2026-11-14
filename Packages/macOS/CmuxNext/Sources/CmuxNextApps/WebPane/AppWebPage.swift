@@ -27,13 +27,16 @@ public nonisolated struct AppWebPage: Sendable, Hashable {
     }
 
     /// The page's file root inside `package`, or nil when the root would leave it (the daemon
-    /// never lists such a page; this holds the rule on the client too).
+    /// never lists such a page; this holds the rule on the client too). Symlinks are resolved:
+    /// the root's real path must be strictly inside the package's real path, so a root that is
+    /// (or sits under) a link to `/etc` serves nothing.
     public func rootURL(in package: URL) -> URL? {
         let parts = root.split(separator: "/").map(String.init)
-        guard !root.hasPrefix("/"), !parts.contains(where: { $0 == ".." || $0 == "." || $0.contains("\\") }) else { return nil }
+        guard !root.hasPrefix("/"), !parts.isEmpty,
+              !parts.contains(where: { $0 == ".." || $0 == "." || $0.contains("\\") }) else { return nil }
         let base = package.standardizedFileURL.resolvingSymlinksInPath()
-        let url = parts.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
-        return url.path == base.path || url.path.hasPrefix(base.path + "/") ? url : nil
+        let url = parts.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }.resolvingSymlinksInPath()
+        return url.path.hasPrefix(base.path + "/") ? url : nil
     }
 }
 

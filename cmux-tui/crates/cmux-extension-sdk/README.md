@@ -76,6 +76,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
 | `EVENT_STREAMS`, `scopeFor(stream)` | The streams cmux sends and the scope each needs. |
 | `cmux` | Every op cmux gives an extension (`cmux.workspace.focus`, `cmux.toast`, `cmux.watch`, `cmux.storage`, ...), typed in `cmux-app.d.ts`. |
+| `cmux.time.zone(name, at?)` | Another time zone: `{zone, offsetMinutes, abbreviation}` for an IANA name at `at` (epoch ms, default now); throws `zone.unknown`. The sandbox has no `Intl`, and `toLocaleString` ignores `timeZone`, so a world clock reads the offset here and formats `new Date(now + offsetMinutes * 60000)` with the `getUTC*` methods. |
 | `signal`, `computed`, `effect`, `onCleanup`, `untrack` | Reactive state: a view that reads a signal redraws only what changed. |
 | `VStack`, `HStack`, `Row`, `Text`, `Panel`, `ForEach`, `Button`, `Toggle`, ... | The scene DSL cmux draws natively. Colors are theme tones (`cmux.theme.success`), never raw values. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
@@ -90,6 +91,24 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
+
+## Test it
+
+`cmux-extension-sdk/testing` runs an extension the way cmux does, with no cmux running: the fake
+host loads the same runtime bundle cmux ships, and the validator is the one `cmux apps validate` runs.
+
+```ts
+import { FakeHost, pack, validatePackage, manifestSchema, interfaceContract } from "cmux-extension-sdk/testing"
+
+const host = new FakeHost(await pack("."), { app: { id: "local/my-ext", version: "0.1.0" }, apiVersion: "1.0.0" })
+host.handlers = { "workspace.list": () => ({ ok: true, body: { value: [] } }) }
+host.mount("s", "renderSection")
+await host.settle()
+```
+
+Every first-party extension with tests runs them this way as a fork, with only this package
+beside it (`bun first-party-apps/fork-check.ts`); `runtime-files.json` lists the runtime files the
+package ships.
 
 ## The Rust API
 

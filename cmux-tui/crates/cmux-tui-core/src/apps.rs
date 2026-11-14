@@ -47,7 +47,8 @@ mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
-// `allowed_ops` and the rate-limited count have no reader outside tests yet.
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
 #[cfg(unix)]

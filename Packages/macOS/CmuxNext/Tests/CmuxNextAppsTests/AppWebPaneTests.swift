@@ -78,6 +78,18 @@ struct AppWebPaneTests {
         }
     }
 
+    /// A root that is a symlink out of the package (`web` -> `/etc`) is refused, as the daemon's
+    /// `resolve_request` refuses it; a root linked to a folder inside the package still serves.
+    @Test func aRootLinkedOutOfThePackageIsRefused() throws {
+        let package = FileManager.default.temporaryDirectory.appendingPathComponent("web-pane-link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: package.appendingPathComponent("site"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: package) }
+        try FileManager.default.createSymbolicLink(atPath: package.appendingPathComponent("web").path, withDestinationPath: "/etc")
+        try FileManager.default.createSymbolicLink(atPath: package.appendingPathComponent("inside").path, withDestinationPath: "site")
+        #expect(AppWebPage(interface: "cmux.pane/1", root: "web", entry: "index.html").rootURL(in: package) == nil)
+        #expect(AppWebPage(interface: "cmux.pane/1", root: "inside", entry: "index.html").rootURL(in: package)?.lastPathComponent == "site")
+    }
+
     /// The page's `<host>.<op>` reaches the daemon as the app's own op, unparsed and with this
     /// page's key; the daemon's value comes back.
     @Test func aCallGoesToTheDaemonAsTheAppsOp() async throws {

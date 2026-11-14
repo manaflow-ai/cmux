@@ -130,12 +130,12 @@ fn web_root(m: &Value) -> Result<String, String> {
 fn entry_in_root(root: &str, web: &str) -> Result<String, String> {
     let segments = relative_segments(web)?;
     let root_segments: Vec<&str> = root.split('/').collect();
-    let inside = segments.len() > root_segments.len()
-        && segments.iter().zip(&root_segments).all(|(a, b)| a == b);
+    let rest = segments.get(root_segments.len()..).unwrap_or_default();
+    let inside = !rest.is_empty() && segments.iter().zip(&root_segments).all(|(a, b)| a == b);
     if !inside {
         return Err(format!("{web} is not inside runtime.web.root ({root}/)"));
     }
-    Ok(segments[root_segments.len()..].join("/"))
+    Ok(rest.join("/"))
 }
 
 /// The segments of a relative path, refusing an absolute path, a `..`
@@ -170,8 +170,9 @@ pub enum PageFileRefusal {
 
 /// The file to serve for the URL path of a `cmux-app://<host>/<path>` request
 /// (already percent-decoded), under `<app_dir>/<root>`. `/` serves
-/// `index.html`. The file's real path (symlinks resolved) must stay inside the
-/// root's real path, so a symlink in the app tree cannot reach out of it.
+/// `index.html`. The root's real path (symlinks resolved) must stay strictly
+/// inside the app's real folder, and the file's real path inside the root's,
+/// so no symlink in the app tree, the root included, can reach out of it.
 pub fn resolve_request(
     app_dir: &Path,
     root: &str,
@@ -188,6 +189,13 @@ pub fn resolve_request(
     }
     let root_dir = root_segments.iter().fold(app_dir.to_path_buf(), |p, s| p.join(s));
     let real_root = root_dir.canonicalize().map_err(|_| PageFileRefusal::NotFound)?;
+    // The root itself may be a symlink (or sit under one): its real path must
+    // still be strictly inside the app's real folder, or a package whose `web`
+    // links to `/etc` would serve host files.
+    let real_app = app_dir.canonicalize().map_err(|_| PageFileRefusal::NotFound)?;
+    if real_root == real_app || !real_root.starts_with(&real_app) {
+        return Err(PageFileRefusal::OutsideRoot);
+    }
     // `segments` has no `..` and no absolute part (relative_segments), so only
     // a symlink can leave the root: the real-path check below catches it.
     let file = segments.iter().fold(root_dir, |p, s| p.join(s));

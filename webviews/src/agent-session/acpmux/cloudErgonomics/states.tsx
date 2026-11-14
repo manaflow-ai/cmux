@@ -23,6 +23,7 @@ import repoRecoveryGallery from "../conversation/RepoRecoveryCard.gallery";
 import { RepoRecoveryCard } from "../conversation/RepoRecoveryCard";
 import { TurnFooter } from "../conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "../conversation/turnActions";
+import { FailedSendsContext, type FailedSends } from "../conversation/promptDeliveryModel";
 import type { Effect } from "./classify";
 
 export type Recorder = (effect: Effect) => void;
@@ -62,6 +63,12 @@ function cloudStartHandlers(record: Recorder) {
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
     // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
     onSwitchTeam: inPlace(record, "switch to the person's own team, then the start goes again"),
+    // cloudTooBigActions: a repository or a folder picked (project.browse), or none, then the same prompt goes there.
+    onPickRepo: inPlace(record, "start the prompt in a repository inside the folder"),
+    onPickFolder: inPlace(record, "pick a folder, then the start goes again there"),
+    onStartWithoutFolder: inPlace(record, "start the prompt with no folder"),
+    // openNewCloudChatForStart: a new Cloud chat (palette.newCloudChat) with the same prompt and folder.
+    onOpenNewCloudChat: inPlace(record, "open a new Cloud chat with the same prompt"),
   };
 }
 
@@ -234,6 +241,11 @@ function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
   };
 }
 
+/// What App.tsx's `failedSends` holds for a chat whose folder is not trusted yet and whose pane answers for it.
+function cloudChatSends(record: Recorder): FailedSends {
+  return { runs: new Map(), trustFolder: () => record({ kind: "in-place", what: "trust the folder" }) };
+}
+
 type TurnFailureFixture = { id: string; kind: FailureKind; error: string; code?: string; teamMachine?: true };
 
 /// One per kind (failureCopy.ts `FailureKind`; KINDS below makes a new kind fail typecheck until it has one).
@@ -375,7 +387,9 @@ const TURN_FAILURE_STATES: ErgoState[] = TURN_FAILURES.map((fixture) => {
     region: ".cv-turn-error, .cv-turn-actions .cv-turn-auth-action",
     render: (record) => (
       <TurnActionsContext.Provider value={cloudChatActions(record, route)}>
-        <TurnFooter row={row} />
+        <FailedSendsContext.Provider value={cloudChatSends(record)}>
+          <TurnFooter row={row} />
+        </FailedSendsContext.Provider>
       </TurnActionsContext.Provider>
     ),
   };
