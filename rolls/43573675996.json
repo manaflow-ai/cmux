@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43573675996",
+  "recorded_at": "2026-11-14T08:07:53Z",
+  "reason": "cmux-tui 754dadbe74d3 changes the image's cmux-tui (pinned 178c58d4fec6)",
+  "dry_run": false,
+  "cmux_tui": "754dadbe74d3a7904671d89804a82e4896085075",
+  "fixes": [
+    {
+      "sha": "754dadbe74d3a7904671d89804a82e4896085075",
+      "mergedAt": "2026-11-13T23:39:17-08:00",
+      "subject": "App Store: chat.list, chat.changed, chat.mark_read and chat.pin, answered in Rust (#41582)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T08:07:53Z",
+    "snapshot_id": "sh-23e66ad44f9c4f969cb3363b89f44ccc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43573675996): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2d13323f6603bfbef1e1fbfec2bdfe3b96de3928",
+    "image": "cloud-native-auto-754dadbe-43573675996-1",
+    "revision": "ci-43573675996-1",
+    "at": "2026-11-14T08:07:53Z"
+  },
+  "rolled_back": false
+}
