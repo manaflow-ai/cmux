@@ -331,7 +331,12 @@ fn read_frame(stream: &mut TcpStream, buf: &mut Vec<u8>) -> io::Result<Option<(u
     if buf.len() < 5 {
         return Ok(Some((0, Vec::new())));
     }
-    let len = u32::from_le_bytes(buf[1..5].try_into().unwrap()) as usize;
+    let len = u32::from_le_bytes(
+        buf.get(1..5)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "short frame header"))?
+            .try_into()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid frame header"))?,
+    ) as usize;
     if len > MAX_FRAME {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
     }
@@ -347,7 +352,9 @@ fn read_frame(stream: &mut TcpStream, buf: &mut Vec<u8>) -> io::Result<Option<(u
 fn read_blocking_frame(stream: &mut TcpStream) -> Res<(u8, Vec<u8>)> {
     let mut header = [0u8; 5];
     stream.read_exact(&mut header)?;
-    let len = u32::from_le_bytes(header[1..].try_into().unwrap()) as usize;
+    let len =
+        u32::from_le_bytes(header[1..].try_into().map_err(|_| "invalid control frame header")?)
+            as usize;
     if len > MAX_FRAME {
         return Err("control frame too large".into());
     }
