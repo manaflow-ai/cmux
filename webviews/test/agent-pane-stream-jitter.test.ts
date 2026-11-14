@@ -344,14 +344,9 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           // Virtualized rows keep their estimated geometry while they are outside the viewport. Do
           // not treat that offscreen bookkeeping as a painted movement; only compare the marker while
           // it is actually visible in the transcript. A visible downward move remains a real failure.
-          marker:
-            rowBox && rowBox.bottom > view.top && rowBox.top < view.bottom
-              ? rowBox.top >= view.top
-                ? rowBox.top
-                : message && message.getBoundingClientRect().bottom > view.top
-                  ? message.getBoundingClientRect().bottom
-                  : undefined
-              : undefined,
+          // The marker is always the row's top: switching to another edge (the message's foot) once
+          // the top scrolls above the view reads as a jump down of the row's height above it.
+          marker: rowBox && rowBox.bottom > view.top && rowBox.top < view.bottom ? rowBox.top : undefined,
           messageBottom: message?.getBoundingClientRect().bottom,
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
