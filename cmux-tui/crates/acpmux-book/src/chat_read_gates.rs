@@ -1,6 +1,9 @@
 //! Book reads at fixed reply size, in five alternating steady-state rounds.
 use crate::log::{Anchor, MAX_BLOB_READ, MAX_FRAME_BYTES};
-use crate::testkit::{BlobFixture, blob_fixture, folded_book, ids};
+use crate::testkit::{
+    BlobFixture, REPLY, TURN_ROWS, blob_fixture, folded_book, folded_turns, ids, turn_group,
+    turn_group_text,
+};
 use std::io::Write;
 use std::time::Instant;
 
@@ -198,4 +201,58 @@ fn v2_pr03c_blob_range() {
     for (mode, measures) in results {
         measures.check(name, mode);
     }
+}
+
+/// The last turn of both books in [`v2_pr03c_window_folds`].
+const LAST_TURN: u64 = 99_999;
+/// The turns one window there holds: each shows its group and its reply.
+const WINDOW_TURNS: u64 = 8;
+
+fn window_folds_sample(log: &mut crate::log::Log, folds: &crate::folds::Folds) -> u64 {
+    let before = folds.stats();
+    let start = Instant::now();
+    let rows = (2 * WINDOW_TURNS) as usize;
+    let window = log.read_window(Anchor::End, rows, MAX_FRAME_BYTES, Some(folds), &[]).unwrap();
+    std::hint::black_box(&window);
+    let elapsed = start.elapsed().as_nanos() as u64;
+    // Check outside the clock: one search a read, and the same steps and rows at both sizes.
+    let after = folds.stats();
+    assert_eq!(after.searches - before.searches, 1, "one search of folds.idx a read");
+    assert_eq!(after.search_reads - before.search_reads, 0, "the last entry is in memory");
+    assert_eq!(after.entry_reads - before.entry_reads, WINDOW_TURNS - 1, "a step a turn");
+    let expected: Vec<u64> = (LAST_TURN + 1 - WINDOW_TURNS..=LAST_TURN)
+        .flat_map(|turn| [turn_group(turn), turn_group(turn) + TURN_ROWS - 1])
+        .collect();
+    assert_eq!(ids(&window.rows), expected);
+    assert!(window.refused.is_empty() && window.has_before && !window.has_after);
+    assert_eq!(window.at.len(), window.rows.len());
+    for (row, range) in window.rows.iter().zip(&window.at) {
+        let text = window.bytes.get(range.clone()).unwrap();
+        if (row.row_id - 1).is_multiple_of(TURN_ROWS) {
+            assert_eq!(text, turn_group_text((row.row_id - 1) / TURN_ROWS));
+        } else {
+            assert_eq!(text, REPLY);
+        }
+    }
+    elapsed
+}
+
+#[test]
+#[ignore]
+fn v2_pr03c_window_folds() {
+    let root = tempfile::tempdir().unwrap();
+    // Both books end at the same turns; the god book has 100,000 closed folds, the small 10.
+    let (mut small_log, small_folds) =
+        folded_turns(&root.path().join("small"), LAST_TURN + 1 - 10, 10);
+    let (mut god_log, god_folds) = folded_turns(&root.path().join("god"), 0, LAST_TURN + 1);
+    assert_eq!((small_folds.count(), god_folds.count()), (10, 100_000));
+    let name = "v2.pr03c.window_folds";
+    let measures = paired(
+        name,
+        "folds",
+        || window_folds_sample(&mut small_log, &small_folds),
+        || window_folds_sample(&mut god_log, &god_folds),
+    );
+    emit(name, measures);
+    measures.check(name, "folds");
 }
