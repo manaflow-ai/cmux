@@ -222,6 +222,37 @@ impl Client {
         }
     }
 
+    /// An open row's whole body text, read by `blob` a range at a time, as a client reads a
+    /// body a resume left out. Frames on `s` met on the way are credited.
+    async fn open_body(&mut self, row: u64, edition: u32, consumed: &mut u64) -> String {
+        let mut bytes = Vec::new();
+        loop {
+            let id = format!("b{}", bytes.len());
+            self.send(json!({"method": "blob", "params": {"id": id, "stream": "chat:chat",
+                "edition": edition, "rowId": row, "start": bytes.len(),
+                "len": MAX_BLOB_READ}}))
+                .await;
+            let frame = loop {
+                let frame = self.recv().await;
+                match frame.kind {
+                    FrameKind::Blob => break frame,
+                    FrameKind::Error => panic!("{}", String::from_utf8_lossy(frame.payload())),
+                    _ => {
+                        *consumed += frame.encoded_len() as u64;
+                        self.credit("s", *consumed).await;
+                    }
+                }
+            };
+            let (head, piece) = decode_blob(&frame).unwrap();
+            bytes.extend_from_slice(piece);
+            if piece.is_empty() || bytes.len() as u64 >= head.total {
+                break;
+            }
+        }
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        body["text"].as_str().unwrap().to_owned()
+    }
+
     async fn credit(&mut self, sid: &str, consumed: u64) {
         self.send(json!({"method": "credit", "params": {"sid": sid, "consumed": consumed}})).await;
     }
@@ -260,6 +291,60 @@ fn apply(delta: &ChatDelta, row_id: u64, text: &mut String) {
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap()
+}
+
+/// Live text held past a frame's worth goes out in frames of at most 256 KB, none lost. The
+/// text holds escapes and four-byte characters, so a cut inside either would show.
+#[test]
+fn three_mebibytes_of_live_text_in_one_coalesce_reach_a_subscriber_whole_in_small_frames() {
+    runtime().block_on(async {
+        let mut lines = open_turn(1);
+        lines.push(chunk(13, "start ", "m1"));
+        let chat = Chat::new(&lines);
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        let (row, mut text) = open_reply(&window).expect("the open reply is in the window");
+        assert_eq!(text, "start ");
+        let piece = "a\"b\\c\n🙂é ".repeat(64 * 1024 / 16);
+        let pieces = (3 << 20) / piece.len() + 1;
+        let mut full = text.clone();
+        let mut appended = Vec::new();
+        for n in 0..pieces as u64 {
+            appended.push(chunk(14 + n, &piece, "m1"));
+            full.push_str(&piece);
+        }
+        // One write: the actor reads it in a few chunks, well inside one 16 ms coalesce.
+        chat.append(&appended);
+        let mut consumed = window_bytes(&window);
+        let mut largest = 0;
+        while text.len() < full.len() {
+            let frame = client.recv().await;
+            consumed += frame.encoded_len() as u64;
+            assert_ne!(frame.kind, FrameKind::Dropped, "a live subscriber was dropped");
+            if frame.kind == FrameKind::Delta {
+                largest = largest.max(frame.encoded_len());
+                let delta: ChatDelta = frame.decode_json().unwrap();
+                // Past the credit window the subscriber stops; its resume names the open row
+                // with its body left out, which a client reads by `blob`.
+                let left_out = delta.ops.iter().any(|op| {
+                    matches!(op, ChatOp::Row { row: r, body_len: Some(_), .. }
+                        if row_value(r)["id"] == row)
+                });
+                if left_out {
+                    client.credit("s", consumed).await;
+                    text = client.open_body(row, window.edition, &mut consumed).await;
+                } else {
+                    apply(&delta, row, &mut text);
+                }
+                assert!(full.starts_with(&text), "the text went wrong at byte {}", text.len());
+            }
+            client.credit("s", consumed).await;
+        }
+        assert_eq!(text, full);
+        assert!(largest <= MAX_REPLAY_FRAME_BYTES + 512, "a frame of {largest} bytes");
+    });
 }
 
 #[test]
