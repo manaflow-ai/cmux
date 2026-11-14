@@ -42,14 +42,14 @@ extension HomeService {
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
-                settleHomeEnsure(generation)
+                settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
                 // Each window's own Home is docked on every connect too (cmux#27880); before the
                 // Chief's tab, which can wait long for the Chief's owner.
-                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
-                try await ensureChiefTab(connection, home: home)
+                DebugTimings.markLaunch("home.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
+                DebugTimings.markLaunch("home.window_docks"); try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
                 self?.settleHomeEnsure(generation)
@@ -133,11 +133,11 @@ extension HomeService {
         // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
         if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }; DebugTimings.markLaunch("home.cloud_chiefs_read")
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
         // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault).
-        await refreshLocalChiefRunning()
+        await refreshLocalChiefRunning(); DebugTimings.markLaunch("home.local_chief_read")
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
@@ -148,17 +148,17 @@ extension HomeService {
         if shown == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
             owner = await chiefConnection()
-            guard owner != nil, !Task.isCancelled else { return }
+            guard owner != nil, !Task.isCancelled else { return }; DebugTimings.markLaunch("home.chief_owner_ready")
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
         var listedAll: [ConversationSummary] = []
-        if let owner { listedAll = try await ConversationClient(owner).list() }
+        if let owner { listedAll = try await ConversationClient(owner).list() }; DebugTimings.markLaunch("home.chief_listed")
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner, listed: listedAll) } else { listed?.id }
-        let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
+        DebugTimings.markLaunch("home.chief_conversation"); let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
         if let followed { followedChiefConversations.insert(followed) }
