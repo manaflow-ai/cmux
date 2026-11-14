@@ -26,6 +26,10 @@
       "docs": "An agent's state changed (working, blocked, idle, done).",
       "reads": "agent.list"
     },
+    "media.changed": {
+      "docs": "What plays changed: another track, play or pause, a seek, or new artwork.",
+      "reads": "media.get"
+    },
     "agent_chat.changed": {
       "docs": "An agent chat was added, closed, renamed, read or changed state.",
       "reads": "agent_chat.list"

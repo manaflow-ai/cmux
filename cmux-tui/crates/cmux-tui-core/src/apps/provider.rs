@@ -70,6 +70,10 @@ pub const FAMILIES: &[&str] = &[
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
+    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
+    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
+    // `media.changed` subscribers when it changes.
+    "media",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.

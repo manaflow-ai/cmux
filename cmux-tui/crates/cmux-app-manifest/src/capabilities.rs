@@ -177,9 +177,16 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 /// marks a chat read or pins it only in answer to a tap, never on its own.
 pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 
+/// Ops that start, stop or move what plays: an app plays, pauses or skips
+/// only in answer to a tap, so no extension starts sound on its own.
+pub const PLAYBACK_OPS: &[&str] = &["media.control"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op)
+        || PANEL_OPS.contains(&op)
+        || PERSON_MARK_OPS.contains(&op)
+        || PLAYBACK_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.

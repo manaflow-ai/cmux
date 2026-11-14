@@ -88,6 +88,7 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
+| `media.changed` | `media:read` | what plays changes: another track, play or pause, a seek, new artwork (`media.get`, the `media.now_playing` signal) |
 
 ## The Rust API
 
