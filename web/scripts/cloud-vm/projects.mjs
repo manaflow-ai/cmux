@@ -38,6 +38,10 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_DB_DRIVER",
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_DEFAULT_PROVIDER",
+  // Signed model-plane authorization is mandatory for every production create;
+  // without both values the route fails closed before the provider call.
+  "CMUX_VM_AUTH_SIGNING_KEY",
+  "CMUX_VM_AUTH_SIGNING_KEY_ID",
   // Freestyle is the production default provider (CMUX_VM_DEFAULT_PROVIDER):
   // without credentials and a snapshot selector every create 503s.
   "CMUX_VM_FREESTYLE_ENABLED",
