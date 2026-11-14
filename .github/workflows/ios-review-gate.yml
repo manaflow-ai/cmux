@@ -312,14 +312,23 @@ jobs:
         env:
           FAMILY: ${{ matrix.family }}
         run: |
+          # Never -e (Actions runs `bash -e`): the picker's exit is read below.
+          set +e
           set -uo pipefail
-          # Before the build: a family this image has no simulator for
-          # skips the build, and the report reads the marker as its result.
-          if udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$FAMILY" --print-udid)"; then
+          # Before the build: a family this image has no simulator for (the
+          # picker's exit 3) skips the build, and the report reads the
+          # marker as its result. Any other picker failure fails the leg,
+          # which leaves no result, so the report blocks.
+          udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$FAMILY" --print-udid)"
+          code=$?
+          if [ "$code" -eq 0 ]; then
             echo "UDID=$udid" >> "$GITHUB_ENV"
-          else
+          elif [ "$code" -eq 3 ]; then
             echo "::notice::no $FAMILY simulator on this image; its size classes are covered by the Pro Max and iPad rotation tests"
             echo "{\"family\":\"$FAMILY\",\"skipped\":true}" > "$RESULTS/$FAMILY.skipped.json"
+          else
+            echo "::error::the $FAMILY simulator pick failed (exit $code)" >&2
+            exit "$code"
           fi
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
