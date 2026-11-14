@@ -96,7 +96,7 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         (self.temp / "bin/curl").write_text("#!/bin/sh\nexit 7\n")
         (self.temp / "bin/curl").chmod(0o755)
         self.origin = self.temp / "origin"
-        self.git(self.temp, "init", "-q", "-b", "main", str(self.origin))
+        git_fixture_env.init_repo(self.origin, "-b", "main", env=self.env)
         self.git(self.origin, "config", "uploadpack.allowAnySHA1InWant", "true")
         self.commit({"scripts/ci/git_fetch_retry.py": (ROOT / "scripts/ci/git_fetch_retry.py").read_text(),
                      "README": "one\n"}, "first")
@@ -105,7 +105,7 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         self.fleet_git = self.temp / "fleet/git"
         self.fleet_git.mkdir(parents=True)
         self.mirror = self.fleet_git / "cmux.git"
-        self.git(self.temp, "clone", "-q", "--mirror", str(self.origin), str(self.mirror))
+        git_fixture_env.clone_repo(self.origin, self.mirror, "--mirror", env=self.env)
         (self.mirror / "glaeda-verified").write_text("ok\n")
         self.objects = str(self.mirror / "objects")
         # A runner slot whose git store was deleted: the workspace is there, its .git is not.
