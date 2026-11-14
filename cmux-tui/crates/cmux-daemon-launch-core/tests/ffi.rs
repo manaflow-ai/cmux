@@ -37,7 +37,11 @@ fn call(op: &str, request: &Value) -> Result<Value, i32> {
 /// A local Cloud read must not require starting the CLI or a network runtime.
 #[test]
 fn c_abi_cloud_launch_local_preserves_selection_and_fetch_boundary() {
-    let home = std::env::temp_dir().join(format!("cmux-cloud-launch-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!(
+        "cmux-cloud-launch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
     std::fs::create_dir(&home).expect("unique test home");
     let request = |args: Value, environment: Value| {
         serde_json::json!({

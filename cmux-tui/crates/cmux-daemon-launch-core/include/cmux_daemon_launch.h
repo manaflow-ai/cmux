@@ -19,7 +19,7 @@
 /*
  Bumped on any change to a type, a function or an op.
  */
-#define CMUX_DAEMON_LAUNCH_ABI_VERSION 1
+#define CMUX_DAEMON_LAUNCH_ABI_VERSION 2
 
 #define CMUX_DAEMON_LAUNCH_OK 0
 
