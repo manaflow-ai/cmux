@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43610522956",
+  "recorded_at": "2026-11-14T15:44:15Z",
+  "reason": "cmux-tui 9a3a5d7285be changes the image's cmux-tui (pinned e263f4fbb45c)",
+  "dry_run": false,
+  "cmux_tui": "9a3a5d7285be1923620258e1265b67a1f053f949",
+  "fixes": [
+    {
+      "sha": "9a3a5d7285be1923620258e1265b67a1f053f949",
+      "mergedAt": "2026-11-14T07:09:28-08:00",
+      "subject": "acpmux: each chat starts on its own: a per-chat restore point and a lazy inbox (succeeds #41878) (#42837)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:44:15Z",
+    "snapshot_id": "sh-ed34b71524c94f96bbd13333dc0e45d8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43610522956): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4c3a255fa42ac2d02e364a91708ceef42e407a8e",
+    "image": "cloud-native-auto-9a3a5d72-43610522956-1",
+    "revision": "ci-43610522956-1",
+    "at": "2026-11-14T15:44:15Z"
+  },
+  "rolled_back": false
+}
