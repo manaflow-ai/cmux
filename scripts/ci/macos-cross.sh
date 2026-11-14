@@ -460,9 +460,7 @@ cmd_ffi() {
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
   export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=fat
   export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
-  for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
-    grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
-  done | sort -u > "$out/work/exports.txt"
+  bash "$repo_root/scripts/cmux-next/build-app-ffi.sh" --list-exports > "$out/work/exports.txt"
   for t in "${TARGETS[@]}"; do
     use_target "$t" 14.0
     (cd "$crates/cmux-app-ffi" && cargo build --locked --release --target "$t")
