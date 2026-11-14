@@ -40,6 +40,7 @@ on:
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/theme/theme-ink-vectors.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
