@@ -56,7 +56,7 @@ jobs:
 
   live-windows-host:
     name: Windows live host (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
     runs-on: windows-latest
     timeout-minutes: 15
     environment: ios-e2e
@@ -119,7 +119,7 @@ jobs:
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
     environment: ios-e2e
