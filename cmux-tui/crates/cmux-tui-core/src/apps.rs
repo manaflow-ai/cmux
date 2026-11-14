@@ -28,6 +28,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
@@ -48,6 +50,8 @@ mod local_reload;
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
+#[cfg(unix)]
+mod openers;
 #[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).

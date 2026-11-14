@@ -27,6 +27,8 @@ cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
+# Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
+cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
