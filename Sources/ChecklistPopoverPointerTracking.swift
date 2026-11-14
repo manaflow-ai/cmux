@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
-/// Item-row frames in ``SidebarWorkspaceChecklistPopover``'s pointer
-/// coordinate space, keyed by item id. Feeds the geometry-derived
-/// `hoveredItemId` (see its doc comment).
-struct ChecklistPopoverRowFramesKey: PreferenceKey {
+/// Item-row frames in a checklist view's named coordinate space, keyed by
+/// item id. Popover hover tracking and the inline checklist viewport both use
+/// the same preference shape so their row measurement stays consistent.
+struct SidebarWorkspaceChecklistRowFramesKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] { [:] }
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue()) { _, new in new }
