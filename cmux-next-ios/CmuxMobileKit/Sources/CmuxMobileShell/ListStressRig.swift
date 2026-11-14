@@ -162,7 +162,8 @@ final class ListStressRig: NSObject {
                 }
                 try? await Task.sleep(for: .seconds(1))
                 // As a reader does: leave the newest turn (the transcript stops following it).
-                DemoDirector.shared.post(.chatScroll(toTop: true))
+                // `LIST_LEAVE_NEWEST=0` stays on it (a running chat watched).
+                if settings.leavesNewest { DemoDirector.shared.post(.chatScroll(toTop: true)) }
             }
         case "feed":
             // The Feed's own seeding (`CMUX_MOBILE_FEED_STRESS=N`); this rig only scrolls, as a reference.
