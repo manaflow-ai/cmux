@@ -46,6 +46,7 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
   beforeAll(async () => {
     const built = await Bun.build({
       entrypoints: [path.join(import.meta.dir, "support/chatImageFirstFrame.entry.tsx")],
+      format: "iife",
       target: "browser",
       define: { "process.env.NODE_ENV": '"production"' },
     });
@@ -68,7 +69,7 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
     const page =
       `<!doctype html><html><head><style>${css.replaceAll("</style", "<\\/style")}</style></head>` +
       `<body style="margin:0"><div id="chat" style="width:760px;display:flex"></div>` +
-      `<script type="module">${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
+      `<script>${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
     server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -82,9 +83,13 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
 
   async function measure(record: unknown): Promise<Heights[]> {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    // A page that fails to load its bundle says why, instead of a wait that times out.
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
     try {
       await page.goto(`http://127.0.0.1:${server!.port}/`);
-      await page.waitForFunction(() => typeof (window as any).measureChatImage === "function");
+      const ready = await page.evaluate(() => typeof (window as any).measureChatImage === "function");
+      expect({ ready, errors }).toEqual({ ready: true, errors: [] });
       return await page.evaluate((msg) => (window as any).measureChatImage(msg, 400), record);
     } finally {
       await page.close();
