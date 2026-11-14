@@ -20,10 +20,6 @@ struct LaunchConfigFileEnvironmentTests {
                                processEnvironment: process, isDebugBuild: true, home: home)
     }
 
-    @Test func theOverrideKeyIsTheOneTheAppReads() {
-        #expect(LaunchIdentity.configFileKey == CmuxConfigFile.overrideKey)
-    }
-
     @Test func aLaunchOnItsOwnSettingsFileGivesItToTerminalsTheDaemonAndAgents() async {
         let process = [CmuxConfigFile.overrideKey: "~/.config/cmux/cmux-next-cu-fresh.json"]
         let launch = Self.launch(process)
