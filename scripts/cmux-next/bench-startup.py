@@ -1055,12 +1055,7 @@ def seed_realistic(tag, scratch, timeout):
                 print(f"  {tag}: seeding without an agent chat ({action}: {reply.get('error')})", file=sys.stderr)
                 agent = False
                 break
-            if CHAT_FIXTURE and action == "palette.newAgentChat":
-                CHAT_FIXTURE.seed(tag, app, timeout)
         app.close()
-        if agent and not prime.wait_for(AGENT_MARK, timeout):
-            print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
-            agent = False
         if agent:
             # A chat made through the control socket opens unselected; select
             # it so it is the visible tab at quit and a restore shows it.
@@ -1071,6 +1066,17 @@ def seed_realistic(tag, scratch, timeout):
             if not reply.get("ok"):
                 print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
                 agent = False
+        if agent and not prime.wait_for(AGENT_MARK, timeout):
+            print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
+            agent = False
+        if agent and CHAT_FIXTURE:
+            # Opening a tab settles before its native view is necessarily shown.
+            # Select it and await its first page frame before sending chat RPCs.
+            app = app_client(tag)
+            try:
+                CHAT_FIXTURE.seed(tag, app, timeout)
+            finally:
+                app.close()
         if HIDDEN_SCREENS:
             seed_hidden_screens(tag, timeout)
         if agent and SEED_FOCUS == "terminal":
