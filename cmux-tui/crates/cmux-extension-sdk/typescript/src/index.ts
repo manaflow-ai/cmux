@@ -68,6 +68,19 @@ export function section(render: (context: MountContext) => View): (context: Moun
   return render
 }
 
+/**
+ * The whole workspace list (`cmux.sidebar/1`), drawn in place of the built-in one once the person
+ * names the extension in `sidebar.workspaceListApp`. The built-in list stays the fallback: cmux
+ * draws it while this one loads, fails or is removed. examples/extensions/workspace-list is the
+ * built-in list rebuilt on this SDK, to copy and change.
+ *
+ *     // cmux-app.json: "implements": { "cmux.sidebar/1": { "export": "renderSidebar", "title": "Workspaces" } }
+ *     export const renderSidebar = sidebar(() => VStack([...]))
+ */
+export function sidebar(render: (context: MountContext) => View): (context: MountContext) => View {
+  return render
+}
+
 /** A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a section. */
 export function pane(render: (context: MountContext) => View): (context: MountContext) => View {
   return render

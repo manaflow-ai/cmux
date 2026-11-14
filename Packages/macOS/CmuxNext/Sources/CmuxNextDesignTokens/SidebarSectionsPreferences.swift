@@ -178,6 +178,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.workspaceListApp`: the id of an installed extension that draws the whole workspace
+    /// list (`cmux.sidebar/1`). Nil (the default) draws the built-in list, which also shows while the
+    /// extension loads, fails or is removed.
+    public var workspaceListApp: String?
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
 

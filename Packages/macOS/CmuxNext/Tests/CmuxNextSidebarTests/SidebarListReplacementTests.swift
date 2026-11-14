@@ -22,6 +22,7 @@ import Testing
         var content: (any SidebarCustomContent)? { didSet { onContentChange?() } }
         var onContentChange: (() -> Void)?
         init(_ content: (any SidebarCustomContent)?) { self.content = content }
+        func release() {}
     }
 
     private func sidebar() -> SidebarView {

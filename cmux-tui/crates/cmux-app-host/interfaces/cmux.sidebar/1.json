@@ -1,0 +1,14 @@
+{
+  "name": "cmux.sidebar/1",
+  "version": 1,
+  "docs": "The whole workspace list, drawn by an extension in place of the built-in one. The person opts in by naming the app in sidebar.workspaceListApp; the built-in list stays the default and the fallback whenever the extension is not chosen, not installed, loading, failing, or apps cannot run (safe mode).",
+  "props": {
+    "title": "string",
+    "symbol": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

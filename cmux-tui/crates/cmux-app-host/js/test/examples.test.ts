@@ -300,11 +300,17 @@ describe("local/workspace-list (cmux-extension-sdk only)", () => {
     expect(drawn(host, "l").length).toBe(500)
     expect(host.calls.filter((c) => c.name === "workspace.list").length).toBe(1)
     const before = host.tree("l").nodes.size
-    state.workspaces = state.workspaces.map((w) => (w.id === "ws_7" ? { ...w, name: "renamed" } : w))
+    const batches = host.batches("l").length
+    // A re-read returns new objects for every workspace, as the daemon's answer does.
+    state.workspaces = state.workspaces.map((w) => ({ ...w, name: w.id === "ws_7" ? "renamed" : w.name }))
     host.emit("workspace.changed")
     await host.settle()
     expect(host.tree("l").nodes.size).toBe(before)
     expect(drawn(host, "l")[7]!.title).toBe("renamed")
+    // The redraw is one update of that row's title: nothing created, removed or re-ordered.
+    const ops = host.batches("l").slice(batches).flat()
+    expect(ops.filter((o) => o.op !== "update")).toEqual([])
+    expect(ops.map((o) => o.props)).toEqual([{ title: "renamed" }])
   })
 })
 
