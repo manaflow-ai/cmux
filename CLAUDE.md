@@ -51,7 +51,7 @@ Read the matching skill before changing an area, then only the references needed
 ## Finishing a task
 
 A change to the Mac or iOS app is not done until the person can open it. Every agent report for
-such a change ends with the dev build link, the Simulator state and the iPhone install result.
+such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
 
@@ -69,8 +69,9 @@ A documentation-only change needs no build; give the file path instead.
 - **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
   fleet (the Mac build above included, same tag, published to HQ), installs on every connected
   iPhone, not only the configured one, through the authenticated install
-  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then boots the tag's Simulator on the person's Mac, opens its window without taking
-  focus and launches the app signed in and paired, ready to review. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
+  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
+  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
   you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
   iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
@@ -84,7 +85,7 @@ A documentation-only change needs no build; give the file path instead.
 
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
-  Simulator:  cmux-dev-<slug>: booted, window open, app signed in
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
   iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
               <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```

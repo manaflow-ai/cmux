@@ -13,8 +13,8 @@ Script paths are relative to the repository root. Team members: shared build fle
 
 ## Finishing a task
 
-Every agent report for an app change ends with a hand-off the person can review on the
-Simulator and the iPhone, from one command run at the pushed head:
+Every agent report for an app change ends with a hand-off the person can review on their
+iPhone, with simulator evidence from the fleet, from one command run at the pushed head:
 
 ```bash
 ios/scripts/reload.sh --review --tag <task-slug> [--workspace <pr-url>]
@@ -30,15 +30,12 @@ It does, in order, and fails (non-zero) if any step fails:
    with the authenticated install: signed in with the `personal` profile,
    `scripts/verify-iphone-auth.sh` PASS. Never raw `devicectl`. One phone's failure does not stop
    the others; each gets its own line in the report.
-3. Boots the tag's isolated simulator `cmux-dev-<slug>` on the person's Mac (at most three booted),
-   opens its window in the background (`open -g`, never taking focus) and launches the app signed
-   in, ready to review. Xcode 26 and earlier open it in Simulator.app; Xcode 27 has no
-   Simulator.app, so it opens in DeviceHub (`devices://device/open?id=<udid>`). Both are supported. This review simulator signs in with the `personal`
-   profile, the phone's account, so it cannot replace the phone's pairing with the tagged Mac;
-   agent-driven Simulator verification still uses `agent`.
-4. Runs `verify-iphone-auth.sh` again on each phone, so every phone is proven signed in after the
-   simulator launch, and prints a `Review ready` block with the Tag Opener link, the simulator
-   state and one line per iPhone.
+3. Checks the build in a **fleet** simulator, never on the person's Mac: hq's
+   `scripts/verify-remote.sh ios --tag <tag> --sign-in agent --record-secs 15` installs the tag's
+   fleet iOS build in a throwaway simulator on a fleet worker, signs in with the `agent` profile,
+   records it, takes a screenshot, deletes the simulator, and returns the evidence directory.
+4. Prints a `Review ready` block with the Tag Opener link, the fleet simulator evidence and one
+   line per iPhone.
 
 ### New phones
 
@@ -80,7 +77,7 @@ Guidelines for any iOS UI change and citing the page in the PR. It applies to
 
 ## iOS builds open on the iPhone by default
 
-Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhones (with `--review`, every connected one; see "Finishing a task"). Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build with `ios/scripts/reload.sh --tag <tag>`; with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
+Any work verified by opening the iOS app installs the build on the user's iPhones (with `--review`, every connected one; see "Finishing a task") and checks it in a fleet simulator. Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build with `ios/scripts/reload.sh --tag <tag>`; with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. Agents never boot a simulator on the person's Mac (see "Simulators run on the fleet").
 
 **Every phone install MUST be authenticated before handoff. Installed-but-signed-out is a failed install.** A tagged bundle id can retain an older account, so every authenticated launch clears that tagged session, signs both surfaces into the selected profile, verifies the exact tagged Mac account through `auth status`, then mints the pairing ticket. The iPhone auth gate passes only after the same-account host accepts the phone RPC and emits `mobile.rpc.ready`. `scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>]` repeats the Mac-account check, relaunches the phone without credentials, and passes only when persisted phone state reconnects. Never install with raw `devicectl device install app`, and never pass `--no-sign-in`/`--no-attach`/`--no-setup` for a dogfood build. The scripts refuse those device paths unless a human sets `CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1`. If setup fails, report the gate reason and exact retry command.
 
@@ -88,10 +85,15 @@ Every phone build requires the same-tag Mac dev build (the iOS app is unusable w
 
 If the iPhone is unreachable at build time, the signed build is parked in `scripts/iphone-install-queue.sh`. Each entry stores the chosen profile, normalized account, and credentials-file path. Drain revalidates that snapshot before device mutation and uses installed stable copies of the launcher and auth helpers, so an old or pruned feature worktree cannot change policy. Install or refresh that control plane with `scripts/install-iphone-queue-agent.sh install`. Report `scripts/iphone-install-queue.sh list` in the handoff; `drain` retries delivery and `clear` abandons a queued build.
 
-## Local simulators
+## Simulators run on the fleet
 
-For local simulator verification, use an isolated device, never an existing
-visible or user-owned simulator, and keep at most three local simulators booted.
+Agents never boot, install into or open a simulator on the person's Mac: several
+agents' simulators overwhelm it. Check iOS work in a fleet simulator with hq's
+`scripts/verify-remote.sh ios --tag <tag> [--sign-in agent] [--record-secs N]` (build
+the tag first with `cmux-ci build ios` or `--review`), and attach its screenshot and
+recording; `verify-remote.sh capacity` shows the pool. `ios/scripts/reload.sh` without
+`--review` still builds a local simulator app: only contributors outside the team, who
+have no fleet, may use it, with one isolated device that they shut down afterwards.
 
 ## Cross-tag Mac access for DEV iPhone builds
 

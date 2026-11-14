@@ -12,22 +12,21 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
 Build, install, and launch the cmux iOS app with an isolated tag.
 
 --review is the end-of-task hand-off (AGENTS.md "Finishing a task"). One
-command builds the same-tag Mac app and the iOS app, installs the iOS app on
-EVERY connected iPhone (not only the configured default) through the
-authenticated install (scripts/verify-iphone-auth.sh must pass), and registers
-a newly connected phone in ~/.config/cmux/iphone-device-ids. It then boots the
-tag's isolated simulator, opens its Simulator window in the background (never
-taking focus) and launches the app there signed in, ready to review. It ends
-with a "Review ready" block: the Tag Opener link, the simulator state and one
-result line per iPhone. Builds run on the build fleet when an hq checkout with
+command builds the same-tag Mac app and the iOS app on the build fleet, installs
+the iOS app on EVERY connected iPhone (not only the configured default) through
+the authenticated install (scripts/verify-iphone-auth.sh must pass), and
+registers a newly connected phone in ~/.config/cmux/iphone-device-ids. It never
+boots or installs a simulator on this Mac: the simulator check runs on a fleet
+simulator worker (hq scripts/verify-remote.sh, signed in with the agent
+account), whose screenshot and recording land locally. It ends with a "Review
+ready" block: the Tag Opener link, the fleet simulator evidence and one result
+line per iPhone. Builds run on the fleet when an hq checkout with
 build-fleet/ios-reload.py is found (CMUX_HQ_ROOT, then `cmux-ci hq-root`);
-otherwise they build locally. No connected phone, or a phone that fails its
-install or auth gate, fails the command (exit non-zero): it is a blocker to
-report, never something to skip. A fleet-built dev app talks to hq's
-tailnet-only dev backend, so a phone off the tailnet installs it but fails the
-auth gate; the app itself does not need Tailscale. The review simulator signs in with
-the personal profile, the same account as the phone, so it cannot replace the
-phone's pairing with the tagged Mac; the phone is re-verified after it.
+otherwise they build locally and the simulator check is skipped. No connected
+phone, or a phone that fails its install or auth gate, fails the command (exit
+non-zero): it is a blocker to report, never something to skip. A fleet-built
+dev app talks to hq's tailnet-only dev backend, so a phone off the tailnet
+installs it but fails the auth gate; the app itself does not need Tailscale.
 
 Verification default is simulator + iPhone: when a default iPhone is configured
 (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
@@ -325,11 +324,13 @@ if [[ "$REVIEW" -eq 1 ]]; then
   if [[ "$SIMULATOR_ONLY" -eq 1 || "$RELOAD_SIMULATOR" -eq 0 || "$LAUNCH" -eq 0 \
       || "$NO_SIGN_IN" -eq 1 || "$NO_ATTACH" -eq 1 || "$NO_SETUP" -eq 1 \
       || "$PROD_AUTH" -eq 1 || "$SIMULATOR_EXPLICIT" -eq 1 || -n "$DEVICE_NAME" ]]; then
-    echo "error: --review always installs the tag's isolated simulator and the authenticated iPhone build;" >&2
+    echo "error: --review always installs on every connected iPhone (authenticated) and checks the simulator on the fleet;" >&2
     echo "error: it takes only --tag, --device-id, --team and --workspace" >&2
     exit 2
   fi
   RELOAD_DEVICE=1
+  # Nothing boots or installs in a simulator on this Mac: the simulator check runs on the fleet.
+  RELOAD_SIMULATOR=0
   # xcode-select may point at the Command Line Tools, which have no simctl or
   # devicectl; use the installed Xcode then instead of failing mid-hand-off.
   if ! xcrun --find simctl >/dev/null 2>&1 && [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
@@ -561,8 +562,9 @@ fi
 # The fleet installer (cmuxterm-hq build-fleet/ios-reload.py) builds the Mac and
 # iOS apps for the pushed HEAD on the build fleet, installs the Mac app at the
 # Tag Opener path, signs the iOS app on this Mac, installs it on the phone, runs
-# scripts/verify-iphone-auth.sh and publishes the Mac build to HQ. It leaves the
-# simulator app installed but not launched; review_simulator finishes that leg.
+# scripts/verify-iphone-auth.sh and publishes the Mac build to HQ. --review runs it
+# with --device-only: nothing boots or installs in a simulator on this Mac. The
+# simulator check runs on the fleet instead (review_fleet_simulator).
 review_hq_root() {
   local cmux_ci="${CMUX_CI:-}" candidate
   if [[ -z "$cmux_ci" ]]; then
@@ -584,108 +586,9 @@ review_hq_root() {
   return 1
 }
 
-review_booted_simulator_count() {
-  xcrun simctl list devices booted -j | /usr/bin/python3 -c \
-    'import json,sys; print(sum(d.get("state") == "Booted" for ds in json.load(sys.stdin)["devices"].values() for d in ds))'
-}
-
-review_simulator_state() {
-  SIM_UDID="$1" /usr/bin/python3 -c '
-import json, os, subprocess
-data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "-j"]))
-for devices in data["devices"].values():
-    for device in devices:
-        if device["udid"] == os.environ["SIM_UDID"]:
-            print(device.get("state", "unknown"))
-            raise SystemExit(0)
-print("missing")'
-}
-
 REVIEW_SIM_STATUS=""
 REVIEW_PHONE_STATUS=""
 REVIEW_MAC_STATUS=""
-
-# Open the booted simulator's window. `open -g` launches in the background: the
-# window shows without the app becoming frontmost or taking keyboard focus.
-# Xcode 26 and earlier ship Simulator.app; Xcode 27 replaced it with DeviceHub,
-# which opens a device from its devices:// URL.
-review_open_simulator_window() {
-  local udid="$1" developer_dir xcode_app simulator_app device_hub process waited=0
-  developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}"
-  xcode_app="${developer_dir%/Contents/Developer}"
-  simulator_app="$developer_dir/Applications/Simulator.app"
-  device_hub="$xcode_app/Contents/Applications/DeviceHub.app"
-  if [[ -d "$simulator_app" ]]; then
-    open -g "$simulator_app" --args -CurrentDeviceUDID "$udid"
-    process=Simulator
-  elif [[ -d "$device_hub" ]]; then
-    open -g -b com.apple.dt.Devices "devices://device/open?id=$udid"
-    process=DeviceHub
-  else
-    echo "error: neither Simulator.app nor DeviceHub.app was found under $xcode_app" >&2
-    return 1
-  fi
-  until pgrep -x "$process" >/dev/null 2>&1; do
-    (( waited++ < 20 )) || { echo "error: $process did not start" >&2; return 1; }
-    sleep 0.5
-  done
-  REVIEW_SIM_WINDOW_APP="$process"
-}
-REVIEW_SIM_WINDOW_APP=""
-
-# Boot the tag's isolated simulator, open its window without taking focus, and
-# launch the installed app signed in and paired to the tagged Mac.
-review_simulator() {
-  # shellcheck source=../../scripts/lib/ios-sim-isolate.sh
-  source "$IOS_DIR/../scripts/lib/ios-sim-isolate.sh"
-  local udid name state
-  udid="$(cmux_ios_isolated_sim_udid "$TAG_SLUG")" \
-    || { echo "error: could not resolve the isolated simulator for tag $TAG" >&2; return 1; }
-  name="$(cmux_ios_isolated_sim_name "$TAG_SLUG")"
-  state="$(review_simulator_state "$udid")"
-  if [[ "$state" != "Booted" ]]; then
-    # ios/AGENTS.md: at most three local simulators booted.
-    if (( $(review_booted_simulator_count) >= 3 )); then
-      echo "error: three simulators are already booted; shut one down (xcrun simctl shutdown <udid>) and rerun" >&2
-      return 1
-    fi
-    xcrun simctl boot "$udid"
-  fi
-  xcrun simctl bootstatus "$udid" -b >/dev/null
-  if ! xcrun simctl get_app_container "$udid" "$BUNDLE_ID" app >/dev/null 2>&1; then
-    echo "error: $BUNDLE_ID is not installed in $name ($udid); the build leg did not install the simulator app" >&2
-    return 1
-  fi
-  review_open_simulator_window "$udid" || return 1
-  xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  # The personal profile is the phone's account: signing the simulator into it
-  # keeps the tagged Mac on that account, so the phone's pairing survives.
-  if ! "$MOBILE_DEV_LAUNCH" --tag "$TAG" --simulator "$name" --simulator-id "$udid" --detach \
-      --auth-profile "$DEVICE_AUTH_PROFILE" --expected-account "$DEVICE_AUTH_ACCOUNT" \
-      --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE" --ensure-mac; then
-    echo "error: the simulator app is installed but its signed-in launch failed" >&2
-    echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --simulator-id $udid --detach --auth-profile personal --ensure-mac" >&2
-    return 1
-  fi
-  REVIEW_SIM_STATUS="$name ($udid): booted, window open in $REVIEW_SIM_WINDOW_APP, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT"
-}
-
-# Re-run the phone's auth gate after the simulator launch, so the report proves
-# the phone is still signed in and paired.
-review_verify_phone() {
-  local device_id="$1" label="$2"
-  local verify="$IOS_DIR/../scripts/verify-iphone-auth.sh"
-  local args=(--tag "$TAG" --device-id "$device_id" --auth-profile "$DEVICE_AUTH_PROFILE" \
-    --expected-account "$DEVICE_AUTH_ACCOUNT" --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE")
-  local line
-  if ! line="$("$verify" "${args[@]}" | tail -n 1)"; then
-    echo "$line" >&2
-    echo "error: $label: iPhone auth gate failed after the simulator launch; this is a blocker to report" >&2
-    review_phone_result "$label: BLOCKED, installed but the auth gate failed ($line); retry: scripts/verify-iphone-auth.sh --tag $TAG --device-id $device_id"
-    return 1
-  fi
-  review_phone_result "$label: installed, signed in ($line)"
-}
 
 # One line per phone for the report.
 review_phone_result() {
@@ -803,16 +706,31 @@ review_publish_mac() {
   fi
 }
 
+# The simulator check of this tag's fleet iOS build, on a fleet simulator worker
+# (hq scripts/verify-remote.sh): it installs the build in a throwaway simulator,
+# signs in with the shared agent account, records it, takes a screenshot, deletes
+# the simulator and prints the local evidence directory. Nothing opens on this Mac.
+review_fleet_simulator() {
+  local verify="$REVIEW_HQ_ROOT/scripts/verify-remote.sh" evidence
+  if [[ ! -x "$verify" ]]; then
+    REVIEW_SIM_STATUS="BLOCKED: $verify is missing; update the hq checkout"
+    return 1
+  fi
+  echo "==> --review: verifying the iOS build in a fleet simulator ($verify)"
+  if ! evidence="$("$verify" ios --tag "$TAG" --sign-in agent --record-secs 15 | tail -n 1)" || [[ ! -d "$evidence" ]]; then
+    REVIEW_SIM_STATUS="BLOCKED: the fleet simulator check failed (see the error above); retry: $verify ios --tag $TAG --sign-in agent --record-secs 15"
+    return 1
+  fi
+  REVIEW_SIM_STATUS="fleet simulator, signed in (agent account): $evidence (screenshot.png and the recording)"
+}
+
 REVIEW_INSTALLED=()
 review_finish() {
-  local target
-  if ! review_simulator; then
-    REVIEW_SIM_STATUS="BLOCKED: the simulator launch failed (see the error above)"
-    REVIEW_FAILED=1
+  if [[ -n "${REVIEW_HQ_ROOT:-}" ]]; then
+    review_fleet_simulator || REVIEW_FAILED=1
+  else
+    REVIEW_SIM_STATUS="not run: the fleet simulator check needs an hq checkout (CMUX_HQ_ROOT or cmux-ci hq-root)"
   fi
-  for target in ${REVIEW_INSTALLED[@]+"${REVIEW_INSTALLED[@]}"}; do
-    review_verify_phone "${target%%$'\t'*}" "${target#*$'\t'}" || REVIEW_FAILED=1
-  done
   review_report
   [[ "$REVIEW_FAILED" -eq 0 ]]
 }
@@ -828,13 +746,14 @@ if [[ "$REVIEW" -eq 1 ]]; then
     for target in "${REVIEW_TARGETS[@]}"; do
       udid="${target%%$'\t'*}"; label="${target#*$'\t'}"
       echo "==> --review: iPhone $label"
-      fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid")
+      fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid" --device-only)
       [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
       fleet_rc=0
       /usr/bin/python3 "$REVIEW_HQ_ROOT/build-fleet/ios-reload.py" "${fleet_args[@]}" || fleet_rc=$?
       if [[ "$fleet_rc" -eq 0 ]]; then
         REVIEW_MAC_STATUS="fleet build, published to HQ"
         REVIEW_INSTALLED+=("$target")
+        review_phone_result "$label: installed, signed in (verify-iphone-auth PASS)"
       else
         echo "error: $label: fleet build or install failed (exit $fleet_rc); this is a blocker to report" >&2
         review_phone_result "$label: BLOCKED, fleet build or install failed (exit $fleet_rc); rerun this command to resume the saved fleet jobs"
@@ -1629,6 +1548,7 @@ if [[ "$REVIEW" -eq 1 ]]; then
     ( reload_device ) || device_rc=$?
     if [[ "$device_rc" -eq 0 ]]; then
       REVIEW_INSTALLED+=("$target")
+      review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
     else
       review_phone_result "${target#*$'\t'}: BLOCKED, install or auth gate failed (exit $device_rc)"
       REVIEW_FAILED=1

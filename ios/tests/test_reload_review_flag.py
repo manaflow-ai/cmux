@@ -107,60 +107,47 @@ class ConnectedPhonesTests(unittest.TestCase):
         self.assertIn('FAILED=1', result.stdout)
 
 
-class SimulatorWindowTests(unittest.TestCase):
-    """The review opens the simulator's window with whichever app this Xcode ships.
+class FleetSimulatorTests(unittest.TestCase):
+    """--review never opens a simulator on the person's Mac: the simulator check runs on the fleet.
 
-    Xcode 26 and earlier: Developer/Applications/Simulator.app, told which device by
-    -CurrentDeviceUDID. Xcode 27: no Simulator.app; DeviceHub (com.apple.dt.Devices) opens a
-    device from devices://device/open?id=<udid>. Both open with -g, never taking focus.
+    review_fleet_simulator calls hq's scripts/verify-remote.sh (agent sign-in, a recording) and
+    reports the evidence directory it prints; a failure is a blocker with the retry command.
     """
 
-    UDID = '5A9CE81B-1BF6-4CB5-8217-0D41719042B6'
-
-    def open_window(self, layout):
-        func = re.search(r'\n(review_open_simulator_window\(\) \{\n.*?\n\})\n', RELOAD.read_text(), re.S).group(1)
+    def run_check(self, verify_body):
+        func = re.search(r'\n(review_fleet_simulator\(\) \{\n.*?\n\})\n', RELOAD.read_text(), re.S).group(1)
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            developer = root / 'Xcode.app/Contents/Developer'
-            developer.mkdir(parents=True)
-            if layout == 'xcode26':
-                (developer / 'Applications/Simulator.app').mkdir(parents=True)
-            elif layout == 'xcode27':
-                (root / 'Xcode.app/Contents/Applications/DeviceHub.app').mkdir(parents=True)
-            bin_dir = root / 'bin'
-            bin_dir.mkdir()
-            log = root / 'calls.log'
-            (bin_dir / 'open').write_text(f'#!/bin/sh\necho "open $*" >> "{log}"\n')
-            (bin_dir / 'pgrep').write_text(f'#!/bin/sh\necho "pgrep $*" >> "{log}"\nexit 0\n')
-            for tool in ('open', 'pgrep'):
-                (bin_dir / tool).chmod(0o755)
-            script = f'set -u\nREVIEW_SIM_WINDOW_APP=""\n{func}\nreview_open_simulator_window {self.UDID}; rc=$?\necho "APP=$REVIEW_SIM_WINDOW_APP"; exit $rc'
-            env = dict(os.environ, PATH=f"{bin_dir}:/usr/bin:/bin", DEVELOPER_DIR=str(developer))
-            result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
-            calls = log.read_text() if log.exists() else ''
-            return result, calls
+            hq = Path(temp) / 'hq'
+            (hq / 'scripts').mkdir(parents=True)
+            evidence = Path(temp) / 'evidence'
+            evidence.mkdir()
+            verify = hq / 'scripts/verify-remote.sh'
+            verify.write_text('#!/bin/sh\necho "$*" > "%s/args"\n' % temp + verify_body.replace('EVIDENCE', str(evidence)))
+            verify.chmod(0o755)
+            script = (f'set -u\nTAG=review-test\nREVIEW_HQ_ROOT="{hq}"\nREVIEW_SIM_STATUS=""\n{func}\n'
+                      'review_fleet_simulator; rc=$?; echo "STATUS=$REVIEW_SIM_STATUS"; exit $rc')
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=30)
+            args = (Path(temp) / 'args').read_text() if (Path(temp) / 'args').exists() else ''
+            return result, args, evidence
 
-    def test_xcode26_opens_simulator_app_in_the_background(self):
-        result, calls = self.open_window('xcode26')
+    def test_reports_the_fleet_evidence_directory(self):
+        result, args, evidence = self.run_check('echo "verify-remote: progress" >&2\necho EVIDENCE\n')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f'open -g ', calls)
-        self.assertIn(f'Applications/Simulator.app --args -CurrentDeviceUDID {self.UDID}', calls)
-        self.assertIn('pgrep -x Simulator', calls)
-        self.assertIn('APP=Simulator', result.stdout)
+        self.assertEqual(args.split(), ['ios', '--tag', 'review-test', '--sign-in', 'agent', '--record-secs', '15'])
+        self.assertIn(f'STATUS=fleet simulator, signed in (agent account): {evidence}', result.stdout)
 
-    def test_xcode27_opens_the_device_in_device_hub_in_the_background(self):
-        result, calls = self.open_window('xcode27')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f'open -g -b com.apple.dt.Devices devices://device/open?id={self.UDID}', calls)
-        self.assertIn('pgrep -x DeviceHub', calls)
-        self.assertIn('APP=DeviceHub', result.stdout)
-
-    def test_no_simulator_app_is_an_error(self):
-        result, calls = self.open_window('none')
+    def test_a_failed_fleet_check_is_a_blocker_with_its_retry(self):
+        result, _, _ = self.run_check('exit 1\n')
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('neither Simulator.app nor DeviceHub.app', result.stderr)
-        self.assertNotIn('open ', calls)
+        self.assertIn('STATUS=BLOCKED: the fleet simulator check failed', result.stdout)
+        self.assertIn('verify-remote.sh ios --tag review-test --sign-in agent', result.stdout)
 
+    def test_review_never_boots_a_local_simulator(self):
+        text = RELOAD.read_text()
+        review = text[text.index('if [[ "$REVIEW" -eq 1 ]]; then\n  review_resolve_phones'):]
+        self.assertIn('--device-only)', review.split('\n\n')[0] + review[:4000])
+        self.assertNotIn('simctl boot', text[text.index('# --- --review'):text.index('# Keep the linked xcframework')])
+        self.assertIn('RELOAD_SIMULATOR=0', text)
 
 if __name__ == '__main__':
     unittest.main()
