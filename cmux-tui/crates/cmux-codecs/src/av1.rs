@@ -15,52 +15,71 @@ use std::ptr::NonNull;
 use cmux_encode::{Codec, EncCfg, I420, Res, VideoDecoder, VideoEncoder};
 use rav1e::prelude::*;
 
+const SPEED: u8 = 10;
+
+/// A target change of this many percent or more restarts rav1e at the new one.
+const RESTART_PCT: u32 = 30;
+
 pub struct Av1Encoder {
     ctx: Context<u8>,
+    cfg: EncCfg,
     width: usize,
     kbps: u32,
+    /// The congestion controller's newest target, applied at the next frame.
+    want_kbps: Option<u32>,
     /// Capture times of frames sent and not yet returned, oldest first.
     pending_pts: VecDeque<i64>,
     last_pts: Option<i64>,
+    /// A keyframe was asked for and has not come out of the lookahead yet.
+    key_pending: bool,
+    /// Restarts for a new target (each one starts with a keyframe).
+    pub restarts: u32,
     name: String,
+}
+
+fn context(cfg: &EncCfg, kbps: u32) -> Res<Context<u8>> {
+    let mut enc = EncoderConfig::with_speed_preset(SPEED);
+    enc.width = cfg.width as usize;
+    enc.height = cfg.height as usize;
+    enc.time_base = Rational::new(1, u64::from(cfg.fps.max(1)));
+    enc.low_latency = true;
+    enc.error_resilient = false;
+    enc.min_key_frame_interval = 0;
+    // rav1e caps the interval at i32::MAX / 3 frames (about two years at 30 fps).
+    enc.max_key_frame_interval = i32::MAX as u64 / 3;
+    enc.bitrate = (kbps.max(100) * 1000) as i32;
+    enc.tune = Tune::Psnr;
+    enc.speed_settings.rdo_lookahead_frames = 1;
+    enc.speed_settings.scene_detection_mode = SceneDetectionSpeed::None;
+    enc.chroma_sampling = ChromaSampling::Cs420;
+    enc.bit_depth = 8;
+    // Tiles let rav1e's threads split one frame.
+    enc.tiles = usize::from(cfg.threads.max(1));
+    Ok(Config::new()
+        .with_encoder_config(enc)
+        .with_threads(usize::from(cfg.threads.max(1)))
+        .new_context::<u8>()
+        .map_err(|e| format!("rav1e config: {e}"))?)
 }
 
 impl Av1Encoder {
     pub fn new(cfg: &EncCfg) -> Res<Self> {
-        let speed = 10;
-        let mut enc = EncoderConfig::with_speed_preset(speed);
-        enc.width = cfg.width as usize;
-        enc.height = cfg.height as usize;
-        enc.time_base = Rational::new(1, u64::from(cfg.fps.max(1)));
-        enc.low_latency = true;
-        enc.error_resilient = false;
-        enc.min_key_frame_interval = 0;
-        // rav1e caps the interval at i32::MAX / 3 frames (about two years at 30 fps).
-        enc.max_key_frame_interval = i32::MAX as u64 / 3;
-        enc.bitrate = (cfg.kbps.max(100) * 1000) as i32;
-        enc.tune = Tune::Psnr;
-        enc.speed_settings.rdo_lookahead_frames = 1;
-        enc.speed_settings.scene_detection_mode = SceneDetectionSpeed::None;
-        enc.chroma_sampling = ChromaSampling::Cs420;
-        enc.bit_depth = 8;
-        // Tiles let rav1e's threads split one frame.
-        enc.tiles = usize::from(cfg.threads.max(1));
-        let ctx = Config::new()
-            .with_encoder_config(enc)
-            .with_threads(usize::from(cfg.threads.max(1)))
-            .new_context::<u8>()
-            .map_err(|e| format!("rav1e config: {e}"))?;
+        let kbps = cfg.kbps.max(100);
         let name = format!(
-            "rav1e {} av1 speed={speed} low-latency rc=bitrate(fixed) gop=inf threads={}",
+            "rav1e {} av1 speed={SPEED} low-latency rc=bitrate (restart on a {RESTART_PCT}% target change) gop=inf threads={}",
             rav1e::version::short(),
             cfg.threads.max(1)
         );
         Ok(Self {
-            ctx,
+            ctx: context(cfg, kbps)?,
+            cfg: *cfg,
             width: cfg.width as usize,
-            kbps: cfg.kbps.max(100),
+            kbps,
+            want_kbps: None,
             pending_pts: VecDeque::new(),
             last_pts: None,
+            key_pending: false,
+            restarts: 0,
             name,
         })
     }
@@ -70,6 +89,18 @@ impl VideoEncoder for Av1Encoder {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
         self.last_pts = None;
+        // rav1e has no runtime target change: a large one restarts it, dropping the frame
+        // in its lookahead, and the new context starts with a keyframe.
+        if let Some(kbps) = self.want_kbps.take() {
+            self.ctx = context(&self.cfg, kbps)?;
+            self.kbps = kbps;
+            self.pending_pts.clear();
+            self.key_pending = true;
+            self.restarts += 1;
+        }
+        // A keyframe already on its way through the lookahead answers this request too.
+        let force_idr = force_idr && !self.key_pending;
+        self.key_pending |= force_idr;
         let mut frame = self.ctx.new_frame();
         let (w, cw) = (self.width, self.width / 2);
         frame.planes[0].copy_from_raw_u8(&pic.y, w, 1);
@@ -90,7 +121,10 @@ impl VideoEncoder for Av1Encoder {
             match self.ctx.receive_packet() {
                 Ok(packet) => {
                     out.extend_from_slice(&packet.data);
-                    key |= packet.frame_type == FrameType::KEY;
+                    if packet.frame_type == FrameType::KEY {
+                        key = true;
+                        self.key_pending = false;
+                    }
                     self.last_pts = self.pending_pts.pop_front();
                 }
                 Err(EncoderStatus::Encoded) => continue,
@@ -101,8 +135,12 @@ impl VideoEncoder for Av1Encoder {
         Ok(key)
     }
 
-    /// rav1e cannot change its target after the context starts; the first one stays.
-    fn set_bitrate(&mut self, _kbps: u32) {}
+    fn set_bitrate(&mut self, kbps: u32) {
+        let kbps = kbps.max(100);
+        if kbps.abs_diff(self.kbps) * 100 >= self.kbps * RESTART_PCT {
+            self.want_kbps = Some(kbps);
+        }
+    }
 
     fn kbps(&self) -> u32 {
         self.kbps
@@ -138,7 +176,8 @@ pub struct Av1Decoder {
 // SAFETY: the decoder context is used from one thread at a time.
 unsafe impl Send for Av1Decoder {}
 
-const EAGAIN: c_int = -11;
+/// rav1d returns `-errno`, with the platform's EAGAIN (11 on Linux, 35 on macOS).
+const EAGAIN: c_int = -libc::EAGAIN;
 
 impl Av1Decoder {
     pub fn new(threads: u32) -> Res<Self> {
@@ -172,18 +211,24 @@ impl VideoDecoder for Av1Decoder {
                 return Err("rav1d data_create failed".into());
             }
             std::ptr::copy_nonoverlapping(au.as_ptr(), buf, au.len());
+            let mut result = Ok(());
             while data.sz > 0 {
                 let rc = d::dav1d_send_data(self.ctx, NonNull::new(&mut data));
                 if rc.0 != 0 && rc.0 != EAGAIN {
-                    d::dav1d_data_unref(NonNull::new(&mut data));
-                    return Err(format!("rav1d send_data failed: {}", rc.0).into());
+                    result = Err(format!("rav1d send_data failed: {}", rc.0));
+                    break;
                 }
-                got |= self.drain(out)?;
-                if rc.0 == EAGAIN && data.sz > 0 {
-                    continue;
+                match self.drain(out) {
+                    Ok(g) => got |= g,
+                    Err(e) => {
+                        result = Err(e.to_string());
+                        break;
+                    }
                 }
             }
+            // Every path releases the buffer once, the error paths too.
             d::dav1d_data_unref(NonNull::new(&mut data));
+            result?;
             got |= self.drain(out)?;
         }
         Ok(got)

@@ -239,6 +239,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "libc",
  "openh264",
  "rav1d",
  "rav1e",

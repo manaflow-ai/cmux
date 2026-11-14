@@ -215,10 +215,14 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         EngineConfig {
             width: cfg.width,
             height: cfg.height,
-            max_fps: cfg.fps,
+            // One above the capture rate: the gate's interval counts from whole simulated
+            // milliseconds, and at exactly the capture rate it would skip a capture now and
+            // then. The scene still changes only `fps` times a second.
+            max_fps: cfg.fps + 1,
             max_datagram: MAX_DATAGRAM_VPC,
             path: PathKind::ViaCloudRegion,
-            frames_in_flight: frames_in_flight_for(rtt_us, cfg.fps),
+            // As the host does (stream.rs): at least two frames in flight.
+            frames_in_flight: frames_in_flight_for(rtt_us, cfg.fps).max(2),
             ..EngineConfig::default()
         },
         0,
@@ -237,10 +241,9 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
 
     let interval_us = 1_000_000 / u64::from(cfg.fps.max(1));
     let end_us = cfg.seconds * 1_000_000;
-    // Source pictures by capture time, for PSNR, while a frame of them may still show.
+    // Encoded pictures by capture time, for PSNR, while a frame of them may still show.
     let mut sources: VecDeque<(u64, I420)> = VecDeque::new();
     let mut next_capture_us = 0u64;
-    let mut captured_at_us = 0u64;
     let mut captures = 0u64;
     let mut damage = false;
     let mut host_busy_until = 0u64;
@@ -257,24 +260,26 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
     let mut on_time = 0u64;
     let mut latency_ms = Vec::new();
     let mut psnr = Vec::new();
+    let mut screen_psnr: Vec<f64> = Vec::new();
     let mut max_gap_ms = 0f64;
     let mut last_shown_us = 0u64;
 
     let mut now = 0u64;
     while now < end_us {
-        // Capture: the screen changes every frame interval (every scene moves every frame).
+        // The screen changes every frame interval (every scene moves every frame) and
+        // reports damage; the host captures when the engine asks for a frame (stream.rs).
         if now >= next_capture_us {
+            // What the person sees against what the host shows, once a frame is on screen:
+            // a frozen or late picture scores low here even when every shown frame was sharp.
+            if shown > 0 {
+                screen_psnr.push(crate::psnr_y(scene.picture(), &viewer.out));
+            }
             if captures > 0 {
                 scene.advance();
             }
-            captured_at_us = now;
             captures += 1;
             next_capture_us += interval_us;
             damage = true;
-            sources.push_back((now, scene.picture().clone()));
-            while sources.len() > 64 {
-                sources.pop_front();
-            }
         }
 
         // Host.
@@ -327,12 +332,15 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
             }
             if let Some(req) = queued_req.take() {
                 enc.set_bitrate(req.target_kbps);
+                sources.push_back((now, scene.picture().clone()));
+                while sources.len() > 64 {
+                    sources.pop_front();
+                }
                 let t0 = Instant::now();
-                let idr =
-                    enc.encode(scene.picture(), req.force_idr, captured_at_us as i64, &mut au)?;
+                let idr = enc.encode(scene.picture(), req.force_idr, now as i64, &mut au)?;
                 let ms = t0.elapsed().as_secs_f64() * 1000.0;
                 encode_ms.push(ms);
-                let t_capture = enc.output_pts().map_or(captured_at_us, |p| p.max(0) as u64);
+                let t_capture = enc.output_pts().map_or(now, |p| p.max(0) as u64);
                 if au.is_empty() {
                     skipped += 1;
                 } else {
@@ -423,6 +431,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         "datagrams_dropped": down.dropped,
         "latency_ms": {"p50": pct(&mut latency_ms.clone(), 50.0), "p95": pct(&mut latency_ms, 95.0)},
         "max_gap_ms": max_gap_ms,
+        "screen_psnr_y_db": {"mean": mean(&screen_psnr), "p5": pct(&mut screen_psnr, 5.0)},
         "psnr_y_db": {"mean": psnr_mean, "min": if psnr.is_empty() { f64::NAN } else { psnr_min }, "frames": psnr.len()},
         "encode_ms": {"p50": pct(&mut encode_ms.clone(), 50.0), "p95": pct(&mut encode_ms, 95.0)},
         "decode_ms": {"p50": pct(&mut viewer.decode_ms.clone(), 50.0), "p95": pct(&mut viewer.decode_ms, 95.0)},

@@ -42,9 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut json = arg(&args, "--json").map(std::fs::File::create).transpose()?;
 
     println!(
-        "| codec | scene | loss | on-time fps | shown fps | p50/p95 latency ms | PSNR-Y dB (mean/min) | encode ms p50/p95 | decode ms p50/p95 | keyframes | wire Mbps |"
+        "| codec | scene | loss | on-time fps | shown fps | p50/p95 latency ms | PSNR-Y dB shown frames (mean/min) | screen PSNR-Y dB (mean/p5) | encode ms p50/p95 | decode ms p50/p95 | keyframes | wire Mbps |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|");
     for &scene in &scenes {
         for &loss in &losses {
             for &codec in &codecs {
@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let f =
                     |v: &serde_json::Value| v.as_f64().map_or("-".into(), |x| format!("{x:.1}"));
                 println!(
-                    "| {} | {} | {}% | {} | {} | {}/{} | {}/{} | {}/{} | {}/{} | {} | {} |",
+                    "| {} | {} | {}% | {} | {} | {}/{} | {}/{} | {}/{} | {}/{} | {}/{} | {} | {} |",
                     codec.wire_name(),
                     scene.name(),
                     loss,
@@ -86,6 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     f(&row["latency_ms"]["p95"]),
                     f(&row["psnr_y_db"]["mean"]),
                     f(&row["psnr_y_db"]["min"]),
+                    f(&row["screen_psnr_y_db"]["mean"]),
+                    f(&row["screen_psnr_y_db"]["p5"]),
                     f(&row["encode_ms"]["p50"]),
                     f(&row["encode_ms"]["p95"]),
                     f(&row["decode_ms"]["p50"]),

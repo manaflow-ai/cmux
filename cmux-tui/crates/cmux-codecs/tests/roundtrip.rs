@@ -17,8 +17,11 @@ fn roundtrip(codec: Codec) {
     let mut out = I420::new(640, 360);
     let mut shown = 0;
     let mut first = true;
+    let mut pictures = Vec::new();
+    let mut steady = Vec::new();
     for i in 0..20 {
         let force = i == 0 || i == 12;
+        pictures.push(scene.picture().clone());
         let idr = enc.encode(scene.picture(), force, i * 33_333, &mut au).expect("encode");
         if !au.is_empty() {
             assert_eq!(
@@ -32,15 +35,21 @@ fn roundtrip(codec: Codec) {
             }
             if dec.decode(&au, &mut out).expect("decode") {
                 shown += 1;
-                if enc.output_pts().is_none() {
-                    let p = psnr_y(scene.picture(), &out);
-                    assert!(p > 30.0, "{codec:?} frame {i}: PSNR {p:.1} dB");
+                // The picture this unit carries (an encoder with lookahead returns an older one).
+                let n = enc.output_pts().map_or(i, |pts| pts / 33_333) as usize;
+                let p = psnr_y(&pictures[n], &out);
+                assert!(p > 20.0, "{codec:?} frame {n}: PSNR {p:.1} dB, not this picture");
+                // A real-time CBR keyframe starts coarse; quality is judged once rate control settles.
+                if n >= 5 {
+                    steady.push(p);
                 }
             }
         }
         scene.advance();
     }
     assert!(shown >= 15, "{codec:?}: {shown} of 20 frames shown");
+    let mean = steady.iter().sum::<f64>() / steady.len().max(1) as f64;
+    assert!(mean > 30.0, "{codec:?}: steady-state PSNR {mean:.1} dB ({steady:?})");
 }
 
 #[test]
