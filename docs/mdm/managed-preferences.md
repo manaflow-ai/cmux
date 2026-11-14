@@ -161,8 +161,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. A hibernated workspace's idle shells end after this many minutes without use (1440 is one day). |
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
-| `agents.hiddenChats.discard` | boolean | `false` |  | Release Hidden Agent Chats. A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released. |
-| `agents.hiddenChats.discardAfterMinutes` | real | `15` | 1 to 1440 | Release Hidden Chats After. How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.iconTheme` | string | `"default"` | `default`, `neko` | Icon Theme. The icon drawings used by cmux. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |

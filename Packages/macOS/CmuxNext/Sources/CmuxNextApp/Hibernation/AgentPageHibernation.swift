@@ -34,8 +34,9 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// The clocks and what they decide.
     private(set) lazy var pages: HiddenChatPages<AgentPageHibernation> = HiddenChatPages(
         host: self, deadline: DemandTimer(owner: "AgentPageHibernation"), freezeDeadline: DemandTimer(owner: "AgentPageFreeze"))
-    /// The acpmux turn state of the tab's chat; injected by the App.
-    var turnState: (String) -> AgentTurnState? = { _ in nil }
+    /// The acpmux session of the tab's chat, whose turn, work and archive tag `turns` mirrors; injected by the App.
+    var chat: (String) -> AgentSessionRef? = { _ in nil }
+    var turns = AgentTurnStateStore.shared // the mirror of acpmux's facts (tests set their own)
     /// The acpmux turn watch is up. While it is down no chat's turn is known, so every chat counts as busy.
     var turnsWatched: () -> Bool = { true }
     /// What the page holds that acpmux does not (attachments, shell text, scroll), kept with its
@@ -76,14 +77,14 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             let scoped = parsed.machine.isEmpty ? services.madeAgentTabs?.tabKey(parsed.key) ?? parsed : parsed
             return (scoped.machine.isEmpty ? services.locateTab(scoped.key) : services.locateTab(scoped.key, onMachine: scoped.machine))?.0.pinned ?? false
         }
-        turnState = { [weak services] key in
+        chat = { [weak services] key in
             guard let tabs = services?.madeAgentTabs else { return nil }
             let parsed = AgentTabKey(relaunchStorageKey: key)
             let scoped = parsed.machine.isEmpty ? tabs.tabKey(parsed.key) : parsed
             guard var (record, _) = tabs.record(for: tabs.resolvedKey(scoped)) else { return nil }
             // The session the page runs, as its rebuild uses it: a refused bind leaves the record on the old one.
             record.session = tabs.existingView(scoped.key, machine: scoped.machine)?.model.sessionId ?? tabs.sessions[tabs.resolvedKey(scoped)] ?? record.session
-            return AgentTurnStateStore.shared.state(for: record)
+            return record
         }
         // A run without the watch (showcase, the mock pane) has no turns to wait for.
         turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
@@ -138,7 +139,8 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageClock() -> ContinuousClock.Instant { now() }
     func pagePinned(_ key: String) -> Bool { isPinned(key) }
     func pageTurnsKnown() -> Bool { turnsWatched() }
-    func pageTurnBusy(_ key: String) -> Bool { turnState(key).map { $0 == .working || $0 == .needsInput } ?? false }
+    func pageTurnBusy(_ key: String) -> Bool { chat(key).map { AgentTurnState.isWorking(turns.state(for: $0), detail: turns.detail(for: $0)) } ?? false }
+    func pageArchived(_ key: String) -> Bool { chat(key).flatMap(turns.detail(for:))?.archived == true }
     func freezeControl(of page: AgentPaneView) -> (any BrowserFreezing)? { freezer(page) }
     func setFrozen(_ control: any BrowserFreezing, _ frozen: Bool) -> Bool { control.setFrozen(frozen) }
     func setPageWork(_ page: AgentPaneView, _ work: (@MainActor () -> Void)?) { page.model.transport.beforePageWork = work }
@@ -200,8 +202,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let takeSnapshot = snapshot
         let cause = started.cause
         Task { @MainActor [weak self] in
-            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: started.requiresFrame,
-                                                           keepsDraft: started.byChatPolicy, wake: readWake, snapshot: takeSnapshot)
+            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: started.requiresFrame, wake: readWake, snapshot: takeSnapshot)
             guard let self else { return }
             pages.endRelease(key)
             if let reason = captured.kept {

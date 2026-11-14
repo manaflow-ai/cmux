@@ -21,9 +21,11 @@ extension AgentPaneView {
     /// the reader left the chat is kept per tab, ``AgentPaneScrollAnchors``), and `revealTurn` is a turn
     /// its open asks to show (a subagent's pane: `subagent:<id>`). `moved` runs each time the held page
     /// changes place (out of the window now, back once it drew), so a Chromium page's window follows.
+    /// `place`: where a released page of the chat left it (``AgentPaneWakeState/place``), over the tab's kept one.
     /// False when the page is no untouched, connected New Tab page (``AgentPaneModel/adoptSpareSession(_:)``).
     @discardableResult
-    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, moved: (@MainActor () -> Void)? = nil) -> Bool {
+    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, place: AgentPaneScrollAnchor?? = nil,
+                             moved: (@MainActor () -> Void)? = nil) -> Bool {
         guard model.adoptSpareSession(session) else { return false }
         holdPageAway(moved: moved)
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
@@ -40,7 +42,7 @@ extension AgentPaneView {
         // reader left the chat: the page awaited `chat.scrollAnchor.get` (the same 250 ms race)
         // before its switch on every sidebar open.
         let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session),
-                                         place: Self.adoptedPlace(session: session, tab: tab))
+                                         place: place ?? Self.adoptedPlace(session: session, tab: tab))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
     }

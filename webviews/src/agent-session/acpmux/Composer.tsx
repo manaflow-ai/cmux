@@ -176,7 +176,6 @@ import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -279,8 +278,6 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
-  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
-  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -1061,8 +1058,6 @@ function ComposerFrame({
           attachments,
           shell: shellRef.current.shell,
           shellText: shellRef.current.shellText,
-          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
-          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
         };
       },
       async settleDraft() {
@@ -1217,11 +1212,13 @@ function ComposerFrame({
         if (sending.current) return "composer.sending";
         if (state.dictating) return "composer.dictation";
         if (state.reading) return "composer.attachment-reading";
-        if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId)
-          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
-        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        if (!state.sessionId) {
+          if ((field.current?.value() ?? textRef.current).trim() || state.chips) return "composer.new-chat";
+        } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
+        // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
+        if (shellRef.current.shell) return "composer.shell";
         return null;
       }),
     [],
