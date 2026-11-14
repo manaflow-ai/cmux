@@ -1,5 +1,5 @@
 //! Crash-safe snapshot installation after an O(1) log-generation rotation.
-use super::{DiskSnapshot, RowKey, SortedSnapshot, Summary, SummaryIndex};
+use super::{DiskSnapshot, RowKey, SortedSnapshot, Summary, SummaryIndex, is_corrupt_snapshot_row};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -29,12 +29,14 @@ pub struct CompactionResult {
     pub covered_generation: u64,
     pub seq: u64,
     pub cleanup_errors: u64,
+    pub skipped_snapshot_rows: usize,
 }
 
 impl Compaction {
     pub(super) fn new(directory: PathBuf, covered_generation: u64, seq: u64) -> Self {
-        let captured_now =
-            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
+        let captured_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
         Self {
             snapshot_path: directory.join("index.snap"),
             directory,
@@ -93,17 +95,29 @@ impl Compaction {
         // The write path streams rows and keeps only sparse checkpoint state.
         let mut cold_keys = VecDeque::new();
         let mut missing_hot = VecDeque::new();
+        let mut skipped_snapshot_rows = 0;
         SortedSnapshot::write_stream_generation(
             stage,
             self.seq,
             0,
             None,
             self.covered_generation,
-            index.merged_rows().map(|row| {
+            index.origins().cloned().collect(),
+            index.merged_rows().filter_map(|row| {
                 if cancelled.load(Ordering::Acquire) {
-                    return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
+                    return Some(Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "compaction cancelled",
+                    )));
                 }
-                let row = row?;
+                let row = match row {
+                    Ok(row) => row,
+                    Err(error) if is_corrupt_snapshot_row(&error) => {
+                        skipped_snapshot_rows += 1;
+                        return None;
+                    }
+                    Err(error) => return Some(Err(error)),
+                };
                 let held = index.get_row(&row.key()).is_some();
                 if row.is_hot_at(self.captured_now) {
                     if !held {
@@ -112,7 +126,7 @@ impl Compaction {
                 } else if held {
                     cold_keys.push_back(row.key());
                 }
-                Ok(row)
+                Some(Ok(row))
             }),
         )?;
         if cancelled.load(Ordering::Acquire) {
@@ -158,6 +172,7 @@ impl Compaction {
             covered_generation: self.covered_generation,
             seq: self.seq,
             cleanup_errors,
+            skipped_snapshot_rows,
         })
     }
 }

@@ -38,8 +38,11 @@ import Testing
         let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
         let row = Metrics.chromeRowHeight
         #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
+        // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
+        // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
         #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.tabCornerRadius, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
-        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio - Metrics.iconSize) < 0.001)
+        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
+            - DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)) < 0.001)
     }
 
     /// layout-constants.patch: `kToolbarElementPadding` and `kToolbarIconDefaultMargin` are the
@@ -61,7 +64,8 @@ import Testing
     /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
     /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
-        #expect(OmnibarStyle.trailingIconSize == 18)
+        // 18 pt, or what a short bar leaves (Compact's 20 pt bar: 14).
+        #expect(OmnibarStyle.trailingIconSize == min(18, OmnibarStyle.barHeight - 6))
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
         #expect(OmnibarStyle.chipButtonCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
@@ -78,21 +82,13 @@ import Testing
         #expect(!rest.showsClose, "a selected tab with 60 pt of contents shows its x at rest")
     }
 
-    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle. It is
-    /// concentric with the pill (2026-11-04): the default 16 pt button sits 4 pt inside the 24 pt pill.
-    /// In Helium's 8 pt pill that was Helium's `kCornerRadius` 4; since the default outer radius is the
-    /// omnibar's 8 pt (Lawrence 2026-11-05, 99d72e1ba3a) the pill was 6 pt; with the main pane concentric
-    /// with the 16 pt window across its 6 pt gutter (Lawrence 2026-11-07), the card is 10 pt, the pill 2 pt
-    /// inside it 8 pt and the x's hover nested 4 pt inside that 4 pt: Helium's `kCornerRadius` again. Since
-    /// Lawrence 2026-11-11 ("same roundness as chrome") the 24 pt pill takes Chrome's tab ratio, 8 on 30, so
-    /// 6 pt, and the x's hover nested 4 pt inside it is 2 pt.
-    @Test func tabCloseHoverIsARoundedRectConcentricWithThePill() {
+    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle, with Helium's own 4 pt
+    /// corner on its 14 pt square (`RoundRectHighlightPathGenerator`), not one nested in the pill (Lawrence 2026-11-13:
+    /// "need to match the X icon on helium in terms of hover too (like roundness of it), should be applied to all
+    /// densities"; `HeliumTabCloseButtonTests` checks every density).
+    @Test func tabCloseHoverIsHeliumsRoundedSquare() {
         let metrics = TabStripMetrics.standard
-        let side = metrics.closeButtonSize
-        let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
-        let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
-        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight) && (pill.height - side) / 2 == 4,
-                "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
-        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - 4))
+        #expect(metrics.closeCornerRadius == (metrics.closeButtonSize * 4 / 14 * 2).rounded() / 2)
+        #expect(metrics.closeCornerRadius < metrics.closeButtonSize / 2, "a rounded square, not a circle")
     }
 }

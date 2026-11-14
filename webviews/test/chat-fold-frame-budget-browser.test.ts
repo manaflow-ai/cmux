@@ -139,7 +139,7 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
         new Promise<void>((done, fail) => {
           let last = "";
           let alike = 0;
-          const deadline = performance.now() + 10_000;
+          let frames = 0;
           window.cmuxAfterPaint(() => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
             if (!scroller) return;
@@ -165,8 +165,9 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
               done();
               return false;
             }
-            if (performance.now() > deadline) {
-              fail(new Error(`the view did not come to rest in 10 s (moving: ${moving})`));
+            frames += 1;
+            if (frames > 600) {
+              fail(new Error(`the view did not come to rest in 600 painted frames (moving: ${moving})`));
               return false;
             }
           });

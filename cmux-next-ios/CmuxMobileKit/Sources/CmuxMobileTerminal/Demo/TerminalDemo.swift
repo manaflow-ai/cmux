@@ -214,9 +214,8 @@ struct TerminalDemoDriver {
     /// keyboard is still moving), the same calls a tap on each makes; then the
     /// keyboard key twice 0.1 s apart. Each second action reverses the first
     /// from where the keyboard is, never after it settles.
-    /// `kbtui` (opt-in; Leo, 2026-11-12: "the resizing is so wack when j tap
-    /// the thijg"): vim, then the keyboard key pressed to show and hide the
-    /// keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
+    /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
+    /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
     private func keyboardOverTUI() async {
         model.controller?.surface.sendText("vim README.md", pressReturn: true)
@@ -228,15 +227,18 @@ struct TerminalDemoDriver {
         }
         let before = model.ptyResizesSent
         note("tui.rz\(before)")
-        // Keyboard down, vim settled: the UI test's first screenshot.
-        await wait(1.6)
+        // Keyboard down, vim settled: the UI test's first screenshot. Each
+        // step outlasts the keyboard's animation, the 250 ms resize settle and
+        // the UI test's screenshot on a slow simulator host: a toggle before
+        // the last one settled reverses it and sends no resize.
+        await wait(2.5)
         for round in 0..<5 {
             note("show\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
             note("hide\(round)")
             model.toggleKeyboard()
-            await wait(1.6)
+            await wait(2.5)
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")

@@ -85,7 +85,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
 }
 
 /// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
-pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+pub(crate) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
     activity_parent(m)
 }
 
@@ -911,6 +911,12 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
+        // Where its journal's own recovery at the end begins, while it ends the journal: the
+        // owner restores a copy past it from there, however far `lastSeq` is (review of #37284
+        // at 8b5f3063, F2: a recovery as long as the copy was past it hid the copy).
+        if let Some(from) = m.recovered_after.filter(|from| *from < m.last_seq) {
+            summary.set("recoveredAfter", json!(from));
+        }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
@@ -1139,7 +1145,11 @@ impl Hub {
             "listReplies": crate::list_bytes::global().status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
-            "gauges": crate::gauges::daemon_status(),
+            "gauges": ({
+                let mut gauges = crate::gauges::daemon_status();
+                gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                gauges
+            }),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

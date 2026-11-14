@@ -155,6 +155,72 @@ import Testing
     }
 }
 
+/// Lawrence, 2026-11-13: "get rid of border between tabs and omnibar, at all density levels." The tab row's divider
+/// leaves out a pane whose content starts with a toolbar row (a browser's omnibar), so its tabs and its omnibar read as
+/// one surface, and still runs under a pane whose content starts right under its tabs (a terminal).
+@MainActor @Suite(.serialized) struct TabRowDividerOverToolbarTests {
+    @Test(arguments: DensityPreset.allCases, [false, true])
+    func noDividerBetweenTabsAndOmnibar(density: DensityPreset, isDark: Bool) throws {
+        let design = DesignSettings.shared
+        let before = (design.densityTokens, design.chromeStyle, design.tabBarPosition, design.titleAreaContrast, design.titleAreaTone)
+        defer { (design.densityTokens, design.chromeStyle, design.tabBarPosition, design.titleAreaContrast, design.titleAreaTone) = before }
+        design.densityTokens = density.tokens
+        design.chromeStyle = .flat
+        design.tabBarPosition = .top
+        design.titleAreaContrast = 1
+        design.titleAreaTone = .oneColor // the default: the divider alone parts the tab row from the content
+
+        _ = NSApplication.shared
+        let window = CornerWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+        window.reportedScale = 2
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 500))
+        window.contentView = root
+        let content = NSView(frame: CGRect(x: 100, y: 40, width: 400, height: 320))
+        content.wantsLayer = true
+        let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: 2)
+        // Two panes side by side: a browser (its omnibar under its tabs) and a terminal.
+        var strips: [CornerStrip] = []
+        for x in [0.0, 200.0] {
+            let pane = NSView(frame: CGRect(x: x, y: 0, width: 200, height: content.bounds.height))
+            let strip = CornerStrip(frame: CGRect(x: 0, y: pane.bounds.height - stripHeight, width: 200, height: stripHeight))
+            pane.addSubview(PaneContentAreaView(frame: CGRect(x: 0, y: 0, width: 200, height: pane.bounds.height - stripHeight)))
+            pane.addSubview(strip)
+            content.addSubview(pane)
+            strips.append(strip)
+        }
+        let (browser, terminal) = (strips[0], strips[1])
+        browser.meetsToolbar = true
+        let shade = MainPaneChromeShadeView(frame: root.bounds)
+        let chrome = CornerFlushChrome(frame: root.bounds)
+        root.addSubview(shade)
+        root.addSubview(content)
+        chrome.apply(content: content, radius: 12, isDark: isDark, page: false, shade: shade, in: root)
+        for strip in strips { CornerFlushChrome.stripDidChange(strip) }
+
+        // Every layer the window's chrome draws over the seam: the shade's ground and divider, the corner wedges.
+        let layers = ((shade.layer?.sublayers ?? []) + (chrome.layer?.sublayers ?? [])).compactMap { $0 as? CAShapeLayer }
+        let seam = content.frame.maxY - stripHeight + Metrics.lineWidth(Metrics.dividerThickness) / 2
+        func drawn(at x: CGFloat) -> Bool {
+            layers.contains { $0.path?.contains(CGPoint(x: x, y: seam), using: .evenOdd) == true && $0.fillColor?.alpha ?? 0 > 0 }
+        }
+        let browserMid = root.convert(browser.frame, from: browser.superview).midX
+        let terminalMid = root.convert(terminal.frame, from: terminal.superview).midX
+        #expect(!drawn(at: browserMid), "no line between the browser's tabs and its omnibar at \(density) \(isDark ? "dark" : "light")")
+        if CornerFlush.current.isOn {
+            #expect(drawn(at: terminalMid), "the terminal keeps the tab row's divider at \(density)")
+        }
+        // The browser's toolbar goes (a terminal shows in its pane): the divider runs under it again.
+        browser.meetsToolbar = false
+        CornerFlushChrome.stripDidChange(browser)
+        if CornerFlush.current.isOn {
+            #expect(drawn(at: browserMid), "a pane with no toolbar under its tabs keeps the divider at \(density)")
+        }
+    }
+}
+
 @MainActor private final class CornerWindow: NSWindow {
     var reportedScale: CGFloat = 1
     override var backingScaleFactor: CGFloat { reportedScale }
@@ -163,6 +229,7 @@ import Testing
 @MainActor private final class CornerStrip: NSView, TabStripCorner {
     var cornerFrameInWindow: CGRect { convert(bounds, to: nil) }
     var selectsLeadingTab = false
+    var meetsToolbar = false
     func setRunsIntoCard(_ runs: Bool) {}
     func setTonedInCard(_ toned: Bool) {}
     func selectedFolderPath(in target: CALayer) -> CGPath? { nil }

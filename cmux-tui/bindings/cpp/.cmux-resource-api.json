@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9777aaa4ca272d35c048bcabc64e2d86f7a04385f1a5a2ffa4a5b87b22e1cc4d",
+  "catalog_sha256": "65ea7fd632b7b238cc6737d3195b6d310dda7efa462b12e9a97853e2e80f4e1a",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,9 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "browser_import.read": {
+      "class": "read"
     },
     "chief.continue": {
       "class": "mutation"
@@ -730,6 +733,9 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
       "class": "read"
     },
@@ -974,6 +980,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

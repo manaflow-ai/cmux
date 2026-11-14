@@ -79,6 +79,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("settings.edit", SETTINGS_REASON),
     ("keybindings.get", KEYBINDINGS_REASON),
     ("keybindings.set", KEYBINDINGS_REASON),
     ("keybindings.remove", KEYBINDINGS_REASON),
@@ -178,6 +179,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("palette.rank", PALETTE_RANK_REASON),
+    ("theme.scheme.convert", THEME_SCHEME_REASON),
+    ("theme.scheme.export", THEME_SCHEME_REASON),
+    ("theme.scheme.from_image", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -187,6 +191,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("browser_import.read", BROWSER_IMPORT_REASON),
     ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
     ("cloud.machine.share_chat", CLOUD_API_REASON),
@@ -295,12 +300,16 @@ const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit i
      app's sidebar actions (action tools), which keep the app's intent log.";
 const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
      (the Channels page); an agent has no palette to rank, and its tools already search.";
+const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
+     `cmux theme import|export|from-image`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
 const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
      the plan and records what it made; agents never import.";
+const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
+     bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \

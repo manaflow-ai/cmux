@@ -9,7 +9,7 @@ import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
 import { settleReact } from "../../../test/support/domTeardown";
-import { modelMenuHeight, setModelMenuHeight } from "./modelMenuWidth";
+import { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } from "./modelMenuWidth";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 
@@ -26,6 +26,8 @@ function installDom(): HTMLElement {
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  dom.window.requestAnimationFrame = requestAnimationFrame;
+  dom.window.cancelAnimationFrame = cancelAnimationFrame;
   for (const key of [
     "window",
     "document",
@@ -34,6 +36,7 @@ function installDom(): HTMLElement {
     "HTMLElement",
     "Element",
     "KeyboardEvent",
+    "MutationObserver",
     "getComputedStyle",
     "requestAnimationFrame",
     "cancelAnimationFrame",
@@ -48,6 +51,7 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MutationObserver: dom.window.MutationObserver,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame,
     cancelAnimationFrame,
@@ -74,6 +78,8 @@ afterEach(async () => {
   }
   saved.clear();
   fakeLayout = undefined;
+  setModelMenuWidth(undefined);
+  setModelMenuHeight(undefined);
 });
 
 async function settle() {
@@ -324,6 +330,136 @@ test("the models column is one plain list, Legacy models last, and Reasoning hea
   expect(tune().querySelector("[role=radio]")?.closest(".acpmux-cols-tune-scroll")).not.toBeNull();
   expect(fastSwitch().closest(".acpmux-cols-tune-foot")).not.toBeNull();
   expect(fastSwitch().closest(".acpmux-cols-tune-scroll")).toBeNull();
+});
+
+for (const [fontSize, room] of [
+  [13, 900],
+  [20, 900],
+  [20, 300],
+  [13, 300],
+] as const) {
+  test(`a width drag stops at 270px within ${room}px of room at ${fontSize}px type`, async () => {
+    fakeLayout = (window) => {
+      const column = window.document.getElementById("root")!;
+      column.classList.add("acpmux-main");
+      column.getBoundingClientRect = () => ({ left: 0, right: room + 10, width: room + 10 }) as DOMRect;
+      Object.defineProperty(window, "innerWidth", { value: 1200 });
+    };
+    await openMenu();
+    const menu = popup();
+    menu.style.fontSize = `${fontSize}px`;
+    menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
+    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
+    const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
+    const direction = grip.dataset.edge === "start" ? -1 : 1;
+    // The chip-aligned edge stays pinned; only the opposite edge moves.
+    if (direction === -1)
+      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
+    });
+    const minimum = Math.min(room, 270);
+    expect(menu.style.width).toContain(`${minimum}px`);
+    expect(modelMenuWidth()).toBe(minimum);
+    expect(modelMenuHeight()).toBeUndefined();
+    expect(menu.style.minWidth).toContain(`${room}px`);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    expect(popup().style.minWidth).toContain(`${room}px`);
+    await click(tab("Codex"));
+    expect(popup().style.minWidth).toContain(`${room}px`);
+  });
+}
+
+for (const fromEnd of [false, true]) {
+  for (const fromTop of [false, true]) {
+    test(`the corner resizes both axes and resets them (end ${fromEnd}, top ${fromTop})`, async () => {
+      fakeLayout = (window) => {
+        const root = window.document.getElementById("root")!;
+        if (fromEnd) {
+          root.style.display = "flex";
+          root.style.justifyContent = "flex-end";
+          root.getBoundingClientRect = () => ({ left: 0, right: 900, width: 900 }) as DOMRect;
+        }
+        const box = window.HTMLElement.prototype.getBoundingClientRect;
+        window.HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.matches("button[data-menu='model']")) {
+            const top = fromTop ? 500 : 20;
+            return { left: 200, right: 600, top, bottom: top + 20, width: 400, height: 20 } as DOMRect;
+          }
+          return box.call(this);
+        };
+      };
+      await openMenu();
+      const menu = popup();
+      const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+      menu.getBoundingClientRect = () =>
+        ({
+          left: 200,
+          right: 600,
+          top: 100,
+          bottom: 400,
+          width: 400,
+          height: Number.parseFloat(frame.style.height) || 300,
+        }) as DOMRect;
+      frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+      menu.parentElement!.getBoundingClientRect = () => ({ left: 200, top: 100 }) as DOMRect;
+      const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-corner")!;
+      expect(grip).not.toBeNull();
+      expect(grip.dataset.edge).toBe(fromEnd ? "start" : "end");
+      expect(grip.dataset.side).toBe(fromTop ? "top" : "bottom");
+      const drag = async (delta: number, end: "pointerup" | "pointercancel") => {
+        await act(async () => {
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500, clientY: 500 }),
+          );
+          grip.dispatchEvent(
+            new dom!.window.MouseEvent("pointermove", {
+              clientX: 500 + delta * (fromEnd ? -1 : 1),
+              clientY: 500 + delta * (fromTop ? -1 : 1),
+            }),
+          );
+          grip.dispatchEvent(new dom!.window.MouseEvent(end));
+        });
+      };
+      await drag(60, "pointerup");
+      expect(modelMenuWidth()).toBe(460);
+      expect(modelMenuHeight()).toBe(360);
+      expect(grip.hasAttribute("data-dragging")).toBe(false);
+      await drag(-1000, "pointercancel");
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () =>
+        grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 2000, clientY: 2000 })),
+      );
+      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuHeight()).toBe(160);
+      await act(async () => grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
+      expect(modelMenuWidth()).toBeUndefined();
+      expect(modelMenuHeight()).toBeUndefined();
+    });
+  }
+}
+
+test("the height edge changes only height", async () => {
+  await openMenu();
+  const menu = popup();
+  const frame = menu.querySelector<HTMLElement>(".acpmux-cols-frame")!;
+  menu.getBoundingClientRect = () => ({ left: 5, right: 405, top: 5, bottom: 305, width: 400, height: 300 }) as DOMRect;
+  frame.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+  menu.parentElement!.getBoundingClientRect = () => ({ left: 5, top: 5 }) as DOMRect;
+  const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize-y")!;
+  const direction = grip.dataset.edge === "top" ? -1 : 1;
+  await act(async () => {
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 500 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientY: 500 + direction * 60 }));
+    grip.dispatchEvent(new dom!.window.MouseEvent("pointerup"));
+  });
+  expect(modelMenuHeight()).toBe(360);
+  expect(modelMenuWidth()).toBeUndefined();
 });
 
 test("a kept height sizes the menu, and a double-click on the edge away from the chip goes back", async () => {

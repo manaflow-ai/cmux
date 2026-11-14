@@ -1483,14 +1483,6 @@
       ]
     },
     {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
-      ]
-    },
-    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"

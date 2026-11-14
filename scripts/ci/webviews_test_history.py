@@ -340,6 +340,20 @@ def early_known(early: list[dict], base_sha: str, replay: list[str],
     return out, left
 
 
+def flaky_only(replay: list[str], flaky_names: set[str], head: dict[str, bool]) -> tuple[list[str], list[str]]:
+    """(the files still to replay, the files whose every red head name is flaky on the base).
+
+    guards_new_reds.py never charges a red name the flaky list holds to the change, whatever the base replay says, so a
+    file whose head reds are all on it needs no replay: run 43442029204's base check replayed 4 such files (1.7 min of
+    base install, bundles and browsers, then 3.4 min) after the head shards' 18.4 min, and every one only warned. A file
+    with any red the list does not hold, or with none the head names, replays as before."""
+    left, dropped = [], []
+    for file in replay:
+        reds = [name for name, ok in head.items() if not ok and name.split(" > ", 1)[0] == file]
+        (dropped if reds and all(name in flaky_names for name in reds) else left).append(file)
+    return left, dropped
+
+
 HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
@@ -604,6 +618,10 @@ def main(argv: list[str]) -> int:
     ek.add_argument("--sha", required=True)
     ek.add_argument("--replay", required=True)
     ek.add_argument("--known", required=True)
+    fo = sub.add_parser("flaky-only")
+    fo.add_argument("flaky")
+    fo.add_argument("--replay", required=True)
+    fo.add_argument("--names", required=True)
     hd = sub.add_parser("heads")
     hd.add_argument("shards")
     hd.add_argument("--count", type=int, required=True)
@@ -722,6 +740,15 @@ def main(argv: list[str]) -> int:
         merged, left = early_known(early, args.sha, replay, known_now)
         print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
         known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
+        replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
+        return 0
+    if args.command == "flaky-only":
+        # Any failure leaves FILES as it was: every file in it still replays.
+        replay_path = Path(args.replay)
+        replay = [line for line in replay_path.read_text(encoding="utf-8").splitlines() if line]
+        names = {line.strip() for line in Path(args.flaky).read_text(encoding="utf-8").splitlines() if line.strip()}
+        left, dropped = flaky_only(replay, names, results([args.names]))
+        print(f"{len(dropped)} of {len(replay)} files to replay hold only reds flaky on the base: they only warn, unreplayed")
         replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0
     if args.command == "known":

@@ -1,8 +1,8 @@
 //! CRC-framed bounded log records and recoverable generation changes.
 use super::compaction::{Compaction, cleanup_stages};
-use super::{DiskSnapshot, IndexRecord, RowKey, Summary, SummaryIndex, codec};
+use super::{DiskSnapshot, IndexRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub struct IndexLog {
@@ -20,6 +20,15 @@ impl IndexLog {
         let requested = path.as_ref();
         let snapshot = DiskSnapshot::open(requested.with_extension("snap"))?;
         Self::open_with_snapshot(requested, snapshot.as_deref())
+    }
+
+    /// Opens a fresh generation whose first sequence follows an already
+    /// published in-memory index. Rebuilds use this instead of replaying the
+    /// quarantined log at sequence zero, so the next compaction can rotate
+    /// immediately even when the rebuild has no later update.
+    pub fn open_at(path: impl AsRef<Path>, seq: u64) -> io::Result<Self> {
+        let path = path.as_ref();
+        Self::open_tail(path.to_owned(), seq, 0, 1)
     }
 
     /// The service opener supplies the already-read head, so startup observes
@@ -102,14 +111,14 @@ impl IndexLog {
         let mut previous_seq = 0;
         let mut oldest_seq = seq.saturating_add(1);
         loop {
-            match codec::read(&mut reader) {
-                Ok(Some((record, len))) if record.seq > previous_seq => {
+            match codec::read_any(&mut reader) {
+                Ok(Some((record, len))) if record_seq(&record) > previous_seq => {
                     if offset == covered {
-                        oldest_seq = record.seq;
+                        oldest_seq = record_seq(&record);
                     }
                     offset += len as u64;
-                    previous_seq = record.seq;
-                    next_seq = next_seq.max(record.seq);
+                    previous_seq = record_seq(&record);
+                    next_seq = next_seq.max(record_seq(&record));
                 }
                 Ok(None) => break,
                 Ok(Some(_)) => break,
@@ -119,6 +128,14 @@ impl IndexLog {
                         io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
                     ) =>
                 {
+                    // A short final frame is the existing torn-tail repair.
+                    // Once the complete frame boundary is present, however,
+                    // a bad length, checksum or payload means the next log
+                    // boundary is unknown and the hub must rebuild from its
+                    // sources instead of silently cutting history.
+                    if complete_frame_at(&file, offset)? {
+                        return Err(error);
+                    }
                     break;
                 }
                 Err(error) => return Err(error),
@@ -174,6 +191,20 @@ impl IndexLog {
         self.offset += bytes.len() as u64;
         self.next_seq = record.seq;
         Ok(())
+    }
+
+    pub fn append_origin(&mut self, record: &OriginRecord) -> io::Result<u64> {
+        let seq = record.seq;
+        if seq <= self.next_seq {
+            return Err(codec::invalid("nonmonotonic origin append"));
+        }
+        let bytes = codec::encode_origin(seq, record)?;
+        self.file.set_len(self.offset)?;
+        self.file.seek(SeekFrom::Start(self.offset))?;
+        self.file.write_all(&bytes)?;
+        self.offset += bytes.len() as u64;
+        self.next_seq = seq;
+        Ok(seq)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -273,6 +304,39 @@ impl IndexLog {
     }
 }
 
+/// Whether the bytes beginning at `offset` contain a complete framed record.
+/// A declared length beyond the format bound is structural damage even when
+/// the file ends before that length, because no safe next boundary exists.
+fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
+    let total = file.metadata()?.len();
+    let remaining = total.saturating_sub(offset);
+    if remaining < 8 {
+        return Ok(false);
+    }
+    let mut probe = file.try_clone()?;
+    probe.seek(SeekFrom::Start(offset))?;
+    let mut header = [0; 8];
+    Read::read_exact(&mut probe, &mut header)?;
+    // Older writers could leave a raw JSON fragment after the last framed
+    // record. Preserve the established torn-tail repair for that legacy
+    // marker; framed bytes with an invalid length remain structural damage.
+    if header[0] == b'{' {
+        return Ok(false);
+    }
+    let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as u64;
+    if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
+        return Ok(true);
+    }
+    let frame_end = 8_u64.saturating_add(length);
+    if remaining < frame_end {
+        return Ok(false);
+    }
+    // A complete framed log record that does not decode has an unknown next
+    // boundary, including when it is the final record. Only a short frame at
+    // EOF is the existing torn-tail case.
+    Ok(true)
+}
+
 pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
     replay_log_from(path, 0, index)
 }
@@ -289,20 +353,30 @@ pub fn replay_log_from(
     };
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(offset))?;
-    while let Some((record, _)) = codec::read(&mut reader)? {
-        if record.seq <= index.seq() {
+    while let Some((record, _)) = codec::read_any(&mut reader)? {
+        let seq = record_seq(&record);
+        if seq <= index.seq() {
             continue;
         }
-        if record.gone {
-            index = index
-                .remove_row(record.seq, &RowKey::new(record.origin, record.chat_id))
-                .unwrap_or(index);
-            index.seq = record.seq;
-        } else {
-            index = index.apply(record.seq, record.summary);
+        match record {
+            codec::LogRecord::Origin(origin) => index = index.replay_origin(seq, origin),
+            codec::LogRecord::Row(record) if record.gone => {
+                index = index
+                    .remove_row(seq, &RowKey::new(record.origin, record.chat_id))
+                    .unwrap_or(index)
+                    .advance_seq(seq);
+            }
+            codec::LogRecord::Row(record) => index = index.apply_summary(seq, record.summary),
         }
     }
     Ok(index)
+}
+
+fn record_seq(record: &codec::LogRecord) -> u64 {
+    match record {
+        codec::LogRecord::Row(record) => record.seq,
+        codec::LogRecord::Origin(record) => record.seq,
+    }
 }
 
 /// Replays every complete generation newer than the snapshot's covered

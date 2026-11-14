@@ -31,14 +31,18 @@ mod connection_leases;
 mod disk_usage;
 mod long_connections;
 mod terminal_lane;
+mod terminal_seats;
 pub use connection_leases::{ConnectionLease, PeerClosed};
-#[cfg(test)]
-pub(crate) use disk_usage::journal_bytes_by_kind;
 pub use disk_usage::{
     DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
+#[cfg(test)]
+pub(crate) use disk_usage::{journal_bytes_by_kind, read_segments_for_test};
 pub use long_connections::LongConnectionsFull;
+pub use terminal_seats::{
+    HostSeat, HostSeating, KeptHost, KeptHostSeat, SeatedTerminal, TerminalSeat,
+};
 mod hook_queue;
 pub(crate) mod request_log;
 mod write_path;
@@ -731,8 +735,11 @@ pub struct ConnectionStats {
     /// The requests by command name and client kind, and the connections by client kind
     /// (`server-stats` section `commands`).
     commands: std::sync::Arc<CommandStats>,
-    /// The admitted connections whose client can be watched for a hang-up.
+    /// The admitted connections that are open (`open_leases`).
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// The process sessions of the session's terminals, and the hosts that
+    /// start one (`terminal_seats`).
+    terminal_seats: terminal_seats::TerminalSeats,
     /// Of `active`, the connections from processes inside this session's
     /// terminals (agents, their hooks, `cmux` run in a pane), with each
     /// terminal's fair share (`try_claim_terminal`). A hung-up terminal

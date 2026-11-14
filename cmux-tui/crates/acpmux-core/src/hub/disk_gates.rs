@@ -2,10 +2,13 @@
 //! Startup crosses an exec boundary so it includes the daemon's open-to-first-window path.
 
 use super::*;
-use acpmux_book::index::{DiskSnapshot, IndexLog, ListFilter, ReadSide, SortedSnapshot};
+use acpmux_book::index::{
+    DiskSnapshot, HOT_WINDOW_MS, IndexLog, ListFilter, ReadSide, SortedSnapshot,
+};
 use serde_json::value::RawValue;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::Command;
 use tempfile::{TempDir, tempdir};
 
@@ -14,9 +17,13 @@ const SAMPLES: usize = 200;
 const PAGE_ROWS: usize = 20;
 const TAIL_ROWS: usize = 16;
 // Decision 110: physical I/O is one sparse block plus this page's rows.
-// The fixed fixture's largest frame is its first row (running, seven-digit
-// timestamp); the remaining closed/six-digit rows take fewer bytes.
-const FIXTURE_FRAME_BYTES: usize = 160;
+// The fixture uses millisecond stamps near day thirty of the Unix epoch,
+// well before the hot cutoff. Both sides retain the same fixed-width shape.
+const COLD_ACTIVITY_MS: u64 = HOT_WINDOW_MS;
+// The largest frame is a running row with its ten-digit millisecond stamp
+// and the optional peerForm field serialized as null (16 bytes).
+// This is the page's own row size in the 64 KiB + page-row-bytes bound.
+const FIXTURE_FRAME_BYTES: usize = 179;
 
 fn page_time_failed(label: &str, small: u128, god: u128, all: u128) -> bool {
     if label == "last" {
@@ -43,8 +50,10 @@ fn fixture(count: usize, filter_fixture: bool, with_tail: bool) -> (TempDir, Sum
         let state = if filter_fixture && n % 100 == 0 { "running" } else { "closed" };
         // Fixed-width timestamps keep the on-disk row shape the same on both
         // sides; these rows are still older than the hot cutoff.
-        index = index
-            .apply((n + 1) as u64, summary(format!("row-{n:05}"), 1_000_000 - n as u64, state));
+        index = index.apply(
+            (n + 1) as u64,
+            summary(format!("row-{n:05}"), COLD_ACTIVITY_MS - n as u64, state),
+        );
     }
     SortedSnapshot::write(dir.path().join("index.snap"), &index).expect("write fixture");
     if with_tail {
@@ -58,12 +67,21 @@ fn fixture(count: usize, filter_fixture: bool, with_tail: bool) -> (TempDir, Sum
     (dir, index)
 }
 
+#[test]
+fn millisecond_fixture_keeps_the_page_byte_budget_exact() {
+    let (dir, _) = fixture(20, true, false);
+    let first = DiskSnapshot::open(dir.path().join("index.snap"))
+        .unwrap()
+        .unwrap()
+        .first_rows(1, 256 * 1024)
+        .unwrap();
+    assert_eq!(first.bytes_read, FIXTURE_FRAME_BYTES);
+}
+
 fn full_tail_fixture(count: usize, generations: usize) -> (TempDir, u64) {
     let (dir, _) = fixture(count, false, false);
-    let trigger = std::fs::metadata(dir.path().join("index.snap"))
-        .expect("snapshot size")
-        .len()
-        .max(1024 * 1024);
+    let trigger =
+        fs::metadata(dir.path().join("index.snap")).expect("snapshot size").len().max(1024 * 1024);
     let mut log = IndexLog::open(dir.path().join("index.log")).expect("open full tail");
     for generation in 0..generations {
         let mut n = 0;
@@ -120,7 +138,7 @@ fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
 }
 
 fn rss_kb() -> u64 {
-    std::fs::read_to_string("/proc/self/status")
+    fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {
             status.lines().find_map(|line| {
@@ -133,7 +151,7 @@ fn rss_kb() -> u64 {
 }
 
 pub(super) fn rss_fields_kb() -> (u64, u64, u64) {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
         status
             .lines()
@@ -173,8 +191,7 @@ fn child_startup() {
         .expect("child boot")
         .parse::<u64>()
         .expect("numeric child boot");
-    let (hub, mut writer) =
-        Hub::open(std::path::Path::new(&dir), boot, || 19).expect("open disk hub");
+    let (hub, mut writer) = Hub::open(Path::new(&dir), boot, || 19).expect("open disk hub");
     let mut sub = Sub::new("child", "list");
     sub.window = Some(PAGE_ROWS as u16);
     let frame = hub.list_window(&sub).expect("first window");
@@ -204,7 +221,9 @@ fn child_startup() {
                 let id = format!("row-{:05}", n % cycle);
                 // A different old activity on every update prevents the
                 // 20-key side from becoming 10,980 equality no-ops.
-                writer.apply(summary(id, 2_000_000 + n as u64, "closed")).expect("apply cold row");
+                writer
+                    .apply(summary(id, COLD_ACTIVITY_MS * 2 + n as u64, "closed"))
+                    .expect("apply cold row");
             }
             writer.sync_batch().expect("sync cold rows");
             writer.next_compaction = Some(std::time::Instant::now());
@@ -229,7 +248,9 @@ fn child_startup() {
         runtime.block_on(async {
             for n in 0..11_000 {
                 let id = format!("row-{:05}", n % cycle);
-                writer.apply(summary(id, 2_000_000 + n as u64, "closed")).expect("apply cold row");
+                writer
+                    .apply(summary(id, COLD_ACTIVITY_MS * 2 + n as u64, "closed"))
+                    .expect("apply cold row");
             }
             attribution_point("after_apply", &hub);
             writer.sync_batch().expect("sync cold rows");
@@ -248,7 +269,7 @@ fn child_startup() {
     println!("V2_GATE_CHILD_RSS_KB={}", rss_kb());
 }
 
-fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
+fn exec_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
     let start = std::time::Instant::now();
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
@@ -293,12 +314,7 @@ fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> 
 }
 
 #[cfg(feature = "allocation-metrics")]
-fn exec_attribution_child(
-    dir: &std::path::Path,
-    test_name: &str,
-    boot: u64,
-    mode: &str,
-) -> Vec<String> {
+fn exec_attribution_child(dir: &Path, test_name: &str, boot: u64, mode: &str) -> Vec<String> {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
         .arg(test_name)
@@ -334,7 +350,7 @@ fn exec_attribution_child(
     points
 }
 
-fn make_disk_index(dir: &std::path::Path, index: &SummaryIndex) -> SummaryIndex {
+fn make_disk_index(dir: &Path, index: &SummaryIndex) -> SummaryIndex {
     SortedSnapshot::write(dir.join("index.snap"), index).expect("write page fixture");
     SummaryIndex::from_disk(
         DiskSnapshot::open(dir.join("index.snap")).expect("open snapshot"),
@@ -479,7 +495,15 @@ fn pr05b_startup_pages_and_hot_index_gate() {
         }
     }
 
-    let filter = ListFilter { workspace: None, origin: None, state: Some("running".to_owned()) };
+    let filter = ListFilter {
+        workspace: None,
+        origin: None,
+        state: Some("running".to_owned()),
+        family: None,
+        folder: None,
+        forks: None,
+        cold: false,
+    };
     let mut small_filter: [Vec<u128>; 3] =
         std::array::from_fn(|_| Vec::with_capacity(ROUNDS * SAMPLES));
     let mut god_filter: [Vec<u128>; 3] =

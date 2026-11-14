@@ -464,6 +464,13 @@ impl LinkHandle {
         self.link.is_closed()
     }
 
+    /// Milliseconds since the link last received any frame from the Mac.
+    /// Any frame proves the link alive as a probe's pong would, so the app's
+    /// heartbeat probes only a link quiet for a whole beat.
+    pub fn received_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.received_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
     /// Close the link and its transport. The signaling socket stays warm
     /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {

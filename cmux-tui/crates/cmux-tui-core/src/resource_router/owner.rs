@@ -32,6 +32,10 @@ pub(super) enum OperationOwner {
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
     PaletteRank,
+    /// `theme.scheme.*` (resource_router/theme_scheme.rs): stateless converters.
+    ThemeScheme,
+    /// `browser_import.read` (resource_router/browser_import.rs): stateless.
+    BrowserImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -186,6 +190,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
             OperationOwner::ConductorImport
         }
         ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
+        ResourceOperation::ThemeSchemeConvert
+        | ResourceOperation::ThemeSchemeExport
+        | ResourceOperation::ThemeSchemeFromImage => OperationOwner::ThemeScheme,
+        ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -396,6 +404,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

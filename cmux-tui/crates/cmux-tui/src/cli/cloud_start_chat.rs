@@ -7,7 +7,8 @@
 //! It runs the app's own verbs in turn, each as this binary with `--json`, so every step keeps
 //! that verb's checks, keys and deadlines:
 //!
-//! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
+//! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux. A list the app has not
+//!    loaded yet (just launched) is read again until it is, for at most [`LIST_LOAD_WAIT`] and `--timeout`.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
@@ -129,6 +130,9 @@ pub(super) struct Request {
     /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
     /// and start again once.
     pub make_room: bool,
+    /// A deadline a caller already holds (the carrier fault drill's one `--timeout`): every step is bounded by it,
+    /// with or without a prompt and `--wait`. `None`: [`Deadline::of`] reads `--timeout` from the run's start.
+    pub until: Option<Instant>,
     /// `--allow-large`: copy `from_folder` even past the copy's limits (link/sync_cli/size_cap.rs).
     pub allow_large: bool,
 }
@@ -243,6 +247,7 @@ pub(super) fn send_existing(
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
         make_room: false,
+        until: None,
         allow_large: false,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
@@ -513,6 +518,7 @@ pub(super) fn parse(
         wait,
         timeout,
         make_room,
+        until: None,
         allow_large,
     })))
 }
@@ -851,6 +857,9 @@ pub(super) struct Deadline(Option<Instant>);
 
 impl Deadline {
     pub(super) fn of(request: &Request, began: Instant) -> Self {
+        if let Some(until) = request.until {
+            return Self(Some(until));
+        }
         let bounded = request.wait && request.prompt.is_some();
         Self(bounded.then(|| began.checked_add(request.timeout).unwrap_or(began)))
     }
@@ -1243,6 +1252,9 @@ fn steps(
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
+    if request.environment.is_some() || !matches!(request.machine, Machine::Target(_)) {
+        listed = loaded_list(runner, listed, deadline);
+    }
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
@@ -1465,6 +1477,8 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // The chat tab's handle on the machine's daemon, for a caller that attaches to it (the carrier fault drill).
+        internal::fault_routes::keep_chat_tab(&mut answer, &started);
         // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
         // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
         // a read that fails leaves the answer without `cwd`, never fails a chat that started.
@@ -1698,6 +1712,20 @@ fn wait_turn(
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
+            if turn.failed() {
+                // `acp last` reads the session's newest reply, not this turn's: a turn that failed
+                // before it said anything (the agent's usage limit) would answer the turn before's
+                // reply as its own. It answers its own error instead, as the pushed route does.
+                let message = at(&turn.value, "error")
+                    .as_str()
+                    .filter(|error| !error.is_empty())
+                    .map_or_else(|| format!("the turn ended {}", turn.status), str::to_owned);
+                return Outcome::Failed {
+                    error: json!({"code": "chat.turn_failed", "message": message,
+                                  "details": answer, "retryable": false}),
+                    exit: 1,
+                };
+            }
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
             let Some(text) = reply(polled.get("last")).filter(|_| read) else {
                 return failed(
@@ -1709,14 +1737,6 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            if turn.failed() {
-                return Outcome::Failed {
-                    error: json!({"code": "chat.turn_failed",
-                                  "message": format!("the turn ended {}", turn.status),
-                                  "details": answer, "retryable": false}),
-                    exit: 1,
-                };
-            }
             return Outcome::Done(answer);
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
@@ -1960,6 +1980,39 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
     )
 }
 
+/// How long a start waits for the app's first machine list (an app just launched loads it after
+/// sign-in: the production chat probe, cmuxterm-hq run 43553290380) before it answers `cloud.list_unread`.
+const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
+
+/// The pause between reads of a machine list the app has not loaded yet.
+const LIST_LOAD_POLL: Duration = Duration::from_secs(2);
+
+/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again
+/// [`LIST_LOAD_POLL`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
+/// `deadline`. A read that fails keeps the last answer; the caller's checks then refuse on what it says.
+fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -> Value {
+    let unloaded = |list: &Value| {
+        at(list, "loaded").as_bool() == Some(false)
+            && list.pointer("/account/signed_in") != Some(&Value::Bool(false))
+    };
+    let until = runner.now() + LIST_LOAD_WAIT;
+    while unloaded(&listed) {
+        let left = until.saturating_duration_since(runner.now());
+        if left.is_zero() || deadline.passed(runner) {
+            break;
+        }
+        let pause = deadline.bound(runner, LIST_LOAD_POLL.min(left));
+        runner.pause(pause);
+        if runner.now() >= until || deadline.passed(runner) {
+            break;
+        }
+        if let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
+            listed = now;
+        }
+    }
+    listed
+}
+
 /// The pause between reads of the app's machine list while a new machine is being made.
 const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
 
@@ -2057,14 +2110,13 @@ fn in_environment(
     let machine = &request.machine;
     if let Machine::Named(name) = machine {
         if at(listed, "loaded").as_bool() == Some(false) {
-            return Err(failed(
-                "cloud.list_unread",
+            return Err(list_unread(
+                runner,
                 format!(
                     "the app has not loaded its Cloud machines yet, so no machine was made in the environment: \
                      one named {name} may exist already. Run this command again in a moment"
                 ),
                 json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
-                75,
             ));
         }
         in_flight(listed, name)?;
@@ -2184,18 +2236,40 @@ fn new_machine(
     Ok(id)
 }
 
+/// How long [`list_unread`] waits for the app's `cloud.machines` answer (a main-actor read of its state, no network).
+// timeout: one read of the app's own state for the refusal's detail; no answer leaves the refusal as before.
+const LAST_ERROR_WAIT: Duration = Duration::from_secs(5);
+
+/// `cloud.list_unread`: the app has not loaded its Cloud machines, so nothing was made or started. A list
+/// refresh that fails reaches only the app's `CloudService.lastError`, never `list-machines`' answer, so the
+/// app's last Cloud error (`cloud.machines`' `last_error`, AppControl+Cloud.swift) is added to `message` and
+/// `details` when it has one: why the list never loaded (cmuxterm-hq run 43553290380).
+fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> Outcome {
+    let last_error = runner
+        .app("cloud.machines", json!({}), LAST_ERROR_WAIT)
+        .and_then(Result::ok)
+        .and_then(|answer| at(&answer, "last_error").as_str().map(str::trim).map(str::to_owned))
+        .filter(|error| !error.is_empty());
+    let message = match &last_error {
+        Some(error) => format!("{message}. The app's last Cloud error: {error}"),
+        None => message,
+    };
+    details.set("last_error", last_error.map_or(Value::Null, Value::String));
+    failed("cloud.list_unread", message, details, 75)
+}
+
 /// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
 /// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
 /// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
 /// `new-machine --name`.
 fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcome> {
     if at(listed, "loaded").as_bool() == Some(false) {
-        return Err(failed(
-            "cloud.list_unread",
+        return Err(list_unread(
+            runner,
             "the app has not loaded its Cloud machines yet, so no machine was made or started: run this \
-             command again in a moment",
+             command again in a moment"
+                .to_owned(),
             json!({"list": "cmux cloud list-machines --json"}),
-            75,
         ));
     }
     let name = runner.fresh_name();
