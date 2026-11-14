@@ -655,6 +655,8 @@ pub(super) fn download_mode(executable: bool, umask: u32, existing: Option<u32>)
 }
 
 /// This process's file-creation mask.
+// `mode_t` is u32 on Linux and u16 on macOS: the conversion is a no-op only here.
+#[allow(clippy::useless_conversion)]
 fn current_umask() -> u32 {
     // SAFETY: umask only swaps the process mask; it is put back at once, and
     // `cp` runs no other thread that creates files meanwhile.
