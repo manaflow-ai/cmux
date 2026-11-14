@@ -7,10 +7,12 @@ import Foundation
 /// (`ListStressRig`); the mock agent reads the two chat settings here.
 /// - `CMUX_MOBILE_LIST_SCREEN`: the list to measure: `workspaces`, `tabs`, `chat`, `diff`,
 ///   `artifacts` (the chat's Files and Artifacts grid; each replayed turn names an image, a page and a PDF), `home`, or `feed`
-///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed).
+///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed), or `terminals`
+///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list).
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
 /// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
-/// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits.
+/// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits (`terminals`:
+///   every mock shell streams a row every 20 ms).
 /// - `CMUX_MOBILE_LIST_SEND=1` (chat): type and send a prompt through the composer after the chat
 ///   opens (the mock's own turn, or the long answer with `LIST_STREAM=1`), as a person does.
 /// - `CMUX_MOBILE_LIST_HOLD_TURN=1` (chat, with `LIST_SEND=1`): the sent prompt's turn stays running

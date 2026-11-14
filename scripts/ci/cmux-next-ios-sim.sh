@@ -126,10 +126,12 @@
 #                          then head, on the one simulator (as listperf's base=)
 #             reps=N       repetitions of every case (1-5, default 1)
 #             seconds=S    seconds sampled per case (10-1800, default 30)
-#             cases=A,B    cases by label (default: every case but drift-30m and the
-#                          working-chat ones):
+#             cases=A,B    cases by label (default: every case but drift-30m,
+#                          hidden-terminals-4 and the running-chat ones):
 #                          idle-home idle-home-5000 idle-chat-400 tabs-10
 #                          scroll-chat-200 stream-chat background-home drift-30m
+#                          hidden-terminals-4 (4 warm terminal tabs streaming,
+#                          hidden behind the workspaces list)
 #                          idle-chat-40 working-chat working-chat-away working-chat-bg
 #                          (a chat with one running turn, its elapsed time live: on screen,
 #                          scrolled away, the app in the background; each counts the
@@ -240,6 +242,7 @@ energy_table=(
   "idle-home-5000   home    idle        -     LIST_COUNT=5000 LIST_PASSES=0"
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
+  "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
