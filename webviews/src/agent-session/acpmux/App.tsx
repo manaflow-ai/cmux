@@ -157,6 +157,7 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
+import { liveAsk } from "./liveAsk";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
 import {
@@ -436,7 +437,6 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
-  closeTurnRuns,
   ACTIVITY_LINE,
   DATE,
   THINKING,
@@ -444,7 +444,6 @@ import {
   openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
-  turnInsideIds,
   hiddenRowFolds,
   WORKING,
   type TurnView,
@@ -456,6 +455,8 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
+  closeTurnRuns,
+  turnInsideIds,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
@@ -472,7 +473,6 @@ import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
-  switchForks,
   forkRefusal,
   forkToTarget,
   forksAnyTurn,
@@ -481,6 +481,7 @@ import {
   messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
+  switchForks,
   withSendPromptAgain,
 } from "./conversation/messageMenu";
 import { actOnReportedImage } from "./conversation/imageMenuActions";
@@ -548,7 +549,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -560,6 +560,7 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
   heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -630,12 +631,12 @@ import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFol
 import {
   callsToHold,
   foldsToHold,
-  lastTurnWorkedKeys,
   linedCallOf,
   oneKeyPerMessageRun,
-  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
+  lastTurnWorkedKeys,
+  rowsToHold,
   withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
@@ -662,8 +663,8 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
-  lostRetryDelay,
   hostSelfRetrying,
+  lostRetryDelay,
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -1881,13 +1882,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
     () =>
-      withStartingPrompt(
-        applySwitch(
-          catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-          switchView,
-          catalog,
+      liveAsk(
+        withStartingPrompt(
+          applySwitch(
+            catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+            switchView,
+            catalog,
+          ),
+          shownStarting,
         ),
-        shownStarting,
       ),
     [clientSnapshot, switchView, catalog, shownStarting],
   );
