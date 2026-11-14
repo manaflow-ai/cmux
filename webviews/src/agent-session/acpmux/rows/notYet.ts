@@ -30,4 +30,15 @@ export const NOT_YET: readonly NotYet[] = [
     builder: "2c",
     note: "an approval reads on its call; the ask row draws no receipt for it",
   },
+  {
+    field: "tool.provenance",
+    home: "a",
+    builder: "2c",
+    note: "Claude's tool name (`_meta.claude.tool`), with Claude's title and kind",
+  },
+  // The row head's `at` is in seconds; v1 keeps the record's ms.
+  { field: "user.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
+  { field: "assistant.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
+  { field: "tool.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
+  { field: "turnSummary.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
 ];
