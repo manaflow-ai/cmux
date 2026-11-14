@@ -1,5 +1,6 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
+import CmuxMobileTransport
 import Foundation
 
 /// A terminal that needs no Mac: a tiny shell with a line editor, scripted
@@ -126,7 +127,7 @@ public final class MockTerminalSession: TerminalSession {
         guard streaming else { return }
         let held = parkedWrites.joined()
         parkedWrites.removeAll()
-        if !held.isEmpty { handler?(.output(Data(held.utf8))) }
+        if !held.isEmpty { deliverOutput(Data(held.utf8)) }
         resumeParked()
     }
 
@@ -145,6 +146,8 @@ public final class MockTerminalSession: TerminalSession {
     // MARK: Output
 
     private func write(_ text: String) {
+        // Parked: nothing crosses "the link" (a Mac terminal's closed attach),
+        // so nothing is counted until it is shown.
         guard !parked else {
             parkedWrites.append(text)
             var total = parkedWrites.reduce(0) { $0 + $1.utf8.count }
@@ -153,7 +156,14 @@ public final class MockTerminalSession: TerminalSession {
             }
             return
         }
-        handler?(.output(Data(text.utf8)))
+        deliverOutput(Data(text.utf8))
+    }
+
+    /// Output to the screen: what the transport would deliver.
+    private func deliverOutput(_ data: Data) {
+        // No link in mock mode: the shell's output is what the transport would deliver.
+        ReceivedByteCount.shared.add(data.count)
+        handler?(.output(data))
     }
 
     private func setAlternate(_ on: Bool, program name: String) {

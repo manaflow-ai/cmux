@@ -75,16 +75,15 @@ const fn f(from: &'static str, to: &'static str, ty: Ty) -> Field {
 }
 
 const NOTICE_TEXT: &[&str] = &["text", "error", "reason", "detail"];
-/// The turn-end notice's fields copied as they are. `tokens`, `checkpoint`, `error`, `seq`,
-/// `continued` and `retry` are computed from the same record (`State::turn_end`).
+/// The turn-end notice's fields copied as they are. `tokens`, `checkpoint`, `error`, `seq` and
+/// `retry` are computed from the same record (v1.rs `turn_result`), and `continued` from the
+/// queue's records before it (`State::end_turn`).
 pub(super) const TURN_END: &[Field] = &[
     f("status", "status", Ty::Str(64)),
     f("errorCode", "errorCode", Ty::Str(64)),
     f("cancelForced", "stopForced", Ty::True),
 ];
 
-const ASK: &str = "PR 2: an ask row, which its decision patches";
-const USER: &str = "PR 2: what a user row says of its sender";
 const RECORD: &str = "PR 3: a record row";
 const LIVE: &str = "PR 4: the open group row's live state";
 const QUEUE: &str = "row 2d: the queue head's entry, not a row";
@@ -93,7 +92,10 @@ const IMPORTED: &str = "marks where an imported history ends, read over the v1 c
 const UNREAD: &str = "the chat view reads nothing of it";
 
 pub(super) const MUX: &[Kind] = &[
-    not("_acpmux/message", USER),
+    not(
+        "_acpmux/message",
+        "a message this chat sent another: that chat draws it from its own user_message",
+    ),
     not("adopted", UNREAD),
     not("agent_hold", UNREAD),
     not("agent_pair_dropped", RECORD),
@@ -126,8 +128,8 @@ pub(super) const MUX: &[Kind] = &[
     not("created", UNREAD),
     code("dequeued", "the queue: the entry leaves (State::queue_remove)"),
     not("directories", UNREAD),
-    not("elevation_decision", ASK),
-    not("elevation_request", ASK),
+    code("elevation_decision", "settles its ask row with its outcome (State::decide_secret)"),
+    code("elevation_request", "an ask row for the OK to run as root (State::ask_secret)"),
     notice("exited", &[]),
     notice("failover", &[]),
     not("failover_skipped", UNREAD),
@@ -169,13 +171,13 @@ pub(super) const MUX: &[Kind] = &[
     not("mode", UNREAD),
     not("model", UNREAD),
     not("native_history", IMPORTED),
-    not("permission_auto", ASK),
-    not("permission_chat_allowance", ASK),
-    not("permission_decision", ASK),
-    not("permission_group", ASK),
-    not("permission_reissued", ASK),
-    not("permission_request", ASK),
-    not("permission_withdrawn", ASK),
+    code("permission_auto", "settles the ask the person was shown, if any (State::decide_auto)"),
+    not("permission_chat_allowance", "the chat's allowance: the page reads its permission groups"),
+    code("permission_decision", "settles its ask row (State::decide_permission)"),
+    not("permission_group", "a group of asks: the page reads its permission groups over v1"),
+    not("permission_reissued", "an open ask asked again after a restart: its row is open already"),
+    code("permission_request", "an ask row: a permission or a question (State::ask_permission)"),
+    not("permission_withdrawn", "an agent's cancel: a `cancelled` decision settles its ask"),
     not("plan_build", RECORD),
     not("policy", UNREAD),
     not("policy_refused", UNREAD),
@@ -185,17 +187,20 @@ pub(super) const MUX: &[Kind] = &[
     not("preset_approval_request", RECORD),
     not("preset_mode_dropped", UNREAD),
     not("process_update", UNREAD),
-    not(
-        "prompt_refused",
-        "said live only, over the v1 connection: a loaded history does not repeat it",
-    ),
+    code("prompt_refused", "a prompt that will not run: a turn it ended ends (State::withdrawn)"),
     not("prompt_retracted", UNREAD),
     not("prompt_stop_requested", UNREAD),
     not("queue_approved", QUEUE),
-    code("queue_declined", "the queue: the entry leaves (State::queue_remove)"),
-    code("queue_order", "the queue's order, and a prompt sent now (State::queue_order)"),
+    code(
+        "queue_declined",
+        "the queue: the entry leaves, and a turn it ended ends (State::withdrawn)",
+    ),
+    code("queue_order", "the queue's order, and a prompt sent now (State::interrupt)"),
     code("queue_paused", "the queue: entries held (State::queue_set_held)"),
-    code("queue_removed", "the queue: the entry leaves (State::queue_remove)"),
+    code(
+        "queue_removed",
+        "the queue: the entry leaves, and a turn it ended ends (State::withdrawn)",
+    ),
     not("queue_restored", UNREAD),
     code("queue_resumed", "the queue: entries released (State::queue_set_held)"),
     not("queue_updated", QUEUE),
@@ -217,10 +222,10 @@ pub(super) const MUX: &[Kind] = &[
     not("route_changed", UNREAD),
     not("route_probe", UNREAD),
     not("rules", UNREAD),
-    not("secret_decision", ASK),
-    not("secret_request", ASK),
+    code("secret_decision", "settles its ask row with its outcome (State::decide_secret)"),
+    code("secret_request", "an ask row for a secret (State::ask_secret)"),
     not("secret_run", UNREAD),
-    not("sender_claim", USER),
+    code("sender_claim", "where a prompt was sent from: its user row's `sentFrom` (State::claim)"),
     not("session_offer", RECORD),
     not("session_offer_decision", RECORD),
     not("start_default_skipped", UNREAD),
@@ -228,7 +233,10 @@ pub(super) const MUX: &[Kind] = &[
     not("stderr", UNREAD),
     code("steer_read", "a steer read: its user row settles (State::steer_read)"),
     not("steer_returned", UNREAD),
-    not("steer_withdrawn", USER),
+    code(
+        "steer_withdrawn",
+        "a steer taken back before it was read: its row goes (State::settle_prompt)",
+    ),
     not("stop_escalated", UNREAD),
     not("stop_restarted", UNREAD),
     notice("stopped", &[]),
