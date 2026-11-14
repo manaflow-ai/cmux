@@ -240,7 +240,7 @@ async fn a_refused_token_is_typed_unauthorized() {
                 block_udp: false,
                 video_lane: false,
                 webrtc_media: false,
-                ultra_on_cellular: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
             },
             None,
         )
