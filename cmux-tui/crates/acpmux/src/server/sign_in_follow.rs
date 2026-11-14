@@ -81,6 +81,9 @@ struct State {
     /// The sign-in whose enroll got an answer (anything but `Unavailable`): no enroll goes again
     /// for it. Any other sign-in's enroll is not done yet.
     enrolled: Option<u64>,
+    /// The sign-in whose enroll with a token is queued or running: the same person again, with a
+    /// token, waits for it rather than queueing another.
+    in_flight: Option<u64>,
     /// The last change's work: done once it holds true (or its task is gone).
     last: Option<watch::Receiver<bool>>,
 }
@@ -114,11 +117,24 @@ impl Follow {
         state.session == session && state.current.is_some() && state.enrolled != Some(session)
     }
 
+    /// Whether sign-in `session`'s enroll got an answer.
+    fn enrolled(&self, session: u64) -> bool {
+        self.state.lock_or_recover().enrolled == Some(session)
+    }
+
     /// Sign-in `session`'s enroll got an answer.
     fn enroll_done(&self, session: u64) {
         let mut state = self.state.lock_or_recover();
         if state.session == session {
             state.enrolled = Some(session);
+        }
+    }
+
+    /// Sign-in `session`'s queued enroll ended, answered or not.
+    fn enroll_ended(&self, session: u64) {
+        let mut state = self.state.lock_or_recover();
+        if state.in_flight == Some(session) {
+            state.in_flight = None;
         }
     }
 
@@ -146,9 +162,10 @@ impl Follow {
                 let (Some(user), Some(access)) = (user_id, access) else {
                     return Accepted { recorded: None, leave: false, enroll: false };
                 };
-                if state.enrolled == Some(session) {
+                if state.enrolled == Some(session) || state.in_flight == Some(session) {
                     return Accepted { recorded: None, leave: false, enroll: false };
                 }
+                state.in_flight = Some(session);
                 let (done, watching) = watch::channel(false);
                 let before = state.last.replace(watching);
                 drop(state);
@@ -166,6 +183,7 @@ impl Follow {
             state.decided = true;
             state.current = user_id.clone();
             state.session += 1;
+            state.in_flight = (user_id.is_some() && access.is_some()).then_some(state.session);
             let (done, watching) = watch::channel(false);
             let before = state.last.replace(watching);
             (leave, leaving, before, done, state.session)
@@ -220,12 +238,13 @@ impl Follow {
                 port.leave(leaving).await;
             }
             follow.enroll(port.as_ref(), session, user, access).await;
+            follow.enroll_ended(session);
             let _ = done.send(true);
         });
     }
 
-    /// Sign-in `session`'s enroll for `user`, once more after [`RETRY_WAIT`] when the hub did not
-    /// answer, while it is still the signed-in person's and not done.
+    /// Sign-in `session`'s enroll for `user` unless one was answered, once more after
+    /// [`RETRY_WAIT`] when the hub did not answer, while it is still the signed-in person's.
     async fn enroll(&self, port: &dyn Port, session: u64, user: String, access: Zeroizing<String>) {
         for attempt in 0..2 {
             if attempt > 0 {
@@ -239,8 +258,11 @@ impl Follow {
                     () = tokio::time::sleep(self.retry_wait) => {}
                     () = &mut changed => {}
                 }
+                if !self.needs_enroll(session) {
+                    return;
+                }
             }
-            if !self.needs_enroll(session) {
+            if self.enrolled(session) {
                 return;
             }
             let outcome = port.enroll(user.clone(), access.clone()).await;
