@@ -333,7 +333,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {

@@ -2296,6 +2296,8 @@ mod tests {
         let mut bytes = first.clone();
         bytes.extend_from_slice(&second);
         assert_eq!(client.received(&bytes), first.len());
+        assert_eq!(client.changes.len(), 1);
+        assert_eq!(client.changes.front().map(|queued| queued.bytes), Some(first.len() as u64));
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
         assert_eq!(client.received(&bytes[first.len()..]), second.len());
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
@@ -3891,26 +3893,42 @@ tail"#;
         }
         let mut small_rounds = Vec::with_capacity(5);
         let mut god_rounds = Vec::with_capacity(5);
+        let mut small_all = Vec::with_capacity(40);
+        let mut god_all = Vec::with_capacity(40);
         let mut small_bytes = Vec::with_capacity(5);
         let mut god_bytes = Vec::with_capacity(5);
         for _ in 0..5 {
             let (times, bytes) = sample(0);
+            small_all.extend(times.iter().copied());
             small_rounds.push(times);
             small_bytes.push(bytes);
             let (times, bytes) = sample(11_000);
+            god_all.extend(times.iter().copied());
             god_rounds.push(times);
             god_bytes.push(bytes);
         }
         let best = |rounds: &[Vec<u64>]| rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-        let small = best(&small_rounds);
-        let god = best(&god_rounds);
+        let best_small = best(&small_rounds);
+        let best_god = best(&god_rounds);
+        let small = p95(&small_all);
+        let god = p95(&god_all);
+        let god_p95_all = p95(&god_all);
+        let small_bytes = small_bytes.into_iter().min().unwrap_or(0);
+        let god_bytes = god_bytes.into_iter().min().unwrap_or(0);
+        assert!(
+            god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),
+            "received bytes exceed the 1.2x bound: god={god_bytes}, small={small_bytes}"
+        );
         let line = serde_json::json!({
             "name":"v2.pr04b.mirror_v1_rows",
             "small_p95":small,
             "god_p95":god,
+            "best_small_p95":best_small,
+            "best_god_p95":best_god,
+            "god_p95_all":god_p95_all,
             "unit":"ns",
-            "small_bytes":small_bytes.into_iter().min().unwrap_or(0),
-            "god_bytes":god_bytes.into_iter().min().unwrap_or(0)
+            "small_bytes":small_bytes,
+            "god_bytes":god_bytes
         });
         println!("{line}");
         if let Ok(path) = std::env::var("V2_GATE_OUT") {
