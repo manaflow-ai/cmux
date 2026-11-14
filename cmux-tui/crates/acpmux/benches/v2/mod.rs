@@ -355,6 +355,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "6e",
+        name: "v2.pr06.hold_attach",
+        done_when: "A hold attach on the god chat costs at most 1.2x the same hold attach on the small chat, without reading the chat log.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
@@ -924,10 +933,55 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "8",
-        name: "v2.pr08.peers_list_subscribers",
-        done_when: "30 peers reconnecting at once: RSS rise under 20 MB, ack p95 unchanged. Zero whole-list parses (a counter).",
+        pr: "7c",
+        name: "v2.pr07c.update_plan_bytes",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7c",
+        name: "v2.pr07c.update_plan_wall",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.reconnect_30",
+        done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, in two storms: to the daemon they left, nothing missed (one empty frame marked end to each), and to a restarted daemon whose new peer store has every saved cursor under its floor (a window to each). RSS rise under 20 MB over a trimmed baseline in both. A peak row: only the absolute bound applies.",
+        measured: true,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(20.0 * 1024.0 * 1024.0),
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.v1_ack_peers_on_off",
+        done_when: "v1's ack p95 on 30 links during the reconnect, peers on against off: 1.2x, rounds alternating.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.fanout_30",
+        done_when: "One local change to 30 peer subscribers, submit to the last link's slot, 11k chats and 500 live against 20 live: 1.2x. Encoded once, zero secret scans and zero extra parses (counters).",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_apply",
+        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate. At most two units per origin are unapplied (one in the storage retry, one in the slot), joined into one append.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -1244,9 +1298,10 @@ mod tests {
         }
     }
 
-    /// Every gate name the acpmux crates' sources hold, with the file that holds it. This file is
-    /// left out: its rows are what the names are checked against. `v2.pr99` is the made-up PR
-    /// the report's own tests use.
+    /// Every gate name the acpmux crates' sources hold (and `cmux-tui-core`'s, whose list
+    /// callers' gates are row 7c's), with the file that holds it. This file is left out: its
+    /// rows are what the names are checked against. `v2.pr99` is the made-up PR the report's own
+    /// tests use.
     fn names_in_sources() -> Vec<(String, PathBuf)> {
         let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/mod.rs");
@@ -1256,7 +1311,7 @@ mod tests {
             let is_ours = path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("acpmux"));
+                .is_some_and(|name| name.starts_with("acpmux") || name == "cmux-tui-core");
             for part in ["src", "tests", "benches"] {
                 if is_ours && path.join(part).is_dir() {
                     rust_sources(&path.join(part), &mut files);

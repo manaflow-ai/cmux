@@ -640,6 +640,117 @@ fn sixty_pages_and_blobs_sent_at_once_are_answered_one_at_a_time() {
     });
 }
 
+/// A whole turn with a tool call, so it has a group row: its prompt, a read, a reply, its end.
+fn tool_turn(n: u64) -> Vec<String> {
+    let seq = n * 10;
+    let update = |seq: u64, kind: &str, update: Value| {
+        json!({"seq": seq, "at": seq * 1000, "dir": "in", "kind": kind,
+            "msg": {"method": "session/update", "params": {"update": update}}})
+        .to_string()
+    };
+    let call = format!("c{n}");
+    let mut lines = open_turn(n);
+    lines.push(update(
+        seq + 3,
+        "tool_call",
+        json!({"sessionUpdate": "tool_call",
+        "toolCallId": call, "title": "Read a.rs", "kind": "read", "status": "pending"}),
+    ));
+    lines.push(update(
+        seq + 4,
+        "tool_call_update",
+        json!({"sessionUpdate": "tool_call_update",
+        "toolCallId": call, "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text", "text": "fn a() {}"}}]}),
+    ));
+    lines.push(chunk(seq + 5, &format!("reply {n}"), &format!("m{n}")));
+    lines.push(mux(
+        seq + 6,
+        "turn_result",
+        json!({"turnId": format!("t{n}"), "status": "completed"}),
+    ));
+    lines
+}
+
+#[test]
+fn a_page_of_turns_holds_the_settled_group_rows_and_not_the_open_one() {
+    runtime().block_on(async {
+        let mut lines: Vec<String> = (1..=12).flat_map(tool_turn).collect();
+        // Turn 13 is open: its group row is open too, in the window and not in the page.
+        let mut open = tool_turn(13);
+        open.truncate(open.len() - 2);
+        lines.extend(open);
+        let chat = Chat::new(&lines);
+        let mut client = chat.connect(1, &["chat", "list"]);
+        client.hello(None).await;
+        client.booked("reply 12").await;
+        client.sub("s", json!({"window": 4})).await;
+        let window = client.window("s").await;
+        assert!(window.open.iter().any(|open| row_value(&open.row)["kind"] == "group"));
+        let page = |params: Value| {
+            let mut base = json!({"sid": "s", "stream": "chat:chat", "edition": window.edition,
+                "turns": true});
+            base.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
+            json!({"method": "page", "params": base})
+        };
+        client.send(page(json!({"before": u64::MAX}))).await;
+        let frame = client
+            .until(&mut Vec::new(), |frame| (frame.kind == FrameKind::Page).then(|| frame.clone()))
+            .await;
+        let result: ChatPageResult = frame.decode_json().unwrap();
+        assert!(result.turns, "the reply to a page of turns says so");
+        let rows: Vec<Value> = result.rows.iter().map(row_value).collect();
+        assert_eq!(rows.len(), 12, "{rows:?}");
+        assert!(rows.iter().all(|row| row["kind"] == "group"), "{rows:?}");
+        let ids: Vec<u64> = rows.iter().map(|row| row["id"].as_u64().unwrap()).collect();
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(!result.has_before && !result.has_after);
+        // The same bytes the window carries for the closed folds' group rows it holds.
+        for row in &window.rows {
+            if row_value(row)["kind"] == "group" {
+                assert!(result.rows.iter().any(|turn| turn.get() == row.get()));
+            }
+        }
+        // A page of two from the newest end names more before it.
+        let two: usize = result
+            .rows
+            .iter()
+            .rev()
+            .take(2)
+            .map(|row| row.get().len() + log::RECORD_OVERHEAD)
+            .sum();
+        let pages = [(json!({"before": u64::MAX, "maxBytes": two}), &ids[10..], true)];
+        // Over 256 KB is clamped to 256 KB, as any chat page: answered, not refused.
+        let clamped = (json!({"before": u64::MAX, "maxBytes": 4u32 << 20}), &ids[..], false);
+        // From inside turn 6, the turns before it, turn 6 among them.
+        let inside = (json!({"before": ids[5] + 1}), &ids[..6], false);
+        for (params, expected, has_before) in pages.into_iter().chain([clamped, inside]) {
+            client.send(page(params)).await;
+            let frame = client
+                .until(&mut Vec::new(), |frame| {
+                    (frame.kind == FrameKind::Page).then(|| frame.clone())
+                })
+                .await;
+            let got: ChatPageResult = frame.decode_json().unwrap();
+            let got_ids: Vec<u64> =
+                got.rows.iter().map(|row| row_value(row)["id"].as_u64().unwrap()).collect();
+            assert_eq!(got_ids, expected);
+            assert_eq!(got.has_before, has_before);
+        }
+        // A rowId of another edition.
+        client.send(page(json!({"before": u64::MAX, "edition": window.edition + 1}))).await;
+        assert_eq!(client.error().await["code"], "stale_edition");
+        // With a fold, refused; on the list, refused.
+        client.send(page(json!({"before": ids[3], "fold": ids[2]}))).await;
+        assert_eq!(client.error().await["code"], "bad_request");
+        client
+            .send(json!({"method": "page", "params": {"sid": "l", "stream": "list",
+                "before": 1, "turns": true}}))
+            .await;
+        assert!(client.error().await["message"].as_str().unwrap_or("").contains("turns"));
+    });
+}
+
 #[test]
 fn a_page_or_blob_for_a_chat_with_no_actor_is_answered_at_once() {
     runtime().block_on(async {

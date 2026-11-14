@@ -793,9 +793,18 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         Some((PageSide::After, Position::Row(id))) => log::Edge::After(*id),
         _ => return reply.error("invalid_params", "a chat page is before or after a rowId"),
     };
-    let (_, folds) = person_state(state, &person);
     let max = Log::bound(page.max_bytes as usize, MAX_PAGE_BYTES);
-    let read = match state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds) {
+    let read = if page.turns {
+        if page.fold.is_some() {
+            return reply.error("bad_request", "a page of turns names no fold");
+        }
+        // The group rows `folds.idx` lists; the open turn's is in the window, not here.
+        state.log.read_turns(edge, max, &state.folds)
+    } else {
+        let (_, folds) = person_state(state, &person);
+        state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds)
+    };
+    let read = match read {
         Ok(read) => read,
         Err(error) => return reply.error("read_failed", &error.to_string()),
     };
@@ -810,6 +819,7 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         has_before: read.has_before,
         has_after: read.has_after,
         refused: read.refused,
+        turns: page.turns,
     };
     state.subs.refused |= !result.refused.is_empty();
     match Frame::json(FrameKind::Page, &result) {
