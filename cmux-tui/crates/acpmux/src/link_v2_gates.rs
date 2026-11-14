@@ -252,7 +252,8 @@ async fn v2_pr08_v1_ack_peers_on_off() {
     let (_, (_, window)) = subscribed(&on, 0).await;
     let cursor = window["cursor"].as_u64().unwrap();
     let (mut off_rounds, mut on_rounds) = (Vec::new(), Vec::new());
-    for _ in 0..7 {
+    // 30 samples a round: more rounds than the other gates, so one slow round's tail is one of 15.
+    for _ in 0..15 {
         off_rounds.push(ack_round(&off, cursor).await);
         on_rounds.push(ack_round(&on, cursor).await);
     }
@@ -301,6 +302,12 @@ async fn fanout_links(hub: &Arc<crate::hub::Hub>) -> Vec<Wire> {
         // The link's writer stops, so each change waits in the slot for the test to read.
         wire.stop_writer.send_replace(true);
         wires.push(wire);
+    }
+    // A writer that was already waiting for its next line takes one more before it sees the
+    // stop: one change primes all 30, and every one after it stays in the slot.
+    apply(hub, row("local", "chat-0", 999_999, "running"));
+    for wire in &mut wires {
+        assert_eq!(wire.frame(&mut Vec::new()).await.0, 3, "the priming change");
     }
     wires
 }
