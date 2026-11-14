@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
+import os
 
 /// This Mac's theme and wallpaper reach the iPhone (ask-87d30da8e5): the colors the chrome derives
 /// from (the terminal theme, or `appearance.appTheme`, with `appearance.accent`) and the picture
@@ -12,6 +13,10 @@ import Foundation
 /// Stop condition: the task ends when `IPhoneHostService.stop` cancels it (`followingAppearance`).
 @MainActor
 enum ThemePhone {
+    /// One line per appearance handed to hostd, so a run times each hop of a theme change
+    /// (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the pairing log).
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.appearance")
+
     /// What the phone gets, read on the main actor: the source picture, not yet the phone copy.
     struct Shown: Equatable, Sendable {
         var appearance: MobileHostAppearance
@@ -87,6 +92,9 @@ enum ThemePhone {
                     }.value
                 }
                 guard !Task.isCancelled, let iphone else { return }
+                let terminalBackground = appearance.terminal.last { $0.hasPrefix("background = ") }
+                    .map { String($0.dropFirst("background = ".count)) } ?? "none"
+                logger.info("appearance to hostd: background \(appearance.background, privacy: .public), terminal background \(terminalBackground, privacy: .public)")
                 await iphone.setAppearance(appearance)
             }
         }

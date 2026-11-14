@@ -183,7 +183,8 @@ fn terminal_line(line: &str) -> Option<String> {
 /// [`TERMINAL_KEYS`], at most [`MAX_TERMINAL_LINES`]. None when the lines name no background and
 /// foreground: the phone then keeps the Mac's chrome-derived colors.
 pub fn sanitize_terminal(lines: Vec<String>) -> Option<Vec<String>> {
-    let kept: Vec<String> = lines.iter().filter_map(|line| terminal_line(line)).take(MAX_TERMINAL_LINES).collect();
+    let kept: Vec<String> =
+        lines.iter().filter_map(|line| terminal_line(line)).take(MAX_TERMINAL_LINES).collect();
     let has = |key: &str| kept.iter().any(|line| line.starts_with(&format!("{key} = ")));
     (has("background") && has("foreground")).then_some(kept)
 }
@@ -283,6 +284,18 @@ pub fn publish(current: Current) {
         if now.as_ref() == Some(&current) {
             return false;
         }
+        // One line per change phones hear, so a run times this hop of a theme change
+        // (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the hostd log).
+        let terminal_background = current
+            .terminal
+            .as_ref()
+            .and_then(|lines| lines.iter().rev().find_map(|line| line.strip_prefix("background = ")))
+            .unwrap_or("none");
+        tracing::info!(
+            background = %current.theme.background,
+            terminal_background = %terminal_background,
+            "appearance: published a changed appearance"
+        );
         *now = Some(current);
         true
     });
