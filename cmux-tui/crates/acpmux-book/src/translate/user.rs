@@ -336,7 +336,7 @@ fn https(value: &str) -> bool {
 }
 
 /// The machine a person's own `acpmux send` ran on, from the client the hub recorded
-/// (`acpmux-cli#…@big-red`, through a peer `acpmux-peer#…`, or the outbox's).
+/// (`acpmux-cli#…@build-host`, through a peer `acpmux-peer#…`, or the outbox's).
 fn cli_host(client: &str) -> Option<&str> {
     let rest = ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"]
         .iter()

@@ -199,7 +199,7 @@ fn group(ops: &[Op]) -> BTreeMap<String, String> {
 #[test]
 fn a_user_row_names_its_prompt_its_person_and_their_client() {
     let mut state = State::default();
-    let said = r#"{"promptId":"p","turnId":"p","text":"hello","client":"acpmux-cli#12@big-red","agentText":{"from":"  coord  ","signals":["x"]},"inlineParts":[{"kind":"text","text":"hello"}],"pasted":[{"start":0,"end":5}],"_meta":{"provenance":{"kind":"person_message","from":" tailnet:ana ","fromName":"Ana\u200b \n Lee","fromAvatar":"https://lh3.example.com/a.png"}}}"#;
+    let said = r#"{"promptId":"p","turnId":"p","text":"hello","client":"acpmux-cli#12@build-host","agentText":{"from":"  coord  ","signals":["x"]},"inlineParts":[{"kind":"text","text":"hello"}],"pasted":[{"start":0,"end":5}],"_meta":{"provenance":{"kind":"person_message","from":" tailnet:ana ","fromName":"Ana\u200b \n Lee","fromAvatar":"https://lh3.example.com/a.png"}}}"#;
     let ops = run(&mut state, &[mux(1, "user_message", said)]);
     let row = user_row(&ops, "p");
     assert_eq!(row["promptId"], "\"p\"");
@@ -207,7 +207,7 @@ fn a_user_row_names_its_prompt_its_person_and_their_client() {
         row["author"],
         r#"{"avatar":"https://lh3.example.com/a.png","id":"tailnet:ana","name":"Ana Lee"}"#
     );
-    assert_eq!(row["viaCli"], "\"big-red\"");
+    assert_eq!(row["viaCli"], "\"build-host\"");
     assert_eq!(row["agentText"], r#"{"from":"coord"}"#);
     assert!(!row.contains_key("from") && !row.contains_key("steerPromptId"));
     let id = ops
