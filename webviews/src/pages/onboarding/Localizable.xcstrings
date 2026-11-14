@@ -1717,6 +1717,138 @@
         }
       }
     },
+    "onboarding.agentTools.addedTerminals": {
+      "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done. Agents you start in this build’s terminals get cmux’s tools."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم. الوكلاء الذين تبدأ تشغيلهم في طرفيات هذا الإصدار يحصلون على أدوات cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotovo. Agenti koje pokrenete u terminalima ove verzije dobijaju cmux alate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Færdig. Agenter, du starter i denne versions terminaler, får cmux’ værktøjer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig. Agenten, die du in den Terminals dieser Version startest, bekommen die Werkzeuge von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo. Los agentes que inicies en los terminales de esta versión reciben las herramientas de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C’est fait. Les agents que vous lancez dans les terminaux de cette version reçoivent les outils cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fatto. Gli agenti che avvii nei terminali di questa build ricevono gli strumenti di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了しました。このビルドのターミナルで起動したエージェントで cmux ツールを使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួចរាល់។ ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងទែមីណាល់របស់កំណែនេះ ទទួលបានឧបករណ៍ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료되었습니다. 이 빌드의 터미널에서 시작한 에이전트는 cmux 도구를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferdig. Agenter du starter i terminalene til denne versjonen, får cmux sine verktøy."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotowe. Agenci uruchomieni w terminalach tej wersji dostają narzędzia cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto. Os agentes que você iniciar nos terminais desta versão recebem as ferramentas do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово. Агенты, запущенные в терминалах этой сборки, получают инструменты cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสร็จแล้ว เอเจนต์ที่คุณเริ่มในเทอร์มินัลของบิลด์นี้จะได้รับเครื่องมือ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamam. Bu sürümün terminallerinde başlattığın ajanlar cmux araçlarını alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово. Агенти, яких ви запускаєте в терміналах цієї збірки, отримують інструменти cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xong. Các agent bạn khởi động trong terminal của bản dựng này sẽ nhận công cụ cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成。你在此版本终端中启动的代理会获得 cmux 工具。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成。你在此版本終端機中啟動的代理會取得 cmux 工具。"
+          }
+        }
+      }
+    },
     "onboarding.agentTools.declined": {
       "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
       "extractionState": "manual",

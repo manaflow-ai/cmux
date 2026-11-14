@@ -34,7 +34,9 @@ final class SettingsAgentTools: PageProvider {
     var state: JSONValue {
         [
             "loaded": .bool(loaded), "applying": .bool(applying), "failed": .bool(failed),
-            "rows": .array(rows.map { ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue)] }),
+            "rows": .array(rows.map {
+                ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue), "stale": .bool($0.stale)]
+            }),
         ]
     }
 

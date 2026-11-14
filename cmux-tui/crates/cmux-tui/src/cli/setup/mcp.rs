@@ -50,7 +50,7 @@ use serde_json::{Value, json};
 
 use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
-use super::mcp_writer::{Writer, dev_build, writer};
+use super::mcp_writer::{Writer, dev_build, names_shared_settings, writer};
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
 use cmux_tui_core::user_settings::{AgentsCmuxMcp, CONFIG_OVERRIDE};
@@ -252,25 +252,37 @@ impl Entry {
         self.env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, value)| value.as_str())
     }
 
-    /// The line that adds it back: its command and args, and of its `env`
-    /// only cmux's own `CMUX_*` keys. The line is printed in the report, and
-    /// another key of the person's may hold a secret.
-    fn restore(&self, client: Client) -> Option<String> {
-        let env: Vec<(String, String)> =
-            self.env.iter().filter(|(key, _)| key.starts_with("CMUX_")).cloned().collect();
-        self.command.as_deref().map(|command| client.line(&client.add(command, &self.args, &env)))
+    /// What adds it back: its command, args and every `env` key. The line is
+    /// printed in the report, and a key of the person's may hold a secret, so
+    /// only cmux's own `CMUX_*` values are shown; another key's value is
+    /// `<value of KEY>`, named in [`Restore::hidden`].
+    fn restore(&self, client: Client) -> Option<Restore> {
+        let shown = |key: &str| key.starts_with("CMUX_");
+        let env: Vec<(String, String)> = self
+            .env
+            .iter()
+            .map(|(key, value)| {
+                let value = if shown(key) { value.clone() } else { format!("<value of {key}>") };
+                (key.clone(), value)
+            })
+            .collect();
+        let hidden =
+            self.env.iter().map(|(key, _)| key).filter(|key| !shown(key)).cloned().collect();
+        let command = self.command.as_deref()?;
+        Some(Restore { line: client.line(&client.add(command, &self.args, &env)), hidden })
+    }
+
+    /// Whether a shipped build wrote it: no settings file in its `env` but the
+    /// shared one (by path or link), and a command that is no DEV build's.
+    fn shipped(&self) -> bool {
+        self.settings_file()
+            .is_none_or(|file| names_shared_settings(Path::new(file), &|key| std::env::var_os(key)))
+            && self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
     }
 
     /// Whether the settings file its `env` names is there (no file named:
     /// the shared one, always). A file that is gone (a scratch launch's) would
     /// leave the server reading nothing, so the entry is replaced.
-    /// Whether a shipped build wrote it: no settings file in its `env` and a
-    /// command that is no DEV build's.
-    fn shipped(&self) -> bool {
-        self.settings_file().is_none()
-            && self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
-    }
-
     fn settings_file_exists(&self) -> bool {
         self.settings_file().is_none_or(|file| Path::new(file).is_file())
     }
@@ -280,6 +292,26 @@ impl Entry {
     fn json(&self) -> Value {
         json!({"name": self.name, "command": self.command, "args": self.args,
                "settings_file": self.settings_file()})
+    }
+}
+
+/// The line that puts an entry back, and the `env` keys whose values it does
+/// not show (they read `<value of KEY>`).
+struct Restore {
+    line: String,
+    hidden: Vec<String>,
+}
+
+impl Restore {
+    /// Why the line does not put the entry back exactly, when it does not.
+    fn note(hidden: &[String]) -> Option<String> {
+        (!hidden.is_empty()).then(|| {
+            format!(
+                "The undo line does not show the old entry's value of {}: put each value in \
+                 place of <value of KEY> before you run it, or the entry comes back without it",
+                hidden.join(", ")
+            )
+        })
     }
 }
 
@@ -312,7 +344,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         return Ok(terminals(&request, &command, &why));
     }
     if request.remove {
-        return Ok(remove(&request));
+        return Ok(remove(&request, false));
     }
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
@@ -332,6 +364,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     };
     let mut user_action = Value::Null;
     let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
+    let mut inexact = false;
     for client in clients {
         let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
         let here = on_path(path.as_deref(), client.id()).is_some();
@@ -371,8 +404,13 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
             }
             Plan::Add | Plan::Replace => {
                 match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
-                    Ok(line) => {
+                    Ok((line, hidden)) => {
                         row.set("undo", json!(line));
+                        if let Some(note) = Restore::note(&hidden) {
+                            row.set("undo_exact", json!(false));
+                            row.set("undo_note", json!(note));
+                            inexact = true;
+                        }
                         undo.push(line);
                         changed = true;
                         "changed"
@@ -417,6 +455,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "choice": choice.as_str(),
         "clients": rows,
         "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
+        "undo_exact": !inexact,
         "user_action": user_action,
     });
     Ok(Outcome { report, failed })
@@ -427,14 +466,19 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
 /// of each named one, through the harness's own `mcp remove`. A `cmux` entry
 /// that runs something else is the person's and stays. Runs whatever
 /// `agents.cmuxMcp` says: taking cmux out never oversteps.
-fn remove(request: &Request) -> Outcome {
+///
+/// With `only_unshipped` (a DEV build, [`Writer::Terminals`]) it takes out
+/// only an entry a shipped build did not write ([`Entry::shipped`]): one whose
+/// command runs from a DEV bundle, DerivedData or a cargo target, or that
+/// names another settings file. A shipped build's entry stays, and says so.
+fn remove(request: &Request, only_unshipped: bool) -> Outcome {
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let path = std::env::var_os("PATH");
     let clients =
         if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
     let (mut rows, mut undo) = (Vec::new(), Vec::new());
-    let (mut failed, mut planned, mut changed) = (false, false, false);
+    let (mut failed, mut planned, mut changed, mut inexact) = (false, false, false, false);
     for client in clients {
         let here = on_path(path.as_deref(), client.id()).is_some();
         let mut row = json!({
@@ -469,6 +513,11 @@ fn remove(request: &Request) -> Outcome {
                 "failed"
             }
             Ok(None) => "ok",
+            Ok(Some(entry)) if only_unshipped && entry.shipped() => {
+                row.set("entry", entry.json());
+                row.set("kept", json!("a shipped cmux wrote this entry; this build leaves it"));
+                "ok"
+            }
             Ok(Some(entry)) => {
                 row.set("entry", entry.json());
                 if request.dry_run {
@@ -477,10 +526,14 @@ fn remove(request: &Request) -> Outcome {
                 } else {
                     match run_cli(client, &client.remove()) {
                         Ok(()) => {
-                            let line = entry.restore(client);
-                            if let Some(line) = &line {
-                                row.set("undo", json!(line));
-                                undo.push(line.clone());
+                            if let Some(restore) = entry.restore(client) {
+                                row.set("undo", json!(restore.line));
+                                if let Some(note) = Restore::note(&restore.hidden) {
+                                    row.set("undo_exact", json!(false));
+                                    row.set("undo_note", json!(note));
+                                    inexact = true;
+                                }
+                                undo.push(restore.line);
                             }
                             changed = true;
                             "changed"
@@ -518,24 +571,50 @@ fn remove(request: &Request) -> Outcome {
         "choice": choice.as_str(),
         "clients": rows,
         "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
+        "undo_exact": !inexact,
         "user_action": Value::Null,
     });
     Outcome { report, failed }
 }
 
 /// A cmux that may not write the person's global agent configs
-/// ([`Writer::Terminals`]): a dry run of `request` (add or `--remove`) that
-/// writes and removes nothing. Each installed agent is `terminals` once the
-/// person said yes (`agents.cmuxMcp` on): this build's terminals give it
-/// cmux's server through the `claude` and `codex` shims, with the terminal's
-/// settings file. The report names `why` and that shim folder.
+/// ([`Writer::Terminals`]). Adding is a dry run that writes nothing: each
+/// installed agent is `terminals` once the person said yes (`agents.cmuxMcp`
+/// on) and the server serves them (`mcp.enabled` not false): this build's
+/// terminals give it cmux's server through the `claude` and `codex` shims,
+/// with the terminal's settings file. With the switch off the shim's server
+/// would refuse, so the result names that switch, as [`run`] does. An entry a
+/// DEV build left in an agent's config (not [`Entry::shipped`]) is named,
+/// with the line that removes it. `--remove` takes out only such entries,
+/// never a shipped build's. The report names `why` and the shim folder.
 fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
+    let shims = crate::own_build_helpers::wrapper_shim_dir(Path::new(command));
+    let shims_text = shims.as_ref().map(|dir| format!(" ({})", dir.display())).unwrap_or_default();
+    if request.remove {
+        let mut outcome = remove(request, true);
+        outcome.report.set("scope", json!("terminals"));
+        outcome.report.set(
+            "terminals",
+            json!({
+                "why": why,
+                "shims": shims,
+                "text": format!(
+                    "{why}: --remove takes out only entries a development build wrote (its \
+                     command runs from a DEV bundle, DerivedData or a cargo target, or it names \
+                     another settings file); a shipped cmux's entry stays"
+                ),
+            }),
+        );
+        return outcome;
+    }
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
+    let serves = choice == AgentsCmuxMcp::On && enabled == Ok(true);
     let path = std::env::var_os("PATH");
     let clients =
         if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
     let mut installed = false;
+    let mut stale = Vec::new();
     let rows: Vec<Value> = clients
         .into_iter()
         .map(|client| {
@@ -543,15 +622,29 @@ fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
             installed |= here;
             let state = match () {
                 _ if !here => "not_applicable",
-                _ if choice == AgentsCmuxMcp::On => "terminals",
+                _ if serves => "terminals",
                 _ => "planned",
             };
+            let left = here
+                .then(|| client.config().and_then(|file| client.servers(&file).ok()))
+                .flatten()
+                .and_then(|entries| {
+                    entries.into_iter().find(|entry| {
+                        entry.name == SERVER && entry.serves_cmux() && !entry.shipped()
+                    })
+                });
+            let remove = left.as_ref().map(|_| client.line(&client.remove()));
+            if let Some(line) = &remove {
+                stale.push(format!("{} (`{line}`)", client.name()));
+            }
             json!({
                 "id": client.id(),
                 "name": client.name(),
                 "installed": here,
                 "config": client.config(),
                 "entry": Value::Null,
+                "stale_entry": left.as_ref().map(Entry::json),
+                "remove": remove,
                 "undo": Value::Null,
                 "user_action": Value::Null,
                 "error": Value::Null,
@@ -559,11 +652,27 @@ fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
             })
         })
         .collect();
-    // Only the person answers the question; a no needs nothing more.
-    let user_action =
-        if installed && choice == AgentsCmuxMcp::Ask { unanswered() } else { Value::Null };
-    let shims = crate::own_build_helpers::wrapper_shim_dir(Path::new(command));
-    let mut report = json!({
+    // Only the person answers the question; a yes with the switch off needs
+    // the switch (the shim's server would refuse); a no needs nothing more.
+    let user_action = match &enabled {
+        _ if !installed => Value::Null,
+        _ if choice == AgentsCmuxMcp::Ask => unanswered(),
+        _ if choice == AgentsCmuxMcp::Off => Value::Null,
+        Ok(true) => Value::Null,
+        Ok(false) => switch(&settings, None),
+        Err(error) => switch(&settings, Some(error.as_str())),
+    };
+    let stale_text = if stale.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ". An old cmux entry from a development build is still in the settings of {}: \
+             `cmux setup mcp --remove` from this build takes it out (never a shipped cmux's \
+             entry), or run that line",
+            stale.join(", ")
+        )
+    };
+    let report = json!({
         "schema_version": 1,
         "task": TASK,
         "state": if user_action.is_null() { "ok" } else { "needs_user" },
@@ -581,15 +690,12 @@ fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
             "shims": shims,
             "text": format!(
                 "Nothing was written: {why}. Claude Code and Codex started in this build's \
-                 terminals get cmux's tools through its claude and codex shims{}, reading {}",
-                shims.as_ref().map(|dir| format!(" ({})", dir.display())).unwrap_or_default(),
+                 terminals get cmux's tools through its claude and codex shims{shims_text}, \
+                 reading {}{stale_text}",
                 settings.display()
             ),
         },
     });
-    if request.remove {
-        report.set("action", json!("remove"));
-    }
     Outcome { report, failed: false }
 }
 
@@ -747,9 +853,15 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
 /// command is gone, is a DEV build's or that names a settings file) first,
 /// and answers the line that undoes it. When the add fails after the remove,
 /// the error names the line that puts `old` back.
-fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, String> {
+fn apply(
+    client: Client,
+    command: &str,
+    old: Option<&Entry>,
+) -> Result<(String, Vec<String>), String> {
     let remove = client.remove();
     let restore = old.and_then(|old| old.restore(client));
+    let hidden = restore.as_ref().map(|restore| restore.hidden.clone()).unwrap_or_default();
+    let restore = restore.map(|restore| restore.line);
     if old.is_some() {
         run_cli(client, &remove)?;
     }
@@ -760,10 +872,11 @@ fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, S
         },
     )?;
     let undo = client.line(&remove);
-    Ok(match restore {
+    let undo = match restore {
         Some(restore) => format!("{undo} && {restore}"),
         None => undo,
-    })
+    };
+    Ok((undo, hidden))
 }
 
 /// Runs `client`'s CLI with `args`, within [`CLI_TIMEOUT`].

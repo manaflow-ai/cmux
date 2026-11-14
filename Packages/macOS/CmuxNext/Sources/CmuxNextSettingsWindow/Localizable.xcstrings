@@ -925,6 +925,138 @@
         }
       }
     },
+    "settingsWindow.agentTools.stale": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has an old entry from a cmux development build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي على إدخال قديم من إصدار تطوير لـ cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ima stari unos iz razvojne verzije cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Har en gammel post fra en cmux-udviklingsversion"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hat einen alten Eintrag aus einer cmux-Entwicklungsversion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiene una entrada antigua de una versión de desarrollo de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contient une ancienne entrée d’une version de développement de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ha una vecchia voce di una build di sviluppo di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の開発ビルドの古い設定があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានធាតុចាស់ពីកំណែអភិវឌ្ឍន៍ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 개발 빌드의 오래된 항목이 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Har en gammel oppføring fra en cmux-utviklingsversjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ma stary wpis z wersji deweloperskiej cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tem uma entrada antiga de uma versão de desenvolvimento do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Есть старая запись из сборки cmux для разработки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีรายการเก่าจากบิลด์สำหรับพัฒนาของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux geliştirme sürümünden kalma eski bir kayıt var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Має старий запис зі збірки cmux для розробки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có mục cũ từ bản phát triển cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有来自 cmux 开发版本的旧条目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有來自 cmux 開發版本的舊項目"
+          }
+        }
+      }
+    },
     "settingsWindow.agentTools.state.conflict": {
       "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
       "extractionState": "manual",

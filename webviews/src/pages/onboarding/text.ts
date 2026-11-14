@@ -161,7 +161,12 @@ export function agentToolsStatus(strings: Strings, tools: AgentToolsState | null
   if (tools == null || !tools.loaded) return strings.t("onboarding.agents.checking");
   if (tools.applying) return strings.t("onboarding.agentTools.adding");
   if (tools.answered && tools.failed) return strings.t("onboarding.agentTools.failed");
-  if (tools.answered && tools.choice === "on") return strings.t("onboarding.agentTools.added");
+  if (tools.answered && tools.choice === "on")
+    return strings.t(
+      tools.rows.some((row) => row.state === "terminals")
+        ? "onboarding.agentTools.addedTerminals"
+        : "onboarding.agentTools.added",
+    );
   if (tools.answered && tools.choice === "off") return strings.t("onboarding.agentTools.declined");
   if (tools.rows.length === 0) return strings.t("onboarding.agentTools.none");
   return null;

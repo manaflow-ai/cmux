@@ -34,7 +34,8 @@ export function AgentToolsCard() {
     }
   };
   const rows = state?.rows ?? [];
-  const added = rows.some((row) => row.state === "added");
+  // A DEV build's Remove takes out only entries a development build left (`stale`).
+  const added = rows.some((row) => row.state === "added" || row.stale === true);
   const addable = rows.some((row) => row.state === "ready");
   const working = busy || (state?.applying ?? false);
   return (
@@ -59,6 +60,11 @@ export function AgentToolsCard() {
                 </span>
                 <div className="row-label">
                   <div className="row-title">{row.name}</div>
+                  {row.stale === true && (
+                    <div className="row-help" data-agent-tools-stale="">
+                      {t("settingsWindow.agentTools.stale")}
+                    </div>
+                  )}
                 </div>
                 <div className="row-control">
                   <span

@@ -38,11 +38,15 @@ public struct AgentToolsAgent: Sendable, Equatable {
     /// The product's own name ("Claude Code"), never translated.
     public let name: String
     public let state: State
+    /// Its config still holds a cmux entry a development build wrote (`cmux setup mcp`'s
+    /// `stale_entry` in a DEV build): Remove takes it out; a shipped build's entry is never one.
+    public let stale: Bool
 
-    public init(id: String, name: String, state: State) {
+    public init(id: String, name: String, state: State, stale: Bool = false) {
         self.id = id
         self.name = name
         self.state = state
+        self.stale = stale
     }
 }
 
@@ -70,7 +74,7 @@ public extension AgentToolsAgent {
             case "terminals": .terminals
             default: .ready
             }
-            return AgentToolsAgent(id: id, name: name, state: state)
+            return AgentToolsAgent(id: id, name: name, state: state, stale: client["stale_entry"] is [String: Any])
         }
     }
 }
