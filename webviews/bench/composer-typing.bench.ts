@@ -4,16 +4,18 @@
 // difference"). A key should render the composer and nothing that does not read its text: not the pane root, not the
 // transcript, not a row, and its cost should not grow with the transcript.
 //
-// The real pane (`?mock`: the real direct client against the in-page mock daemon) from the agent pane's Vite dev
-// config, so the React Compiler pass the shipped bundle gets runs here too. Each length is a light chat
+// The real pane (`?mock`: the real direct client against the in-page mock daemon), built as it ships (the server
+// setup below). Each length is a light chat
 // (`cmuxAcpmuxDebug.loadSeed(turns, { light: true })`), then `--keys` letters typed into the prompt with real key
 // events (Playwright's keyboard, `--gap` ms apart, about a fast typist's pace). Per key:
 //   renders   `acpmuxPerf.renders`: the pane root (AcpmuxPane), the transcript, the composer, every row and row frame
 //   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
 //   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
 //   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95), as the Mac bench reads it
-//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80]
+//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--dev] [--profile]
 /// <reference types="bun" />
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
@@ -29,6 +31,7 @@ const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
+const DEV = argv.includes("--dev");
 const webviews = path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -93,17 +96,46 @@ function printProfile(length: number, profile: CpuProfile) {
   console.log(`PROFILE ${length} rows, self:\n${top(self, 40)}`);
 }
 
-const { createServer } = await import("vite");
-const vite = await createServer({
-  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-const browser = await chromium.launch({ headless: true });
-try {
+// The pane as it ships (a vite build: production React, the React Compiler pass), served as files; --dev serves the
+// dev server's pane instead (development React, several times the script time per render). With --profile the build
+// is unminified, so the profile names functions.
+const releases: (() => unknown)[] = [];
+let port: number;
+if (DEV) {
+  const { createServer } = await import("vite");
+  const vite = await createServer({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    server: { port: 0, host: "127.0.0.1", strictPort: false },
+    logLevel: "error",
+  });
+  releases.push(() => vite.close());
   await vite.listen();
   await warmViteServer(vite, "/?mock");
-  const { port } = vite.httpServer!.address() as { port: number };
+  port = (vite.httpServer!.address() as { port: number }).port;
+} else {
+  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "composer-typing-bench-"));
+  releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+  const { build } = await import("vite");
+  await build({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    logLevel: "error",
+  });
+  const statics = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const pathname = new URL(request.url).pathname;
+      const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+    },
+  });
+  releases.push(() => statics.stop(true));
+  port = statics.port;
+}
+const browser = await chromium.launch({ headless: true });
+releases.push(() => browser.close());
+try {
   const table: Record<string, unknown>[] = [];
   for (const length of LENGTHS) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
@@ -184,6 +216,5 @@ try {
   for (const row of table) console.log(`${row.rows} rows: ${row.busiest}`);
   console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
 } finally {
-  await browser.close();
-  await vite.close();
+  for (const release of releases.reverse()) await release();
 }
