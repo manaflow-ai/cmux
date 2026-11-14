@@ -20,6 +20,7 @@ mod owner;
 pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
+pub(crate) mod theme_scheme;
 mod topology;
 mod wait_text;
 pub(crate) use wait_text::WaitText;
@@ -294,6 +295,7 @@ fn dispatch_resource_request(
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
         OperationOwner::Chat => chats::dispatch(mux, request),
+        OperationOwner::ThemeScheme => theme_scheme::dispatch(mux, request),
         OperationOwner::BrowserImport => browser_import::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {

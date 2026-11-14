@@ -115,6 +115,9 @@ impl ResourceOperation {
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
+                | Self::ThemeSchemeConvert
+                | Self::ThemeSchemeExport
+                | Self::ThemeSchemeFromImage
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
