@@ -7,12 +7,15 @@ Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster th
 
 Launches the tagged app (a bench build: `debug.hover_cards` is registered only with CMUX_BENCH_HOOKS or in Debug),
 fills the sidebar to each --workspaces count, and for --samples rows per count moves the real pointer onto the row
-with posted mouse moves (pointer-probe.swift; needs the host's Accessibility grant) and reads `debug.hover_cards`
-until the row's card shows. When a posted move does not move the pointer (no grant) it says so and moves a
-synthetic pointer through the windows' tracking areas instead (`debug.pointer_hover`). Per sample: the last move to
-pending and to shown (ms); on a miss (no card in 2 s) the coordinator's whole report. Writes --json.
+and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works:
+mouse moves this step posts itself (pointer-probe.swift; needs an Accessibility grant for this process, which a
+binary compiled per run never has), then CuaDriver's `move_cursor` (desktop scope, foreground delivery) through its
+daemon, which holds the host's Accessibility grant. Each route is checked by reading the pointer back. Only when
+neither moves it does the bench say why for each and move a synthetic pointer through the windows' tracking areas
+instead (`debug.pointer_hover`); the report's `input` and `pointer_route` say which ran. Per sample: the last move
+to pending and to shown (ms); on a miss (no card in 2 s) the coordinator's whole report. Writes --json.
 """
-import argparse, json, os, plistlib, socket, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, queue, socket, statistics, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
@@ -116,11 +119,91 @@ def where():
 
 
 LAST_POINT = {}
+ROUTE = None  # the real pointer route that moved the pointer: "posted" (pointer-probe) or "cua" (CuaDriver)
+CUA_CANDIDATES = (os.path.expanduser("~/.local/bin/cua-driver"),
+                  "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
+CUA_PATH = next((p for p in CUA_CANDIDATES if os.access(p, os.X_OK)), None)
+
+
+class Cua:
+    """One `cua-driver mcp` stdio session to the CuaDriver daemon, which holds the host's Accessibility grant: a
+    move is one JSON line each way, not a process per move (gui-session-sweep.py's route)."""
+
+    def __init__(self, path):
+        self.p = subprocess.Popen([path, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True)
+        self.lines = queue.Queue()
+        threading.Thread(target=self.read, daemon=True).start()
+        self.n = 0
+        self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                "clientInfo": {"name": "hover-instant-bench", "version": "1"}})
+        self.rpc("notifications/initialized", notify=True)
+
+    def read(self):
+        for line in self.p.stdout:
+            self.lines.put(line)
+        self.lines.put(None)
+
+    def rpc(self, method, params=None, notify=False):
+        msg = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            msg["params"] = params
+        if not notify:
+            self.n += 1
+            msg["id"] = self.n
+        self.p.stdin.write(json.dumps(msg) + "\n")
+        self.p.stdin.flush()
+        if notify:
+            return None
+        while True:  # bounded: 60 s per answer, and an ended driver closes stdout
+            try:
+                line = self.lines.get(timeout=60)
+            except queue.Empty:
+                raise RuntimeError(f"cua-driver mcp: no answer to {method} in 60 s") from None
+            if not line:
+                raise RuntimeError("cua-driver mcp ended")
+            try:
+                reply = json.loads(line)
+            except ValueError:
+                continue
+            if reply.get("id") == self.n:
+                return reply
+
+    def call(self, tool, args):
+        """The tool's answer (structuredContent when there is one); RuntimeError when it failed or refused."""
+        reply = self.rpc("tools/call", {"name": tool, "arguments": args})
+        result = reply.get("result") or {}
+        inner = result.get("structuredContent") if isinstance(result.get("structuredContent"), dict) else {}
+        if (reply.get("error") or not result or result.get("isError")
+                or "refused" in (inner.get("status"), inner.get("effect"))):
+            text = " ".join(c.get("text", "") for c in result.get("content") or [] if isinstance(c, dict))
+            raise RuntimeError(f"cua-driver {tool}: {(reply.get('error') or text or result)!s}"[-300:])
+        return inner or result
+
+    def close(self):
+        try:
+            self.p.stdin.close()
+            self.p.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            self.p.kill()  # the exact PID this script started
+            self.p.wait()
+
+
+CUA = None
+CUA_SCALE = 1.0
+
+
+def cua_move(x, y):
+    """The real pointer to screen point (x, y) (top left) through CuaDriver: desktop scope takes the main display's
+    screenshot pixels; foreground delivery because the bench app is never in front on a fleet step and nobody
+    uses a bench host's screen."""
+    CUA.call("move_cursor", {"scope": "desktop", "delivery_mode": "foreground",
+                             "x": round(x * CUA_SCALE), "y": round(y * CUA_SCALE)})
 
 
 def move_path(start, end, steps):
     """Moves from `start` to `end` (window points), `steps` moves about 120 Hz apart; returns the monotonic time
-    the last move was posted."""
+    the last move landed."""
     if opts.input == "synthetic":
         height = ((main_window() or {}).get("frame") or {}).get("height", 0)
         for i in range(1, steps + 1):
@@ -130,29 +213,65 @@ def move_path(start, end, steps):
                               reply=rpc("debug.pointer_hover", {"point": [x, height - y]}))
         return time.monotonic()
     (x0, y0), (x1, y1) = to_screen(start), to_screen(end)
+    if ROUTE == "cua":
+        for i in range(1, steps + 1):
+            if i > 1:
+                time.sleep(0.008)  # test harness: a mouse reports about every 8 ms
+            try:
+                cua_move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+            except (OSError, RuntimeError) as error:  # one refused move ends no run; the sample shows a miss
+                if len(REPORT["notes"]) < 20:
+                    REPORT["notes"].append(f"move failed: {error}")
+        return time.monotonic()
     probe("path", x0, y0, x1, y1, steps)
     return time.monotonic()
 
 
+def landed(target):
+    at = where()
+    return at, bool(at and abs(at[0] - target[0]) < 2 and abs(at[1] - target[1]) < 2)
+
+
 def real_input_works():
-    """A posted move moves the pointer (the step's process holds the Accessibility grant); else why not."""
+    """Picks the first real pointer route that moves the pointer (read back with pointer-probe where, which needs
+    no grant) and returns None; else why each route failed."""
+    global ROUTE, CUA, CUA_SCALE
     f = (main_window() or {}).get("frame") or {}
     target = to_screen([f.get("width", 800) * 0.6, f.get("height", 600) * 0.5])
     run = subprocess.run([PROBE, "move", str(target[0]), str(target[1])], capture_output=True, text=True, timeout=20)
-    at = where()
-    if at and abs(at[0] - target[0]) < 2 and abs(at[1] - target[1]) < 2:
+    at, ok = landed(target)
+    if ok:
+        ROUTE = "posted"
         return None
-    return (f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
-            f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}")
+    why = [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
+           f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}"]
+    if not CUA_PATH:
+        return "; ".join(why + [f"no cua-driver at {' or '.join(CUA_CANDIDATES)}"])
+    try:
+        CUA = Cua(CUA_PATH)
+        CUA_SCALE = float(CUA.call("get_screen_size", {}).get("scale_factor") or 1.0)
+        # Off the target first, so a pointer already there does not pass the check.
+        cua_move(target[0] - 40, target[1])
+        cua_move(target[0], target[1])
+        at, ok = landed(target)
+        if ok:
+            ROUTE = "cua"
+            return None
+        why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): "
+                   f"pointer after {at}")
+    except (OSError, RuntimeError, ValueError) as error:
+        why.append(f"cua-driver at {CUA_PATH}: {error}")
+    return "; ".join(why)
 
 
 def activate():
     if (rpc("debug.focus") or {}).get("app_active"):
         return True
-    cua = os.path.expanduser("~/.local/bin/cua-driver")
-    if os.path.exists(cua):
-        subprocess.run([cua, "call", "bring_to_front", json.dumps({"pid": APP_PID})], capture_output=True, text=True,
-                       timeout=60)
+    if CUA_PATH:
+        done = subprocess.run([CUA_PATH, "call", "bring_to_front", json.dumps({"pid": APP_PID})], capture_output=True,
+                              text=True, timeout=60)
+        if done.returncode and not REPORT.get("activate_error"):
+            REPORT["activate_error"] = f"exit {done.returncode}: {(done.stderr or done.stdout).strip()[-300:]}"
     return bool(wait(lambda: (rpc("debug.focus") or {}).get("app_active"), 3))
 
 
@@ -249,9 +368,12 @@ try:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
         safe_print(f"real input fell back to synthetic: {why}", flush=True)
         opts.input = REPORT["input"] = "synthetic"
+    REPORT["pointer_route"] = {"posted": "pointer-probe posted moves", "cua": "cua-driver move_cursor"}.get(ROUTE) \
+        if opts.input == "real" else "debug.pointer_hover"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
-    safe_print(f"app pid {APP_PID}, input {opts.input}, active {REPORT['active_at_start']}, window "
+    safe_print(f"app pid {APP_PID}, input {opts.input} ({REPORT['pointer_route']}), "
+               f"active {REPORT['active_at_start']}, window "
                f"{(main_window() or {}).get('frame')}, cards {REPORT['defaults']}", flush=True)
     for count in [int(c) for c in opts.workspaces.split(",") if c]:
         if not fill(count):
@@ -270,6 +392,8 @@ try:
                    f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms", flush=True)
     status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
 finally:
+    if CUA is not None:
+        CUA.close()
     if app is not None:
         rpc("action.run", {"action": "quitEndSessions", "origin": "script"}, timeout=10)
         try:
