@@ -1174,6 +1174,29 @@
       "zh-Hans": {"stringUnit": {"state": "translated","value": "--environment 需要你团队某个 Cloud 环境的 ID（env_…）或名称。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "--environment 需要你團隊某個 Cloud 環境的 ID（env_…）或名稱。"}}
     }},
+    "cloud.run.awaitingAllow": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "بانتظار ردك في نافذة cmux: “%@”. لن يتغير شيء حتى ترد."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Čeka se vaš odgovor u prozoru cmux: “%@”. Ništa se ne mijenja dok ne odgovorite."}},
+      "da": {"stringUnit": {"state": "translated","value": "Venter på dit svar i cmux-vinduet: “%@”. Intet ændres, før du svarer."}},
+      "de": {"stringUnit": {"state": "translated","value": "Wartet auf deine Antwort im cmux-Fenster: „%@“. Bis dahin ändert sich nichts."}},
+      "en": {"stringUnit": {"state": "translated","value": "Waiting for your answer in the cmux window: “%@”. Nothing changes until you answer."}},
+      "es": {"stringUnit": {"state": "translated","value": "Esperando tu respuesta en la ventana de cmux: “%@”. Nada cambia hasta que respondas."}},
+      "fr": {"stringUnit": {"state": "translated","value": "En attente de votre réponse dans la fenêtre cmux : « %@ ». Rien ne change tant que vous n’avez pas répondu."}},
+      "it": {"stringUnit": {"state": "translated","value": "In attesa della tua risposta nella finestra di cmux: “%@”. Nulla cambia finché non rispondi."}},
+      "ja": {"stringUnit": {"state": "translated","value": "cmux ウインドウで返答を待っています:「%@」。返答するまで何も変わりません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "កំពុងរង់ចាំចម្លើយរបស់អ្នកនៅក្នុងផ្ទាំង cmux៖ “%@”។ គ្មានអ្វីផ្លាស់ប្តូរទេ រហូតដល់អ្នកឆ្លើយ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "cmux 창에서 응답을 기다리는 중입니다: “%@”. 응답할 때까지 아무것도 바뀌지 않습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Venter på svaret ditt i cmux-vinduet: «%@». Ingenting endres før du svarer."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Czeka na Twoją odpowiedź w oknie cmux: „%@”. Do tego czasu nic się nie zmieni."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Aguardando sua resposta na janela do cmux: “%@”. Nada muda até você responder."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Ожидает вашего ответа в окне cmux: «%@». До ответа ничего не изменится."}},
+      "th": {"stringUnit": {"state": "translated","value": "กำลังรอคำตอบของคุณในหน้าต่าง cmux: “%@” จะไม่มีอะไรเปลี่ยนจนกว่าคุณจะตอบ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "cmux penceresinde yanıtınız bekleniyor: “%@”. Siz yanıt verene kadar hiçbir şey değişmez."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Очікує вашої відповіді у вікні cmux: «%@». До відповіді нічого не зміниться."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đang chờ bạn trả lời trong cửa sổ cmux: “%@”. Không có gì thay đổi cho đến khi bạn trả lời."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "正在等你在 cmux 窗口中回答：“%@”。在你回答之前不会有任何更改。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "正在等你在 cmux 視窗中回答：「%@」。在你回答之前不會有任何變更。"}}
+    }},
     "cloud.workspaceSetup.cancel": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "إلغاء"}},
       "bs": {"stringUnit": {"state": "translated","value": "Otkaži"}},
@@ -2519,6 +2542,29 @@
         }
       }
     },
+    "cloud.run.lateFailure": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "لم يكتمل “%1$@”: %2$@"}},
+      "bs": {"stringUnit": {"state": "translated","value": "“%1$@” nije završeno: %2$@"}},
+      "da": {"stringUnit": {"state": "translated","value": "“%1$@” blev ikke fuldført: %2$@"}},
+      "de": {"stringUnit": {"state": "translated","value": "„%1$@“ wurde nicht abgeschlossen: %2$@"}},
+      "en": {"stringUnit": {"state": "translated","value": "“%1$@” did not finish: %2$@"}},
+      "es": {"stringUnit": {"state": "translated","value": "“%1$@” no terminó: %2$@"}},
+      "fr": {"stringUnit": {"state": "translated","value": "« %1$@ » n’a pas abouti : %2$@"}},
+      "it": {"stringUnit": {"state": "translated","value": "“%1$@” non è stato completato: %2$@"}},
+      "ja": {"stringUnit": {"state": "translated","value": "「%1$@」は完了しませんでした: %2$@"}},
+      "km": {"stringUnit": {"state": "translated","value": "“%1$@” មិនបានបញ្ចប់ទេ៖ %2$@"}},
+      "ko": {"stringUnit": {"state": "translated","value": "“%1$@”이(가) 완료되지 않았습니다: %2$@"}},
+      "nb": {"stringUnit": {"state": "translated","value": "«%1$@» ble ikke fullført: %2$@"}},
+      "pl": {"stringUnit": {"state": "translated","value": "„%1$@” nie zostało ukończone: %2$@"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "“%1$@” não foi concluído: %2$@"}},
+      "ru": {"stringUnit": {"state": "translated","value": "«%1$@» не завершено: %2$@"}},
+      "th": {"stringUnit": {"state": "translated","value": "“%1$@” ไม่เสร็จสิ้น: %2$@"}},
+      "tr": {"stringUnit": {"state": "translated","value": "“%1$@” tamamlanmadı: %2$@"}},
+      "uk": {"stringUnit": {"state": "translated","value": "«%1$@» не завершено: %2$@"}},
+      "vi": {"stringUnit": {"state": "translated","value": "“%1$@” chưa hoàn tất: %2$@"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "“%1$@”未完成：%2$@"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "「%1$@」未完成：%2$@"}}
+    }},
     "cloud.startChat.accountChanged": {
       "extractionState": "manual",
       "localizations": {

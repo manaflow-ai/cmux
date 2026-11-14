@@ -1062,6 +1062,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
+                    .or_else(|| super::vm::waiting_line(&params, &value))
                     .or_else(|| super::vm::created_line(&params, &value, global))
             {
                 print!("{line}");

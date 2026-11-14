@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import Foundation
 import Testing
 
@@ -57,6 +58,59 @@ struct CloudTrackedResultsTests {
         }
         #expect(fields["machine_id"] == .string(f.session.machineID))
         #expect(fields["name"] == .string("lane"))
+    }
+
+    /// 2026-11-11: an agent's `cmux vm fork` waited on the person's Allow sheet past the 30 s
+    /// answer wait and answered a bare `pending` (`ran true`, `created []`); the sheet went when the
+    /// app quit and nothing was made, with no word to anyone. Now the `pending` answer says it waits
+    /// for the person, and a failure after it reaches the person as a notice.
+    @Test(.timeLimit(.minutes(1)))
+    func aForkWaitingOnTheAllowSheetSaysSoAndALaterFailureReachesThePerson() async throws {
+        let f = CloudCLITargetTests.fixture()
+        let (refusals, refused) = AsyncStream<String>.makeStream()
+        f.services.registry.refusalObserver = { reason, _ in refused.yield(reason) }
+        let (answers, answer) = AsyncStream<Bool>.makeStream()
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.result("fork machine", f.context, pendingAfter: .milliseconds(50), pending: ["source_machine_id": .string("vm-1")]) {
+                let allowed = await CloudRunProgress.current?.asking("Fork Cloud Machine") {
+                    for await yes in answers { return yes }
+                    return false
+                } ?? false
+                guard allowed else { throw ActionFailure(message: "not allowed") }
+                throw ActionFailure(message: "snapshot failed")
+            }
+        }
+        let task = try #require(run.results.first)
+        guard case .success(let fields) = await task.value else {
+            Issue.record("the pending answer failed")
+            return
+        }
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["source_machine_id"] == .string("vm-1"))
+        #expect(fields["awaiting"] == .string("allow"))
+        #expect(fields["text"] == .string(CloudRunProgress.awaitingAllowText("Fork Cloud Machine")))
+        answer.yield(true)
+        var late: String?
+        for await reason in refusals { late = reason; break }
+        #expect(late == CloudRunProgress.lateFailureText("Fork Cloud Machine", "snapshot failed"))
+    }
+
+    /// Work that answers within the wait answers itself: no `pending`, nothing waiting, no notice.
+    @Test func aRunThatAnswersInTimeIsNeitherPendingNorANotice() async throws {
+        let f = CloudCLITargetTests.fixture()
+        final class Seen { var refusals: [String] = [] }
+        let seen = Seen()
+        f.services.registry.refusalObserver = { reason, _ in seen.refusals.append(reason) }
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.result("fork machine", f.context, pendingAfter: .seconds(30)) { throw ActionFailure(message: "snapshot failed") }
+        }
+        let task = try #require(run.results.first)
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("the failure answered OK")
+            return
+        }
+        #expect(failure.message == "snapshot failed")
+        #expect(seen.refusals.isEmpty, "the caller hears this failure; the person gets no second notice")
     }
 
     /// The handoff text and the exec refusal name verbs a CLI can run: not

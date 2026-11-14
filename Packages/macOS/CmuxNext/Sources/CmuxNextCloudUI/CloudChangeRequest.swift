@@ -33,9 +33,10 @@ public struct CloudChangeRequest {
             identifier: Self.identifier)
     }
 
-    /// True only for the person's click on Allow; no window answers false.
+    /// True only for the person's click on Allow; no window answers false. While the sheet is up, the
+    /// run's ``CloudRunProgress`` says so, so a caller's `pending` answer names what it waits for.
     @MainActor public func allowed(_ title: String, in window: NSWindow?) async -> Bool {
         guard let window else { return false }
-        return await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == Self.accept
+        return await CloudRunProgress.asking(title) { await CmuxDialogCenter.shared.present(spec(title), in: .window(window)).button == Self.accept }
     }
 }
