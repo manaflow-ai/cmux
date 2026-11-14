@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4359280404201",
+  "notes": "notes/4359280404201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43024,
+      "title": "CMUX-572: avoid false delay cuts from split frame feedback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40987,
+      "title": "webviews: a native open or daemon connect that never answers fails in time, and reconnects spread out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42994,
+      "title": "CMUX-572: update encoder layer ceiling with bitrate target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42983,
+      "title": "cmux-next iOS: top shows every row when another device sets a smaller grid",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39877,
+      "title": "Composer: a pasted link chip keeps its caret and stays a chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42945,
+      "title": "fix(cmux-tui): follow-ups to the restatement in parts: placed-terminal scope, one journal compare, a lock guard test",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39985,
+      "title": "Agent chat: review-bot findings: fold ghost fade, send hold, composer growth gate, age width, Session Info close, fold motion gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42997,
+      "title": "ci(ios-review-gate): walk each device in its own job, side by side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42808,
+      "title": "v2 client: mirror subscriptions deliver v1 rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39317,
+      "title": "Ultra Mode: Auto, the default on Mac and iPhone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42958,
+      "title": "cmux-api: a team-scoped token mint never waits past its budget on Stack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42911,
+      "title": "ci: run Windows-to-Mac proof from protected branch events",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
