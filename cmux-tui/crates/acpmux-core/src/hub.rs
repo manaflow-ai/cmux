@@ -799,6 +799,14 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.raw_copies())
     }
 
+    #[cfg(test)]
+    pub(crate) fn history_raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.raw_copy_control(),
+        )
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);

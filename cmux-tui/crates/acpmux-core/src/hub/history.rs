@@ -7,7 +7,7 @@ use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
 use std::sync::Arc;
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
@@ -32,6 +32,10 @@ pub(super) struct History {
     encoded_ops: AtomicUsize,
     #[cfg(test)]
     raw_copies: AtomicUsize,
+    #[cfg(test)]
+    raw_copy_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    raw_copy_waiting: Arc<AtomicBool>,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -104,6 +108,10 @@ impl History {
             encoded_ops: AtomicUsize::new(0),
             #[cfg(test)]
             raw_copies: AtomicUsize::new(0),
+            #[cfg(test)]
+            raw_copy_permit: Arc::new(AtomicBool::new(true)),
+            #[cfg(test)]
+            raw_copy_waiting: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -125,6 +133,11 @@ impl History {
     #[cfg(test)]
     pub(super) fn raw_copies(&self) -> usize {
         self.raw_copies.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(super) fn raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        (self.raw_copy_permit.clone(), self.raw_copy_waiting.clone())
     }
 
     #[cfg(test)]
@@ -246,6 +259,8 @@ impl History {
         through: u64,
         max_bytes: usize,
     ) -> Option<RawSpan> {
+        #[cfg(test)]
+        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
@@ -295,6 +310,29 @@ impl History {
         };
         out.extend_from_slice(second);
         true
+    }
+}
+
+#[cfg(test)]
+struct RawCopyPermit<'a> {
+    waiting: &'a AtomicBool,
+}
+
+#[cfg(test)]
+impl<'a> RawCopyPermit<'a> {
+    fn new(permit: &'a AtomicBool, waiting: &'a AtomicBool) -> Self {
+        waiting.store(true, Ordering::Release);
+        while !permit.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        Self { waiting }
+    }
+}
+
+#[cfg(test)]
+impl Drop for RawCopyPermit<'_> {
+    fn drop(&mut self) {
+        self.waiting.store(false, Ordering::Release);
     }
 }
 

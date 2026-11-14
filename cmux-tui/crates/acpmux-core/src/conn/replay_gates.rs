@@ -189,11 +189,11 @@ async fn append_replay_sample(
     let cursor = first_retained_cursor(&hub, target);
     let receiver = hub.subscribe_replay(&crate::wire::Sub::new("replay", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
-    let ready = Arc::new(AtomicBool::new(false));
+    let (permit, waiting) = hub.history_raw_copy_control();
+    permit.store(false, Ordering::Release);
+    waiting.store(false, Ordering::Release);
     hub.reset_history_raw_copies();
     let copy_stop = stop.clone();
-    let copy_ready = ready.clone();
-    let copy_hub = hub.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         while !copy_stop.load(Ordering::Acquire) {
             receiver.reposition(cursor);
@@ -203,37 +203,39 @@ async fn append_replay_sample(
                 std::thread::yield_now();
                 continue;
             };
-            copy_ready.store(true, Ordering::Release);
             std::thread::yield_now();
         }
     });
-    // Ensure the copier has entered the raw path before starting the timed
-    // append. It keeps copying until the sample completes, so the measured
-    // interval cannot merely observe a replay that already queued its bytes.
+    // Arm a raw span before starting the timed append. The history-side
+    // permit keeps the span's copy inside the measured interval, so every
+    // sample proves that the append overlaps a real ring copy.
     let ready_result = timeout(Duration::from_secs(20), async {
-        while !ready.load(Ordering::Acquire) {
+        while !waiting.load(Ordering::Acquire) {
             tokio::task::yield_now().await;
         }
     })
     .await;
     if ready_result.is_err() {
+        permit.store(true, Ordering::Release);
         stop.store(true, Ordering::Release);
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let task_hub = copy_hub.clone();
+    let task_permit = permit.clone();
     let task = tokio::task::spawn_blocking(move || {
         let start = Instant::now();
-        let before_copies = task_hub.history_raw_copies();
+        task_permit.store(true, Ordering::Release);
         let mut writer = writer;
         writer.apply(summary(format!("during-{offset}"), target + 1, true)).unwrap();
-        let copies_during = task_hub.history_raw_copies().saturating_sub(before_copies);
-        (writer, start.elapsed().as_nanos().max(1), copies_during)
+        (writer, start.elapsed().as_nanos().max(1))
     });
     let result = task.await;
+    let copies_during = hub.history_raw_copies();
+    permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
-    result.unwrap()
+    let (writer, elapsed) = result.unwrap();
+    (writer, elapsed, copies_during)
 }
 
 async fn append_replay_round() -> (Vec<u128>, Vec<usize>) {
