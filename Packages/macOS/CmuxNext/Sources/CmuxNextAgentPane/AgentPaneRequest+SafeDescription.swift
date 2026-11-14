@@ -98,6 +98,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .sessionInfoOverlays: "sessionInfoOverlays"
         case .sessionInfoPinch: "sessionInfoPinch"
         case .toastAvoidance: "toastAvoidance"
+        case .toast: "toast"
         case .hostGlass: "hostGlass"
         case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"

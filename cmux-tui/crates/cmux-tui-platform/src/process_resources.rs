@@ -106,6 +106,8 @@ pub struct ProcStat {
     pub name: String,
     /// utime + stime in clock ticks.
     pub cpu_ticks: u64,
+    /// starttime: when the process started, in clock ticks since the boot.
+    pub start_ticks: u64,
 }
 
 /// Parse `/proc/<pid>/stat`. The command name is in parentheses and may hold
@@ -114,13 +116,15 @@ pub fn parse_proc_stat(stat: &str) -> Option<ProcStat> {
     let open = stat.find('(')?;
     let close = stat.rfind(')')?;
     let name = stat.get(open + 1..close)?.to_string();
-    // After the name: state(3) ppid(4) ... utime(14) stime(15), so ppid is
-    // index 1 and utime/stime are 11 and 12 of the remaining fields.
+    // After the name: state(3) ppid(4) ... utime(14) stime(15) ...
+    // starttime(22), so ppid is index 1, utime/stime are 11 and 12 and
+    // starttime is 19 of the remaining fields.
     let fields: Vec<&str> = stat.get(close + 1..)?.split_whitespace().collect();
     let ppid = fields.get(1)?.parse().ok()?;
     let utime: u64 = fields.get(11)?.parse().ok()?;
     let stime: u64 = fields.get(12)?.parse().ok()?;
-    Some(ProcStat { ppid, name, cpu_ticks: utime.saturating_add(stime) })
+    let start_ticks = fields.get(19)?.parse().ok()?;
+    Some(ProcStat { ppid, name, cpu_ticks: utime.saturating_add(stime), start_ticks })
 }
 
 /// Resident pages from `/proc/<pid>/statm` (the second field).
@@ -192,6 +196,26 @@ pub fn parent_process(pid: u32) -> Option<u32> {
     imp::parent_process(pid)
 }
 
+/// When one process started, as the system keeps it for the process: on
+/// Linux the clock ticks since the boot (`/proc/<pid>/stat` field 22), on
+/// macOS the time of day in microseconds. It does not change while the
+/// process lives. Two values compare only when one process read both in one
+/// boot of one system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProcessStart(pub u64);
+
+/// The start of one process, reading only that process: `None` when the
+/// process is gone or does not answer, or on a platform where this reads no
+/// process. A later process that has the same process id has another start
+/// (on macOS: while the time of day does not go back).
+pub fn process_start(pid: u32) -> Option<ProcessStart> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let started = imp::process_start(pid);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let started = None::<u64>.filter(|_| pid != 0);
+    started.map(ProcessStart)
+}
+
 impl Default for Sampler {
     fn default() -> Self {
         Self::new()
@@ -226,9 +250,19 @@ mod imp {
         read_stat(pid).map(|stat| stat.ppid)
     }
 
+    pub(super) fn process_start(pid: u32) -> Option<u64> {
+        read_stat(pid).map(|stat| stat.start_ticks)
+    }
+
     /// One process's parsed `/proc/<pid>/stat`, or None when it is gone.
+    ///
+    /// The line is read as bytes. The system keeps 15 bytes of a program's
+    /// name and can cut it inside a character, so the line is not always
+    /// UTF-8. Each field after the name is ASCII, and the name's bytes that
+    /// are no character become U+FFFD here.
     fn read_stat(pid: u32) -> Option<ProcStat> {
-        parse_proc_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+        let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+        parse_proc_stat(&String::from_utf8_lossy(&stat))
     }
 
     pub(super) struct Sampler {
@@ -477,6 +511,23 @@ mod imp {
         // not answer for; the process table does.
         let pid = u32::try_from(pid).ok()?;
         crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
+    }
+
+    /// The start of a process that `proc_pidinfo` answers for (one of this
+    /// user). No other read is tried: a process that does not answer has no
+    /// start here.
+    pub(super) fn process_start(pid: u32) -> Option<u64> {
+        let pid = c_int::try_from(pid).ok()?;
+        // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
+        let written = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        (written == size).then(|| {
+            info.pbi_start_tvsec.saturating_mul(1_000_000).saturating_add(info.pbi_start_tvusec)
+        })
     }
 
     fn pid_path(pid: u32) -> Option<String> {

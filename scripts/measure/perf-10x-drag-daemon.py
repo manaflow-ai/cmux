@@ -13,6 +13,7 @@ Usage: perf-10x-drag-daemon.py --bin PATH [--n 360]
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import tempfile
@@ -161,11 +162,18 @@ def main():
                        f" rtt_max_ms={ms(max(times))} per_s={len(times) / total:.1f} errors={errors}")
     finally:
         stop.set()
-        daemon.terminate()
-        try:
-            daemon.wait(10)
-        except subprocess.TimeoutExpired:
-            daemon.kill()
+        # The daemon's group, whatever the daemon's state: a child can outlive it (cmux#41767 review F1).
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(daemon.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
+            try:
+                daemon.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 if __name__ == "__main__":
