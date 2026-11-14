@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for &scene in &scenes {
         for (loss_name, loss, burst) in &losses {
-            let mut h264_kbps = None;
+            let mut h264_kbps: Option<f64> = None;
             for &codec in &codecs {
                 let caps: Vec<Option<u32>> = match (codec, h264_kbps) {
                     (Codec::H264, _) => vec![None],
