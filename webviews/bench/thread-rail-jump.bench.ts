@@ -762,4 +762,9 @@ async function main() {
   }
 }
 
-if (import.meta.main) await main();
+// Why it exits 1, last and on stderr, so the suite's report carries the reason (web-ui-suite.ts failureTail).
+if (import.meta.main)
+  await main().catch((error: unknown) => {
+    console.error(`thread-rail-jump: FAIL ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    process.exit(1);
+  });
