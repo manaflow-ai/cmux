@@ -434,7 +434,7 @@ fn child_before_parent_and_parent_cycle_keep_child_handles_bounded() {
     let mut second = row("cycle-b", 4);
     first.parent = Some(second.key());
     second.parent = Some(first.key());
-    index = index.apply(3, first.clone()).apply(4, second.clone());
+    index = index.apply(3, first.clone()).apply(4, second);
     assert_kin(&index, 2, &empty_parents, &empty_forks, &empty_folders);
     let page = index
         .read_page(
