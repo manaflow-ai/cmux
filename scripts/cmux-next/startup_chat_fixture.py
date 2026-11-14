@@ -71,7 +71,20 @@ class ChatFixture:
                 raise
             # The page may have created the session before its evaluation reply
             # timed out. Read back that single request; never replay the mutation.
-        self.until(client, lambda state: bool(state.get("sessionId")), timeout)
+        try:
+            self.until(client, lambda state: bool(state.get("sessionId")), timeout)
+        except RuntimeError:
+            # Preserve the owning page's reason before the isolated app exits.
+            # These are reads only: an uncertain create must never be replayed.
+            for action, params in (("chat_state", {}), ("acp_log", {"limit": 20}),
+                                   ("query", {"selector": ".acpmux-trust-ask"})):
+                try:
+                    diagnostic = client.call("debug.agent_pane", {"action": action, **params})
+                    (self.roots[tag] / f"failed-{action}.json").write_text(json.dumps(diagnostic, indent=2) + "\n")
+                    print(f"startup fixture {action}: {json.dumps(diagnostic)[:24000]}", file=sys.stderr, flush=True)
+                except Exception as error:
+                    print(f"startup fixture {action} diagnostic failed: {error}", file=sys.stderr, flush=True)
+            raise
         unwrap(client.call("debug.agent_pane", {"action": "send_prompt", "text": marker}))
         state = self.until(client, lambda state: not state.get("isWorking") and
                            (state.get("lastAssistant") or {}).get("text") == "echo: " + marker, timeout)
