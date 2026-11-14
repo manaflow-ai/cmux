@@ -804,7 +804,8 @@ def main():
         import bench_relaunch_reconnect as relaunch
         argv = ["--app", args.app, "--config", args.config]
         if scenarios == ["relaunch-first-paint"]:
-            argv += ["--modes", "warm,new-version", "--shown", "idle", "--browser"]
+            argv += ["--modes", "warm,new-version", "--shown", "idle", "--browser",
+                     "--retheme", "GitHub Light Default,Rose Pine Dawn"]
         argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
         argv += ["--out", args.out] if args.out else []
         argv += ["--md", args.md] if args.md else []
