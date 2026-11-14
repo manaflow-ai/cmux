@@ -2488,9 +2488,13 @@ final class ClaudeHookSessionStore {
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
-            if let normalizedSessionId,
-               let existing = state.sessions[normalizedSessionId] {
-                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+            if let normalizedSessionId {
+                // A named session with no record (a child's repeated end, or a
+                // session already consumed) must not end another session on
+                // the same pane. Only a sessionless end falls back to the pane.
+                // https://github.com/manaflow-ai/cmux/issues/42726
+                guard let existing = state.sessions[normalizedSessionId],
+                      !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
                 let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
