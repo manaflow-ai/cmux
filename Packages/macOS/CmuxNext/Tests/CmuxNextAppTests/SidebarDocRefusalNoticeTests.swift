@@ -1,9 +1,11 @@
 import CmuxNextActions
+@testable import CmuxNextBridge
+@testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
 
-/// Leo, 2026-11-14, on a toast "The sidebar did not make this move." over an agent's chat: "wtf am i seeing here".
+/// Leo, 2026-11-14, on a toast "The sidebar did not make this move." over an agent's chat: "what am i seeing here".
 /// Every reducer refusal but two, and every daemon refusal (it came as a daemon error, not a mirror refusal), drew
 /// that one sentence, and a change nobody here made (auto-archive, an agent's CLI or MCP run) drew it too.
 /// A change the person did not make shows nothing; the person's own names its reason; a failure that is no
@@ -56,6 +58,23 @@ struct SidebarDocRefusalNoticeTests {
         ActionRunScope.$current.withValue(ActionRunScope(origin: origin, allowsViewChange: false)) { Self.move(store) }
         await store.settled()
         #expect(shown.isEmpty, "a \(origin) change's refusal showed a toast: \(shown)")
+    }
+
+    @Test func aRefusedAutomaticChangeShowsNothing() async throws {
+        let store = try await Self.store(Remote([SidebarMirror.Refusal(code: "unknown_item")]))
+        var shown: [String] = []
+        store.onRefused = { shown.append($0) }
+        store.automatically { Self.move(store) }
+        await store.settled()
+        #expect(shown.isEmpty, "an automatic change's refusal showed a toast: \(shown)")
+    }
+
+    /// The daemon refuses with `validation.invalid` and the reducer's reason: the person reads that reason.
+    @Test func aDaemonRefusalCarriesTheReducersCode() {
+        let error = DaemonError.command(cmd: "sidebar.move", message: "nesting", code: "validation.invalid",
+                                        details: .object(["reason": .string("nesting")]), retryable: false)
+        #expect(DaemonSidebarDocRemote.refusal(error) == SidebarMirror.Refusal(code: "nesting"))
+        #expect(DaemonSidebarDocRemote.refusal(.malformedResponse("x")) == nil)
     }
 
     @Test(arguments: codes)

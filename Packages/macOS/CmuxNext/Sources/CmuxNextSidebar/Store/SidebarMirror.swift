@@ -16,6 +16,9 @@ public final class SidebarMirror {
     /// Why an intent was not applied (`cross_machine`, `provider_owned`, ...).
     public struct Refusal: Error, Hashable, Sendable {
         public var code: String
+
+        /// `code`: the reducer's refusal, from the mirror or from the daemon's `validation.invalid` reason.
+        public init(code: String) { self.code = code }
     }
 
     /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.

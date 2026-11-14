@@ -51,7 +51,8 @@ extension SidebarDocStore {
     /// an item of a gone space reads as the default space's (`SidebarDocItem.owningRoom`) and returns if it comes back.
     public func moveSpace(_ from: String, into to: String) {
         let ops = Self.spaceOps(from: from, into: to, records: records)
-        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
+        // The delete's follow-up, not a move the person made: a refusal is logged, never shown.
+        if !ops.isEmpty { automatically { send(ops: ops, title: Self.moveTitle, undoable: false) } }
     }
 
     /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
