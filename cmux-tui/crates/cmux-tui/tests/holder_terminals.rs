@@ -1468,3 +1468,88 @@ fn screen_contains_within(socket: &Path, surface: u64, marker: &str, limit: Dura
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+/// Tabs that echo input beside one tab that prints as fast as it can.
+const NOISY_TABS: usize = 50;
+/// Input rounds over every quiet tab.
+const NOISY_ROUNDS: usize = 6;
+
+/// The holder's one downside to check before it is the default (#36853, cmux#43143): one event
+/// loop holds every terminal, so a tab printing at full speed (`yes`) could slow the echo of
+/// the others. 49 tabs run `cat`; each round sends a line to each and times it to the screen
+/// (input to echo). Measured on the holder and on per-terminal hosts, each with and without the
+/// flood, and printed as `NOISY` lines with p50 and p95. Every echo must arrive.
+#[test]
+fn input_echo_beside_a_tab_printing_at_full_speed_holder_and_hosts() {
+    for model in ["holder", "host"] {
+        for flood in [false, true] {
+            let (p50, p95, max) = noisy_echo(model, flood);
+            eprintln!(
+                "NOISY model={model} flood={flood} tabs={NOISY_TABS} samples={} \
+                 echo_p50_ms={p50:.1} echo_p95_ms={p95:.1} echo_max_ms={max:.1}",
+                (NOISY_TABS - 1) * NOISY_ROUNDS
+            );
+        }
+    }
+}
+
+/// Input-to-echo times of the quiet tabs under `model`, with one tab flooding when `flood`:
+/// (p50, p95, max) in ms.
+fn noisy_echo(model: &str, flood: bool) -> (f64, f64, f64) {
+    let model_path = PathBuf::from(model);
+    let mut daemon =
+        Daemon::start_with_env(&[("CMUX_TUI_TERMINAL_HOST_MODEL", model_path.as_path())]);
+    let mut quiet = Vec::new();
+    for tab in 0..NOISY_TABS {
+        let argv = if tab == 0 && flood {
+            json!([
+                "/bin/sh",
+                "-c",
+                "yes 'flood flood flood flood flood flood flood' | head -c 2000000000"
+            ])
+        } else if tab == 0 {
+            json!(["/bin/sh", "-c", "exec sleep 3600"])
+        } else {
+            json!(["/bin/cat"])
+        };
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": argv, "new_workspace": true,
+                "name": format!("noisy-{tab}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        if tab == 0 && flood {
+            screen_contains(&daemon.socket, surface, "flood flood");
+        } else if tab > 0 {
+            quiet.push(surface);
+        }
+    }
+    let mut samples = Vec::new();
+    for round in 0..NOISY_ROUNDS {
+        for (tab, surface) in quiet.iter().enumerate() {
+            let marker = format!("echo-{round}-{tab}-x");
+            let sent = Instant::now();
+            send(&daemon.socket, *surface, &marker);
+            let deadline = sent + Duration::from_secs(20);
+            loop {
+                let screen = request(
+                    &daemon.socket,
+                    json!({"cmd": "read-screen", "surface": surface}),
+                )["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                if screen.contains(&marker) {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "{model}: tab {tab} never echoed {marker}");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            samples.push(sent.elapsed().as_secs_f64() * 1000.0);
+        }
+    }
+    samples.sort_by(f64::total_cmp);
+    let at = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
+    (at(0.5), at(0.95), at(1.0))
+}
