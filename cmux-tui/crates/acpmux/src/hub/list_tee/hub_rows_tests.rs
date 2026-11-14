@@ -133,11 +133,14 @@ fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
     keys
 }
 
+/// The keys of v1's whole list that the index stores: every own row, and another origin's live
+/// rows ("a peer's closed chats are not stored"; 7b's callers read v1 for those, decision 213).
 fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
     let list = v1.list_rows(false, false);
     let mut keys: Vec<_> = list
         .rows()
         .iter()
+        .filter(|row| row.peer().is_none() || row.status() != Some("closed"))
         .map(|row| (row.peer().unwrap_or("local").to_owned(), row.session_id().to_owned()))
         .collect();
     keys.sort();
@@ -157,8 +160,9 @@ fn counts(state: &TeeState) -> (u64, u64) {
     (state.remote_submits.load(Ordering::Relaxed), state.origin_writes.load(Ordering::Relaxed))
 }
 
-/// The differential: own rows, an ssh peer's rows and hub rows. A v2 walk holds v1's keys, and
-/// each hub row's summary holds what the v1 row says for the fields a summary keeps.
+/// The differential: own rows, an ssh peer's rows and hub rows. A v2 walk holds v1's keys of the
+/// rows the index stores (live hub rows; a closed one is v1's alone), and each hub row's summary
+/// holds what the v1 row says for the fields a summary keeps.
 #[tokio::test]
 async fn a_v2_walk_holds_the_keys_of_v1s_list_with_hub_rows() {
     let v1 = v1_hub();
@@ -169,7 +173,7 @@ async fn a_v2_walk_holds_the_keys_of_v1s_list_with_hub_rows() {
     read_book(
         &v1,
         &[
-            ("machine-b", &[("b-1", "running"), ("b-2", "waiting")]),
+            ("machine-b", &[("b-1", "running"), ("b-2", "waiting"), ("b-3", "closed")]),
             ("machine-c", &[("c-1", "ready")]),
         ],
     );
@@ -178,19 +182,22 @@ async fn a_v2_walk_holds_the_keys_of_v1s_list_with_hub_rows() {
     let keys = v2_keys(&index);
     assert_eq!(keys, v1_keys(&v1));
     assert_eq!(keys.len(), 6, "{keys:?}");
+    assert_eq!(v1.list_rows(false, false).rows().len(), 7, "v1 lists the closed hub row");
     assert_eq!(origin(&index, "machine-b"), Some(OriginState::Connected));
     assert_eq!(origin(&index, "machine-c"), Some(OriginState::Connected));
 
     let list = v1.list_rows(false, false);
-    for row in
-        list.rows().iter().filter(|row| row.peer().is_some_and(|p| p.starts_with("machine-")))
-    {
+    for row in list.rows().iter().filter(|row| {
+        row.peer().is_some_and(|p| p.starts_with("machine-")) && row.status() != Some("closed")
+    }) {
         let value = list.value(&v1, row, false);
         assert_eq!(value["via"], "hub");
         let summary = index.get_row(&RowKey::new(row.peer().unwrap(), row.session_id())).unwrap();
         assert_eq!(summary.title, value["name"].as_str().unwrap());
         assert_eq!(summary.harness, value["harness"].as_str().unwrap());
-        assert_eq!(summary.state, value["status"].as_str().unwrap());
+        // v1's `state`, which a hub row names as `status` until `state` is every origin's.
+        let v1_state = value.get("state").or_else(|| value.get("status")).and_then(Value::as_str);
+        assert_eq!(Some(summary.state.as_str()), v1_state);
         assert_eq!(summary.last_activity, value["updatedAt"].as_u64().unwrap());
         assert_eq!(u64::from(summary.unread), value["unreadTurns"].as_u64().unwrap_or(0));
         assert_eq!(summary.workspace, None);
@@ -224,6 +231,29 @@ async fn a_changed_hub_row_is_one_submit_and_an_unchanged_heartbeat_none() {
     assert_eq!(counts(&state), (0, 0));
     assert_eq!(state.marks.load(Ordering::Relaxed), marks);
     assert_eq!(index.seq(), seq);
+}
+
+/// A hub row that turns `closed` leaves the v2 walk in one submit with no origin write; v1 still
+/// lists it. The index keeps no closed row of another origin (decision 213).
+#[tokio::test]
+async fn a_hub_row_that_closes_leaves_the_v2_walk_and_stays_in_v1s() {
+    let v1 = v1_hub();
+    let state = tee_on(&v1);
+    read_book(&v1, &[("machine-b", &[("b-1", "running"), ("b-2", "ready")])]);
+    let index = turn(&v1, SummaryIndex::new(), &state, true).await;
+    reset(&state);
+
+    read_book(&v1, &[("machine-b", &[("b-1", "closed"), ("b-2", "ready")])]);
+    let index = turn(&v1, index, &state, false).await;
+    assert_eq!(counts(&state), (1, 0));
+    assert_eq!(v2_keys(&index), [("machine-b".to_owned(), "b-2".to_owned())]);
+    assert_eq!(v2_keys(&index), v1_keys(&v1));
+    assert_eq!(origin(&index, "machine-b"), Some(OriginState::Connected));
+    let list = v1.list_rows(false, false);
+    assert!(
+        list.rows().iter().any(|r| r.session_id() == "b-1" && r.status() == Some("closed")),
+        "v1 keeps the closed hub row"
+    );
 }
 
 #[tokio::test]
