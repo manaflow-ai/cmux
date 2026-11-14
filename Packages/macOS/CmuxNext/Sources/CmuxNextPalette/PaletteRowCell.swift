@@ -54,7 +54,7 @@ final class PaletteKeycapsView: NSView {
 /// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
 /// at once.
 final class PaletteTableRowView: NSTableRowView {
-    private let fill = CALayer()
+    let fill = CALayer()
     private var fadesNextFill = false
 
     override func prepareForReuse() {
