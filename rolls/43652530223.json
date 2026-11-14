@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43652530223",
+  "recorded_at": "2026-11-14T23:23:15Z",
+  "reason": "cmux-tui 909d2726428b changes the image's cmux-tui (pinned 18886b02ad47)",
+  "dry_run": false,
+  "cmux_tui": "909d2726428b128898c2788794d70c45ddc24b90",
+  "fixes": [
+    {
+      "sha": "909d2726428b128898c2788794d70c45ddc24b90",
+      "mergedAt": "2026-11-14T14:55:35-08:00",
+      "subject": "cmux-tui-core: the update plan counts threads through the v2 list (row 7c, PR a) (#43217)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T23:23:15Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
