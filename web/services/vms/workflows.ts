@@ -5322,7 +5322,8 @@ export function resizeVm(input: {
       if (requested !== undefined && requested > max) {
         return yield* Effect.fail(new VmResizePlanLimitError({
           vmId: input.providerVmId, resource, requested, max, planId,
-          ...(planId === "max" ? {} : { upgradePlanId: "max" }),
+          // A custom deal sets its own machine ceiling; Max does not raise it.
+          ...(planId === "max" || input.entitlementOverride?.maxMemoryMb != null ? {} : { upgradePlanId: "max" }),
         }));
       }
     }

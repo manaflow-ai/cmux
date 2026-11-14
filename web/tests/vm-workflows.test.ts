@@ -1686,6 +1686,47 @@ describe("VM Effect workflows", () => {
     expect(result.memoryTotalMb).toBe(24 * 1024);
   });
 
+  test("a Team over its custom deal's ceiling gets no Max upgrade hint", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000150",
+      userId: "user-workflow-resize-team-deal-cap",
+      billingTeamId: "team-workflow-resize-team-deal-cap",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-cap",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 8, memoryTotalMb: 16 * 1024, diskTotalMb: 65536 };
+      }),
+      resize: () => Effect.sync(() => { providerCalls += 1; }),
+    };
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        memoryMb: 32 * 1024,
+        entitlementOverride: {
+          maxActiveVms: null,
+          poolVcpus: null,
+          poolMemoryMb: null,
+          maxMemoryMb: 24 * 1024,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(error).toMatchObject({ _tag: "VmResizePlanLimitError", max: 24 * 1024, planId: "team" });
+    expect(error).not.toHaveProperty("upgradePlanId", "max");
+    expect(providerCalls).toBe(0);
+  });
+
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000130",

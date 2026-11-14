@@ -101,7 +101,7 @@ public struct CloudVMResizePlanValidator: Sendable {
             .compactMap(positiveLimit)
             .max()
         // Older control planes sometimes published the whole ladder as
-        // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
+        // `memoryOptionsMb`. When `maxMemoryMb` is absent, never let that
         // compatibility path expand a plan beyond the current product tier.
         let productMemoryCeiling: Int
         switch planID {
