@@ -236,6 +236,8 @@ const LIVE_RESIZE_MS = 120;
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
 const PROMPT_TOPS_QUIET_MS = 1000;
+/// Entries the prepared-text cache may hold past twice the rows before it drops those of rows that left.
+const MEASURED_SLACK = 512;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
@@ -3583,6 +3585,13 @@ function TranscriptView({
       resizing,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+    // Prepared text is kept by row id for every row measured. Rows that left (a chat that let go of its
+    // oldest records, direct.ts `shedOlderHeld`) take theirs with them, so the cache holds what the
+    // transcript holds: one pass over the rows, only once it holds a good many more entries than rows.
+    if (cache.size > rows.length * 2 + MEASURED_SLACK) {
+      const held = new Set(rows.map((row) => row.id));
+      for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
+    }
     return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
