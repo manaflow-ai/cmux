@@ -22,7 +22,7 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
-import { chatOnThisMac, chatPlace } from "./chatMachine";
+import { chatMachine as chatMachineOf, chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
@@ -4074,6 +4074,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (toolCallId: string, startedAt?: number) => showCallRef.current(toolCallId, startedAt),
     [],
   );
+  // A chat on another machine (a Cloud one, a peer, or the machine the app's wire reaches) signs its
+  // agent in there with the one-click card, never a terminal with the login command (Leo 2026-11-14:
+  // "and how are the ergonomics of cmux remote tho esp in the gui?").
+  const chatElsewhere =
+    cloudMachineID !== undefined ||
+    chatMachineOf(snapshot.summary, undefined, snapshot.peerKinds, chatPlace(snapshot)).kind !== "local";
+  // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
+  // important"): its own login, never this Mac's. Its page opens as a link click does here.
+  // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
+  // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
+  // credits or add their own api key").
+  const chatSignIns = useMemo(() => {
+    const login: Parameters<typeof cloudAgentLogin>[0] = {
+      connected,
+      machineID: cloudMachineID,
+      elsewhere: chatElsewhere,
+      sessionId: snapshot.sessionId,
+      harness: snapshot.summary?.harness,
+      supported: directClient.current?.supportsAgentLogin === true,
+      gesture: (intent) =>
+        postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+      openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+      // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
+      // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
+      openOnMachine: (url) =>
+        postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
+          () => true,
+          () => false,
+        ),
+      isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+      currentClient: () => directClient.current ?? undefined,
+    };
+    return { cloudSignIn: cloudAgentLogin(login), apiKeySignIn: localApiKeyLogin(login) };
+  }, [connected, cloudMachineID, chatElsewhere, snapshot.sessionId, snapshot.summary?.harness]);
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
@@ -4242,16 +4276,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
-        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts); it reads
-        // acpmux's capabilities, `retryCapabilities`, set with Resume below.
+        // Retry asks acpmux, the only one that retries (subagents/retryState.ts); it reads acpmux's
+        // capabilities, `retryCapabilities`, set with Resume below.
         // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
           const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
           if (!client) return Promise.resolve("retry.failed" as const);
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
-          const send = (text: string) => callNative("chat.send", { text });
-          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
+          return runRetry(agent, owner, { request, capabilities: client.capabilities, reaches });
         })(restartChat),
       }),
       // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
@@ -4291,9 +4324,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
           }),
       }),
+      // Sign in again runs the login in a terminal only where the card can't: a chat on this Mac, or
+      // on a machine whose acpmux has no `agent_login`.
       ...(connected &&
         loginCommand &&
         !cloudMachineID &&
+        !chatSignIns.cloudSignIn &&
         snapshot.summary?.hostKind !== "cloud" && {
           reauthenticate: () =>
             void callNative("tab.open", {
@@ -4313,33 +4349,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         () => directClient.current ?? undefined,
         automaticCloudCredentialAttempts.current,
       ),
-      // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
-      // important"): its own login, never this Mac's. Its page opens as a link click does here.
-      // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
-      // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
-      // credits or add their own api key").
-      ...((login: Parameters<typeof cloudAgentLogin>[0]) => ({
-        cloudSignIn: cloudAgentLogin(login),
-        apiKeySignIn: localApiKeyLogin(login),
-      }))({
-        connected,
-        machineID: cloudMachineID,
-        sessionId: snapshot.sessionId,
-        harness: snapshot.summary?.harness,
-        supported: directClient.current?.supportsAgentLogin === true,
-        gesture: (intent) =>
-          postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
-        openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
-        // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
-        // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
-        openOnMachine: (url) =>
-          postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
-            () => true,
-            () => false,
-          ),
-        isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
-        currentClient: () => directClient.current ?? undefined,
-      }),
+      ...chatSignIns,
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
@@ -4355,6 +4365,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [
       access,
       showCall,
+      chatSignIns,
       chatAccounts,
       snapshot.sessionId,
       stableBranches,
