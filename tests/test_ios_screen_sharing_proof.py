@@ -480,6 +480,22 @@ class HostTests(unittest.TestCase):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_cleanup_failed"):
                     instance._capture("cleanup", auth=auth)
 
+    def test_remote_resume_requires_exact_typed_lease_acknowledgement(self):
+        instance = self.make_host()
+        valid = {"ok": True, "code": "remote_capture_resumed", "lease_bound": True}
+        invalid = [None, {}, {**valid, "extra": True}, {**valid, "code": "ok"}]
+        invalid += [{k: v for k, v in valid.items() if k != field} for field in valid]
+        invalid += [{**valid, field: value} for field in ("ok", "lease_bound") for value in (False, None, 1)]
+        for result in invalid:
+            with self.subTest(result=result), patch.object(self.host, "rpc", return_value=result):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_remote_resume_failed"):
+                    instance._remote_resume()
+        with patch.object(self.host, "rpc", return_value=valid) as call:
+            instance._remote_resume()
+            self.assertEqual(call.call_args.args[1:], ("debug.remote.capture_resume",
+                {"lease_id": instance.lease, "bundle_id": "owned", "private_root": str(instance.work / "home")}))
+            self.assertGreaterEqual(call.call_args.kwargs["timeout"], 80)
+
     def test_remote_claim_binds_lease_raw_bundle_and_private_home(self):
         instance = self.make_host()
         for phase in ("prepare", "cleanup"):

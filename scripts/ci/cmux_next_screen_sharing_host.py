@@ -222,7 +222,7 @@ class Host:
     def _remote_capture(self, phase):
         result = rpc(self.sock, "debug.remote.capture_" + phase,
                      {"lease_id": self.lease, "bundle_id": self.info["CFBundleIdentifier"],
-                      "private_root": str(self.work / "home")}, timeout=60)
+                      "private_root": str(self.work / "home")}, timeout=80)
         counts = (result.get("identity_removed"), result.get("relays_removed"))
         verified = (all(result.get(key) is True for key in
                         ("ok", "lease_bound", "verified_absent", "worker_quiescent",
@@ -234,6 +234,15 @@ class Host:
                            and counts == (0, 0)))
         if not verified or not disposition or (phase == "prepare" and counts != (0, 0)):
             raise HostFailure("host_remote_" + phase + "_failed")
+
+    def _remote_resume(self):
+        result = rpc(self.sock, "debug.remote.capture_resume",
+                     {"lease_id": self.lease, "bundle_id": self.info["CFBundleIdentifier"],
+                      "private_root": str(self.work / "home")}, timeout=80)
+        if (not isinstance(result, dict) or set(result) != {"ok", "code", "lease_bound"}
+                or result["ok"] is not True or result["lease_bound"] is not True
+                or result["code"] != "remote_capture_resumed"):
+            raise HostFailure("host_remote_resume_failed")
 
     def _account(self):
         end = time.monotonic() + 180
@@ -299,6 +308,17 @@ class Host:
             stop(self.proc)
             self.proc = None
             self.sock.unlink(missing_ok=True)  # this process's socket only
+            # Preparation fences its process for its entire lifetime. Resume
+            # from a fresh signed-out process, before any launch gets credentials.
+            self._launch(env, home)
+            account = self._account()
+            if account.get("signed_in") is not False or account.get("user_id"):
+                self.account_mismatch = True
+                raise HostFailure("host_namespace_has_existing_account")
+            self._remote_resume()
+            stop(self.proc)
+            self.proc = None
+            self.sock.unlink(missing_ok=True)
             env.update(CMUX_DEV_AUTH_PROFILE="agent", CMUX_DEV_AUTH_ACCOUNT=email,
                        CMUX_UITEST_STACK_EMAIL=email, CMUX_UITEST_STACK_PASSWORD=password)
             self.owns_auth = True
