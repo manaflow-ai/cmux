@@ -84,10 +84,14 @@ final class TerminalFlickerTrace: NSObject {
     /// Main-thread time per frame: all of it, and the page's own measured work.
     private let busyMeter = MainThreadBusyMeter()
     private var ours: [String: Double] = [:]
+    private var oursTotal = 0.0
 
-    /// The page's measured work (`TerminalViewController.measured`), by name.
-    func work(_ name: String, _ seconds: CFTimeInterval) {
+    /// The page's measured work (`TerminalViewController.measured`), by name;
+    /// `outermost` work counts toward the frame's total (nested work is
+    /// inside its caller's time).
+    func work(_ name: String, _ seconds: CFTimeInterval, outermost: Bool) {
         ours[name, default: 0] += seconds * 1000
+        if outermost { oursTotal += seconds * 1000 }
     }
     private weak var host: UIView?
 
@@ -181,11 +185,12 @@ final class TerminalFlickerTrace: NSObject {
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
         }
         let busy = busyMeter.take()
-        line += String(format: " busy=%.1f span=%.1f commit=%.1f ours=%.1f", busy.busyMs, busy.longestMs, busy.commitMs, ours.values.reduce(0, +))
+        line += String(format: " busy=%.1f span=%.1f commit=%.1f ours=%.1f", busy.busyMs, busy.longestMs, busy.commitMs, oursTotal)
         if !ours.isEmpty {
-            line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(4).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
+            line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(6).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
         }
         ours.removeAll(keepingCapacity: true)
+        oursTotal = 0
         handle?.write(Data((line + "\n").utf8))
         previous = now
         probe.accessibilityValue = summary(demo: now.demo)

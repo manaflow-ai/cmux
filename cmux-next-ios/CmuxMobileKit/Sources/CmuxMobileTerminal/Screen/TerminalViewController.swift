@@ -317,7 +317,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // Nested work is already inside the outer interval's time.
             let elapsed = CACurrentMediaTime() - start
             frameLog.work("\(name)", elapsed, outermost: measureDepth == 0)
-            if measureDepth == 0 { flickerTrace?.work("\(name)", elapsed) }
+            flickerTrace?.work("\(name)", elapsed, outermost: measureDepth == 0)
             TerminalFrameLog.signposter.endInterval(name, state)
         }
         return body()
@@ -3300,7 +3300,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
         guard model.isTUI else { return }
-        view.layoutIfNeeded()
+        measured("kw-layout") { view.layoutIfNeeded() }
         keyboardClaim = true
         settleKeyboardLift()
         view.setNeedsLayout()
@@ -3327,20 +3327,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func keyboardSettledLayout() {
-        keyboardStopped()
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        measured("kd-stopped") { keyboardStopped() }
+        measured("kd-layout") {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
         settleKeyboardLift()
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        measured("kd-layout2") {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
         // The page changed without output (the keyboard came or went): the
         // saved frame for the next cold launch follows (R2-5).
-        model.saveFrameSoon()
-        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        measured("kd-save") { model.saveFrameSoon() }
+        measured("kd-viewport") { updateViewport(visibleMinY: scrollView.contentOffset.y) }
         // A full-screen app gets other rows with the keyboard up or down (R1-1).
-        if model.isTUI { finder.rowsReplaced() }
+        if model.isTUI { measured("kd-find") { finder.rowsReplaced() } }
     }
 
     /// Keyboard state for the toolbar icon and the input target; layout
