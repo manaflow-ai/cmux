@@ -57,3 +57,11 @@ fn a_wrong_word_names_itself_and_a_missing_required_names_its_flag() {
     assert!(build_args(&words("--text a extra"), &input(), &none).unwrap_err().contains("extra"));
     assert!(build_args(&words("--count 1"), &input(), &none).unwrap_err().contains("--text"));
 }
+
+#[test]
+fn a_spelled_out_boolean_takes_its_value_and_leaves_the_positional_alone() {
+    let args = build_args(&words("--loud false hello"), &input(), &json!(["text"])).unwrap();
+    assert_eq!(args, json!({ "loud": false, "text": "hello" }));
+    let on = build_args(&words("--loud true hello"), &input(), &json!(["text"])).unwrap();
+    assert_eq!(on, json!({ "loud": true, "text": "hello" }));
+}

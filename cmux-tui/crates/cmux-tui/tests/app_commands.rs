@@ -19,14 +19,15 @@ use serde_json::{Value, json};
 const KEY_HEX: &str = "8f0e1d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100";
 const INSTALL_ID: &str = "inst_app_commands";
 
-/// The app host: ready on init; a run answers `{ran: <the run frame>}`.
+/// The app host: ready on init; a run answers `{value: {ran: <the run frame>}}` (the op's
+/// result is the done body's `value`).
 const HOST: &str = r#"#!/bin/sh
 while IFS= read -r line <&3; do
   case "$line" in
     *'"t":"init"'*) printf '{"t":"ready","runtime":"probe"}\n' >&3 ;;
     *'"t":"run"'*)
       cb=$(printf '%s' "$line" | sed 's/.*"cb":\([0-9]*\).*/\1/')
-      printf '{"t":"done","cb":%s,"ok":true,"body":{"ran":%s}}\n' "$cb" "$line" >&3 ;;
+      printf '{"t":"done","cb":%s,"ok":true,"body":{"value":{"ran":%s}}}\n' "$cb" "$line" >&3 ;;
   esac
 done
 "#;
@@ -172,7 +173,7 @@ fn ran(output: &Output) -> Value {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "{output:?}");
     let data: Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| panic!("{stdout}"));
-    data["ran"].clone()
+    data["value"]["ran"].clone()
 }
 
 #[test]
@@ -202,4 +203,37 @@ fn an_apps_cli_name_runs_its_op_with_arguments_from_the_words() {
     // A word no app took is still the usage error.
     let unknown = daemon.cmux(&["nosuchapp", "ping"]);
     assert_eq!(unknown.status.code(), Some(2), "{unknown:?}");
+}
+
+/// Copies the demo app in `root` as `acme/sharer`, whose `cli.name` is
+/// `share` and whose ping op sits at `cmux share revoke`.
+fn write_sharer(root: &Path) {
+    let (demo, app) = (root.join("demo"), root.join("sharer"));
+    std::fs::create_dir_all(app.join("dist")).unwrap();
+    std::fs::copy(demo.join("dist/main.js"), app.join("dist/main.js")).unwrap();
+    for file in ["catalog.json", "cmux-app.v2.json"] {
+        let text = std::fs::read_to_string(demo.join(file)).unwrap();
+        let text = text
+            .replace("acme.demo", "acme.sharer")
+            .replace("acme/demo", "acme/sharer")
+            .replace(r#""cli":{"name":"demo"}"#, r#""cli":{"name":"share"}"#)
+            .replace(r#""path":"ping""#, r#""path":"revoke""#);
+        std::fs::write(app.join(file), text).unwrap();
+    }
+}
+
+#[test]
+fn an_app_never_shadows_a_built_in_command_routed_after_the_grammar() {
+    let daemon = Daemon::new("shadow");
+    let bundled = daemon.dir.join("bundled");
+    write_demo(&bundled);
+    write_sharer(&bundled);
+    daemon.start();
+    daemon.install("acme/sharer");
+
+    // `cmux share revoke` is cmux's own command (share_cli): the app called
+    // `share` does not run, whatever the built-in then answers.
+    let shared = daemon.cmux(&["share", "revoke", "sh_1"]);
+    let stdout = String::from_utf8_lossy(&shared.stdout);
+    assert!(!stdout.contains("\"ran\""), "the app ran in place of cmux share: {shared:?}");
 }
