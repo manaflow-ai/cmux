@@ -44,7 +44,7 @@ mod snapshot;
 mod storage_tests;
 pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
-pub use kin::{FolderKey, KinTables};
+pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
     DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
@@ -940,9 +940,10 @@ impl SummaryIndex {
         if self.disk.is_some() {
             shadowed.insert(key);
         }
+        let kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
+        next.kin = kin;
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,

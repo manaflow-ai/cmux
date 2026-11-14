@@ -309,7 +309,7 @@ impl KinTables {
         let mut visited = OrdSet::new();
         let mut stopped_at_bound = true;
         for _ in 0..=MAX_KIN_DEPTH {
-            if !visited.insert(current.clone()) {
+            if visited.insert(current.clone()).is_some() {
                 stopped_at_bound = false;
                 break;
             }
@@ -557,7 +557,7 @@ mod tests {
         let mut parent = Arc::new(row("root", 0));
         rows.insert(parent.key(), parent.clone());
         for depth in 0..65 {
-            let mut child = row(format!("chain-{depth:02}"), depth + 1);
+            let mut child = row(&format!("chain-{depth:02}"), depth + 1);
             child.parent = Some(parent.key());
             parent = Arc::new(child);
             rows.insert(parent.key(), parent.clone());
@@ -577,17 +577,17 @@ mod tests {
         assert!(updated.children(&parent.key()).is_some_and(|set| set.get(&leaf.key()).is_some()));
 
         for sibling_count in [10, 10_000] {
-            let parent = Arc::new(row(format!("siblings-{sibling_count}"), 0));
+            let parent = Arc::new(row(&format!("siblings-{sibling_count}"), 0));
             let mut rows = OrdMap::new();
             rows.insert(parent.key(), parent.clone());
             for n in 0..sibling_count {
-                let mut child = row(format!("sibling-{sibling_count}-{n}"), n as u64 + 1);
+                let mut child = row(&format!("sibling-{sibling_count}-{n}"), n as u64 + 1);
                 child.parent = Some(parent.key());
                 let child = Arc::new(child);
                 rows.insert(child.key(), child);
             }
             let tables = KinTables::from_rows(rows.values());
-            let mut next = row(format!("sibling-new-{sibling_count}"), sibling_count as u64 + 1);
+            let mut next = row(&format!("sibling-new-{sibling_count}"), sibling_count as u64 + 1);
             next.parent = Some(parent.key());
             let writes = AtomicUsize::new(0);
             let _ = tables.replace_counted_with_rows(None, Some(&next), &rows, &writes);
