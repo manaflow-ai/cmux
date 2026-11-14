@@ -57,12 +57,14 @@ use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
 mod daemon_lifecycle;
 mod enroll;
+mod exec_cp;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
 use daemon_lifecycle::*;
 use enroll::*;
+use exec_cp::{ExitWith, run_cp, run_exec};
 use remote_link_mux::{mux_owner_args, socket_for};
 use self_install::*;
 
@@ -88,6 +90,14 @@ pub fn run(
     match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
+            // `exec` exits with the remote command's status, and with 255
+            // (after its message) when the connection or the CLI failed.
+            if let Some(exit) = error.downcast_ref::<ExitWith>() {
+                if let Some(error) = &exit.error {
+                    crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
+                }
+                return exit.code;
+            }
             crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
             1
         }
@@ -110,6 +120,8 @@ fn run_inner(
         Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
         Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
+        Some("remote-exec") => run_exec(&args[1..]),
+        Some("remote-cp") => run_cp(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
         Some("remote-probe") => run_probe(&args[1..]),
@@ -124,57 +136,65 @@ fn run_inner(
     }
 }
 
-fn remote_help_requested(args: &[String]) -> bool {
-    const VALUE_OPTIONS: &[&str] = &[
-        "--invite-file",
-        "--daemon",
-        "--lanes",
-        "--reconnect-attempts",
-        "--reconnect-initial-ms",
-        "--reconnect-max-ms",
-        "--reconnect-attempt-timeout-ms",
-        "--reconnect-jitter",
-        "--heartbeat-interval-ms",
-        "--heartbeat-timeout-ms",
-        "--connect-timeout-seconds",
-        "--device-name",
-        "--state-dir",
-        "--local-socket",
-        "--relay-route",
-        "--relay-slot",
-        "--relay-ticket-file",
-        "--relay-ticket-command",
-        "--relay-ticket-command-arg",
-        "--iroh-relay",
-        "--iroh-address",
-        "--iroh-path",
-        "--session",
-        "--ssh-binary",
-        "--remote-binary",
-        "--remote-state-dir",
-        "--remote-mux-socket",
-        "--agent-hooks",
-        "--wireguard-config",
-        "--wireguard-hub",
-        "--ssh-arg",
-        "--workspace-root",
-        "--host",
-        "--port",
-        "--listen",
-        "--scheme",
-        "--request",
-        "--ttl",
-        "--advertise",
-        "--admin-socket",
-        "--link-socket",
-        "--mux-socket",
-        "--destination",
-    ];
+/// Options of the remote commands that take the next word as their value, so a
+/// scan for `--help` (and `exec`/`cp`, which pass connect options through)
+/// never reads a value as an option.
+const REMOTE_VALUE_OPTIONS: &[&str] = &[
+    "--invite-file",
+    "--daemon",
+    "--lanes",
+    "--reconnect-attempts",
+    "--reconnect-initial-ms",
+    "--reconnect-max-ms",
+    "--reconnect-attempt-timeout-ms",
+    "--reconnect-jitter",
+    "--heartbeat-interval-ms",
+    "--heartbeat-timeout-ms",
+    "--connect-timeout-seconds",
+    "--device-name",
+    "--state-dir",
+    "--local-socket",
+    "--relay-route",
+    "--relay-slot",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--iroh-relay",
+    "--iroh-address",
+    "--iroh-path",
+    "--session",
+    "--ssh-binary",
+    "--remote-binary",
+    "--remote-state-dir",
+    "--remote-mux-socket",
+    "--agent-hooks",
+    "--wireguard-config",
+    "--wireguard-hub",
+    "--ssh-arg",
+    "--workspace-root",
+    "--host",
+    "--port",
+    "--listen",
+    "--scheme",
+    "--request",
+    "--ttl",
+    "--advertise",
+    "--admin-socket",
+    "--link-socket",
+    "--mux-socket",
+    "--destination",
+    "--cwd",
+    "--env",
+    "--timeout-seconds",
+];
 
+fn remote_help_requested(args: &[String]) -> bool {
     let mut index = 0;
     let mut requested = false;
     while index < args.len() {
         match args[index].as_str() {
+            // After `--` come `exec`'s command and `cp`'s paths, not options.
+            "--" => break,
             "-h" | "--help" => {
                 requested = true;
                 index += 1;
@@ -185,7 +205,7 @@ fn remote_help_requested(args: &[String]) -> bool {
             {
                 return false;
             }
-            option if VALUE_OPTIONS.contains(&option) => index += 2,
+            option if REMOTE_VALUE_OPTIONS.contains(&option) => index += 2,
             _ => index += 1,
         }
     }
@@ -206,6 +226,8 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("dial-tcp") => client.dial_tcp_help,
         Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
+        Some("remote-exec") => client.exec_help,
+        Some("remote-cp") => client.cp_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
         Some("remote-probe") => client.remote_probe_help,

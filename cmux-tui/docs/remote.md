@@ -222,6 +222,29 @@ Host build-box
 
 The route uses the same loopback-only policy as `forward`, so the daemon refuses a host that does not resolve to a loopback address. The daemon scopes every route to a workspace the client holds open, so `dial-tcp` opens one: `/` by default, or `--workspace-root PATH`. EOF on stdin half-closes the connection and the command keeps reading until the remote side closes; it then exits 0. A refused route, a remote reset, a lost session, or a signal ends it with status 1 and one line on stderr. Stdout carries only the stream. Stdin carries the stream too, so `--wireguard-hub-token-stdin` and `--invite-file -` are refused. Tunnel bytes are not replayed after carrier failure: a carrier failure ends the connection, and ssh sees it drop.
 
+## Run commands and copy files
+
+`remote exec` runs one command on the paired machine and streams its stdout and stderr back as they arrive. Local stdin goes to the command, and EOF on it closes the command's stdin. The CLI exits with the command's status: 128+N when signal N ended it, and 255 when the connection or the CLI failed. Ctrl-C sends the command an interrupt; a third one stops waiting and exits 130. The command lives only as long as the connection that started it, so it ends when the CLI does.
+
+```sh
+cmux remote exec <route> --state-dir DIR --cwd /srv/app -- git status
+cmux remote exec <route> --env RUST_LOG=debug --timeout-seconds 600 -- cargo test
+cmux remote exec <route> --tty -- htop
+tar -C src -cf - . | cmux remote exec <route> -- tar -C /srv/app -xf -
+cmux remote exec <route> -- tar -C /srv/app -cf - . | tar -C copy -xf -
+```
+
+Without `--cwd` the command runs in `/`. `--tty` runs it under a terminal sized like the local one (80x24 when stdout is not a terminal) with the local `TERM`, and puts a local terminal in raw mode.
+
+`remote cp` copies one file each way. Exactly one side is `remote:PATH`, an absolute path on the remote machine; a destination that is a directory (or a remote path ending in `/`) gets the file under its own name. `--json` prints `{"bytes","seconds","mib_per_s"}` when the copy is done.
+
+```sh
+cmux remote cp <route> ./build.tar remote:/srv/app/build.tar --json
+cmux remote cp <route> remote:/var/log/app.log ./
+```
+
+Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads up to 8 MiB are one `write-file`. Larger uploads go up as 8 MiB `write-file` parts beside the destination, each checked against its SHA-256, and a remote `/bin/sh` joins them and renames the result into place; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads keep the executable bits; other mode bits follow the replaced file or the remote umask. Directories are refused: copy a tree with `remote exec` and `tar` as above.
+
 ## Coding-agent RPC
 
 `workspace-rpc` exposes the primitives needed by a coding-agent frontend. A CLI caller can send one request or JSON Lines:

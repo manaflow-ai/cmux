@@ -620,7 +620,17 @@ fn reconnect_backoff_is_configurable() {
 
 #[test]
 fn every_remote_subcommand_help_exits_without_running_the_command() {
-    for command in ["connect", "ssh", "forward", "dial-tcp", "rpc", "enroll", "remote-probe"] {
+    for command in [
+        "connect",
+        "ssh",
+        "forward",
+        "dial-tcp",
+        "rpc",
+        "remote-exec",
+        "remote-cp",
+        "enroll",
+        "remote-probe",
+    ] {
         let args = [command.to_string(), "--help".to_string()];
         assert!(
             run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
@@ -2547,4 +2557,142 @@ fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
         remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
             .is_err()
     );
+}
+
+fn words(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| arg.to_string()).collect()
+}
+
+#[test]
+fn exec_splits_route_flags_and_command_at_the_first_double_dash() {
+    let parsed = exec_cp::parse_exec_args(&words(&[
+        "ws://127.0.0.1:47931/",
+        "--state-dir",
+        "--cwd",
+        "--cwd",
+        "/tmp/fr",
+        "--env",
+        "A=1=2",
+        "--env",
+        "B=",
+        "-t",
+        "--timeout-seconds",
+        "30",
+        "--",
+        "sh",
+        "-c",
+        "echo hi -- --cwd x",
+    ]))
+    .unwrap();
+    // A connect option's value is never read as an exec option.
+    assert_eq!(parsed.connect, words(&["ws://127.0.0.1:47931/", "--state-dir", "--cwd"]));
+    assert_eq!(parsed.cwd.as_deref(), Some("/tmp/fr"));
+    assert_eq!(parsed.env.get("A").map(String::as_str), Some("1=2"));
+    assert_eq!(parsed.env.get("B").map(String::as_str), Some(""));
+    assert!(parsed.tty);
+    assert_eq!(parsed.timeout_seconds, Some(30));
+    assert_eq!(parsed.argv, words(&["sh", "-c", "echo hi -- --cwd x"]));
+    // The connect half is what the connect parser accepts.
+    let flags = parse_connect_flags(&parsed.connect).unwrap();
+    assert_eq!(flags.route.as_deref(), Some("ws://127.0.0.1:47931/"));
+    assert_eq!(flags.state_dir.as_deref(), Some(Path::new("--cwd")));
+}
+
+#[test]
+fn exec_refuses_a_missing_command_and_bad_options() {
+    for args in [
+        &["box", "ls"][..],
+        &["box", "--"],
+        &["--cwd", "relative", "--", "ls"],
+        &["--cwd", "/a", "--cwd", "/b", "--", "ls"],
+        &["--env", "=1", "--", "ls"],
+        &["--env", "NOEQUALS", "--", "ls"],
+        &["--timeout-seconds", "0", "--", "ls"],
+        &["--timeout-seconds", "soon", "--", "ls"],
+        &["--cwd"],
+    ] {
+        assert!(exec_cp::parse_exec_args(&words(args)).is_err(), "{args:?}");
+    }
+    let plain = exec_cp::parse_exec_args(&words(&["--", "ls", "-la"])).unwrap();
+    assert!(plain.connect.is_empty() && plain.cwd.is_none() && !plain.tty);
+    assert_eq!(plain.argv, words(&["ls", "-la"]));
+}
+
+#[test]
+fn help_scan_stops_at_double_dash_so_the_command_keeps_its_help_flag() {
+    assert!(!remote_help_requested(&words(&["box", "--", "ls", "--help"])));
+    assert!(remote_help_requested(&words(&["box", "--help", "--", "ls"])));
+    assert!(!remote_help_requested(&words(&["--cwd", "--help", "--", "ls"])));
+}
+
+#[test]
+fn cp_reads_route_paths_and_json() {
+    use exec_cp::CopyEndpoint;
+    let parsed = exec_cp::parse_cp_args(&words(&[
+        "box",
+        "--state-dir",
+        "/s",
+        "--json",
+        "./a.bin",
+        "remote:/srv/a.bin",
+    ]))
+    .unwrap();
+    assert_eq!(parsed.connect, words(&["--state-dir", "/s", "box"]));
+    assert_eq!(parsed.source, CopyEndpoint::Local("./a.bin".into()));
+    assert_eq!(parsed.destination, CopyEndpoint::Remote("/srv/a.bin".into()));
+    assert!(parsed.json);
+
+    let download = exec_cp::parse_cp_args(&words(&["remote:/var/log/x", "--", "-out"])).unwrap();
+    assert!(download.connect.is_empty());
+    assert_eq!(download.source, CopyEndpoint::Remote("/var/log/x".into()));
+    assert_eq!(download.destination, CopyEndpoint::Local("-out".into()));
+    assert!(!download.json);
+}
+
+#[test]
+fn cp_needs_exactly_one_absolute_remote_path() {
+    for args in [
+        &["a", "b"][..],
+        &["remote:/a", "remote:/b"],
+        &["box", "a", "remote:relative"],
+        &["only-one"],
+        &["box", "extra", "a", "remote:/b"],
+    ] {
+        assert!(exec_cp::parse_cp_args(&words(args)).is_err(), "{args:?}");
+    }
+    assert!(exec_cp::parse_remote_path("./local").is_none());
+    assert_eq!(exec_cp::parse_remote_path("remote:/x/y").unwrap().unwrap(), "/x/y");
+    assert!(exec_cp::parse_remote_path("remote:~/x").unwrap().is_err());
+}
+
+#[test]
+fn exec_exit_status_maps_code_signal_and_unknown() {
+    assert_eq!(exec_cp::exit_status_code(Some(0), None), 0);
+    assert_eq!(exec_cp::exit_status_code(Some(3), None), 3);
+    assert_eq!(exec_cp::exit_status_code(Some(255), None), 255);
+    assert_eq!(exec_cp::exit_status_code(None, Some(2)), 130);
+    assert_eq!(exec_cp::exit_status_code(None, Some(9)), 137);
+    assert_eq!(exec_cp::exit_status_code(None, None), 255);
+    assert_eq!(exec_cp::exit_status_code(Some(-1), None), 255);
+    assert_eq!(exec_cp::exit_status_code(Some(256), None), 255);
+}
+
+#[test]
+fn exec_exit_status_reaches_run_without_a_message() {
+    let error: anyhow::Error = exec_cp::ExitWith { code: 3, error: None }.into();
+    assert_eq!(error.downcast_ref::<exec_cp::ExitWith>().map(|exit| exit.code), Some(3));
+    // A parse failure is a local failure: 255, like ssh.
+    let args = words(&["remote-exec", "box", "ls"]);
+    assert_eq!(run(&args, "usage", || panic!("exec must not load TUI config")), 255);
+}
+
+#[test]
+fn cp_paths_and_report() {
+    assert_eq!(exec_cp::workspace_relative("/srv/app/a"), "srv/app/a");
+    assert_eq!(exec_cp::workspace_relative("/"), "");
+    assert_eq!(exec_cp::part_path("/srv/a", 7), "/srv/a.cmux-part.000007");
+    let report = exec_cp::transfer_report(20 * 1024 * 1024, Duration::from_secs(2));
+    assert_eq!(report["bytes"], 20 * 1024 * 1024);
+    assert_eq!(report["seconds"], 2.0);
+    assert_eq!(report["mib_per_s"], 10.0);
 }
