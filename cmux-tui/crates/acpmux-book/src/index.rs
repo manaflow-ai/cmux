@@ -39,6 +39,8 @@ mod table_pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
 #[cfg(test)]
 mod compaction_tests;
+#[cfg(test)]
+mod mark_tests;
 mod snapshot;
 #[cfg(test)]
 mod storage_tests;
@@ -47,8 +49,8 @@ pub use edition::IndexEdition;
 pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
-    DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
-    is_fatal_snapshot_read,
+    DiskSnapshot, FatalSnapshotRead, SnapshotMeta, SnapshotRows, SortedSnapshot,
+    is_corrupt_snapshot_row, is_fatal_snapshot_read,
 };
 
 use std::io;
@@ -107,6 +109,31 @@ impl PartialEq for OriginRecord {
 
 impl Eq for OriginRecord {}
 
+/// Where a mirrored origin's stream stands: the source's cursor and list
+/// edition after the last unit written, and whether its first walk finished.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MirrorMark {
+    pub cursor: u64,
+    pub edition: u32,
+    pub whole: bool,
+}
+
+/// The mirror's mark for one origin as the log carries it. `None` writes the
+/// mark off: a replay after it gives no cursor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkRecord {
+    pub seq: u64,
+    pub origin: String,
+    pub mark: Option<MirrorMark>,
+}
+
+impl MarkRecord {
+    /// The bytes this record adds to an append, its frame included.
+    pub fn encoded_len(&self) -> u64 {
+        20 + self.origin.len() as u64 + if self.mark.is_some() { 13 } else { 0 }
+    }
+}
+
 fn local_origin() -> String {
     "local".to_owned()
 }
@@ -147,6 +174,7 @@ pub struct SummaryIndex {
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
+    marks: OrdMap<Arc<str>, MirrorMark>,
     leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
     kin: KinTables,
@@ -170,6 +198,7 @@ impl SummaryIndex {
             disk: None,
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
+            marks: OrdMap::new(),
             leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
             kin: KinTables::new(),
@@ -185,11 +214,17 @@ impl SummaryIndex {
                     .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.clone()))
                     .collect()
             });
+        let marks = disk.as_ref().map_or_else(OrdMap::new, |disk| {
+            disk.marks()
+                .filter_map(|record| Some((Arc::<str>::from(record.origin.as_str()), record.mark?)))
+                .collect()
+        });
         Self {
             seq: disk.as_ref().map_or(0, |disk| disk.seq()),
             edition,
             disk,
             origins,
+            marks,
             ..Self::new()
         }
     }
@@ -371,6 +406,36 @@ impl SummaryIndex {
         self.origins.get(id)
     }
 
+    /// The mirror's mark for `origin`, if a unit wrote one and no takeover
+    /// wrote it off since.
+    pub fn mirror_mark(&self, origin: &str) -> Option<MirrorMark> {
+        self.marks.get(origin).copied()
+    }
+
+    /// Every mark held, newest per origin; compaction writes these.
+    pub fn mirror_marks(&self) -> impl Iterator<Item = MarkRecord> + '_ {
+        self.marks.iter().map(|(origin, mark)| MarkRecord {
+            seq: self.seq,
+            origin: origin.to_string(),
+            mark: Some(*mark),
+        })
+    }
+
+    /// A mark changes no row and takes no sequence of its own: it carries the
+    /// sequence of the last row its unit wrote (or the current one).
+    pub fn apply_mark(&self, record: &MarkRecord) -> Self {
+        let mut next = self.clone();
+        match record.mark {
+            Some(mark) => {
+                next.marks.insert(record.origin.as_str().into(), mark);
+            }
+            None => {
+                next.marks.remove(record.origin.as_str());
+            }
+        }
+        next
+    }
+
     pub fn apply_origin(&self, seq: u64, record: OriginRecord) -> Self {
         if record.id == "local" {
             return self.clone();
@@ -383,6 +448,8 @@ impl SummaryIndex {
         next.seq = next.seq.max(seq);
         next.origins.insert(id.clone(), record.clone());
         if record.state == OriginState::Removed {
+            // A removed origin's stream starts over from a walk.
+            next.marks.remove(&id);
             next.leaving.insert(id.clone());
             next.removed_snapshot_seq.insert(id, seq);
         }

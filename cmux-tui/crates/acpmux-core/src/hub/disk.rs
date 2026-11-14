@@ -205,6 +205,9 @@ impl HubWriter {
         let origin_retries = self.origins.retry.len().min(limit);
         let keys: Vec<_> = self.retry_log.keys().take(limit - origin_retries).cloned().collect();
         let mut first_error = self.retry_origins(origin_retries).err();
+        if let Some(error) = self.retry_mirror() {
+            first_error.get_or_insert(error);
+        }
         for key in keys {
             let Some((source, record)) = self.retry_log.remove(&key) else { continue };
             if self.origins.ended.get(key.origin.as_ref()).is_some_and(|seq| record.seq <= *seq) {
@@ -260,8 +263,10 @@ impl HubWriter {
             self.storage_retry =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         } else {
-            self.storage_retry = (!self.retry_log.is_empty() || !self.origins.retry.is_empty())
-                .then(std::time::Instant::now);
+            self.storage_retry = (!self.retry_log.is_empty()
+                || !self.origins.retry.is_empty()
+                || self.mirror.retry_pending())
+            .then(std::time::Instant::now);
             self.maybe_compact();
         }
     }

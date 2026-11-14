@@ -1,0 +1,118 @@
+//! Ignored release measurement for the mirror's unit: one frame's changes and
+//! its mark, from the queue through the writer's append, sync and publish.
+
+use super::*;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::Instant;
+
+const ROUNDS: usize = 6;
+const SAMPLES: usize = 200;
+const UNIT_CHANGES: usize = 10;
+
+fn p95(values: &mut [u128]) -> u128 {
+    values.sort_unstable();
+    let rank = (values.len() * 95).div_ceil(100).saturating_sub(1);
+    values.get(rank).copied().unwrap_or(1)
+}
+
+fn row(origin: &str, id: String, activity: u64) -> Summary {
+    let mut summary = Summary::new(id);
+    summary.origin = origin.to_owned();
+    summary.state = "running".to_owned();
+    summary.title = format!("row at {activity}");
+    summary.last_activity = activity;
+    summary
+}
+
+struct Fixture {
+    _directory: tempfile::TempDir,
+    hub: Hub,
+    writer: HubWriter,
+    next: u64,
+}
+
+/// `local` chats of this machine, and `origins` mirrored origins holding
+/// `held` rows between them.
+fn fixture(local: usize, origins: usize, held: usize) -> Fixture {
+    let directory = tempfile::tempdir().expect("mirror gate directory");
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).expect("open mirror gate");
+    for n in 0..local {
+        writer.apply(row("local", format!("local-{n:05}"), n as u64 + 1)).expect("seed local");
+    }
+    let per_origin = held / origins;
+    for origin in 0..origins {
+        let name = format!("peer-{origin:02}");
+        for start in (0..per_origin).step_by(MAX_UNIT_CHANGES) {
+            let changes = (start..per_origin.min(start + MAX_UNIT_CHANGES))
+                .map(|n| UnitChange::Summary(Box::new(row(&name, format!("chat-{n:05}"), 1))))
+                .collect();
+            let mark = MirrorMark { cursor: 1, edition: 3, whole: true };
+            hub.submit_unit(Source::Mirror, MirrorUnit { origin: name.clone(), changes, mark })
+                .expect("seed unit");
+            writer.process_batch();
+        }
+    }
+    assert_eq!(hub.snapshot().len(), local + per_origin * origins);
+    Fixture { _directory: directory, hub, writer, next: 2 }
+}
+
+/// One sample: a unit changing 10 of the first origin's first 20 rows, queued, then
+/// written and published by one writer turn.
+fn sample(fixture: &mut Fixture) -> u128 {
+    let cursor = fixture.next;
+    fixture.next += 1;
+    let changes = (0..UNIT_CHANGES)
+        .map(|n| {
+            let id = format!("chat-{:05}", (cursor as usize * UNIT_CHANGES + n) % 20);
+            UnitChange::Summary(Box::new(row("peer-00", id, cursor)))
+        })
+        .collect();
+    let unit = MirrorUnit {
+        origin: "peer-00".to_owned(),
+        changes,
+        mark: MirrorMark { cursor, edition: 3, whole: true },
+    };
+    let started = Instant::now();
+    fixture.hub.submit_unit(Source::Mirror, unit).expect("unit");
+    fixture.writer.process_batch();
+    let elapsed = started.elapsed().as_nanos().max(1);
+    assert_eq!(fixture.hub.mirror_mark("peer-00").map(|mark| mark.cursor), Some(cursor));
+    elapsed
+}
+
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr08_mirror_apply() {
+    let mut small = fixture(20, 1, 20);
+    let mut god = fixture(11_000, 30, 16_000);
+    let marks_before = god.hub.mirror_counts();
+    let mut small_rounds = Vec::new();
+    let mut god_rounds = Vec::new();
+    let mut pooled = Vec::new();
+    for _ in 0..ROUNDS {
+        // Rounds alternate so a noisy stretch of the machine hits both sides.
+        let mut samples: Vec<u128> = (0..SAMPLES).map(|_| sample(&mut small)).collect();
+        small_rounds.push(p95(&mut samples));
+        let mut samples: Vec<u128> = (0..SAMPLES).map(|_| sample(&mut god)).collect();
+        pooled.extend_from_slice(&samples);
+        god_rounds.push(p95(&mut samples));
+    }
+    let small_p95 = small_rounds.into_iter().min().unwrap_or(1);
+    let god_p95 = god_rounds.into_iter().min().unwrap_or(1);
+    let god_all = p95(&mut pooled);
+    let counts = god.hub.mirror_counts();
+    let units = counts.applied - marks_before.applied;
+    let mark_bytes = (counts.mark_bytes - marks_before.mark_bytes) / units.max(1);
+    assert_eq!(counts.full + counts.not_owner + counts.forged + counts.storage, 0);
+    let line = format!(
+        "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
+    );
+    eprintln!("{line}");
+    if let Ok(path) = std::env::var("V2_GATE_OUT")
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+    assert!(god_p95 * 10 <= small_p95 * 12, "unit p95 exceeded 1.2x: {small_p95} -> {god_p95} ns");
+}
