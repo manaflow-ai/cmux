@@ -882,6 +882,18 @@ mod tests {
     }
 
     #[test]
+    fn a_parked_peer_retrying_now_is_not_parked_while_its_handshake_runs() {
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        assert!(link.parked(day + 1));
+        link.opened(day + 2);
+        assert!(!link.parked(day + 3), "the hourly retry's handshake is running");
+        link.down(day + 4, Duration::from_secs(60));
+        assert!(link.parked(day + 5), "the retry failed: parked again");
+    }
+
+    #[test]
     fn backoff_doubles_within_jittered_bounds_up_to_the_cap() {
         let mut low = Backoff::default();
         let mut high = Backoff::default();
