@@ -293,7 +293,8 @@ import UIKit
         rig.window.frame = CGRect(x: 0, y: 0, width: 320, height: 844)
         rig.window.layoutIfNeeded()
         try await TerminalPredictionInputTests.waitUntil(5) { rig.session.sent.map { $0 != first } == true }
-        let second = try #require(rig.session.sent.flatMap { $0 != first ? $0 : nil }, "the screen never sent its new grid")
+        let second = try #require(rig.session.sent, "the screen never sent a grid")
+        try #require(second != first, "the screen never sent its new grid")
         func noteShown() -> Bool {
             rig.screen.view.subviews.contains { ($0 as? UILabel)?.accessibilityIdentifier == "terminal.hostGridNote" && Screen.isShown($0, in: rig.window) }
         }
