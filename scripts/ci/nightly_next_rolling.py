@@ -35,6 +35,10 @@ arrives, which waiting for it never let happen (19-41 min per retry, runs
 yields, and one past it finishes with the newer push queued behind it, which then
 starts at once. Its head is no longer nightly-next's then, so it holds again.
 
+A run waiting in its leave-slot step holds nothing either (leaving_slot): a stale run (a loop retry, or a push
+that waited in the group behind another build) waits there for this promotion before any build job starts, and
+leaves once nightly-next moves.
+
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
 
@@ -86,6 +90,23 @@ UNKNOWN = "unknown"
 # that has not caught up never reads as "nothing is building" (tick 40817979989 at 04:29:13
 # promoted again 4 s after the promotion that moved nightly-next, before its run existed).
 PROMOTION_RACE_MINUTES = 2.0
+# feat-cmux-next's resolve-nightly-cmux-tui-client step where a stale run (a loop retry, or a push that waited in
+# the group behind another build) waits for a newer promotion before any build job starts
+# (resolve-leave-build-slot.sh). A run in it builds nothing yet and leaves once nightly-next moves.
+RESOLVE_JOB = "resolve-nightly-cmux-tui-client"
+LEAVE_SLOT_STEP = "Leave the build slot to a newer nightly-next push"
+
+
+def leaving_slot(jobs: list[dict]) -> bool:
+    """Whether a run waits in its leave-slot step with no other job of it running: it yields to a promotion.
+    Run 43558081148 of a22a4eb1 waited 23 min in the group, then built the old head beside 20 newer commits."""
+    in_step = any(job.get("name") == RESOLVE_JOB and job.get("status") == "in_progress"
+                  and any(step.get("name") == LEAVE_SLOT_STEP and step.get("status") == "in_progress"
+                          for step in job.get("steps") or [])
+                  for job in jobs)
+    others = [job for job in jobs if job.get("name") != RESOLVE_JOB and (job.get("status") in ("in_progress", "waiting")
+              or job.get("status") in ("queued", "pending", "requested") and job.get("runner_name"))]
+    return in_step and not others
 
 
 def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict],
@@ -172,7 +193,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                     continue
             except (KeyError, TypeError, ValueError):
                 pass
-            if watch.run_holds_group(run, jobs_of(run), now):
+            jobs = jobs_of(run)
+            if watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs):
                 building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                             f"{(run.get('head_sha') or head)[:12]}")
                 break
