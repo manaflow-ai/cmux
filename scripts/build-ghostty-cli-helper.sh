@@ -389,12 +389,47 @@ build_helper() {
   fi
 
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
+  local metal_toolchain
+  local metal_toolchain_identifier
+  local metal_toolchain_search_path
+  metal_toolchain="${CMUX_METAL_TOOLCHAIN_IDENTIFIER:-}"
+  metal_toolchain_identifier=""
+  metal_toolchain_search_path=""
+  if [[ -z "$metal_toolchain" ]]; then
+    # Use the system shim explicitly. Xcode build phases can provide a
+    # different PATH and leave the installed cryptex toolchain undiscoverable.
+    read -r metal_toolchain_identifier metal_toolchain_search_path < <(
+      /usr/bin/xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
+        | /usr/bin/python3 -c 'import json, sys; data=json.load(sys.stdin); print(data.get("toolchainIdentifier", ""), data.get("toolchainSearchPath", ""))' \
+        2>/dev/null || true
+    )
+  fi
   (
     cd "$GHOSTTY_DIR"
     # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
     # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
     # leaves build-runner binaries unlinked against libSystem on a cold cache.
-    env -u SDKROOT "${args[@]}"
+    # Xcode exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault, which
+    # hides the separately installed Metal Toolchain from xcrun. Select the
+    # installed Metal component explicitly while keeping SDKROOT unset for Zig.
+    if [[ -z "$metal_toolchain" ]]; then
+      for candidate in \
+        "$metal_toolchain_identifier" \
+        "${metal_toolchain_search_path:+$metal_toolchain_search_path/Metal.xctoolchain}"; do
+        if [[ -n "$candidate" ]] && \
+          /usr/bin/xcrun --toolchain "$candidate" --find metal >/dev/null 2>&1; then
+          metal_toolchain="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -n "$metal_toolchain" ]]; then
+      echo "Using Metal toolchain $metal_toolchain"
+      env -u SDKROOT TOOLCHAINS="$metal_toolchain" "${args[@]}"
+    else
+      echo "Metal toolchain lookup failed; using the default Xcode toolchain" >&2
+      env -u SDKROOT -u TOOLCHAINS "${args[@]}"
+    fi
   )
 
   [[ -x "$prefix/bin/ghostty" ]] || {
