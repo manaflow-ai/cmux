@@ -1,4 +1,5 @@
 import CmuxNextCloud
+public import CmuxNextDaemon
 import Foundation
 
 /// DEV-only control methods for the lease-bound auth persistence proof.
