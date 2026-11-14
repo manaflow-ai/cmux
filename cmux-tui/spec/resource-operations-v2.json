@@ -5418,11 +5418,18 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "snapshot": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false,
       "constraints": [
-        "Offsets are terminal.output stream byte offsets. next_offset is always a valid resume cursor: a follow-up read with after set to it returns only output strictly after this window.",
+        "Offsets are terminal.output stream byte offsets. next_offset is always a valid resume cursor: a follow-up read with after set to it returns only output strictly after this window, unless snapshot is true; snapshot projections replace the caller's held text from offset 0 and may repeat for retryable reconnect recovery.",
         "complete is false when this window was truncated by max_bytes or by exit-snapshot coverage; the caller resumes with next_offset."
       ]
     },

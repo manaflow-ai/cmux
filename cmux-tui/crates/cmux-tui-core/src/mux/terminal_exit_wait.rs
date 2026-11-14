@@ -35,7 +35,7 @@ impl Mux {
             return Ok(None);
         };
         let text = render_terminal_output_plain(std::iter::once(replay.as_slice()), cols, rows)?;
-        Ok(Some(terminal_output_read_result(text, 0, end, true)))
+        Ok(Some(terminal_output_read_result(text, 0, end, true, true)))
     }
 
     /// Read only public terminal completion state. The host UUID and
@@ -143,7 +143,13 @@ impl Mux {
             && (stream_end.is_none() || requested < snapshot.covered_through)
         {
             if stream_end.is_none() && requested >= snapshot.covered_through {
-                return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+                return Ok(terminal_output_read_result(
+                    String::new(),
+                    requested,
+                    requested,
+                    true,
+                    false,
+                ));
             }
             let text = render_terminal_output_plain(
                 std::iter::once(snapshot.replay_bytes.as_slice()),
@@ -151,7 +157,13 @@ impl Mux {
                 snapshot.rows,
             )?;
             let complete = stream_end.is_none_or(|end| snapshot.covered_through >= end);
-            return Ok(terminal_output_read_result(text, 0, snapshot.covered_through, complete));
+            return Ok(terminal_output_read_result(
+                text,
+                0,
+                snapshot.covered_through,
+                complete,
+                true,
+            ));
         }
         if self.output_store.stream_gap_pending(terminal_id)
             && let Some(snapshot) = self.terminal_live_snapshot_after_gap(terminal_id, requested)?
@@ -160,7 +172,13 @@ impl Mux {
         }
         let Some(window) = self.output_store.read_after(terminal_id, requested, max_bytes) else {
             // Nothing was ever printed in this daemon: an empty, complete stream.
-            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+            return Ok(terminal_output_read_result(
+                String::new(),
+                requested,
+                requested,
+                true,
+                false,
+            ));
         };
         if window.bytes.is_empty() {
             return Ok(terminal_output_read_result(
@@ -168,6 +186,7 @@ impl Mux {
                 window.start_offset,
                 window.next_offset,
                 !window.truncated,
+                false,
             ));
         }
         let (cols, rows) = surface
@@ -183,6 +202,7 @@ impl Mux {
             window.start_offset,
             window.next_offset,
             !window.truncated,
+            false,
         ))
     }
 

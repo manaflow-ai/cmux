@@ -88,12 +88,14 @@ pub(super) fn terminal_output_read_result(
     start_offset: u64,
     next_offset: u64,
     complete: bool,
+    snapshot: bool,
 ) -> Value {
     serde_json::json!({
         "text": text,
         "start_offset": start_offset.to_string(),
         "next_offset": next_offset.to_string(),
         "complete": complete,
+        "snapshot": snapshot,
     })
 }
 

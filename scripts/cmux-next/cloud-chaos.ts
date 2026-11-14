@@ -629,7 +629,7 @@ export class SeqTerminal {
     while (!this.stopped) {
       try {
         const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
-        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, text: String(r.text ?? "") };
+        const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
       } catch (e) {
@@ -1201,7 +1201,7 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
-export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
+export type TerminalRead = { after: number; start: number; next: number; complete: boolean; snapshot?: boolean; text: string };
 
 /**
  * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
@@ -1221,11 +1221,14 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
+    if (r.snapshot === true) {
+      if (!r.complete || r.start !== 0 || r.next < r.after) problems.push(`read ${i} returned an invalid snapshot projection`);
+      else { snapshots += 1; text = r.text; }
     // A live reconnect projection can have an empty stream cursor (after 0)
     // while its screen already contains output. Treat a repeated offset-0
     // complete window as the same idempotent snapshot replacement used for
     // nonzero cursors; otherwise retries would append the screen forever.
-    if (r.start === 0 && r.after === 0 && r.complete && i > 0 && r.text.length > 0) {
+    } else if (r.start === 0 && r.after === 0 && r.complete && i > 0 && r.text.length > 0) {
       snapshots += 1;
       text = r.text;
     } else if (r.start === r.after) {
