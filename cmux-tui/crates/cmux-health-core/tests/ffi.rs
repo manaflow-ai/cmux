@@ -134,3 +134,22 @@ fn bad_calls_get_their_codes() {
     // SAFETY: null is ignored.
     unsafe { cmux_health_free(std::ptr::null_mut()) };
 }
+
+#[test]
+fn a_rest_beat_turns_the_page_timer_off_through_the_c_abi() {
+    let m = Model::new();
+    let id = "page:7";
+    m.call("register", json!({"id": id, "kind": "page", "label": "Sidebar", "nowMs": 0}));
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 0})), json!({"nextTickMs": 5000}));
+    // `rest: true`: the page beats no more until something happens in it, so nothing is timed.
+    assert_eq!(
+        m.call("beat", json!({"id": id, "rest": true, "nowMs": 10000})),
+        json!({"nextTickMs": null})
+    );
+    assert_eq!(
+        m.call("tick", json!({"nowMs": 600000})),
+        json!({"actions": [], "nextTickMs": null})
+    );
+    // A plain beat times it again.
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 600000})), json!({"nextTickMs": 605000}));
+}

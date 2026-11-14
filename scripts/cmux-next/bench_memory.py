@@ -219,6 +219,133 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             "processes": rows}
 
 
+class _ThreadInfo(ctypes.Structure):
+    # struct proc_threadinfo (sys/proc_info.h); times in nanoseconds.
+    _fields_ = [("user_ns", ctypes.c_uint64), ("system_ns", ctypes.c_uint64), ("cpu_usage", ctypes.c_int32),
+                ("policy", ctypes.c_int32), ("run_state", ctypes.c_int32), ("flags", ctypes.c_int32),
+                ("sleep_time", ctypes.c_int32), ("curpri", ctypes.c_int32), ("priority", ctypes.c_int32),
+                ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
+
+
+def thread_times(pid: int) -> dict:
+    """{thread id: (name, cpu ns)} for one process (PROC_PIDLISTTHREADIDS, PROC_PIDTHREADID64INFO)."""
+    ids = (ctypes.c_uint64 * 4096)()
+    size = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(28), ctypes.c_uint64(0), ids, ctypes.sizeof(ids))
+    out = {}
+    for tid in ids[:max(0, size) // 8]:
+        info = _ThreadInfo()
+        if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(15), ctypes.c_uint64(tid), ctypes.byref(info),
+                                 ctypes.sizeof(info)) == ctypes.sizeof(info):
+            out[tid] = (info.name.decode(errors="replace") or "?", info.user_ns + info.system_ns)
+    return out
+
+
+def thread_deltas(before: dict, after: dict, seconds: float, top: int = 12) -> list:
+    """The threads that ran in the window, busiest first: name and CPU ms per second."""
+    rows = []
+    for tid, (name, cpu) in after.items():
+        spent = cpu - before.get(tid, (name, 0))[1]
+        if spent > 0:
+            rows.append({"thread": tid, "name": name, "cpu_ms_per_s": round(spent / 1e6 / seconds, 3),
+                         "new": tid not in before})
+    rows.sort(key=lambda row: -row["cpu_ms_per_s"])
+    return rows[:top]
+
+
+def stack_sample(pid: int, seconds: int = 3) -> dict:
+    """`sample PID` for a few seconds, after the measured window (it wakes the target): each thread's
+    header line and the top-of-stack frames, the frames that ran rather than waited."""
+    path = tempfile.mktemp(prefix=f"bench-sample-{pid}-", suffix=".txt")
+    try:
+        subprocess.run(["sample", str(pid), str(seconds), "1", "-mayDie", "-file", path],
+                       capture_output=True, text=True, timeout=seconds + 60)
+        text = open(path, errors="replace").read()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)[:200]}
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+    threads = [line.strip() for line in text.splitlines() if re.match(r"^\s{4}\d+ Thread_\d+", line)]
+    top, in_top = [], False
+    for line in text.splitlines():
+        if line.startswith("Sort by top of stack"):
+            in_top = True
+            continue
+        if in_top:
+            if not line.strip() or line.startswith("Binary Images"):
+                if top:
+                    break
+                continue
+            top.append(line.strip())
+    return {"threads": threads[:60], "top_of_stack": top[:40]}
+
+
+class Attribution:
+    """--attribute: who wakes the app and the GPU process in a measured window. Around the window:
+    each thread's CPU time (app and Chromium GPU), the app's wakeup ledger (`debug.wakeups`,
+    reset at the start; its main run loop's timers at the end) and live pages (`debug.cef_pages`);
+    after it, a short stack `sample` of both."""
+
+    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu")):
+        self.app, self.app_pid, self.bundle, self.kinds = app, app_pid, bundle, kinds
+        self.before: dict = {}
+        self.started = 0.0
+
+    def pids(self) -> dict:
+        return {pid: kind for pid, (kind, _cmd) in owned(self.app_pid, self.bundle).items() if kind in self.kinds}
+
+    def start(self):
+        self.app.call("debug.wakeups", {"reset": True}, timeout=30)
+        self.before = {pid: thread_times(pid) for pid in self.pids()}
+        self.started = time.monotonic()
+
+    def finish(self) -> dict:
+        seconds = max(time.monotonic() - self.started, 1e-3)
+        pids = self.pids()
+        threads = {f"{kind}:{pid}": thread_deltas(self.before.get(pid, {}), thread_times(pid), seconds)
+                   for pid, kind in pids.items()}
+        wakeups = self.app.call("debug.wakeups", {"run_loop": True}, timeout=30) or {}
+        ledger = sorted(wakeups.get("ledger") or [], key=lambda e: -(e.get("count") or 0))
+        run_loop = wakeups.get("main_run_loop") or ""
+        timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
+        pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
+        return {"window_s": round(seconds, 1), "threads": threads,
+                "ledger": [{k: e.get(k) for k in ("owner", "reason", "count")} for e in ledger[:25]],
+                "frame_clients": wakeups.get("active_frame_clients"),
+                "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
+                "run_loop_timers": timers[:40],
+                "pages": [{k: p.get(k) for k in ("browser", "origin", "path", "hidden")} for p in pages],
+                "stacks": stacks}
+
+
+def print_attribution(label: str, found: dict):
+    window = found["window_s"]
+    print(f"PERF-ATTR {label} window_s={window}")
+    for key, rows in found["threads"].items():
+        for row in rows:
+            print(f"PERF-ATTR {label} thread {key} name={row['name']!r} cpu_ms_per_s={row['cpu_ms_per_s']}"
+                  f"{' new' if row['new'] else ''}")
+    for entry in found["ledger"]:
+        print(f"PERF-ATTR {label} ledger owner={entry['owner']} reason={entry['reason']!r} "
+              f"per_s={round((entry['count'] or 0) / window, 2)}")
+    print(f"PERF-ATTR {label} frame_clients={json.dumps(found['frame_clients'])} "
+          f"schedulers={json.dumps(found['frame_schedulers'])}")
+    for timer in found["run_loop_timers"]:
+        print(f"PERF-ATTR {label} timer {timer[:400]}")
+    hidden = sum(1 for p in found["pages"] if p.get("hidden"))
+    print(f"PERF-ATTR {label} pages n={len(found['pages'])} hidden={hidden} "
+          f"shown={json.dumps([(p.get('origin'), p.get('path')) for p in found['pages'] if not p.get('hidden')])}")
+    for key, stack in found["stacks"].items():
+        for line in stack.get("top_of_stack", [])[:25]:
+            print(f"PERF-ATTR {label} top {key} {line}")
+        for line in stack.get("threads", [])[:40]:
+            print(f"PERF-ATTR {label} sthread {key} {line}")
+        if stack.get("error"):
+            print(f"PERF-ATTR {label} sample {key} error={stack['error']}")
+    sys.stdout.flush()
+
+
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
@@ -875,6 +1002,12 @@ def main():
                         help="--release-hidden-chats: how many released chats to show again and time")
     parser.add_argument("--chat-prompt", default="",
                         help="--fake-agent: text added to each chat's first prompt (echoed back: a chat with history)")
+    parser.add_argument("--attribute", action="store_true",
+                        help="with --measure: name what wakes the app and the GPU process in each window "
+                             "(thread CPU, debug.wakeups ledger and run loop timers, live pages, a stack sample); "
+                             "PERF-ATTR lines")
+    parser.add_argument("--attribute-kinds", default="app,cef-gpu",
+                        help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -909,7 +1042,14 @@ def main():
 
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
+        kinds = tuple(kind for kind in args.attribute_kinds.split(",") if kind)
+        attribution = Attribution(app, app_pid, bundle, kinds) if args.attribute and args.measure > 0 else None
+        if attribution:
+            attribution.start()
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        if attribution:
+            result["attribution"] = attribution.finish()
+            print_attribution(label, result["attribution"])
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]

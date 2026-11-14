@@ -22,6 +22,12 @@ It fails, naming the function, when:
     python3 scripts/cmux-next/ffi_caller_ratchet.py --inputs      # the paths it reads, one per line
     --repo DIR reads another checkout (the tests' fixtures).
 
+An export the app's pinned library does not have yet is not port drift: the app links the release that
+Packages/macOS/CmuxNext/app-ffi-pin.json names (cmux-app-ffi-<sha>), so no Swift can call a function that release
+lacks, and a Rust-only step A that adds a header (docs/ci/app-ffi-release.md) prints a note, not a finding. From
+the re-pin on, the pinned source exports it and it needs its Swift caller (step B) like any other. When the pin
+cannot be read (no file, no tag in its url, a source git cannot read), every export is judged as before.
+
 A Swift test target (a path under Packages with a Tests/ folder in it) is not a caller: a function only a test
 reaches is still unadopted. A name inside a string literal counts (a dlsym lookup is a real caller).
 prepush-gate.py runs it on every push that changes one of its inputs ("Port drift"), and refuses only what the
@@ -31,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import re
 import subprocess
 import sys
@@ -42,8 +49,14 @@ SCRIPT = "scripts/cmux-next/ffi_caller_ratchet.py"
 HEADER_GLOB = "cmux-tui/crates/*/include/*.h"
 HEADER_ROOT = "cmux-tui/crates"
 SWIFT_ROOT = "Packages"
-# Every path this check reads (prepush-gate.py skips it on a push that changes none of them).
-INPUTS = (HEADER_ROOT, SWIFT_ROOT, BASELINE, SCRIPT)
+# The app's pinned cmux-app-ffi release: its tag names the commit the library was built from.
+PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+PIN_TAG = re.compile(r"cmux-app-ffi-([0-9a-f]{40})(?![0-9a-f])")
+# Not a finding: prepush-gate.py counts every line that starts with "ffi-caller-ratchet: " (but "ok:") as one.
+NOTE = "ffi-caller-ratchet-note: "
+# Every path this check reads. prepush-gate.py runs it on a push that changes a header, the baseline, the checker or a
+# Swift line naming a cmux_/acpmux_ function, and not on a push that only moves the pin (a re-pin is never refused).
+INPUTS = (HEADER_ROOT, SWIFT_ROOT, BASELINE, SCRIPT, PIN)
 BASELINE_HEAD = (
     "# Port-drift ratchet (scripts/cmux-next/ffi_caller_ratchet.py): functions exported in\n"
     "# cmux-tui/crates/*/include/*.h with no caller in Packages/**/*.swift (test targets excluded).\n"
@@ -160,6 +173,28 @@ def exported(tree: Tree) -> dict[str, str]:
     return found
 
 
+def pinned_exports(tree: Tree) -> tuple[str, dict[str, str] | None]:
+    """(tag, the functions exported at the pinned source), or (why not, None) when the pin cannot be read."""
+    text = tree.read([PIN]).get(PIN)
+    if text is None:
+        return f"{PIN} is missing", None
+    try:
+        url = json.loads(text).get("url")
+    except (ValueError, AttributeError):
+        return f"{PIN} is not a JSON object", None
+    match = PIN_TAG.search(url) if isinstance(url, str) else None
+    if not match:
+        return f"the url in {PIN} names no cmux-app-ffi-<40 hex sha> release tag", None
+    tag = match.group(0)
+    try:
+        found = exported(Tree(tree.repo, match.group(1)))
+    except SystemExit:  # Tree.git: the commit is not here, or --repo is no git repo
+        return f"git cannot read the pinned source of {tag}", None
+    if not found:
+        return f"the pinned source of {tag} exports no function", None
+    return tag, found
+
+
 def is_test_source(path: str) -> bool:
     return "Tests" in path.split("/")[1:-1] or any(part.endswith("Tests") for part in path.split("/")[1:-1])
 
@@ -214,6 +249,20 @@ def main(argv: list[str] | None = None) -> int:
     uncalled = {name: header for name, header in exports.items() if name not in called}
     baseline = read_baseline(tree)
 
+    unlisted = set(uncalled) - set(baseline)
+    tag_or_why, pinned = pinned_exports(tree) if unlisted else ("", None)
+    # Not yet in the app's library, so no Swift can call it yet: a note until the re-pin, then step B is owed.
+    awaiting = sorted((n for n in unlisted if pinned is not None and n not in pinned), key=lambda n: (uncalled[n], n))
+    new = sorted(unlisted - set(awaiting), key=lambda n: (uncalled[n], n))
+    for name in awaiting:
+        print(f"{NOTE}{name} ({uncalled[name]}) is not exported by the pinned app library ({tag_or_why}), so no"
+              f" Swift can call it yet; not port drift until the pin has it. Once it does, it needs its Swift caller"
+              f" (step B).")
+    if new and pinned is None and tag_or_why:
+        print(f"{NOTE}{tag_or_why}, so every new export is judged without the pin (one the app library lacks"
+              f" still counts)")
+    stale = sorted(set(baseline) - set(uncalled), key=lambda n: (baseline[n], n))
+
     if args.report:
         per: dict[str, list[int]] = {}
         for name, header in exports.items():
@@ -223,10 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         for header, (hit, total) in sorted(per.items()):
             print(f"{hit:4d} of {total:4d} called  {header}")
         print(f"ffi-caller-ratchet: {len(called)} of {len(exports)} exported functions have a Swift caller;"
-              f" {len(uncalled)} have none")
-
-    new = sorted(set(uncalled) - set(baseline), key=lambda n: (uncalled[n], n))
-    stale = sorted(set(baseline) - set(uncalled), key=lambda n: (baseline[n], n))
+              f" {len(uncalled)} have none; {len(awaiting)} of those are not in the pinned app library yet")
 
     if args.update:
         for name in new:
@@ -246,8 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ffi-caller-ratchet: {name} ({baseline[name]}) {why}, so its baseline line goes."
               f" Fix: python3 {SCRIPT} --update")
     if not new and not stale and not args.report:
-        print(f"ffi-caller-ratchet: ok: {len(exports)} exported functions, {len(uncalled)} with no Swift caller,"
-              f" all in the baseline")
+        print(f"ffi-caller-ratchet: ok: {len(exports)} exported functions, {len(uncalled)} with no Swift caller:"
+              f" {len(uncalled) - len(awaiting)} in the baseline, {len(awaiting)} awaiting the pin")
     return 1 if new or stale else 0
 
 

@@ -81,6 +81,10 @@ impl Cond {
 struct Signals {
     /// The last beat (or `loaded`, `connected`, a show).
     last_beat: Option<u64>,
+    /// A page said it is at rest (its last beat was `rest`): nothing happened in it for a while,
+    /// so it sends no beats and its silence is not timed. Input sent to it is (`input_since`),
+    /// and its next beat, a show or a load ends the rest.
+    resting: bool,
     sent: u64,
     handled: u64,
     /// Since when input is sent but not handled.
@@ -180,7 +184,8 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
             if s.crashed {
                 return stuck(Cause::PageCrashed, ladder);
             }
-            let silence = s.last_beat.map_or(healthy, |beat| {
+            // A resting page beats no more until something happens in it: silence is its normal state.
+            let silence = s.last_beat.filter(|_| !s.resting).map_or(healthy, |beat| {
                 let ms = now.saturating_sub(beat);
                 if ms >= policy::PAGE_STUCK_MS {
                     stuck(Cause::PageSilent { ms }, ladder)
@@ -377,9 +382,21 @@ impl Health {
     }
 
     pub fn beat(&mut self, id: &str, now: u64) {
+        self.answered(id, now, false);
+    }
+
+    /// A page's last beat before it rests (`policy::PAGE_REST_AFTER_MS` with nothing happening in
+    /// it): it answers like a beat, then its silence is not timed until it beats again, is shown
+    /// or loads. Input sent to it in the meantime still is.
+    pub fn rest(&mut self, id: &str, now: u64) {
+        self.answered(id, now, true);
+    }
+
+    fn answered(&mut self, id: &str, now: u64, resting: bool) {
         self.signal(id, now, |part| {
             let s = &mut part.signals;
             s.last_beat = Some(now);
+            s.resting = resting;
             s.crashed = false;
             s.disconnected = false;
         });
@@ -412,6 +429,8 @@ impl Health {
             if visible {
                 let s = &mut part.signals;
                 s.last_beat = Some(now);
+                // A page shown again beats at once (pageHealth.ts): it is timed from the show.
+                s.resting = false;
                 s.input_since = s.input_since.map(|_| now);
                 s.unresponsive_since = s.unresponsive_since.map(|_| now);
             }
@@ -428,6 +447,7 @@ impl Health {
                     // A page that loaded answers; its old input died with it.
                     s.crashed = false;
                     s.last_beat = Some(now);
+                    s.resting = false;
                     s.handled = s.sent;
                     s.input_since = None;
                     s.listener_missing = false;
