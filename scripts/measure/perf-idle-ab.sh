@@ -5,7 +5,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label bench --target-worker cmux20-bench \
 #     --script scripts/measure/perf-idle-ab.sh --ref <this script's sha> \
 #     --arg=base=<sha> --arg=head=<sha> [--arg=rounds=5] [--arg=chats=0,1,10] [--arg=measure=60] \
-#     [--arg=trace=10] [--arg=kinds=app,cef-gpu] --artifact .build/perf-idle-ab/report.tgz --timeout 14400
+#     [--arg=trace=10] [--arg=kinds=app,cef-gpu] [--arg=cells=1:small:rest,1:none:rest] [--arg=unfocused=300] \
+#     --artifact .build/perf-idle-ab/report.tgz --timeout 14400
 #   base=SHA, head=SHA  the two commits (40 hex)
 #   rounds=N            launches per arm and chat count (default 5, at most 8)
 #   chats=0,1,10        idle chat counts: 0 is one terminal workspace (no chat); N is N agent chats on the
@@ -14,6 +15,14 @@
 #   trace=S             seconds of System Trace per attributed process after each window: each thread's
 #                       wakeups per second with its name (bench_memory.py --attribute-trace); 0 for none
 #   kinds=K,K           the process kinds to attribute (default app,cef-gpu)
+#   cells=C,C           in the place of chats=: each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
+#                       round. CHATS agent chats at rest (1 or more); REPOSITORY small or large is a visible
+#                       diff tab on a repository of that size with uncommitted changes (bench_memory.py
+#                       --diff-tab, diff_tab_cells.py), none is no diff tab; MOTION rest, or scroll (wheel
+#                       events on the diff page for the whole window). Each cell also reads the CPU of the
+#                       children that ended in the window (--child-time: the daemon's git runs).
+#   unfocused=S         cells=: the window of a diff tab whose page does not say that it has the focus
+#                       (default 300; its timer is then 30 s, not 4 s). measure=S is its window with the focus.
 # The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
@@ -22,12 +31,19 @@
 #   IDLE-AB run <arm> <round> chats <N> kind <K> wakeups_per_s <w> cpu_pct <c>
 #   IDLE-AB median chats <N> kind <K> base <med> [<min>-<max>] head <med> [<min>-<max>] delta <d>
 #   IDLE-AB thread chats <N> kind <K> name '<thread>' base <med> head <med> delta <d>   (wakeups/s by thread)
-# The verdict: exit 0 every run passed, 1 a run failed, 3 an arm could not be built.
+# With cells= the word `chats <N>` of these lines is `cell <C>`, and it also prints:
+#   IDLE-AB window <arm> <round> cell <C> measure_s <s> focus <true|false|None> reads_expected <n> scroll_events <e>
+#   IDLE-AB cpu cell <C> kind <K> base <med> [<min>-<max>] n <n> head <med> [<min>-<max>] n <n> delta <d>
+#       (CPU % of the kind's processes; the kind `children:<K>` is the CPU % of that kind's children that
+#       ended in the window; the kind `total` is the sum of each kind and of each kind's children)
+# The first part is the unit test of the diff tab cells and of the summary below
+# (scripts/cmux-next/tests/test_diff_tab_cells.py, at this script's commit): a red ends the step before an arm is built.
+# The verdict: exit 0 every run passed, 1 a run failed, 3 an arm could not be built, 4 the unit test is red.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
-base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu"
+base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -37,17 +53,28 @@ for arg in "$@"; do
     measure=*) measure="${arg#measure=}" ;;
     trace=*) trace="${arg#trace=}" ;;
     kinds=*) kinds="${arg#kinds=}" ;;
+    cells=*) cells="${arg#cells=}" ;;
+    unfocused=*) unfocused="${arg#unfocused=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits" >&2; exit 2; }
 [[ "$rounds" =~ ^[0-9]+$ ]] && (( rounds >= 1 && rounds <= 8 )) || { echo "rounds= must be 1 to 8" >&2; exit 2; }
 [[ "$chats" =~ ^[0-9]+(,[0-9]+)*$ && "$measure" =~ ^[0-9]+$ && "$trace" =~ ^[0-9]+$ ]] || { echo "bad chats=, measure= or trace=" >&2; exit 2; }
+cell_form='[1-9][0-9]*:(none:rest|(small|large):(rest|scroll))'
+[[ -z "$cells" || "$cells" =~ ^$cell_form(,$cell_form)*$ ]] || { echo "cells= must be CHATS:none:rest or CHATS:small|large:rest|scroll, joined by commas" >&2; exit 2; }
+[[ "$unfocused" =~ ^[0-9]+$ ]] || { echo "bad unfocused=" >&2; exit 2; }
+if ! python3 -I scripts/cmux-next/tests/test_diff_tab_cells.py; then
+  echo "perf-idle-ab: the unit test of the tool is red: no arm is built" >&2
+  exit 4
+fi
+echo "IDLE-AB unit test passed"
 disk() { echo "IDLE-AB disk $1 $(df -h "$here" | tail -n 1)"; }
 disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
-for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/tag_teardown.py \
+for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
+         scripts/cmux-next/tag_teardown.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
 done
@@ -134,6 +161,12 @@ for n in "${chat_counts[@]}"; do
   # bench_memory counts workspaces, and the launch workspace has no chat: N chats is N+1 workspaces.
   if [ "$n" = 0 ]; then terminal=true; else agent_counts="${agent_counts:+$agent_counts,}$((n + 1))"; fi
 done
+cell_list=()
+if [ -n "$cells" ]; then
+  # cells= is in the place of chats=: each launch is one cell.
+  IFS=, read -r -a cell_list <<< "$cells"
+  terminal=false agent_counts=""
+fi
 attribute=(--attribute --attribute-kinds "$kinds" --attribute-trace "$trace")
 status=0
 run_arm() {  # run_arm ARM ROUND
@@ -153,6 +186,20 @@ run_arm() {  # run_arm ARM ROUND
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-agents.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   fi
+  local cell k=0 n size motion extra
+  for cell in ${cell_list[@]+"${cell_list[@]}"}; do
+    k=$((k + 1))
+    IFS=: read -r n size motion <<< "$cell"
+    extra=(--child-time --diff-unfocused-measure "$unfocused")
+    [ "$size" != none ] && extra+=(--diff-tab "$size")
+    [ "$motion" = scroll ] && extra+=(--diff-scroll)
+    # N chats is N+1 workspaces, as above; the diff tab opens in the workspace that is shown last.
+    python3 "$harness/bench_memory.py" --app "$app" --workspaces "$((n + 1))" --mix terminal+chat \
+      --fake-agent "$harness/fake_agent.py" --settle 20 --measure "$measure" --top 8 "${attribute[@]}" "${extra[@]}" \
+      --out "$out/runs/$arm-$i-cell$k.json" > "$out/runs/$arm-$i-cell$k.log" 2>&1
+    rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-cell$k.log"; }
+    python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
+  done
   grep -h '^PERF-ATTR .* wakes ' "$out/runs/$arm-$i-"*.log 2>/dev/null | head -n 80 | sed "s/^/IDLE-AB $arm $i /"
 }
 for i in $(seq 1 "$rounds"); do
@@ -160,9 +207,13 @@ for i in $(seq 1 "$rounds"); do
   if (( i % 2 )); then run_arm base "$i"; run_arm head "$i"; else run_arm head "$i"; run_arm base "$i"; fi
 done
 
-python3 -I - "$out/runs" "$rounds" <<'PY' || status=1
+python3 -I - "$out/runs" "$rounds" "$cells" <<'PY' || status=1
 import collections, glob, json, os, statistics, sys
 runs, rounds = sys.argv[1], int(sys.argv[2])
+cells = [c for c in sys.argv[3].split(",") if c]
+# The group of a sample: its chat count, or with cells= its cell.
+word = "cell" if cells else "chats"
+cpu = collections.defaultdict(lambda: collections.defaultdict(list))
 # values[(chats, kind)][arm] = [wakeups per run]; threads[(chats, kind)][arm][name] = [wakeups/s per run]
 values = collections.defaultdict(lambda: collections.defaultdict(list))
 threads = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
@@ -179,13 +230,26 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
             continue
         # N+1 workspaces, the launch one without a chat (run_arm): N chats.
         chats = 0 if mode == "terminal" else int(s["label"][5:]) - 1
+        if mode.startswith("cell"):
+            chats = cells[int(mode[4:]) - 1]
+            tab = s.get("diff_tab") or {}
+            print(f"IDLE-AB window {arm} {i} cell {chats} measure_s {s.get('measure_s')} focus {(tab.get('page') or {}).get('focus')} "
+                  f"reads_expected {tab.get('reads_expected')} scroll_events {(tab.get('scroll') or {}).get('events')}")
+            total = 0.0
+            for kind, e in s["kinds"].items():
+                for name, key in ((kind, "cpu_pct"), (f"children:{kind}", "child_cpu_pct")):
+                    if e.get(key) is not None:
+                        cpu[(chats, name)][arm].append(e[key])
+                        total += e[key]
+            cpu[(chats, "total")][arm].append(round(total, 3))
         for kind, e in s["kinds"].items():
             if e.get("wakeups_per_s") is None:
                 continue
             values[(chats, kind)][arm].append(e["wakeups_per_s"])
-            summary.append({"arm": arm, "round": int(i), "chats": chats, "kind": kind,
-                            "wakeups_per_s": e["wakeups_per_s"], "cpu_pct": e.get("cpu_pct")})
-            print(f"IDLE-AB run {arm} {i} chats {chats} kind {kind} wakeups_per_s {e['wakeups_per_s']} cpu_pct {e.get('cpu_pct')}")
+            summary.append({"arm": arm, "round": int(i), word: chats, "kind": kind,
+                            "wakeups_per_s": e["wakeups_per_s"], "cpu_pct": e.get("cpu_pct"),
+                            **({"child_cpu_pct": e.get("child_cpu_pct")} if cells else {})})
+            print(f"IDLE-AB run {arm} {i} {word} {chats} kind {kind} wakeups_per_s {e['wakeups_per_s']} cpu_pct {e.get('cpu_pct')}")
         for key, got in ((s.get("attribution") or {}).get("thread_wakes") or {}).items():
             if got.get("error"):
                 continue
@@ -201,7 +265,7 @@ def stat(xs):
 for (chats, kind) in sorted(values):
     b, h = stat(values[(chats, kind)]["base"]), stat(values[(chats, kind)]["head"])
     delta = round(h[0] - b[0], 2) if None not in (b[0], h[0]) else None
-    print(f"IDLE-AB median chats {chats} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(values[(chats, kind)]['base'])} "
+    print(f"IDLE-AB median {word} {chats} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(values[(chats, kind)]['base'])} "
           f"head {h[0]} [{h[1]}-{h[2]}] n {len(values[(chats, kind)]['head'])} delta {delta}")
 for (chats, kind) in sorted(threads):
     arms = threads[(chats, kind)]
@@ -213,7 +277,12 @@ for (chats, kind) in sorted(threads):
         rows.append((round(med["head"] - med["base"], 2), name, round(med["base"], 2), round(med["head"], 2)))
     rows.sort(key=lambda r: -abs(r[0]))
     for delta, name, b, h in rows[:15]:
-        print(f"IDLE-AB thread chats {chats} kind {kind} name {name!r} base {b} head {h} delta {delta}")
+        print(f"IDLE-AB thread {word} {chats} kind {kind} name {name!r} base {b} head {h} delta {delta}")
+for (cell, kind) in sorted(cpu):
+    b, h = stat(cpu[(cell, kind)]["base"]), stat(cpu[(cell, kind)]["head"])
+    delta = round(h[0] - b[0], 3) if None not in (b[0], h[0]) else None
+    print(f"IDLE-AB cpu cell {cell} kind {kind} base {b[0]} [{b[1]}-{b[2]}] n {len(cpu[(cell, kind)]['base'])} "
+          f"head {h[0]} [{h[1]}-{h[2]}] n {len(cpu[(cell, kind)]['head'])} delta {delta}")
 json.dump(summary, open(os.path.join(os.path.dirname(runs), "summary.json"), "w"), indent=1)
 PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
