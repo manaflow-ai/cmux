@@ -12,10 +12,10 @@ import Foundation
 import Testing
 
 /// cx-x15rz: each agent chat tab's page is a web view with its own web content process (about
-/// 75 MB). A chat hidden past the browser hibernation threshold lets its page go and keeps its
-/// tab: showing the tab again builds a new page on the same session, which acpmux replays. A
-/// chat whose turn runs (acpmux's turn state), a New Tab page, and every chat with hibernation
-/// off keep their page.
+/// 75 MB). A hidden chat that is idle (or archived) lets its page go and keeps its tab: showing the
+/// tab again builds a new page on the same session, which acpmux replays, with what the page held.
+/// A chat that works (acpmux's turn state, its subagents and commands) and a New Tab page keep
+/// their page (Leo, 2026-11-14: "if it's working then you can try to optimize but thats it").
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPageHibernationTests {
     static let thisMac = "install:agent-page-hibernation-test"
@@ -44,7 +44,8 @@ struct AgentPageHibernationTests {
             let tree = DaemonStore()
             hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
             tabs.lookupScoped = { [unowned self] key in self.records[key.key].map { ($0, tree) } }
-            hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
+            hibernation.chat = { [unowned self] key in self.records[key] }
+            hibernation.turns = turns
             hibernation.turnsWatched = { [unowned self] in self.turns.watching }
             hibernation.followTurns(turns)
             hibernation.displace = { [unowned self] key in self.displaced.append(key) }
@@ -88,12 +89,12 @@ struct AgentPageHibernationTests {
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
         rig.turns.setState(.working, session: "s-busy")
 
-        // Moderate: half an hour hidden. At 20 minutes both pages stay.
-        rig.advance(minutes: 20)
+        // A hidden idle chat waits its idle release (sooner than moderate's half hour). At half of it both pages stay.
+        rig.advance(minutes: AgentPageHibernation.idleRelease / 120)
         await rig.settle { false }
         #expect(rig.tabs.existingView("tab_quiet") === page)
 
-        rig.advance(minutes: 11)
+        rig.advance(minutes: 31)
         await rig.settle { rig.tabs.existingView("tab_quiet") == nil }
         #expect(rig.tabs.existingView("tab_quiet") == nil, "the hidden chat kept its page")
         #expect(rig.displaced == ["tab_quiet"], "the pane still holding the page was not told")
@@ -107,15 +108,15 @@ struct AgentPageHibernationTests {
         #expect(rebuilt.model.sessionId == "s-quiet")
     }
 
-    @Test func memoryPressureReleasesAtOnceButOffKeepsEveryPage() async throws {
+    @Test func memoryPressureReleasesAtOnceAndHibernationOffStillLetsAnIdleChatGo() async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .off), pressure: .critical)
-        let kept = try rig.hiddenChat("tab_off", session: "s-off")
-        rig.advance(minutes: 120)
-        await rig.settle { false }
-        #expect(rig.tabs.existingView("tab_off") === kept, "hibernation off released a page")
-        #expect(rig.hibernation.keepsPage("tab_off") == .disabled)
+        // `browser.hibernation` off is about browser tabs: an idle hidden chat still gives its page back.
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .off), pressure: .normal)
+        _ = try rig.hiddenChat("tab_off", session: "s-off")
+        rig.advance(minutes: 2)
+        await rig.settle { rig.tabs.existingView("tab_off") == nil }
+        #expect(rig.tabs.existingView("tab_off") == nil, "hibernation off kept an idle hidden chat's page")
 
         // Critical pressure: due right away, past the short wait for the composer's last keystrokes.
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
@@ -183,21 +184,103 @@ struct AgentPageHibernationTests {
         #expect((again["value"] as? [String: Any])?["wake"] == nil)
     }
 
-    /// No `browser.hibernation` in cmux.json: a hidden chat keeps its page at every pressure, as a
-    /// browser tab does. A page built again loses what ``AgentPaneWakeState`` does not carry (an open
-    /// menu or popover, the caret, a queued prompt being edited, an IME composition).
+    /// No `browser.hibernation` in cmux.json: a chat that is not drawn and is idle gives back its page
+    /// after the idle wait (at once past the composer's short wait under critical pressure), with no setting
+    /// (Leo, 2026-11-14: "if something isn't drawn/is completely proven idle then dont bother taking memory").
     @Test(arguments: [MemoryPressureLevel.normal, .critical])
-    func theDefaultKeepsEveryHiddenChatsPage(_ pressure: MemoryPressureLevel) async throws {
+    func theDefaultLetsAHiddenIdleChatGo(_ pressure: MemoryPressureLevel) async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         rig.hibernation.update(setting: .fallback, pressure: pressure)
         let page = try rig.hiddenChat("tab_default", session: "s-default")
-        rig.advance(minutes: 120)
+        #expect(rig.hibernation.hasDeadline, "the hide armed no deadline")
+        rig.advance(minutes: (AgentPageHibernation.minimumHidden - 1) / 60)
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_default") === page, "released before the composer's last keystrokes reached acpmux")
+
+        rig.advance(minutes: AgentPageHibernation.idleRelease / 60)
         await rig.settle { rig.tabs.existingView("tab_default") == nil }
-        #expect(rig.tabs.existingView("tab_default") === page, "a hidden chat was recreated by default")
-        #expect(rig.hibernation.keepsPage("tab_default") == .keepsState)
-        #expect(!rig.hibernation.hasDeadline)
-        #expect(rig.displaced.isEmpty)
+        #expect(rig.tabs.existingView("tab_default") == nil, "a hidden idle chat kept its page by default")
+        #expect(rig.displaced == ["tab_default"])
+        #expect(rig.tabs.session(of: "tab_default") == "s-default", "the released chat's tab lost its session")
+    }
+
+    /// An archived chat's hidden page goes at once, with no clock moving: the archive tag acpmux pushes
+    /// replans it (Leo, 2026-11-14: "archived chats (ok well THOSE should defo release ram)").
+    @Test func anArchivedChatLetsItsPageGoAtOnce() async throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        let archived = try rig.hiddenChat("tab_archived", session: "s-archived")
+        let other = try rig.hiddenChat("tab_other", session: "s-other")
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_archived") === archived)
+
+        rig.turns.apply(session: "s-archived", state: nil, lastMessage: nil, muted: false, title: nil, detail: AgentChatDetail(archived: true))
+        await rig.settle { rig.tabs.existingView("tab_archived") == nil }
+        #expect(rig.tabs.existingView("tab_archived") == nil, "an archived hidden chat kept its page")
+        #expect(rig.tabs.existingView("tab_other") === other, "a chat that is not archived went before its idle wait")
+    }
+
+    /// A hidden chat that works keeps its page: its turn runs, it waits on a permission or question, or a
+    /// subagent or background command of it runs. Once nothing of it runs, it goes with no other call.
+    @Test(arguments: ["turn", "permission", "subagent", "command"])
+    func aHiddenWorkingChatKeepsItsPage(_ work: String) async throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        rig.hibernation.update(setting: .fallback, pressure: .critical)
+        let session = "s-\(work)"
+        let state: AgentTurnState? = work == "turn" ? .working : work == "permission" ? .needsInput : nil
+        let detail = AgentChatDetail(subagentsRunning: work == "subagent" ? 1 : 0, commandsRunning: work == "command" ? 1 : 0)
+        rig.turns.apply(session: session, state: state, lastMessage: nil, muted: false, title: nil, detail: detail)
+        let page = try rig.hiddenChat("tab_\(work)", session: session)
+        rig.advance(minutes: 120)
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_\(work)") === page, "a working chat (\(work)) let its page go")
+        #expect(rig.hibernation.keepsPage("tab_\(work)") == .agentBusy)
+
+        rig.turns.apply(session: session, state: .done, lastMessage: nil, muted: false, title: nil, detail: AgentChatDetail(model: "m"))
+        await rig.settle { rig.tabs.existingView("tab_\(work)") == nil }
+        #expect(rig.tabs.existingView("tab_\(work)") == nil, "a chat whose work ended kept its page")
+    }
+
+    /// An idle release loses nothing typed: the draft's chips, the shell command and the scroll place
+    /// come back to the page built on reopen (the draft's text the page settles into acpmux before it
+    /// answers, and acpmux replays it), and a page holding an unsaved send or edit stays until it is saved.
+    @Test func aReleasedIdleChatReopensWithItsDraftAndScrollPlace() async throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let left = AgentPaneWakeState(
+            attachments: [AgentPaneWakeState.Attachment(id: "d1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "draft")],
+            shell: true, shellText: "make test", scrollAnchor: AgentPaneScrollAnchor(rowId: "row-7", offset: 12))
+        let unsaved = Asked()
+        rig.hibernation.wakeState = { _ in
+            unsaved.count += 1
+            // First asked: an unsaved send is still going out. Then it is saved.
+            return unsaved.count == 1 ? AgentPaneWakeState(holdsEdits: true) : left
+        }
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        let page = try rig.hiddenChat("tab_draft", session: "s-draft")
+        rig.advance(minutes: AgentPageHibernation.idleRelease / 60 + 0.1)
+        await rig.settle { unsaved.count > 0 }
+        await rig.settle { rig.hibernation.hasDeadline }
+        #expect(rig.tabs.existingView("tab_draft") === page, "a page holding an unsaved send was let go")
+
+        rig.advance(minutes: AgentPageHibernation.keptRecheck / 60 + 0.1)
+        await rig.settle { rig.tabs.existingView("tab_draft") == nil }
+        #expect(rig.tabs.existingView("tab_draft") == nil, "the idle chat kept its page once its send was saved")
+
+        let rebuilt = try #require(rig.tabs.view(for: "tab_draft"))
+        #expect(rebuilt !== page)
+        #expect(rebuilt.model.sessionId == "s-draft")
+        let reply = await rebuilt.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+        let wake = try #require(handshake["wake"] as? [String: Any], "the reopened page lost its draft and place: \(handshake)")
+        #expect((wake["attachments"] as? [[String: Any]])?.map { $0["name"] as? String } == ["notes.txt"])
+        #expect(wake["shellText"] as? String == "make test")
+        let anchor = try #require(wake["scrollAnchor"] as? [String: Any])
+        #expect(anchor["rowId"] as? String == "row-7")
+        #expect(anchor["offset"] as? Double == 12)
     }
 
     /// A hidden chat whose page crashed shows no notice: it owes a retry for when it is shown

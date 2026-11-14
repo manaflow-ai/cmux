@@ -22,6 +22,16 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// count as seen.
     case done
 
+    /// Whether a chat works, as acpmux says (Leo, 2026-11-14: "if it's working then you can try to optimize
+    /// but thats it"): its turn runs or waits on the person (a permission or a question), or a subagent or
+    /// background command it started still runs. Only a chat that does none of these is idle, and only an
+    /// idle chat that is not drawn gives back its page (HiddenChatPages).
+    public static func isWorking(_ state: AgentTurnState?, detail: AgentChatDetail?) -> Bool {
+        if state == .working || state == .needsInput { return true }
+        guard let detail else { return false }
+        return detail.subagentsRunning > 0 || detail.commandsRunning > 0
+    }
+
     /// The state of one `_acpmux/watch` / `session_changed` session summary,
     /// read from its `indicator`; nil when acpmux shows no dot.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
@@ -66,11 +76,14 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
+    /// gives back its memory at once (HiddenChatPages).
+    public var archived = false
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -84,6 +97,21 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentsRunning = subagentsRunning
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
+        self.archived = archived
+    }
+
+    /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
+    /// object whose `expires_at` (Unix ms) has not passed.
+    public static func archived(_ summary: [String: Any], nowMs: Double = Date().timeIntervalSince1970 * 1000) -> Bool {
+        switch (summary["tags"] as? [String: Any])?["archived"] {
+        case let value as String: return !value.isEmpty && value != "false"
+        case let value as NSNumber: return value.boolValue
+        case let tag as [String: Any]:
+            guard tag["value"] != nil else { return false }
+            guard let expires = (tag["expires_at"] as? NSNumber)?.doubleValue else { return true }
+            return expires > nowMs
+        default: return false
+        }
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -112,7 +140,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      promptIsNotice: turn?["notice"] as? Bool == true,
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
-                                     commandsRunning: count(summary["commandsRunning"]))
+                                     commandsRunning: count(summary["commandsRunning"]),
+                                     archived: archived(summary))
         return detail == AgentChatDetail() ? nil : detail
     }
 
