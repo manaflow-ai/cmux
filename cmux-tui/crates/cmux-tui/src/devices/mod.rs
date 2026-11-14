@@ -7,6 +7,8 @@
 
 use cmux_json::JsonSet as _;
 
+#[cfg(test)]
+mod credential_env_tests;
 mod model;
 mod network;
 mod removal;
@@ -251,11 +253,42 @@ impl Flags {
     }
 }
 
-/// The cmux credentials no `cmux` child this process starts may inherit: a join token and the
-/// account's bearer token. A child that needs one gets it another way (a revoke step on its
+/// The credentials no `cmux` child this process starts may inherit, each with why. A child that needs one gets it another way (a revoke step on its
 /// stdin); an acpmux daemon a child auto-starts would otherwise keep it for its lifetime. Every
-/// spawn of `cmux` (devices here, `cmux acp` in chat_start/joined.rs) removes these.
-pub(crate) const CREDENTIAL_ENV: &[&str] = &["CMUX_JOIN", "CMUX_CLOUD_ACCESS_TOKEN"];
+/// spawn of `cmux` (devices here, `cmux acp` in chat_start/joined.rs) removes these. Neither
+/// `cmux acp` (acpmux's CLI and the daemon it may start) nor the agents that daemon runs read
+/// any of them. Kept on purpose, so not listed: `CMUX_CLAUDE_AUTH` (no secret: the `own` or
+/// `team` Claude login the daemon picks, acpmux claude_cloud_auth.rs) and
+/// `ACPMUX_SESSION_TOKEN` with `ACPMUX_SESSION_TOKEN_SOCKET` (an agent's proof of its own
+/// session, which `cmux acp send` shows only to the daemon that issued it; that daemon never
+/// passes it on, acpmux client.rs). `credential_env_tests.rs` holds every other name.
+pub(crate) const CREDENTIAL_ENV: &[&str] = &[
+    // A join token (`cmux machine add`): one machine's enrollment.
+    "CMUX_JOIN",
+    // The account's bearer token.
+    "CMUX_CLOUD_ACCESS_TOKEN",
+    // Names a person's shell may export for the account's token (`cmux auth token`).
+    "CMUX_ACCESS_TOKEN",
+    "CMUX_API_TOKEN",
+    "CMUX_TOKEN",
+    // `cmux vm`'s API key: the VM commands read it, not acpmux.
+    "CMUX_VM_API_KEY",
+    // The machine provider's token: the app's own transport reads it and drops it at start.
+    "CMUX_MACHINE_PROVIDER_TOKEN",
+    // The debug sign-in's credentials file: the app's sign-in reads it, never a child.
+    "CMUX_AUTH_CREDENTIALS_FILE",
+    // The relay Worker's ticket key: a Worker secret, never a process's.
+    "CMUX_RELAY_TICKET_KEY",
+    // A workflow run's token: acpmux mints it for its runner, which needs no inherited one.
+    "CMUX_WORKFLOW_RUNNER_TOKEN",
+    // The machine provider's workspace grant, dropped with its token (config/ghostty_helper.rs).
+    "CMUX_PROVIDER_WORKSPACE_AUTHORITY",
+    // Other programs' secrets (the relay, a pane provider, weft): no cmux child reads them.
+    "CMUX_RELAY_HMAC_SECRET",
+    "CMUX_PANE_APP_CREDENTIAL",
+    "WEFT_ADMIN_TOKEN",
+    "WEFT_TICKET_SEED",
+];
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).

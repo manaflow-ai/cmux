@@ -505,6 +505,10 @@ declare namespace Cmux {
   type TerminalWaitExitPending = { state: "pending"; terminal_id: string /* terminal_… */; lifecycle: "launching" | "running"; revision: string }
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
+  type ThemeScheme = { name: string | null; author: string | null; background: string; foreground: string; cursor: string | null; cursorText: string | null; selectionBackground: string | null; selectionForeground: string | null; palette: Array<string>; accent: string | null; base16: Array<string> }
+  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeSwatch = { color: string; share: number }
+  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -1764,6 +1768,16 @@ interface CmuxGlobal {
     wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string; new?: boolean }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
+  }
+  theme: {
+    scheme: {
+      /** `theme.scheme.convert` (read, scope `theme:read`) */
+      convert: CmuxOp<{ machine?: string; session?: string; text: string; file?: string | null; from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; to?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
+      /** `theme.scheme.export` (read, scope `theme:read`) */
+      export: CmuxOp<{ machine?: string; session?: string; name: string; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
+      /** `theme.scheme.from_image` (read, scope `theme:read`) */
+      from_image: CmuxOp<{ machine?: string; session?: string; width: number; height: number; channels: number; pixels: string; appearance?: "dark" | "light" | null; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeFromImageResult>
+    }
   }
   thread: {
     /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */

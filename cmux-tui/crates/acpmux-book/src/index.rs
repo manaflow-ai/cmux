@@ -44,7 +44,7 @@ mod snapshot;
 mod storage_tests;
 pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
-pub use kin::{FolderKey, KinTables};
+pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
     DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
@@ -56,11 +56,14 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
+use acpmux_list_types::KIN_DEPTH_STOPS;
 #[cfg(test)]
 pub(crate) use acpmux_list_types::MAX_FIELD_BYTES;
+pub(super) use acpmux_list_types::MAX_KIN_DEPTH;
 pub use acpmux_list_types::{
     ForkOf, HOT_WINDOW_MS, MAX_SUMMARY_BYTES, MAX_TITLE_BYTES, OriginState, RowKey, Summary,
-    SummaryRecord, cut_fields, empty_extras, is_live_state, omitted_folders, rejected_keys,
+    SummaryRecord, cut_fields, empty_extras, is_live_state, kin_depth_stops, omitted_folders,
+    rejected_keys,
 };
 
 /// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
@@ -287,7 +290,7 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
-            self.kin.remove(&row);
+            self.kin.remove_with_rows(&row, &self.by_id);
             self.folders =
                 Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
             return true;
@@ -311,7 +314,7 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert_arc(row);
+                self.kin.insert_arc(row, &self.by_id);
                 self.folders =
                     Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
@@ -439,7 +442,7 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
-                next.kin.remove(&old);
+                next.kin.remove_with_rows(&old, &next.by_id);
                 next.folders =
                     Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
             }
@@ -463,7 +466,7 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
-            next.kin.remove(&old);
+            next.kin.remove_with_rows(&old, &next.by_id);
             next.folders =
                 Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
         }
@@ -576,7 +579,7 @@ impl SummaryIndex {
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
-        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row), &next.by_id);
         next.folders = Self::refresh_folders(
             &next.folders,
             &next.kin,
@@ -641,9 +644,10 @@ impl SummaryIndex {
         if self.disk.is_some() {
             shadowed.insert(key);
         }
+        let kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
+        next.kin = kin;
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,
@@ -792,7 +796,7 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        next.kin = self.kin.replace_arc(old, None, &next.by_id);
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,

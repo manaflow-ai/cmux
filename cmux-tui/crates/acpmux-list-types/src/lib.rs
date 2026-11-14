@@ -84,6 +84,8 @@ static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
 static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
 static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
 static EMPTY_EXTRAS: AtomicUsize = AtomicUsize::new(0);
+pub static KIN_DEPTH_STOPS: AtomicUsize = AtomicUsize::new(0);
+pub const MAX_KIN_DEPTH: usize = 64;
 
 pub fn rejected_keys() -> usize {
     REJECTED_KEYS.load(AtomicOrdering::Relaxed)
@@ -96,6 +98,9 @@ pub fn cut_fields() -> usize {
 }
 pub fn empty_extras() -> usize {
     EMPTY_EXTRAS.load(AtomicOrdering::Relaxed)
+}
+pub fn kin_depth_stops() -> usize {
+    KIN_DEPTH_STOPS.load(AtomicOrdering::Relaxed)
 }
 pub const MAX_FIELD_BYTES: usize = 256;
 
