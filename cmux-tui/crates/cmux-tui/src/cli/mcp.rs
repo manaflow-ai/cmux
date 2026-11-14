@@ -29,6 +29,7 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod cua_recovery;
 mod customize_tools;
 mod keybinding_tools;
 mod live_code_tools;
