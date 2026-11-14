@@ -367,7 +367,7 @@ test("Open Theme File, below the Theme File row, asks the host to open the theme
   expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}]);
 });
 
-test("an Open Theme File the host could not make shows its reason on the Theme File row", async () => {
+test("an Open Theme File the host could not make says so on the Theme File row, its reason as the detail", async () => {
   page = await renderPage({
     path: "/settings/theme",
     setup: (provider) => {
@@ -377,7 +377,9 @@ test("an Open Theme File the host could not make shows its reason on the Theme F
   const button = theme(page).querySelector<HTMLButtonElement>('[data-theme-file-action="open"]')!;
   await click(button);
   const row = theme(page).querySelector<HTMLElement>('[data-row-key="appearance.themeFile"]')!;
-  expect(row.querySelector(".row-error")?.textContent).toBe("cmux theme export: cannot write themes/my-look.json");
+  const error = row.querySelector<HTMLElement>(".row-error");
+  expect(error?.textContent).toBe("Could not open the theme file.");
+  expect(error?.title).toBe("cmux theme export: cannot write themes/my-look.json");
   page.provider.themeFileRefusal = null;
   await click(button);
   expect(row.querySelector(".row-error")).toBeNull();

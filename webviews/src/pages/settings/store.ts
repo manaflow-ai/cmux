@@ -402,8 +402,8 @@ export class SettingsStore {
   }
 
   /** Open Theme File: the host opens the active theme file, making one from the current look first;
-   * a failure shows on the Theme File row as the export's own reason (the CLI writes it for people;
-   * "could not be changed" would be wrong for an open). */
+   * a failure shows on the Theme File row as "Could not open the theme file." ("could not be changed"
+   * would be wrong for an open), the CLI's reason as its detail. */
   async openThemeFile(): Promise<void> {
     // One at a time: a second click before the first answers would race it for the same new name
     // (`my-look`) and report "exists" for a file the first one made and opened.
@@ -413,7 +413,7 @@ export class SettingsStore {
       const reply = await this.request("cmux.settings.theme.file.open", {});
       this.setError(
         "appearance.themeFile",
-        reply.ok ? null : { ...rowError(reply.error), message: reply.error.message },
+        reply.ok ? null : { ...rowError(reply.error), message: t("settingsPage.theme.file.openFailed") },
       );
     } finally {
       this.openingThemeFile = false;
