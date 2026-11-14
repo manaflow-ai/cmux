@@ -34,7 +34,9 @@ import Testing
         let started = ContinuousClock.now
         await relaunched.load()
         let elapsed = (ContinuousClock.now - started).components
-        print("OFFLINECHAT pairing_cold_read_ms=\(String(format: "%.2f", Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15))")
+        let line = "OFFLINECHAT pairing_cold_read_ms=\(String(format: "%.2f", Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15))"
+        print(line)
+        Attachment.record(line, named: "offlinechat-pairing.txt")
         #expect(relaunched.chat(chatKey) == "a-1")
         #expect(relaunched.showsChat(faceKey) == false)
         // Another account or Mac keeps none of it.

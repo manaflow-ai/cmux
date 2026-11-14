@@ -158,7 +158,10 @@ struct TerminalChatOfflineRelaunchTests {
         let shown = await Self.waitUntil { !store.turns.isEmpty }
         let elapsed = (ContinuousClock.now - started).components
         let ms = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-        print("OFFLINECHAT cold_launch_to_first_kept_turn_ms=\(shown ? String(format: "%.2f", ms) : "never")")
+        let line = "OFFLINECHAT cold_launch_to_first_kept_turn_ms=\(shown ? String(format: "%.2f", ms) : "never")"
+        print(line)
+        // The kit run keeps attachments, not a passing test's console.
+        Attachment.record(line, named: "offlinechat.txt")
         #expect(shown)
         _ = await Self.waitUntil { store.turns.count == 3 }
         #expect(store.turns.map(\.id) == ["t0", "t1", "t2"])
