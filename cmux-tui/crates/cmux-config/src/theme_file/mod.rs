@@ -124,6 +124,22 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
     bundled.map(|dir| dir.join(format!("{name}.{FILE_EXTENSION}"))).filter(|p| p.is_file())
 }
 
+/// The theme files cmux ships (`Resources/theme-files`, the app's
+/// `Contents/Resources/theme-files`), so the daemon and the CLI read them
+/// with no app bundle. A user's file of the same name wins.
+const SHIPPED: [(&str, &str); 5] = [
+    ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
+    ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
+    ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
+    ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+];
+
+/// The text of the shipped theme file `name`.
+pub fn shipped(name: &str) -> Option<&'static str> {
+    SHIPPED.iter().find(|(shipped, _)| *shipped == name).map(|(_, text)| *text)
+}
+
 /// The theme file `root` names; `None` when unset or not a valid name.
 pub fn name_in(root: &Value) -> Option<&str> {
     crate::value::value_at(root, &key_path(SETTING_KEY))
@@ -133,7 +149,7 @@ pub fn name_in(root: &Value) -> Option<&str> {
 
 /// The names of the theme files in the folder and the shipped ones, each once, sorted.
 pub fn names(config_dir: &Path, bundled: Option<&Path>) -> Vec<String> {
-    let mut names = BTreeSet::new();
+    let mut names: BTreeSet<String> = SHIPPED.iter().map(|(name, _)| (*name).to_string()).collect();
     for dir in std::iter::once(folder(config_dir)).chain(bundled.map(Path::to_path_buf)) {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.flatten() {
@@ -158,8 +174,10 @@ pub fn source(
     name: &str,
     bundled: Option<&Path>,
 ) -> Option<Result<String, String>> {
-    let path = readable_path(config_dir, name, bundled)?;
-    Some(read_text(&path))
+    match readable_path(config_dir, name, bundled) {
+        Some(path) => Some(read_text(&path)),
+        None => shipped(name).map(|text| Ok(text.to_string())),
+    }
 }
 
 pub(crate) fn read_text(path: &Path) -> Result<String, String> {

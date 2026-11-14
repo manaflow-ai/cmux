@@ -278,10 +278,11 @@ fn the_rendered_current_look_reads_back_as_the_same_look() {
         assert!(file.is_loaded, "{text}");
         assert!(file.diagnostics.is_empty(), "{:?}\n{text}", file.diagnostics);
         assert_eq!(file.applied(&root, &none()), root, "{text}");
-        let looks: Vec<String> = look_rows(schema)
+        let mut looks: Vec<String> = look_rows(schema)
             .filter(|row| value_at(&root, &row.path).is_some())
             .map(|row| row.key.clone())
             .collect();
+        looks.sort();
         assert_eq!(file.keys(), looks);
     }
     // Every look key is in the file, live or as a comment.
@@ -305,4 +306,100 @@ fn the_theme_file_schema_takes_the_shipped_files_and_flags_others() {
     }
     assert!(!validator.is_valid(&json!({"terminal.term": "xterm"})));
     assert!(!validator.is_valid(&json!({"colors": {"background": "blue"}})));
+}
+
+/// The daemon's settings owner applies the active theme file: over the
+/// user's file and under managed values, live on save, and a half-saved file
+/// keeps the last good look.
+#[test]
+fn the_settings_owner_applies_the_active_theme_file_live() {
+    use crate::managed::{FixedManagedReader, ManagedPreferences};
+    use crate::owner::ConfigStore;
+
+    let dir = std::env::temp_dir().join(format!("cmux-theme-owner-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("dir");
+    let settings = dir.join("cmux-next.json");
+    let theme = dir.join("themes/tokyo.json");
+    std::fs::write(&settings, r#"{ "appearance": { "themeFile": "tokyo", "accent": "red" } }"#)
+        .expect("write");
+    std::fs::write(&theme, r#"{ "appearance.accent": "blue", "appearance.borders": "none" }"#)
+        .expect("write");
+    let mut managed = ManagedPreferences::default();
+    managed.forced.insert("appearance.borders".into(), json!("default"));
+    let mut store =
+        ConfigStore::open(settings.clone(), None, None, Box::new(FixedManagedReader(managed)));
+    let effective = |store: &ConfigStore| store.state().effective().root.clone();
+    assert_eq!(at(&effective(&store), "appearance.accent"), Some(&json!("blue")));
+    // A managed value wins over the theme file; the user's file stays theirs.
+    assert_eq!(at(&effective(&store), "appearance.borders"), Some(&json!("default")));
+    assert_eq!(at(&store.state().effective().file_root, "appearance.accent"), Some(&json!("red")));
+    assert!(store.watch_paths().contains(&theme));
+
+    // A save reloads, and the change names the key.
+    std::fs::write(&theme, r#"{ "appearance.accent": "green" }"#).expect("write");
+    let change = store.reload().expect("a change");
+    assert!(change.keys.iter().any(|key| key == "appearance.accent"), "{:?}", change.keys);
+    assert_eq!(at(&effective(&store), "appearance.accent"), Some(&json!("green")));
+
+    // A half-saved file: the last good look stays, and the problem is reported.
+    std::fs::write(&theme, "{ \"appearance.accent\": ").expect("write");
+    store.reload();
+    assert_eq!(at(&effective(&store), "appearance.accent"), Some(&json!("green")));
+    assert!(
+        store
+            .state()
+            .effective()
+            .diagnostics
+            .iter()
+            .any(|d| d.kind == crate::DiagnosticKind::UnreadableFile)
+    );
+
+    // A refused value: one diagnostic naming file and line; the rest applies.
+    std::fs::write(
+        &theme,
+        "{\n  \"appearance.accent\": \"purple\",\n  \"appearance.borders\": \"none\"\n}",
+    )
+    .expect("write");
+    store.reload();
+    let problem = store
+        .state()
+        .effective()
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.accent")
+        .expect("refused");
+    assert!(problem.message.starts_with("themes/tokyo.json:2:"), "{}", problem.message);
+    assert_eq!(at(&effective(&store), "appearance.accent"), Some(&json!("red")));
+
+    // Unsetting the theme file is the stock look again.
+    std::fs::write(&settings, r#"{ "appearance": { "accent": "red" } }"#).expect("write");
+    store.reload();
+    assert!(store.state().theme_file().is_none());
+    assert!(!store.watch_paths().contains(&theme));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// No theme file: the effective settings are exactly what they were before
+/// theme files reached the daemon.
+#[test]
+fn with_no_theme_file_nothing_changes() {
+    use crate::store::{FileRead, State};
+    let text = r#"{ "appearance": { "accent": "red" }, "terminal": { "fontSize": 13 } }"#;
+    let state = State::new(
+        Schema::embedded(),
+        FileRead::Text(text.into()),
+        crate::managed::ManagedPreferences::default(),
+        crate::managed::TeamPolicyLayer::default(),
+        Domains::default(),
+        0,
+    );
+    let plain = crate::effective::EffectiveSettings::merge(
+        &crate::jsonc::parse(text).expect("json"),
+        &crate::managed::ManagedPreferences::default(),
+        &crate::managed::TeamPolicyLayer::default(),
+        Schema::embedded(),
+    );
+    assert_eq!(state.effective().root, plain.root);
+    assert!(state.theme_file().is_none());
 }
