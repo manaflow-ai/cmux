@@ -2073,14 +2073,13 @@ fn in_environment(
     let machine = &request.machine;
     if let Machine::Named(name) = machine {
         if at(listed, "loaded").as_bool() == Some(false) {
-            return Err(failed(
-                "cloud.list_unread",
+            return Err(list_unread(
+                runner,
                 format!(
                     "the app has not loaded its Cloud machines yet, so no machine was made in the environment: \
                      one named {name} may exist already. Run this command again in a moment"
                 ),
                 json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
-                75,
             ));
         }
         in_flight(listed, name)?;
@@ -2200,18 +2199,39 @@ fn new_machine(
     Ok(id)
 }
 
+/// How long [`list_unread`] waits for the app's `cloud.machines` answer (a main-actor read of its state, no network).
+const LAST_ERROR_WAIT: Duration = Duration::from_secs(5);
+
+/// `cloud.list_unread`: the app has not loaded its Cloud machines, so nothing was made or started. A list
+/// refresh that fails reaches only the app's `CloudService.lastError`, never `list-machines`' answer, so the
+/// app's last Cloud error (`cloud.machines`' `last_error`, AppControl+Cloud.swift) is added to `message` and
+/// `details` when it has one: why the list never loaded (cmuxterm-hq run 43553290380).
+fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> Outcome {
+    let last_error = runner
+        .app("cloud.machines", json!({}), LAST_ERROR_WAIT)
+        .and_then(Result::ok)
+        .and_then(|answer| at(&answer, "last_error").as_str().map(str::trim).map(str::to_owned))
+        .filter(|error| !error.is_empty());
+    let message = match &last_error {
+        Some(error) => format!("{message}. The app's last Cloud error: {error}"),
+        None => message,
+    };
+    details["last_error"] = last_error.map_or(Value::Null, Value::String);
+    failed("cloud.list_unread", message, details, 75)
+}
+
 /// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
 /// a fresh name that is taken anyway, or a list the app has not loaded (`loaded: false` lists no machines, which
 /// says nothing), is a typed error before any `start-session --name` (which would attach to that machine) or
 /// `new-machine --name`.
 fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcome> {
     if at(listed, "loaded").as_bool() == Some(false) {
-        return Err(failed(
-            "cloud.list_unread",
+        return Err(list_unread(
+            runner,
             "the app has not loaded its Cloud machines yet, so no machine was made or started: run this \
-             command again in a moment",
+             command again in a moment"
+                .to_owned(),
             json!({"list": "cmux cloud list-machines --json"}),
-            75,
         ));
     }
     let name = runner.fresh_name();
