@@ -50,7 +50,7 @@ pub use ssh_artifacts::{
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "host"))]
 pub mod unix_socket;
 pub mod update_need;
 #[cfg(all(feature = "wireguard-transport", feature = "host"))]
