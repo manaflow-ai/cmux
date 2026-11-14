@@ -297,8 +297,10 @@ fn a_small_feedback_batch_does_not_collapse_upstream_capacity() {
         60_000,
     )
     .expect("feedback");
-    s.on_datagram(&feedback(CAM, &Feedback::default()), 550_000).expect("feedback");
-    assert!(s.target_bps(550_000) >= start);
+    // Settle both receipt batches, then consume a complete congestion window.
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 160_000).expect("settlement");
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 660_000).expect("sample");
+    assert!(s.target_bps(660_000) >= start);
 }
 
 #[test]

@@ -244,6 +244,22 @@ mod tests {
     }
 
     #[test]
+    fn sparse_feedback_waits_for_the_minimum_packet_sample() {
+        let mut m = sent(4);
+        m.on_arrivals([0, 1, 3], 0);
+        m.on_arrivals([], 100_000);
+        assert_eq!(m.take_congestion_loss(100_000), None);
+        assert_eq!(m.take_congestion_loss(600_000), None, "four packets are insufficient");
+        for seq in 4..24 {
+            m.on_sent(seq);
+        }
+        m.on_arrivals(4..24, 700_000);
+        m.on_arrivals([], 800_000);
+        assert_eq!(m.take_congestion_loss(800_000), Some(1.0 / 24.0));
+        assert_eq!(m.take_congestion_loss(1_300_000), None);
+    }
+
+    #[test]
     fn traffic_after_idle_gets_a_fresh_observation_window() {
         let mut m = sent(20);
         m.on_arrivals(0..20, 0);
