@@ -44,20 +44,23 @@ extension LiveCoordinator {
     /// began) limits that to the holds placed before the read; nil lifts every hold.
     public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil) {
         let machines = machines.filter(\.isCloud)
-        var liftedStale: [String] = []
+        var lifted: [String] = []
         if fromRead {
             let stamp = readStamp ?? Int.max
             let now = cloudNow()
             // A quick-drop wait still running keeps its hold through the read.
-            cloudDropHolds = cloudDropHolds.filter { $0.value > stamp || (cloudHoldNotBefore[$0.key].map { $0 > now } ?? false) }
+            let keptDrops = cloudDropHolds.filter { $0.value > stamp || (cloudHoldNotBefore[$0.key].map { $0 > now } ?? false) }
+            lifted = cloudDropHolds.keys.filter { keptDrops[$0] == nil }
+            cloudDropHolds = keptDrops
             cloudHoldNotBefore = cloudHoldNotBefore.filter { cloudDropHolds[$0.key] != nil }
-            liftedStale = cloudStaleHolds.filter { $0.value <= stamp }.map(\.key)
+            lifted += cloudStaleHolds.filter { $0.value <= stamp }.map(\.key)
             cloudStaleHolds = cloudStaleHolds.filter { $0.value > stamp }
         }
-        // A stale-held machine that was targeted before this read skipped its dial (and waits in
-        // `connecting`): the read says it may dial, so it dials now. Taken before this apply targets
-        // anything, so a machine this apply targets first dials once (its own dial), never twice.
-        let skippedDials = liftedStale.filter { id in
+        // A held machine still targeted when this read lifts its hold skipped its dial and waits in
+        // `connecting` (a stale hold; or a drop hold whose deferred un-target has not run yet, when
+        // the read answers first): the read says it may dial, so it dials now. Taken before this
+        // apply targets anything, so a machine this apply targets first dials once, never twice.
+        let skippedDials = lifted.filter { id in
             guard let session = sessions[id] else { return false }
             return session.link.target != nil && !session.link.phase.isConnected
         }

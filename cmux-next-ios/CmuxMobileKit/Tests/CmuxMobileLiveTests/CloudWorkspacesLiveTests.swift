@@ -467,6 +467,28 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(cloud.dials(vm) == 2)
     }
 
+    /// Fleet fd420b6c (step b2a4c7ea): a read that lifted a drop hold before the drop's deferred
+    /// un-target ran left the link targeted in "connecting" (its redial skipped while held), and
+    /// re-targeting the same machine does nothing: it never dialed again. The read that lifts any
+    /// hold signals such a link to dial.
+    @Test(.timeLimit(.minutes(1))) func aReadThatLiftsADropHoldBeforeItsUntargetStillDials() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        cloud.lastCarrier(vm)?.drop()
+        // The read answers in the same turn the hold is seen, before the deferred un-target runs.
+        await settle { live.cloudDropHolds[vm] != nil }
+        #expect(live.sessions[vm]?.link.target != nil, "the un-target already ran: this test needs it pending")
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live }
+        #expect(cloud.dials(vm) == 2, "the link stayed in connecting after its hold lifted")
+    }
+
     /// Closing a Cloud link releases its terminals' sizes first (while the link is still up),
     /// one close at a time; a re-target while it releases keeps the link (no late close, no redial).
     @Test func closeLinkReleasesFirstAndARetargetWins() async throws {
