@@ -23,7 +23,7 @@ enum SettingsHandlers {
         SettingsCustomizationActions().bind(into: registry, effect: { route, focus in
             try context.services.settingsWindow.show(section: nil, focus: focus, route: route)
             return .done
-        })
+        }, refuse: { [weak registry] in registry?.refuse(thrown: $0) })
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.

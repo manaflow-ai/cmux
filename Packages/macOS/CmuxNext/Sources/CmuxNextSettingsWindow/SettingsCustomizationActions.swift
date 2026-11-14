@@ -4,13 +4,16 @@ public import CmuxNextActions
 @MainActor public struct SettingsCustomizationActions {
     public init() {}
     public func bind(into registry: ActionRegistry,
-                            effect: @escaping @MainActor (String, Bool) throws -> ActionEffect) {
-        // Showing Settings is local and immediate; both effects finish on this turn.
-        registry.bindEffect("sidebar.customize", requires: nil, effect: { invocation in
-            return try effect(SettingsDeepLink.sidebarRoute(), invocation.allowsViewChange)
+                     effect: @escaping @MainActor (String, Bool) throws -> ActionEffect,
+                     refuse: @escaping @MainActor (any Error) -> Void) {
+        // The package API is nonthrowing. The app owns its existing error-to-refusal policy.
+        registry.bindEffect("sidebar.customize", effect: { invocation in
+            do { return try effect(SettingsDeepLink.sidebarRoute(), invocation.allowsViewChange) }
+            catch { refuse(error); return .done }
         })
-        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
-            return try effect("#/settings/menus", invocation.allowsViewChange)
+        registry.bindEffect("settings.customizeMenus", effect: { invocation in
+            do { return try effect("#/settings/menus", invocation.allowsViewChange) }
+            catch { refuse(error); return .done }
         })
     }
 }
