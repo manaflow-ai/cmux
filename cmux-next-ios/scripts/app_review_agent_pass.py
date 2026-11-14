@@ -110,26 +110,6 @@ def bundle_id(app: Path) -> str:
     return out.strip()
 
 
-def agent_said(proc: subprocess.CompletedProcess) -> str:
-    """Why the agent stopped, the same words for the same cause on every run:
-    the result of claude's JSON output (`subtype: result`), else the last
-    line of stderr or stdout. Quoting the JSON line itself put a run-unique
-    session id and usage counts ahead of the reason, cut it off at 200
-    characters, and made the same red on base and on a PR two different
-    errors (gate runs 43625607673 and 43632344606)."""
-    try:
-        said = json.loads(proc.stdout or "")
-    except json.JSONDecodeError:
-        said = None
-    if isinstance(said, dict) and isinstance(said.get("result"), str) and said["result"].strip():
-        reason = said["result"].strip().splitlines()[0]
-        return f"{said.get('subtype', 'result')}: {reason}" if said.get("is_error") is not True else reason
-    if isinstance(said, dict) and isinstance(said.get("subtype"), str):
-        return said["subtype"]
-    lines = (proc.stderr or proc.stdout or "").strip().splitlines()
-    return lines[-1] if lines else "no output"
-
-
 def unjudged(findings: Path, rule: str, message: str, where: str = "") -> int:
     """The pass judged nothing: a blocker the report shows, and a red step.
     It used to be a warning and exit 0, so a pass with no axe on the runner
@@ -190,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         assert isinstance(items, list)
     except (OSError, json.JSONDecodeError, AssertionError):
         items = None
-    detail = [agent_said(proc)]
+    detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
     if items is None:
         return unjudged(findings, "agent.no-verdict",
                         f"the agent exited {proc.returncode} with no findings array ({detail[0][:200]});"
