@@ -400,6 +400,25 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "check": check }))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"cloud_start_list_wait" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    elapsed_ms: u64,
+                    #[serde(default)]
+                    deadline_left_ms: Option<u64>,
+                    loaded: bool,
+                    signed_in: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let next = cmux_cloud_start_core::list_wait::list_wait(
+                    std::time::Duration::from_millis(request.elapsed_ms),
+                    request.deadline_left_ms.map(std::time::Duration::from_millis),
+                    request.loaded,
+                    request.signed_in,
+                );
+                serde_json::to_vec(&next).map_err(|_| ERR_INVALID)?
+            }
             b"cloud_start_uploads" => {
                 let request: cmux_cloud_start_core::start::Folder =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
