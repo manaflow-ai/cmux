@@ -169,24 +169,7 @@ on:
           - app-token
 
 concurrency:
-  # Each lane has its own group and a newer run replaces only a pending one; an in-flight
-  # nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every
-  # main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled
-  # and manual cache seeds use different groups, so a tick never cancels a manual refresh.
-  # A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest
-  # pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only
-  # the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the
-  # one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next
-  # runs (dispatches) stay run-scoped, except the loop's own retry of a failed run (nightly_next_loop_retry),
-  # which takes the push group's pending place like a push; the release/feed writers keep their own groups below.
-  # A loop run holds the group through publish and the GitHub release (the next run's decide reads its body
-  # and tag), then dispatch-published-in sends the deltas, notes, reel and PR comments to a run-scoped run
-  # (nightly_next_post_publish). Holding the group through that whole tail made the newest head wait about
-  # 79 min per cycle: 172 of 198 push runs were replaced while pending in 26 h (2026-11-07).
-  # A publishing nightly-next push builds only (decide's pipeline): its dispatch-nightly-next-sign hands the
-  # unsigned app to a sign run (nightly_next_sign_stage) in nightly-build-nightly-next-sign, so build N+1 runs
-  # while N signs and the publish period is the slower stage, not the whole run. That group works like the push
-  # group: one sign run at a time, and a newer dispatch replaces only a pending one, so the newest build signs next.
+  # Why: docs/ci/nightly-workflow-notes.md#note-19
   group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
@@ -2313,14 +2296,12 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      # A kept workspace: fetch only new objects (actions/checkout's depth-1 fetch resent the
-      # tree, 118 s in run 39440747033) and keep the three Rust target dirs.
+      # Why: docs/ci/nightly-workflow-notes.md#note-20
       - &x9
         name: Checkout build ref (warm nightly-next builder)
         if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          # actions/checkout's own URL, no .git: on a mismatch a later checkout on this slot deletes the workspace.
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
         run: |
@@ -2330,18 +2311,24 @@ jobs:
           [ -d .git ] || git init -q .
           git config gc.auto 0
           if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
-          # The negotiation tells the server what the workspace has only
-          # through refs; a detached HEAD alone makes it send the whole tree.
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          slot_mib=$(( $(du -sk .git/objects/pack 2>/dev/null | cut -f1 || echo 0) / 1024 ))
+          if [ -d "$mirror/objects" ] && [ ! -L "$mirror/objects" ] && [ ! -L "$mirror" ] && [ -f "$mirror/HEAD" ] \
+              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ] \
+              && ! grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
+              && ids=$(stat -c '%d %i' "$mirror/objects" 2>/dev/null || stat -f '%d %i' "$mirror/objects") \
+              && [[ "$ids" =~ ^[0-9]+\ [0-9]+$ ]]; then
+            printf '{"objects": "%s", "dev": %s, "ino": %s}\n' "$mirror/objects" "${ids% *}" "${ids#* }" > .git/.glaeda-mirror-borrow.json.tmp
+            mv -f .git/.glaeda-mirror-borrow.json.tmp .git/glaeda-mirror-borrow.json
+            mkdir -p .git/objects/info
+            echo "$mirror/objects" >> .git/objects/info/alternates
+            echo "cold slot: borrowing $mirror/objects (slot packs before the fetch: $slot_mib MiB)"
+          else
+            echo "slot packs before the fetch: $slot_mib MiB; alternates: $(tr '\n' ' ' < .git/objects/info/alternates 2>/dev/null || echo none)"
+          fi
           if git rev-parse -q --verify HEAD >/dev/null; then
             git update-ref refs/remotes/origin/nightly-warm-base HEAD
           fi
-          # Each try has its own limit and git's low-speed abort, and a failed try's partial pack
-          # and locks are removed before the next (scripts/ci/git_fetch_retry.py). Run 40466772597
-          # hung here for 62 min, then died with "early EOF". Measured on owned minis (25 runs,
-          # 2026-10-26/27): 0-6 s warm, 194 s at most cold, so 600 s per try, 3 tries.
-          # The kept clone holds an earlier build, so the helper comes from the workflow commit,
-          # into RUNNER_TEMP where the checkout and clean below cannot remove it: from the local
-          # objects, else raw.githubusercontent.com (bounded), else the clone's own copy.
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
@@ -2352,7 +2339,6 @@ jobs:
           retry() {
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
             else
-              # No helper: one try, with git's own low-speed abort, so a stall still ends in about a minute.
               echo "::warning title=warm checkout::git_fetch_retry.py unavailable; running git once with the low-speed abort"
               "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}"
             fi
@@ -2360,11 +2346,6 @@ jobs:
           started=$SECONDS
           retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
-          # One runner can have the builder and the signing label, so the signer or a deltas job may
-          # have left this clone sparse; checkout and reset then keep its files out of the tree (run
-          # 42833135477: "Select Xcode", .xcode-version missing). Take the setting out of both config
-          # files (a full actions/checkout leaves .git/config's `true` in force) and the skip-worktree
-          # bits out of the index. Not `git sparse-checkout disable`: it first writes the old tree.
           git_dir="${GITHUB_WORKSPACE:?}/.git"
           for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
             git config --local --unset-all "$key" || true
@@ -2378,9 +2359,6 @@ jobs:
           fi
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
-          # Go writes its module cache read-only; a clone whose acpmux build ran before
-          # tailnet-go.sh set -modcacherw still has one, and git clean cannot remove it
-          # (run 42940891027: "failed to remove .build/go-path/pkg/mod/...: Permission denied").
           chmod -R u+w .build/go-path 2>/dev/null || true
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
@@ -2388,10 +2366,8 @@ jobs:
           started=$SECONDS
           retry git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
           echo "updated submodules in $((SECONDS - started)) s"
-          # A hosted runner starts with clean submodules; drop what earlier runs left.
           git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
           git submodule foreach -q --recursive git config --local gc.auto 0
-          # Each fetch adds a pack and gc.auto is off: fold them past 40.
           packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
           if [ "$packs" -gt 40 ]; then
             echo "$packs packs: repacking"
@@ -6286,23 +6262,7 @@ jobs:
 
       - *wipe-owned-credentials
 
-  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in one job
-  # nothing waits on. It uploads the build's immutable assets first: no concurrency group, so no run's
-  # uploads are ever replaced, and they may wait out GitHub's rate limits as long as they need. Then,
-  # only while this build is the live feed's newest, it writes the release's mutable state: the rolling
-  # DMG name, the feed copy, the body with the cmux-published-sha marker and the nightly-next tag. Each
-  # of those writes runs still-newest just before it writes, inside the release names lease (one writer at a
-  # time across runs: on nightly-next it runs in the loop run, and in run-scoped manual runs that may overlap
-  # it), so no older build moves them back. It stays in the loop run, holding the push group: the next run's
-  # decide reads the body and tag (published_sha), so the dispatched tail (cross_run) never runs it. They were a job
-  # of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the
-  # deltas job take cmux15 first, and the names moved 40 min after the feed.
-  # It holds the release App key, so it runs on an ephemeral GitHub-hosted VM in release-next, as
-  # publish-release-notes already does with the same key, never on a mini a pull request job can reach. Leo,
-  # 2026-11-08, on moving it off the signer: "no. if this is still a good idea, we can still do it." (the override of
-  # Lawrence's owned-minis rule for this one job, tests/test_nightly_owned_minis_only.HOSTED_LOOP_JOBS). On cmux15
-  # it held the whole signing Mac 289-406 s a build after queueing 79-412 s behind keep-published-dsyms (runs
-  # 42547726872, 42552327203, 42555458535, 42563930397); hosted it starts beside keep-published-dsyms.
+  # Why: docs/ci/nightly-workflow-notes.md#note-21
   publish-nightly-next-github:
     needs: [published-build]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && needs.published-build.outputs.cross_run != 'true'"
