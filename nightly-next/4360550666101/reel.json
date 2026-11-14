@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4360550666101",
+  "notes": "notes/4360550666101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43046,
+      "title": "cmux-next-ios: a hidden terminal tab feeds its output once a second, with no display link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39647,
+      "title": "cmux NEXT: name the traffic lights and the scrollers' arrow and page parts",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
