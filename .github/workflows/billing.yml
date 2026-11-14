@@ -19,7 +19,9 @@ name: Billing
 #   reports on every run, and a skipped job counts as passing only when routing
 #   skipped it. If billing becomes required, drop the pull_request path filter
 #   first (tests/test_ci_required_checks_have_no_path_filters.py), since
-#   `changes` already skips the work on unrelated pull requests.
+#   `changes` already skips the work on unrelated pull requests. Dropping it
+#   also closes GitHub's limit that a path filter reads only the first 300
+#   changed files, so a very large pull request can miss the lane today.
 on:
   pull_request:
     paths:
@@ -36,11 +38,14 @@ on:
       - "web/app/api/admin/subscriptions/**"
       - "web/app/api/cron/apple-notifications/**"
       - "web/app/api/cron/billing-*/**"
+      - "web/app/api/cron/team-seats/**"
       - "web/app/app-pricing/**"
+      - "web/app/components/pro-plan-card.tsx"
       - "web/dashboard-app/screens/billing/**"
       - "web/orpc/server/dashboard/schemas/billing*"
       - "web/db/schema*.ts"
       - "web/db/migrations/**"
+      - "web/scripts/stripe/**"
       - "web/tests/apple-iap-*"
       - "web/tests/billing-*"
       - "web/tests/stripe-*"
@@ -51,7 +56,33 @@ on:
       - "web/tests/*entitlement*"
       - "web/tests/helpers/apple-*"
       - "web/tests/helpers/*billing*"
+      - "web/**/*billing*"
+      - "web/**/*billing*/**"
+      - "web/**/*Billing*"
+      - "web/**/*Billing*/**"
+      - "web/**/*stripe*"
+      - "web/**/*stripe*/**"
+      - "web/**/*Stripe*"
+      - "web/**/*entitlement*"
+      - "web/**/*Entitlement*"
+      - "web/**/*subscription*"
+      - "web/**/*subscription*/**"
+      - "web/**/*Subscription*"
+      - "web/**/*pricing*"
+      - "web/**/*pricing*/**"
+      - "web/**/*Pricing*"
+      - "web/**/*checkout*"
+      - "web/**/*checkout*/**"
+      - "web/**/*Checkout*"
+      - "web/**/*seats*"
+      - "web/**/*Seats*"
+      - "web/**/*apple-iap*"
       - "Packages/iOS/CmuxMobileBilling/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/**/*Billing*"
+      - "ios/**/*Billing*"
+      - "ios/**/*.storekit"
   # merge_group takes no path filter; `changes` skips the work when the queued
   # commit does not touch billing.
   merge_group:
@@ -118,9 +149,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The selector's exit status is checked through the file, and an empty
+      # list stops here: `bun test` with no paths would run the whole suite.
       - name: Billing tests
         run: |
-          mapfile -t files < <(python3 ../scripts/ci/billing_lane.py web-tests)
+          python3 ../scripts/ci/billing_lane.py web-tests > "$RUNNER_TEMP/billing-tests.txt"
+          mapfile -t files < "$RUNNER_TEMP/billing-tests.txt"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the billing test selector returned no files"
+            exit 1
+          fi
           echo "Running ${#files[@]} billing test file(s):"
           printf '  %s\n' "${files[@]}"
           bun test --isolate "${files[@]}"
@@ -181,7 +219,12 @@ jobs:
         env:
           CMUX_DB_TEST: "1"
         run: |
-          mapfile -t files < <(python3 ../scripts/ci/billing_lane.py web-tests --db)
+          python3 ../scripts/ci/billing_lane.py web-tests --db > "$RUNNER_TEMP/billing-db-tests.txt"
+          mapfile -t files < "$RUNNER_TEMP/billing-db-tests.txt"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the billing DB test selector returned no files"
+            exit 1
+          fi
           bash scripts/run-db-behavior-tests.sh "${files[@]}"
 
   web-billing-typecheck:
@@ -249,8 +292,15 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # The same watchdog and executed-test check as test-ios.yml's package
+      # steps: a hang names the stuck test, and zero executed tests fails.
       - name: CmuxMobileBilling tests
-        run: swift test --package-path Packages/iOS/CmuxMobileBilling
+        run: |
+          set -euo pipefail
+          log_path="$RUNNER_TEMP/CmuxMobileBilling-tests.log"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
+            --label CmuxMobileBilling --log "$log_path" -- swift test --package-path Packages/iOS/CmuxMobileBilling
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" CmuxMobileBilling
 
   billing:
     name: billing
@@ -262,22 +312,22 @@ jobs:
       - name: Enforce billing results
         env:
           NEEDS: ${{ toJSON(needs) }}
-          WEB: ${{ needs.changes.outputs.web }}
-          IOS: ${{ needs.changes.outputs.ios }}
+          # Each routed job and whether billing-changes routed it. A job in
+          # `needs` that is missing here must succeed.
+          ROUTES: >-
+            {"web-billing": "${{ needs.changes.outputs.web }}",
+            "web-billing-db": "${{ needs.changes.outputs.web }}",
+            "web-billing-typecheck": "${{ needs.changes.outputs.web }}",
+            "ios-billing": "${{ needs.changes.outputs.ios }}"}
         run: |
           python3 - <<'PY'
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
-          routed = {
-              "changes": True,
-              "web-billing": os.environ["WEB"] == "true",
-              "web-billing-db": os.environ["WEB"] == "true",
-              "web-billing-typecheck": os.environ["WEB"] == "true",
-              "ios-billing": os.environ["IOS"] == "true",
-          }
+          routes = json.loads(os.environ["ROUTES"])
           bad = []
-          for job, wanted in routed.items():
-              result = needs[job]["result"]
+          for job, data in sorted(needs.items()):
+              result = data["result"]
+              wanted = routes.get(job, "true") == "true"
               print(f"{job}: {result} ({'routed' if wanted else 'not routed'})")
               if result == "success" or (result == "skipped" and not wanted):
                   continue

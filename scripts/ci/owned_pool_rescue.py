@@ -498,6 +498,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/billing.yml",
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",

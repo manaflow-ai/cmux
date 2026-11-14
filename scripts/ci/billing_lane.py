@@ -6,7 +6,7 @@ test as its own check. This file is the one list of what "touches billing"
 means. The workflow's `on.pull_request.paths` must equal the union of the
 pattern lists below; tests/test_ci_billing_lane.py fails when they drift.
 
-    billing_lane.py route              # writes web=, ios=, storekit= to $GITHUB_OUTPUT
+    billing_lane.py route              # writes web= and ios= to $GITHUB_OUTPUT
     billing_lane.py web-tests          # every billing web test file, one per line
     billing_lane.py web-tests --db     # the CMUX_DB_TEST-gated subset of those
 
@@ -44,12 +44,15 @@ WEB_PATTERNS = (
     "web/app/api/admin/subscriptions/**",
     "web/app/api/cron/apple-notifications/**",
     "web/app/api/cron/billing-*/**",
+    "web/app/api/cron/team-seats/**",
     "web/app/app-pricing/**",
+    "web/app/components/pro-plan-card.tsx",
     "web/dashboard-app/screens/billing/**",
     "web/orpc/server/dashboard/schemas/billing*",
     # Billing tables live in the shared schema; every migration can touch them.
     "web/db/schema*.ts",
     "web/db/migrations/**",
+    "web/scripts/stripe/**",
     "web/tests/apple-iap-*",
     "web/tests/billing-*",
     "web/tests/stripe-*",
@@ -60,10 +63,41 @@ WEB_PATTERNS = (
     "web/tests/*entitlement*",
     "web/tests/helpers/apple-*",
     "web/tests/helpers/*billing*",
+    # Billing code outside those directories, by name: team billing and seat
+    # procedures, the billing gateway, checkout and pricing UI, Stripe
+    # analytics, billing alerts, entitlement overrides.
+    "web/**/*billing*",
+    "web/**/*billing*/**",
+    "web/**/*Billing*",
+    "web/**/*Billing*/**",
+    "web/**/*stripe*",
+    "web/**/*stripe*/**",
+    "web/**/*Stripe*",
+    "web/**/*entitlement*",
+    "web/**/*Entitlement*",
+    "web/**/*subscription*",
+    "web/**/*subscription*/**",
+    "web/**/*Subscription*",
+    "web/**/*pricing*",
+    "web/**/*pricing*/**",
+    "web/**/*Pricing*",
+    "web/**/*checkout*",
+    "web/**/*checkout*/**",
+    "web/**/*Checkout*",
+    "web/**/*seats*",
+    "web/**/*Seats*",
+    "web/**/*apple-iap*",
 )
 
 IOS_PATTERNS = (
     "Packages/iOS/CmuxMobileBilling/**",
+    # Its dependencies: the shared wire types and the support package.
+    "Packages/Shared/CMUXMobileCore/**",
+    "Packages/iOS/CmuxMobileSupport/**",
+    # The app's billing composition, recovery actions and StoreKit config.
+    "Packages/iOS/**/*Billing*",
+    "ios/**/*Billing*",
+    "ios/**/*.storekit",
 )
 
 # Billing test files by name. Tests that exercise billing under another name
@@ -86,21 +120,14 @@ TEST_NAME_GLOBS = (
 )
 
 # A test that names a billing module in any string (an import, a dynamic
-# import or a mock.module path) is a billing test.
+# import or a mock.module path) is a billing test: a relative or `@/` module
+# path with a billing word in it.
 BILLING_IMPORT = re.compile(
-    r"""["'][^"'\n]*(?:"""
-    r"services/billing(?:/|[\"'])"
-    r"|services/vms/entitlements"
-    r"|services/vms/planUsage"
-    r"|app/api/billing/"
-    r"|app/api/stripe/"
-    r"|app/api/admin/subscriptions/"
-    r"|app/api/cron/apple-notifications/"
-    r"|app/api/cron/billing-"
-    r"|app/app-pricing/"
-    r"|dashboard-app/screens/billing/"
-    r"|orpc/server/dashboard/schemas/billing"
-    r""")[^"'\n]*["']"""
+    r"""["'](?:\.{1,2}/|@/)[^"'\n]*(?:"""
+    r"billing|stripe|entitlement|seats|checkout|pricing|subscription"
+    r"|apple-iap|apple-notifications|planUsage|pro-plan-card"
+    r""")[^"'\n]*["']""",
+    re.IGNORECASE,
 )
 TEST_FILE = re.compile(r"(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$")
 DB_GATE = "process.env.CMUX_DB_TEST"
@@ -113,6 +140,10 @@ def workflow_paths() -> list[str]:
 
 @lru_cache(maxsize=None)
 def _compiled(pattern: str) -> re.Pattern[str]:
+    # Only `*` and `**` mean the same here as in GitHub's filter syntax, where
+    # `?`, `+`, `[]` and `!` are operators; refuse them rather than guess.
+    if any(char in pattern for char in "?+[]!"):
+        raise ValueError(f"unsupported path filter syntax in {pattern!r}")
     out = []
     i = 0
     while i < len(pattern):
@@ -124,9 +155,6 @@ def _compiled(pattern: str) -> re.Pattern[str]:
             i += 2
         elif pattern[i] == "*":
             out.append("[^/]*")
-            i += 1
-        elif pattern[i] == "?":
-            out.append("[^/]")
             i += 1
         else:
             out.append(re.escape(pattern[i]))
@@ -140,13 +168,9 @@ def matches(path: str, patterns: tuple[str, ...] | list[str]) -> bool:
 
 def classify(paths: list[str]) -> dict[str, bool]:
     lane = any(matches(path, LANE_PATTERNS) for path in paths)
-    ios = lane or any(matches(path, IOS_PATTERNS) for path in paths)
     return {
         "web": lane or any(matches(path, WEB_PATTERNS) for path in paths),
-        "ios": ios,
-        # The StoreKit simulator job rides on the iOS route; it skips cleanly
-        # until a BillingStoreKitTests target exists.
-        "storekit": ios,
+        "ios": lane or any(matches(path, IOS_PATTERNS) for path in paths),
     }
 
 
@@ -167,7 +191,7 @@ def changed_paths() -> list[str] | None:
 
 
 def route() -> int:
-    every = {"web": True, "ios": True, "storekit": True}
+    every = {"web": True, "ios": True}
     if os.environ.get("EVENT_NAME") == "workflow_dispatch":
         areas = every
     else:
@@ -178,6 +202,11 @@ def route() -> int:
             areas = every
         else:
             areas = classify(paths)
+            if os.environ.get("EVENT_NAME") in ("pull_request",) and not any(areas.values()):
+                # GitHub's path filter started this run, so some billing path
+                # changed even though these patterns disagree: run everything.
+                print("GitHub's path filter matched but no billing route did; running every billing job")
+                areas = every
             touched = [path for path in paths if matches(path, workflow_paths())]
             print(f"{len(touched)} of {len(paths)} changed path(s) are billing paths:")
             for path in touched:
