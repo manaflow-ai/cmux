@@ -6,7 +6,6 @@
 //! what a step thread still runs ([`kill_steps`]). Runners without a deadline never come here: their steps run
 //! exactly as before.
 
-use std::io::Read;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -92,40 +91,98 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
             }
         }
     };
-    let stdout = child.stdout.take().map(drain);
-    let stderr = child.stderr.take().map(drain);
-    let left = until.saturating_duration_since(Instant::now());
-    // Unreaped either way: exited (a zombie) or still running at `until`.
-    let exited = child.exited_within(left).unwrap_or(false);
+    let mut pipes: Vec<Pipe> =
+        [child.stdout.take().map(Pipe::of), child.stderr.take().map(Pipe::of)]
+            .into_iter()
+            .flatten()
+            .collect();
+    // The output is read here, on this thread, while the step runs: no reader thread outlives the step. A pipe
+    // ends once every process holding it is gone; until then each wait is at most one slice, so the step's exit
+    // is seen even while a leftover of its group still holds a pipe.
+    let mut exited = false;
+    loop {
+        if !exited && child.exited_within(Duration::ZERO).unwrap_or(false) {
+            exited = true;
+            // The step is done: what is left in its group is its own leftover, and goes now.
+            end_group(&mut child);
+        }
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() || pipes.iter().all(|pipe| pipe.ended) {
+            break;
+        }
+        read_ready(&mut pipes, left.min(EXIT_CHECK_SLICE));
+    }
+    if !exited {
+        // Every pipe ended (the step closed them) or `until` came: unreaped either way.
+        let left = until.saturating_duration_since(Instant::now());
+        exited = child.exited_within(left).unwrap_or(false);
+    }
     end_group(&mut child);
     // After the kill the leader is gone or going: this reap returns at once.
     let status = child.wait().ok().filter(|_| exited);
-    // Each pipe ends once the group is gone; a reader still waiting at `until` (a process that left the group and
-    // holds the pipe) is not waited for.
-    let collect = |reader: Option<std::sync::mpsc::Receiver<Vec<u8>>>| match reader {
-        None => Some(Vec::new()),
-        Some(reader) => reader.recv_timeout(until.saturating_duration_since(Instant::now())).ok(),
-    };
-    let (stdout, stderr) = (collect(stdout), collect(stderr));
-    match (status, stdout, stderr) {
-        (Some(status), Some(stdout), Some(stderr)) => Ran {
-            code: status.code().unwrap_or(1),
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
-        },
+    match status {
+        // A pipe still held at `until` (a process that left the group) is not waited for.
+        Some(status) if pipes.iter().all(|pipe| pipe.ended) => {
+            let mut text =
+                pipes.into_iter().map(|pipe| String::from_utf8_lossy(&pipe.read).into_owned());
+            Ran {
+                code: status.code().unwrap_or(1),
+                stdout: text.next().unwrap_or_default(),
+                stderr: text.next().unwrap_or_default(),
+            }
+        }
         _ => ran_past_deadline(),
     }
 }
 
-/// Reads a pipe to its end on a thread of its own, and sends what it read.
-fn drain(mut pipe: impl Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<u8>> {
-    let (done, read) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
-        let _ = done.send(bytes);
-    });
-    read
+/// How long one wait on a step's pipes lasts before the step's exit is checked again.
+const EXIT_CHECK_SLICE: Duration = Duration::from_millis(50);
+
+/// One of a step's output pipes, read on the step's own thread.
+struct Pipe {
+    fd: std::os::fd::OwnedFd,
+    read: Vec<u8>,
+    ended: bool,
+}
+
+impl Pipe {
+    fn of(pipe: impl Into<std::os::fd::OwnedFd>) -> Self {
+        Self { fd: pipe.into(), read: Vec::new(), ended: false }
+    }
+}
+
+/// Waits at most `wait` for any open pipe of `pipes` to be readable, and reads what each readable one holds: one
+/// read per readiness, which never blocks. A pipe at its end, or failed, is ended.
+fn read_ready(pipes: &mut [Pipe], wait: Duration) {
+    use std::os::fd::AsRawFd as _;
+    let open: Vec<usize> = (0..pipes.len()).filter(|at| !pipes[*at].ended).collect();
+    let mut polled: Vec<libc::pollfd> = open
+        .iter()
+        .map(|at| libc::pollfd { fd: pipes[*at].fd.as_raw_fd(), events: libc::POLLIN, revents: 0 })
+        .collect();
+    let millis = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX);
+    let count = libc::nfds_t::try_from(polled.len()).unwrap_or(0);
+    // SAFETY: `polled` holds `count` live pollfds for descriptors `pipes` owns.
+    if unsafe { libc::poll(polled.as_mut_ptr(), count, millis) } <= 0 {
+        return;
+    }
+    let mut buffer = [0u8; 16 * 1024];
+    for (polled, at) in polled.iter().zip(open) {
+        if polled.revents == 0 {
+            continue;
+        }
+        let pipe = &mut pipes[at];
+        // SAFETY: a read into a live buffer of its own length from a descriptor `pipe` owns.
+        let read =
+            unsafe { libc::read(pipe.fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+        match usize::try_from(read) {
+            Ok(0) => pipe.ended = true,
+            Ok(read) => pipe.read.extend_from_slice(&buffer[..read]),
+            Err(_) if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {
+            }
+            Err(_) => pipe.ended = true,
+        }
+    }
 }
 
 /// Kills the group of `child` (its own, `process_group(0)`), leader included, and forgets it, under the registry's
@@ -171,24 +228,46 @@ pub(in crate::cli::cloud_start_chat) fn remote_script(
     Some(format!("timeout -k {grace} {seconds} sh -c {}", shell_quote(script)))
 }
 
-/// All of `reader` (stdin), by `until`: past it the read stops waiting and is an error. The thread that reads stays
-/// blocked on a reader that never ends, and goes with the process.
+/// All of `reader` (stdin), by `until`, read on this thread: past it the read stops waiting and is an error.
 pub(in crate::cli::cloud_start_chat) fn read_by(
-    reader: impl Read + Send + 'static,
+    reader: impl std::os::fd::AsFd,
     until: Instant,
 ) -> Result<String, String> {
-    let (done, read) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name("carrier-drill-stdin".into())
-        .spawn(move || {
-            let mut reader = reader;
-            let mut text = String::new();
-            let _ = done.send(reader.read_to_string(&mut text).map(|_| text));
-        })
-        .map_err(|error| error.to_string())?;
-    match read.recv_timeout(until.saturating_duration_since(Instant::now())) {
-        Ok(read) => read.map_err(|error| error.to_string()),
-        Err(_) => Err("--timeout ran out while the prompt was read from stdin".into()),
+    use std::os::fd::AsRawFd as _;
+    let fd = reader.as_fd().as_raw_fd();
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 16 * 1024];
+    loop {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err("--timeout ran out while the prompt was read from stdin".into());
+        }
+        let mut polled = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let millis = libc::c_int::try_from(left.as_millis()).unwrap_or(libc::c_int::MAX);
+        // SAFETY: one live pollfd for a descriptor `reader` holds open.
+        match unsafe { libc::poll(&mut polled, 1, millis) } {
+            0 => continue,
+            ready if ready < 0 => {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error.to_string());
+            }
+            _ => {}
+        }
+        // SAFETY: a read into a live buffer of its own length; after POLLIN it does not block.
+        let read = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
+        match usize::try_from(read) {
+            Ok(0) => return String::from_utf8(bytes).map_err(|error| error.to_string()),
+            Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+            Err(_) => {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error.to_string());
+                }
+            }
+        }
     }
 }
 
@@ -200,18 +279,19 @@ mod tests {
     /// whole. Without the bound the drill waited on such a stdin past any `--timeout`.
     #[test]
     fn a_stdin_read_stops_at_the_deadline() {
-        struct Never;
-        impl Read for Never {
-            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-                std::thread::sleep(Duration::from_secs(600));
-                Ok(0)
-            }
-        }
+        use std::io::Write as _;
+        // A pipe nobody closes: its reader never sees an end.
+        let (reader, writer) = std::io::pipe().unwrap();
         let began = Instant::now();
-        assert!(read_by(Never, began + Duration::from_millis(200)).is_err());
+        assert!(read_by(&reader, began + Duration::from_millis(200)).is_err());
         assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
-        let read = read_by(std::io::Cursor::new(b"count".to_vec()), began + Duration::from_secs(5));
+        // One that ends is read whole.
+        let (reader, mut writer_two) = std::io::pipe().unwrap();
+        writer_two.write_all(b"count").unwrap();
+        drop(writer_two);
+        let read = read_by(&reader, began + Duration::from_secs(5));
         assert_eq!(read, Ok("count".to_owned()));
+        drop(writer);
     }
 
     /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
