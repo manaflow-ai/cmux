@@ -79,6 +79,19 @@ export default agentPaneEntry({
       ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
+    "cloud-no-team-account": {
+      note: "A team Cloud machine whose team has no Codex account: the card names the team's way (cr add), and Use an API key goes on now where the machine signs agents in.",
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      snapshot: cloudFailed("Codex needs a team account on this machine: run cr add codex to add one"),
+    },
+    "trust-pending": {
+      note: "The folder's trust question is open: Trust folder answers it from the card, where the pane may answer for the folder.",
+      snapshot: failed("trust.pending: answer the trust question for the folder first"),
+    },
+    "trust-untrusted": {
+      note: "Not now stands for the folder: Trust folder from the card, as a failed send's card offers it.",
+      snapshot: failed("trust.untrusted: the folder is not trusted"),
+    },
     "agent-closed": {
       note: 'Leo\'s screenshot: "agent process closed" reads as the agent quitting, with Retry and the raw words under Details.',
       snapshot: failed("agent process closed"),
@@ -118,6 +131,30 @@ export default agentPaneEntry({
         user(prompt, 6),
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
       ]),
+    },
+    "details-placement-wide": {
+      note: "Rate-limit card at a wide width: Details reserves its own action row before and after opening.",
+      snapshot: failed(
+        "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.",
+      ),
+    },
+    "details-placement-narrow": {
+      note: "Rate-limit card before work at a narrow width: Retry, Switch model and Details keep stable rows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error:
+            "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.",
+        }),
+      ]),
+    },
+    "details-placement-long": {
+      note: "Long rate-limit text: opening the raw error expands below the same Details disclosure slot.",
+      snapshot: failed(
+        "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.\nrequest-id: gallery-rate-limit\nretry-after: 60",
+      ),
     },
     // Leo 2026-11-03, on a card that led with Switch model when the server could not be reached: "this
     // ui is pretty awkward looking". Retry leads a connection failure; Switch model only follows it.

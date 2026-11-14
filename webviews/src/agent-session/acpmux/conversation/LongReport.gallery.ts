@@ -90,7 +90,7 @@ const PROGRESS = [
 ];
 
 /// `startEnded`: the stretch that started the review ended with its summary while the chat works on,
-/// so its start card is in sight: under the shipped live-turn-work `line` a stretch still running
+/// so its start card is in sight: under the live-turn-work `line` a stretch still running
 /// draws none of its calls, only its replies and the live line (turns.ts `codexRuns`).
 const leadRows = (finished: boolean, startEnded = false) => [
   user("How did October go? Look at what I worked on.", 30),

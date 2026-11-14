@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5";
+pub const ir_sha256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1398,6 +1398,15 @@ pub const ListTerminalsResult = struct {
     registry_id: []const u8,
     terminal_revision: u64,
     terminals: []const TerminalRecord,
+};
+
+pub const ListWorkspacesKnown = struct {
+    generation: wire.Field([]const u8) = .absent,
+    pane_revision: wire.Field(u64) = .absent,
+    registry_id: wire.Field([]const u8) = .absent,
+    terminal_revision: wire.Field(u64) = .absent,
+    tree_revision: wire.Field([]const u8) = .absent,
+    workspace_revision: wire.Field(u64) = .absent,
 };
 
 pub const LivePane = struct {
@@ -3481,6 +3490,9 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
+    total: ?u64 = null,
+    tree_revision: ?[]const u8 = null,
+    unchanged: ?bool = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
 
@@ -3489,6 +3501,9 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "terminal_revision",
+        "total",
+        "tree_revision",
+        "unchanged",
         "workspace_revision",
     };
 };
@@ -6024,6 +6039,8 @@ pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    create_workspace: ?bool = null,
     cwd: wire.Field([]const u8) = .absent,
     detached: ?bool = null,
     env: wire.Field(wire.Map([]const u8)) = .absent,
@@ -6038,8 +6055,11 @@ pub const CreateTerminalRequest = struct {
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+    /// The name of the workspace create_workspace makes.
+    workspace_name: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "create_workspace",
         "detached",
         "keep",
     };
@@ -6056,11 +6076,13 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "create_workspace", .since = 12, .capability = "create-terminal-workspace-v1" },
                 .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
+                .{ .name = "workspace_name", .since = 12, .capability = "create-terminal-workspace-v1" },
             },
         },
         request,
@@ -7048,7 +7070,10 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
     );
 }
 
-pub const ListWorkspacesRequest = struct {};
+pub const ListWorkspacesRequest = struct {
+    known: wire.Field(ListWorkspacesKnown) = .absent,
+    limit: wire.Field(u64) = .absent,
+};
 
 pub const ListWorkspacesResult = Tree;
 
@@ -7060,6 +7085,10 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
+                .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+            },
         },
         request,
     );

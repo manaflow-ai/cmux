@@ -138,6 +138,40 @@ fn package_paths_are_checked() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Step 11 (extensibility-DESIGN.md 12.1 item 12): an app whose script or
+/// manifest strings carry a character that hides what it does is refused at
+/// load and install, naming file, line and column, never the text.
+#[test]
+fn a_script_or_manifest_string_with_a_hidden_character_is_refused() {
+    let dir = std::env::temp_dir().join(format!("cmux-app-manifest-hidden-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("dist")).expect("mkdir");
+    std::fs::write(
+        dir.join("dist/main.js"),
+        "let ok = 1;\nlet admin = \"user\u{202E} \u{2066}// x\";\n",
+    )
+    .expect("write");
+    let m = manifest(json!({ "runtime": { "main": "dist/main.js" }, "icon": { "symbol": "app" } }));
+    std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
+    let report = validate_package(&dir);
+    let hidden: Vec<_> = report.issues.iter().filter(|i| i.code == "text.hidden").collect();
+    assert_eq!(hidden.len(), 1, "{:?}", report.issues);
+    assert_eq!(hidden[0].path, "/runtime/main");
+    assert!(hidden[0].message.starts_with("dist/main.js:2:18 "), "{}", hidden[0].message);
+    assert!(hidden[0].message.contains("U+202E"));
+    assert!(!report.is_valid());
+
+    std::fs::write(dir.join("dist/main.js"), "text.replace(/^\u{FEFF}/, '');\n").expect("write");
+    assert!(!validate_package(&dir).issues.iter().any(|i| i.code == "text.hidden"));
+    std::fs::remove_dir_all(&dir).ok();
+
+    let named = manifest(json!({ "description": "Shows the time\u{200B}" }));
+    let issues = validate_manifest(&named);
+    assert!(
+        issues.iter().any(|i| i.code == "text.hidden" && i.path == "/description"),
+        "{issues:?}"
+    );
+}
+
 #[test]
 fn sidebar_sections_accept_all_three_regions_including_bottom() {
     for region in ["top", "middle", "bottom"] {

@@ -209,7 +209,7 @@ impl Inner {
     ) -> std::result::Result<Repaired, RepairError> {
         let keep_journaled = || journaled.iter().map(|(_, line)| line.clone()).collect::<Vec<_>>();
         let chat_error = |error: anyhow::Error| RepairError::Chat { error, keep: keep_journaled() };
-        match std::fs::symlink_metadata(self.local.dir(id)) {
+        match crate::home_fs::symlink_metadata(self.local.dir(id)) {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Repaired::Gone);
@@ -693,7 +693,7 @@ fn piece_seq(line: &[u8]) -> Option<u64> {
 
 /// Syncs the folder at `path`; nothing when it is not there.
 fn sync_if_there(path: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(path) {
+    match crate::home_fs::symlink_metadata(path) {
         Ok(_) => log_sync::sync_directory_ordered(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),

@@ -29,7 +29,7 @@
  * And whether the person lost output. A second dial is the person's chat as the app holds it (ChatClient: a chat tab
  * on the machine's store, `agent-session-start`, `agent-session-prompt`, `agent-session-attach` and its live records,
  * attached again from the newest seq held after a redial or a close). Each fault's turn is a counting turn: the model
- * stub's turn script (countingTurnScript) makes COUNT_STEPS numbered shell calls, and the fault goes in once the client
+ * stub's turn script (countingTurnScript) makes COUNT_STEPS numbered file reads, and the fault goes in once the client
  * has seen a third of them. A guest terminal prints 1..SEQ_LINES across the same span, tee'd to a file, and the client
  * reads it with `terminal.output_read` from offsets (SeqTerminal). After the turn, judgeLoss compares what the client
  * received with the machine's own journal (`acp tail --since`), and judgeTerminal compares its terminal reads with the
@@ -763,6 +763,11 @@ export function journalCommand(session: string, baseline: number): string {
     "    k = str(e.get('kind', ''))",
     "    out = {'seq': e['seq'], 'kind': k}",
     "    if k in ('tool_call', 'tool_call_update'): out['msg'] = {'params': {'update': ((e.get('msg') or {}).get('params') or {}).get('update')}}",
+    // A permission ask: only its tool's kind and a cut title, so the job log names what waited without its arguments.
+    "    if k == 'permission_request':",
+    "        r = (e.get('msg') or {}).get('request') or {}",
+    "        c = r.get('toolCall') or (r.get('params') or {}).get('toolCall') or {}",
+    "        out['ask'] = {'kind': str(c.get('kind', ''))[:20], 'title': str(c.get('title', ''))[:60]}",
     "    print(json.dumps(out))",
   ].join("\n");
   // `acp tail` writes to a file first, so its own failure is the exit the line reports (sh has no pipefail).
@@ -770,17 +775,37 @@ export function journalCommand(session: string, baseline: number): string {
     `python3 -I -c ${shq(py)} < "$t"; py=$?; rm -f "$t"; [ "$rc" -eq 0 ] || py=$rc; echo "@@exit $py"; }`;
 }
 
-async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number): Promise<SeqEvent[] | string> {
+/** What a turn's journal holds besides its steps: how many records of each kind, and each permission ask. */
+export type JournalNotes = { kinds: Record<string, number>; asks: string[] };
+
+async function readJournal(ctx: ChaosContext, tag: string, session: string, baseline: number, notes?: JournalNotes): Promise<SeqEvent[] | string> {
   const r = await ctx.exec(`${ctx.guest}${journalCommand(session, baseline)}`, 120_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
   if (!/@@exit 0/.test(r.stdout)) return `the machine's journal could not be read: ${(r.stdout + r.stderr).slice(-200)}`;
   const events: SeqEvent[] = [];
   for (const line of r.stdout.split("\n")) {
     try {
-      const e = journalEvent(tag, JSON.parse(line));
+      const raw = JSON.parse(line);
+      const e = journalEvent(tag, raw);
       if (e) events.push(e);
+      if (notes) noteJournalLine(notes, raw);
     } catch { /* the @@exit line */ }
   }
   return events;
+}
+
+/** Adds one journalCommand line to `notes`. */
+export function noteJournalLine(notes: JournalNotes, line: any): void {
+  if (typeof line?.seq !== "number") return;
+  const kind = String(line.kind ?? "");
+  notes.kinds[kind] = (notes.kinds[kind] ?? 0) + 1;
+  if (kind === "permission_request") notes.asks.push(`seq ${line.seq}: ${String(line.ask?.kind ?? "") || "?"} ${JSON.stringify(String(line.ask?.title ?? ""))}`);
+}
+
+/** The notes as one clause for a verdict: the record kinds, then the permission asks, if any. */
+export function journalNotesText(notes: JournalNotes): string {
+  const kinds = Object.entries(notes.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k || "?"} ${n}`).join(", ");
+  const asks = notes.asks.length ? `; ${notes.asks.length} permission ask${notes.asks.length > 1 ? "s" : ""}: ${notes.asks.slice(0, 3).join("; ")}` : "; no permission ask";
+  return `the turn's journal records: ${kinds || "none"}${asks}`;
 }
 
 /**
@@ -796,8 +821,13 @@ async function feltBoundary(ctx: ChaosContext, session: string, after: number, e
 
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
 async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean): Promise<LossVerdict> {
-  const journal = await readJournal(ctx, tag, chat.session, baseline);
+  const notes: JournalNotes = { kinds: {}, asks: [] };
+  const journal = await readJournal(ctx, tag, chat.session, baseline, notes);
   if (typeof journal === "string") return { ok: false, text: journal };
+  // A turn whose machine ran no step lost nothing in transit: say what its journal holds instead (a permission ask
+  // that waits for a person, run 43578005170), in the job log, which outlives a full artifact store.
+  const ranNone = !journal.some((e) => e.ks.length);
+  if (ranNone || notes.asks.length) ctx.log?.(`chaos: ${tag}: ${journalNotesText(notes)}`);
   const last = journal.length ? journal[journal.length - 1].seq : baseline;
   const caught = await chat.caughtUp(last, 30_000);
   const slice = chat.received.slice(from);
@@ -806,7 +836,8 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted });
   const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
   const pages = slice.filter((r) => r.via === "page").length;
-  return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)` };
+  const why = ranNone ? `; ${journalNotesText(notes)}` : "";
+  return { ok: verdict.ok, text: `${verdict.text}${lag}; ${slice.length} records to the client (${pages} from re-attach pages, ${chat.overlaps} live overlaps dropped)${why}` };
 }
 
 async function terminalVerdict(ctx: ChaosContext, term: SeqTerminal | null, startError: string): Promise<LossVerdict> {
@@ -864,6 +895,9 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       else ctx.log?.(`chaos: the felt chat's warm-up reply began after ${warm.felt_ms} ms`);
     }
     if (!chatError) ctx.log?.(`chaos: the client's chat ${chat.session} is open on surface ${chat.surface}, its felt chat ${felt.session} on ${felt.surface}, each over its own carrier dial`);
+    // The chat's folder holds each counting turn's files (countingTurnScript); its policy and mode go to the job log.
+    const facts = chatError ? { cwd: "", text: "" } : await chatFacts(ctx, chat.session);
+    if (!chatError) ctx.log?.(`chaos: the client's chat: ${facts.text}`);
     for (const [i, f] of FAULTS.entries()) {
       if (chatError) {
         out.push(failed(f.name, `the client's chat could not be opened over the carrier: ${chatError}`));
@@ -880,10 +914,21 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const baseline = chat.held;
       const from = chat.received.length;
       // The guest terminal printing 1..SEQ_LINES across the fault, read by the client over the carrier.
+      // The counting turn's files, in the chat's folder (countingTurnScript reads them), before the terminal starts.
+      if (!facts.cwd) {
+        out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
+        continue;
+      }
+      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
+      if (!dir) {
+        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
+        continue;
+      }
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
       const seqError = await seq.start(tag).then(() => "", (e: Error) => e.message);
-      // The counting turn: COUNT_STEPS numbered tool calls (the model stub's counting script, countingTurnScript).
-      const sent = await chat.prompt(`${marker} ${f.name}: run the counting steps.`).then(() => "", (e: Error) => e.message);
+      // The counting turn: COUNT_STEPS numbered reads (the model stub's counting script, countingTurnScript).
+      const sent = await chat.prompt(countingPrompt(tag, f.name, dir)).then(() => "", (e: Error) => e.message);
       if (sent) {
         out.push(failed(f.name, `the turn did not start: ${sent}`));
         continue;
@@ -958,25 +1003,60 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
   return out;
 }
 
-/** How many numbered tool calls the counting turn makes, and the pause in each (about 100 x (0.2 s + a round trip)). */
+/** How many numbered tool calls the counting turn makes, and the stub's pause before each (about 100 x (0.2 s + a round trip)). */
 export const COUNT_STEPS = 100;
-const COUNT_SLEEP_S = 0.2;
+const COUNT_PAUSE_S = 0.2;
 
 /** The counting turn's prompt marker; the stub's turn script matches it, and its group is the turn's tag. */
 export const countMarker = (tag: string) => `[chaos-count ${tag}]`;
 
+/** The felt chat's warm-up and reply prompts: a text-only turn so measuring felt time cannot wait on a tool round. */
+export function feltTurnScript(): { match: string; steps: Array<Record<string, string>> } {
+  return { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] };
+}
+
 /**
- * The model stub's turn script for the counting turn (model_stub.py "turns"): steps 1..n each run one shell call that
- * prints `chaos-<tag>-K` (printf joins it, so the call's own command text never carries it and only its result
- * counts), then a reply. The stub counts steps from the turn's own prompt, so the session's earlier tool calls do not
- * move it.
+ * The model stub's turn script for the counting turn (model_stub.py "turns"): steps 1..n each Read one file, `K.txt`
+ * in the folder the prompt names (countingPrompt), whose text is `chaos-<tag>-K` (countingFilesCommand wrote it; the
+ * path never carries that text, so only the read's result counts), then a reply. The stub counts steps from the turn's
+ * own prompt, so the session's earlier tool calls do not move it.
+ *
+ * A Read, not a shell call: the chat runs under policy `ask` (agent-session-start), where acpmux's tool gate makes
+ * every shell call, a read-only one too, wait for a person (acpmux hub/policy_gate.rs), and only the person's app may
+ * answer it (hub/person.rs). A Read in the chat's own folder asks nobody, so the turn runs as a person's would. Each
+ * step's stub pause keeps the turn about as long as it was with shell calls, so each fault still lands mid-turn.
  */
-export function countingTurnScript(n = COUNT_STEPS): { match: string; steps: Array<Record<string, string>> } {
+export function countingTurnScript(n = COUNT_STEPS): { match: string; steps: Array<Record<string, unknown>> } {
   const tag = "{{prompt~\\[chaos-count (\\S+)\\]}}";
-  const steps: Array<Record<string, string>> = [];
-  for (let k = 1; k <= n; k++) steps.push({ shell: `sleep ${COUNT_SLEEP_S}; printf '%s-%s-%s\\n' chaos ${tag} ${k}` });
+  const dir = "{{prompt~ files in (/\\S+?)/ in order}}";
+  const steps: Array<Record<string, unknown>> = [];
+  for (let k = 1; k <= n; k++) steps.push({ tool: { name: "Read", input: { file_path: `${dir}/${k}.txt` } }, pause: COUNT_PAUSE_S });
   steps.push({ text: `Counted ${n} steps for ${tag}.` });
   return { match: "\\[chaos-count \\S+\\]", steps };
+}
+
+/** The counting turn's prompt: its marker, and the folder of its files (countingTurnScript reads it from here). */
+export const countingPrompt = (tag: string, fault: string, dir: string) => `${countMarker(tag)} ${fault}: read the counting files in ${dir}/ in order.`;
+
+/**
+ * The guest command that writes the counting turn's files, `<cwd>/chaos-count/<tag>/K.txt` holding `chaos-<tag>-K`
+ * for K in 1..n, in the chat's own folder (`cwd`, from `acp session info`), and prints `@@dir <folder>`.
+ */
+export function countingFilesCommand(cwd: string, tag: string, n = COUNT_STEPS): string {
+  const dir = `${cwd}/chaos-count/${tag}`;
+  return `d=${shq(dir)}; mkdir -p "$d" && k=0 && while [ "$k" -lt ${n} ]; do k=$((k+1)); ` +
+    `printf '%s-%s-%s\\n' chaos ${shq(tag)} "$k" > "$d/$k.txt" || exit 1; done && echo "@@dir $d"`;
+}
+
+/**
+ * The chat's folder, policy and mode on the machine (`acp session info --fields`), for the counting files and for the
+ * job log, so a turn that waits on a permission names why without an artifact.
+ */
+async function chatFacts(ctx: ChaosContext, session: string): Promise<{ cwd: string; text: string }> {
+  const r = await ctx.exec(`${ctx.guest}"$c" acp session info ${shq(session)} --fields cwd,policy,currentModeId 2>&1`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  const field = (name: string) => new RegExp(`^${name}\\t(.*)$`, "m").exec(r.stdout)?.[1]?.trim() ?? "";
+  const cwd = field("cwd");
+  return { cwd: cwd.startsWith("/") ? cwd : "", text: `cwd ${cwd || "?"}, policy ${field("policy") || "?"}, mode ${field("currentModeId") || "?"}${cwd ? "" : ` (${r.stdout.trim().slice(-160)})`}` };
 }
 
 /** One event of a session's journal, as the machine has it or as a client received it. */

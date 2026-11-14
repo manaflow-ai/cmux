@@ -3,11 +3,11 @@
 2026-10-07: three source changes on feat-cmux-next without a re-pin (2914fa52,
 d7167cb6, 45845b2d) each made `swift test` red on every pull request into it.
 """
-import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,9 +23,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
 PIN_READER = ROOT / "scripts/ci/app_ffi_pin.py"
-_spec = importlib.util.spec_from_file_location("app_ffi_pin", PIN_READER)
-app_ffi_pin = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(app_ffi_pin)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(PIN_READER.parent) not in sys.path:
+    sys.path.insert(0, str(PIN_READER.parent))
+import app_ffi_pin  # noqa: E402
 SOURCE = "cmux-tui/crates/cmux-rd-core/src/lib.rs"
 CHECKSUM = "c" * 64
 

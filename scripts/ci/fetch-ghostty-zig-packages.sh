@@ -99,12 +99,25 @@ progress() {
 # archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
+    # Through stdin: GNU tar reads a C:\... path (the Zig cache on a Windows
+    # runner) as HOST:FILE, and every archive failed this check there.
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf - < "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
     *) return 0 ;;
   esac
+}
+
+# Whether archive_ok passes a whole .tar.gz written under the cache's own path
+# (tmp/, which Zig never takes a package from).
+checks_work() {
+  local probe="$cache/tmp/.cmux-check-$$.tar.gz" ok=1
+  mkdir -p "$cache/tmp" 2>/dev/null || return 1
+  if printf 'whole\n' > "$probe.f" && tar -czf - -C "$(dirname "$probe")" "$(basename "$probe").f" > "$probe" 2>/dev/null \
+    && archive_ok "$probe"; then ok=0; fi
+  rm -f "$probe" "$probe.f"
+  return "$ok"
 }
 
 # After a failed attempt: this checkout's unfinished unpacks, and any archive in
@@ -117,6 +130,13 @@ clear_scratch() {
     if [[ -e "$entry" ]]; then rm -rf "$entry"; fi
   done
   [[ -n "$cache" ]] || return 0
+  # Only an archive's own fault removes it: when the check fails on an archive
+  # this script just wrote whole, at the cache's own path, the check is broken
+  # here (a tool, a path form), and every archive in p/ would go.
+  if ! checks_work; then
+    echo "warning: the archive check fails on a whole archive under $cache; no archive in p/ is removed" >&2
+    return 0
+  fi
   for entry in "$cache"/p/*; do
     if [[ -f "$entry" ]] && ! archive_ok "$entry"; then
       echo "removing a cut-short Zig package archive: $entry" >&2

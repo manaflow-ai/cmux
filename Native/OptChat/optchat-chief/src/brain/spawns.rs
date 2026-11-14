@@ -78,11 +78,6 @@ fn span(d: std::time::Duration) -> String {
     }
 }
 
-/// A subagent run shorter than this, that left nothing to land, is a short
-/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
-/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
-pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -952,7 +947,7 @@ impl Brain {
     }
 
     /// Workspace `key` is gone (opening it failed at spawn or on `control
-    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// show`, or the user closed it): it has none now, and the next `show` or `hide` opens under a fresh key (a half-made
     /// workspace was closed under this one, and the daemon replays its
     /// mutations).
     pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
@@ -969,7 +964,7 @@ impl Brain {
         self.rewatch_permission(id);
     }
 
-    /// `id` lost its workspace (hidden, or its open failed), or its Home card
+    /// `id` lost its workspace (the user closed it, or its open failed), or its Home card
     /// was retired: a prompt it still waits on with no Allow button left is
     /// watched again, and denied once overdue.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
@@ -1753,83 +1748,41 @@ impl Brain {
     /// Under the close setting, closes a finished subagent's workspace.
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
-    /// a name the user or the Chief gave it stays.
+    /// a name the user or the Chief gave it stays. Nothing else closes it:
+    /// a finished subagent stays where it was, in the sidebar or in the
+    /// "Chief's workspaces" group (Aziz, 2026-11-11: Chief-made agents
+    /// vanished from the sidebar).
     fn mark_workspace(&mut self, id: &str, done: bool) {
         if !done {
-            // Running again: it has not expired.
             if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
                 made.expires_ms = None;
             }
             return;
         }
-        // Its lifetime ends now (action_lifetime.rs): a Task leaves the hat after its time, a
-        // tucked workspace is due for the reaper at once.
-        let now = now_ms();
         if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
-            made.ended(now);
+            made.ended(now_ms());
             self.save();
+        }
+        if !self.sub_close_on_finish {
+            return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
-        // A tucked one keeps a short task's guards: a stopped run, or a report that left work to
-        // land (its landing follow-up resumes it), keeps its workspace.
-        let reap =
-            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
-                && !sub.stopped
-                && !sub
-                    .report
-                    .as_deref()
-                    .is_some_and(crate::sub_watch::unlanded);
-        // Every finished one under the close setting; else a short task's
-        // (a run under SHORT_TASK whose report left nothing to land), so a
-        // sidebar does not fill with workspaces of one-off asks. Its chat
-        // stays readable (zoom).
-        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
-            && sub.run_ms > 0
-            && !sub.stopped
-            && !sub
-                .report
-                .as_deref()
-                .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short || reap) {
-            return;
-        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, and its
-        // key is forgotten once that close succeeds (a kept one stays).
-        // The reaper closes a tucked workspace like a short task's: only while none of its
-        // terminals runs a command, so a shell the person started there is never ended.
-        let explicit = self.sub_close_on_finish;
-        if explicit {
-            if let Some(sub) = self.state.sub_mut(id) {
-                sub.workspace = None;
-                super::control::retire_slot_key(sub);
-            }
-            self.save();
+        // The close setting closes every finished one and forgets it.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace = None;
+            super::control::retire_slot_key(sub);
         }
-        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
+        self.save();
+        let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            let closed = if explicit {
-                workspaces.close(&key).map(|()| true)
-            } else {
-                workspaces.close_idle(&key)
-            };
-            match closed {
-                // A short task's key is forgotten once its workspace is gone,
-                // so a later `control show` opens a new one.
-                Ok(true) if !explicit => {
-                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
-                }
-                Ok(true) => {}
-                Ok(false) => log(&format!(
-                    "subagent {id}: its workspace stays: a terminal runs a command"
-                )),
-                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
+            if let Err(e) = workspaces.close(&key) {
+                log(&format!("subagent {id}: closing its workspace: {e}"));
             }
         });
     }
@@ -3412,7 +3365,7 @@ impl Brain {
         true
     }
 
-    /// Opens hidden local subagent `id`'s workspace so its tab shows a prompt
+    /// Opens local subagent `id`'s workspace (when it has none) so its tab shows a prompt
     /// Home cannot. Nothing when this host makes no workspaces, or for a
     /// peer, an `ask` subagent or one that has a workspace already.
     fn show_for_permission(&mut self, id: &str) {

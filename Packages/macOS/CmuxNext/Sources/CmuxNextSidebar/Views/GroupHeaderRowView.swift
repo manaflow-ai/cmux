@@ -598,8 +598,18 @@ final class GroupHeaderRowView: SidebarRowView {
         if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide) }
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
-        let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
-        pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        // The pin draws as a pinned workspace row's does (`SidebarStyle.rowGlyphOptics`): its ink sized to the rows' one
+        // optical square, centered in that square from the icon column's edge, on the line Home's house and the pinned
+        // rows' pins share. The column's own middle sits 1 to 2 pt right of it: the tuned glyph size is under the
+        // column's width.
+        if let image = pin.image, let pinInk,
+           let frame = SidebarStyle.rowGlyphOptics.frame(imageSize: image.size, ink: pinInk, leading: lead, centerY: b.height / 2,
+                                                         flipped: isFlipped, scale: scale) {
+            pin.frame = frame
+        } else {
+            let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
+            pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        }
         // After a pin, the header's own icon and name move one icon column in, as a pinned row's do.
         let inner = showsPin ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
         glyph.frame = NSRect(x: inner.lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
@@ -628,6 +638,7 @@ final class GroupHeaderRowView: SidebarRowView {
         rim.frame = b
         rim.cornerRadius = SidebarStyle.rowCornerRadius
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
+        pill.cornerCurve = Metrics.tabCornerCurve // and one curve with the tabs
         pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
         // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).
         let dotSide = SidebarStyle.groupDotSize
@@ -657,7 +668,7 @@ extension GroupHeaderRowView {
     var pinInkFrame: CGRect? {
         guard let square = pinSquareFrame, let image = pin.image,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: SidebarItemRowView.pinGlyph) else { return nil }
-        return ink.offsetBy(dx: square.minX, dy: square.minY)
+        return SidebarItemRowView.drawnInk(ink, image: image, in: square)
     }
 
     private var machineIsShown: Bool { !machineMark.isHidden || !machineDot.isHidden || !machineWords.isHidden }

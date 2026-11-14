@@ -44,6 +44,32 @@ class ScrollPlanTests(unittest.TestCase):
                         self.assertEqual(command[command.index("--target-hz") + 1], target)
 
 
+class BenchAppTests(unittest.TestCase):
+    def test_every_bench_measures_the_app_it_is_given(self):
+        """home-perf.py took no --app and looked for a reload.sh build, so on the fleet (split-spring.sh builds
+        into .build/DerivedData/cmux-measure) it exited in 0.2 s and every run's home rows were missing: an
+        incomplete gate (stable-next run 42930043303)."""
+        with tempfile.TemporaryDirectory() as out:
+            args = ["perf-budgets.py", "--tag", "test", "--app", "/fleet/cmux DEV test.app", "--out", out]
+            with patch.object(sys, "argv", args), patch.object(pb, "run_phase") as run, patch.object(pb, "finish"):
+                pb.main()
+        plan = run.call_args.args[2]
+        for name in pb.BENCHES:
+            command = plan[name][0]
+            with self.subTest(bench=name):
+                self.assertIn("--app", command)
+                self.assertEqual(command[command.index("--app") + 1], "/fleet/cmux DEV test.app")
+
+    def test_home_perf_takes_the_app_and_refuses_a_missing_one(self):
+        import subprocess
+        script = os.path.join(ROOT, "scripts/cmux-next/home-perf.py")
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, script, "--tag", "t", "--out", os.path.join(out, "h.json"),
+                                   "--app", os.path.join(out, "none.app")], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no app at", done.stderr + done.stdout)
+
+
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed

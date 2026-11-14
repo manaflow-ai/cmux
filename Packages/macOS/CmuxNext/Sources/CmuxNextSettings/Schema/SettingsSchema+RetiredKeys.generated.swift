@@ -8,6 +8,8 @@ extension SettingsSchema {
     /// write through `settings.set` or the palette is refused as removed
     /// (`SettingRetired`), not as unknown.
     public static let retiredKeys: [String: String] = [
+        // Auto became the default on Mac and iPhone (Leo, 2026-11-09: it is a different kind of default, it is auto).
+        "remote.ultraMode": "Ultra Connection Mode is now remote.ultra: Off, Auto or Always (true reads as Always)",
         // One background everywhere (plans/cmux-next/windows.md, 2026-10-03).
         "appearance.tabBarBackground": "every surface draws the one window background",
         // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.
@@ -34,7 +36,45 @@ extension SettingsSchema {
         "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
         // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
         "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.greeting": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.projects": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.actions": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.chats": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.styleDots": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.weather": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.weatherCity": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.machines": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.clock": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.timer": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.warmGreeting": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.quote": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
+        "tabs.newTabWidgets.order": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
         // No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour.
         "ui.animations.bounce": "no animation passes its place; every spring stops exactly on it",
+        // The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections).
+        "phone.allowConnections": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+        // The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections).
+        "phone.startSessions": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+    ]
+
+    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
+    /// values read as in the row (any other value reads as the row's default). While the row is
+    /// unset Settings shows the old key's value, and every write or reset of the row removes the
+    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+        ["remote", "ultra"]: (old: ["remote", "ultraMode"], values: [.bool(true): .string("always")]),
     ]
 }

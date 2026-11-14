@@ -22,6 +22,8 @@ public final class TabSelectionMemory {
     private let focused = ObservedMap<String, String>()
     /// The order `resolve` last saw per pane (for the neighbor after a close); never observed.
     @ObservationIgnored private var lastOrder: [String: [String]] = [:]
+    /// Each pane's grouped tabs to their group as of its last ``resolve``: a closed tab's group, which the close rule reads.
+    @ObservationIgnored private var lastGroups: [String: [String: String]] = [:]
     /// Bumped by every selection change in any pane: for a reader that follows
     /// all of this window's selections (one read, no walk of the panes).
     public private(set) var revision: UInt64 = 0
@@ -110,8 +112,10 @@ public final class TabSelectionMemory {
     /// close-selection rule; a member of a collapsed group in `hidden` is
     /// skipped while a shown tab survives). `closing`: the tabs a pending close hides
     /// (`DaemonStore.closingTabIDs`); asked only when a tab with an opener relation is no longer listed.
-    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
+    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [], groups: [String: String] = [:],
                         replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
+        let earlierGroups = lastGroups[pane] ?? [:]
+        lastGroups[pane] = groups.isEmpty ? nil : groups
         closeRule.adopt(replaced)
         // Before the pick: a tab whose pending close was committed since the last call leaves the rule's state.
         if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], closing: closing) }
@@ -124,7 +128,8 @@ public final class TabSelectionMemory {
         if let current = selected[pane] {
             if tabs.contains(current) { return current }
             if let old = lastOrder[pane], old.contains(current) {
-                let pick = closeRule.successor(of: current, old: old, tabs: tabs, hidden: hidden) ?? tabs[0]
+                let pick = closeRule.successor(of: current, old: old, tabs: tabs, hidden: hidden,
+                                               groups: earlierGroups.merging(groups) { _, now in now }) ?? tabs[0]
                 closeRule.closeSelects { set(pick, in: pane) } // the close's own move: the rule does not hear of it
                 return pick
             }
@@ -139,6 +144,7 @@ public final class TabSelectionMemory {
         for pane in selected.keys where !livePanes.contains(pane) { set(nil, in: pane) }
         selected.compact { livePanes.contains($0) }
         lastOrder = lastOrder.filter { livePanes.contains($0.key) }
+        lastGroups = lastGroups.filter { livePanes.contains($0.key) }
         closeRule.prune(livePanes: livePanes)
     }
 }

@@ -1,14 +1,23 @@
 // l10n-allow-file: test fixture prompts, commands and replies, not shipped UI.
 // The finished runs a running turn keeps out of sight stay out when they would come back between
 // rows a reader scrolled up has in view (conversation/turnEndHold.ts `rowsToHold`). Under the
-// shipped `line` look of live-turn-work a running turn draws its replies and one live line; when
+// retained `line` look of live-turn-work a running turn draws its replies and one live line; when
 // another agent's prompt opens a new turn over the stretch, turns.ts draws the stretch as it came,
 // every run of it at once. agent-pane-turn-end-keeps-place.test.ts ("a turn that streams calls, a
 // message and its end") measures the move in a browser; this file holds the rule.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { rowsToHold, withoutHeldRows } from "../src/agent-session/acpmux/conversation/turnEndHold";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+const armsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "line", "live-turn-clock": "line" };
+});
+afterAll(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

@@ -38,6 +38,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
 # GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
@@ -1865,7 +1868,7 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("git push", script)
                 self.assertNotIn("git -c", script.replace("git -c user.", ""))
                 self.assertIn("format-patch", script)
-                self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
+                self.assertFalse(any(workflow_jobs.secret_names(step) for step in spec["steps"]))
 
     def run_format(self, bun: str) -> dict:
         """Run regen-linux's real step script for `kinds: format` with a stub bun."""

@@ -191,6 +191,7 @@ export type StackLayout = "list" | "stacked";
 export function NoticeStack({
   queue,
   dismissLabel,
+  label,
   layout = "list",
   align = "center",
   drag: feel,
@@ -202,6 +203,9 @@ export function NoticeStack({
   queue: NoticeQueue;
   /** The ×'s accessible name ("Dismiss"). */
   dismissLabel: string;
+  /** The stack's name as a landmark ("Notifications"): with it the stack is a region VoiceOver's
+   *  rotor lists, so a person can reach the toasts from anywhere on the page. */
+  label?: string;
   /** `list`: every toast in full, newest at the bottom; `stacked`: a deck, newest in front. */
   layout?: StackLayout;
   /** Where the bottom anchor's deck stands across its surface (the gallery's compared option). */
@@ -391,6 +395,8 @@ export function NoticeStack({
     <div
       ref={stack}
       className={className ? `ui-notice-stack ${className}` : "ui-notice-stack"}
+      role={label ? "region" : undefined}
+      aria-label={label}
       data-layout={layout}
       data-align={layout === "stacked" ? align : undefined}
       data-dragging={dragging ? "" : undefined}

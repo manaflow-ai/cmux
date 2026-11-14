@@ -9,7 +9,7 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES]
+#     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -17,20 +17,31 @@
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # release=MINUTES (with one agents= count): agents.hiddenChats.discard on after MINUTES; the released
 # chats sampled as released-N, then 10 of them shown again and timed (PERF-IDLE-RESTORE).
+# attribute=1 (or attribute=KIND,KIND: those process kinds, default app,cef-gpu): also name what wakes the app and the Chromium GPU process in each window
+# (bench_memory.py --attribute: thread CPU, the debug.wakeups ledger and main run loop timers, live
+# pages, a stack sample after the window), as PERF-ATTR lines.
+# infinite=COUNTS: also the infinite-items run (scripts/measure/infinite-items.py, CMUX-571) on the bundle's
+# own acpmux and cmux-tui: COUNTS workspaces, each with a terminal tab and an agent chat, through simulated
+# days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
-reload_config=() purge=() release=()
+infinite="" days=3
+reload_config=() purge=() release=() attribute=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
+    infinite=*) infinite="${arg#infinite=}" ;;
+    days=*) days="${arg#days=}" ;;
     purge=1) purge=(--purge-hidden) ;;
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
+    attribute=1) attribute=(--attribute) ;;
+    attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -87,7 +98,8 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -100,7 +112,9 @@ if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
+    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+  grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -112,6 +126,15 @@ for s in data.get("samples", []):
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
 if "restore" in data:
     print(f"PERF-IDLE-RESTORE {json.dumps({k: v for k, v in data['restore'].items() if k != 'opens'})}")
+    # Each restored chat's trace (marks, surface changes, note): why a restore has no first-content time.
+    for o in data["restore"].get("opens", []):
+        print(f"PERF-IDLE-RESTORE-OPEN {json.dumps(o)}")
 PY
+fi
+if [[ -n "$infinite" ]]; then
+  echo "PERF-IDLE-LOAD infinite $(uptime | sed 's/.*load averages*: //')"
+  python3 scripts/measure/infinite-items.py --acpmux "$app/Contents/Resources/bin/acpmux" --tui "$tui" \
+    --counts "$infinite" --days "$days" --root-dir "$state_root" --out "$work/infinite.json" \
+    2> "$work/infinite.log" || { status=$?; tail -n 40 "$work/infinite.log"; }
 fi
 exit "$status"

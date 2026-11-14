@@ -96,6 +96,12 @@ impl Mux {
         self.journal_ingress.spawn_writer(name, task)
     }
 
+    /// Sets this session's journal deadline (deadline tests: `JOURNAL_DEADLINE_TEST_WAIT`).
+    #[cfg(test)]
+    pub(crate) fn set_journal_durable_wait_for_test(&self, wait: Duration) {
+        self.journal_ingress.set_durable_wait_for_test(wait);
+    }
+
     #[cfg(test)]
     pub(crate) fn install_journal_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);
@@ -256,7 +262,14 @@ impl Mux {
                 _ => (ok, failed),
             });
         self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
-        self.publish_journal_event();
+        // A batch of retry-row clears only (`AgentHookCleared`) wrote no journal row and changed no
+        // resource: publishing it woke every session stream and journal waiter for nothing, twice
+        // per projected hook. The delete published nothing when the request committed it itself.
+        if events.iter().any(|event| {
+            !matches!(event, crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. })
+        }) {
+            self.publish_journal_event();
+        }
         Ok(commits)
     }
 
@@ -373,6 +386,16 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.registry_connection.set_journal_before_commit_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_failing_statement_after_hold_for_test(&self) {
+        self.registry_connection.set_journal_failing_statement_after_hold_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_statement_until_deadline_for_test(&self) {
+        self.registry_connection.set_journal_statement_until_deadline_for_test();
     }
 
     #[cfg(test)]

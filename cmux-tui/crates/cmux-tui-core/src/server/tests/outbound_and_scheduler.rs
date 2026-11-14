@@ -540,8 +540,10 @@ fn write_side_eof_drains_accepted_surface_requests() {
     )
     .unwrap();
     client.flush().unwrap();
-    client.shutdown(Shutdown::Write).unwrap();
+    // Before the shutdown: the server closes after its 2 replies, and macOS refuses a read
+    // timeout on a socket that can send no more and receive no more.
     client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    client.shutdown(Shutdown::Write).unwrap();
 
     let mut responses = Vec::new();
     let mut reader = BufReader::new(client);

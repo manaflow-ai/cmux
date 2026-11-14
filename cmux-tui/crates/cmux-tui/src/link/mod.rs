@@ -14,6 +14,7 @@ mod dial_cli;
 mod enrollment;
 mod ensure;
 mod inbound;
+mod key_adoption;
 mod key_lock;
 // Also in tests elsewhere: its plist rewrite needs no launchd.
 #[cfg(any(test, target_os = "macos"))]
@@ -318,7 +319,11 @@ fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let _ensure_lock = server_identity.as_ref().map(|_| ensure::ensure_lock(&state)).transpose()?;
     // `serve` holds this lock for its lifetime: init cannot rewrite its config.
     let _lock = server_identity.as_ref().map(|_| serve_lock(&state)).transpose()?;
+    let local = server_identity.is_none();
     state.init(&LinkConfig { install, port, server_identity })?;
+    if local {
+        key_lock::record_home(&state)?;
+    }
     run_show_state(&state)
 }
 
@@ -346,6 +351,7 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     {
         bail!("server_link.identity_mismatch");
     }
+    let adopted = key_adoption::adopted(state)?;
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -355,6 +361,9 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
         "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
+        // The link key the node key replaced, and the paired peers not told yet.
+        "retired_public_key": adopted.as_ref().and_then(|adopted| adopted.retired_public_key.clone()),
+        "retiring_for": adopted.map(|adopted| adopted.pending).unwrap_or_default(),
     }))
 }
 
@@ -407,9 +416,8 @@ fn change_peers(
     change: impl FnOnce(&mut Pairings) -> std::io::Result<bool>,
 ) -> anyhow::Result<()> {
     let state = state(flags)?;
-    let mut pairings = Pairings::load(&state.peers_path())?;
-    let changed = change(&mut pairings)?;
-    pairings.save(&state.peers_path())?;
+    // Under the file's lock, which a running link's inbound rekeys take too.
+    let changed = Pairings::update(&state.peers_path(), change)?;
     let reloaded = match ensure::live(&state) {
         Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,
@@ -537,23 +545,41 @@ async fn serve(
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key(key)?;
-    let public_key = state::public_key(&private_key);
+    // One key per machine: the node key in this machine's acpmux home, adopted under the held
+    // key lock and the pairing file's lock (`key_adoption.rs`). The paired peers are read
+    // after it (`Peers::load` below), so a peer added during the adoption is not missed. The
+    // home is the one the app recorded (`key_lock::record_home`): launchd gives `serve` none of
+    // the app's environment, so it is never resolved here.
+    let acpmux_home = ::acpmux::cli::mesh_node_key::recorded_home(state.dir());
+    let served_key = key_adoption::serve_key(&state, key, acpmux_home.as_deref()).await?;
+    let public_key = state::public_key(&served_key.key);
+    let mut own_keys = vec![public_key];
+    own_keys.extend(served_key.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
-    let mesh = WgMesh::start(
-        WgMeshConfig {
-            private_key,
-            addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
-            mtu: LINK_MTU,
-        },
-        socket,
-    )?;
+    let mesh_config = WgMeshConfig {
+        private_key: served_key.key,
+        addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
+        mtu: LINK_MTU,
+    };
+    // Peers not told the adopted key yet still reach the retired one, on this same socket.
+    let (mesh, retiring) = match served_key.retiring {
+        Some(retiring) => {
+            (WgMesh::start_retiring(mesh_config, retiring.key, socket)?, retiring.pending)
+        }
+        None => (WgMesh::start(mesh_config, socket)?, Default::default()),
+    };
+    let still_retiring = !retiring.is_empty();
     let overlay = Arc::new(MeshOverlay::new(mesh));
+    overlay.set_retiring(retiring);
+    overlay.retiring().answer_with(public_key);
     let peers = Arc::new(Peers::load(state.peers_path())?);
+    // A peer that adopted too and names its key over the retired one gets the node key back.
+    peers.answer_rekeys_from(overlay.retiring());
+    peers.own_keys(own_keys);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
@@ -578,16 +604,44 @@ async fn serve(
         ready.send(&ready_line);
     }
     // A paired peer's `acpmux` stream goes to this user's acpmux listener.
-    let acpmux = AcpmuxTarget::from_acpmux_home();
+    let acpmux = AcpmuxTarget::for_home(acpmux_home);
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
+        () = reload_on_rekey(&peers, &overlay) => Ok(()),
+        () = finish_then_wait(still_retiring, &state, &overlay, &peers, &public_key) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
     result
+}
+
+/// The end of an adoption's retirement (`key_adoption::finish_retiring`), then nothing.
+async fn finish_then_wait(
+    retiring: bool,
+    state: &LinkState,
+    overlay: &MeshOverlay,
+    peers: &Peers,
+    node_public: &[u8; 32],
+) {
+    if retiring {
+        key_adoption::finish_retiring(state, overlay, peers, node_public, key_adoption::RETRY)
+            .await;
+    }
+    std::future::pending::<()>().await;
+}
+
+/// A paired peer's link named its new key (`inbound.rs`): the pairing file
+/// changed, so the overlay takes the new key.
+async fn reload_on_rekey(peers: &Peers, overlay: &MeshOverlay) {
+    loop {
+        peers.rekeyed().await;
+        if let Err(error) = peers.reload(overlay).await {
+            eprintln!("cmux link: reload after a paired peer's rekey failed: {error}");
+        }
+    }
 }
 
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
@@ -673,6 +727,7 @@ fn agent_arguments(state: &LinkState, flags: &Flags) -> Vec<String> {
 fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     state.config().context("run `cmux link init --install ID` first")?;
+    key_lock::record_home(&state)?;
     let arguments = agent_arguments(&state, flags);
     let program = std::env::current_exe()?;
     let path = launchd::install(&program, &arguments)?;

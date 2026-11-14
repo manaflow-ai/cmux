@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { EffortPicker } from "./EffortPicker";
 import { reasoningChoices } from "./composerPickerModel";
 import { STRING_TABLES, translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -56,6 +57,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

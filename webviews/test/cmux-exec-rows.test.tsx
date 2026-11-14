@@ -16,6 +16,7 @@ import { cmuxTitle, execParts, execView, scriptCalls } from "../src/agent-sessio
 import { mcpCall } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { jsTokens } from "../src/agent-session/acpmux/conversation/jsHighlight";
 import { treeText, valueTree } from "../src/agent-session/acpmux/conversation/valueTree";
+import { teardownDom } from "./support/domTeardown";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const t = translatorFor("en");
@@ -237,12 +238,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const row = (items: AcpmuxActivity[]): AcpmuxRow => ({ id: "activity", version: 1, at: 1, kind: "activity", items });

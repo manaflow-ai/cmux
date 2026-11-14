@@ -4,6 +4,7 @@
 // only once it has loaded, and the load hands the transcript a new look, which measures every row again.
 import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 let finishLoad = () => {};
 const installed: string[] = [];
@@ -21,7 +22,8 @@ const globals = globalThis as Record<string, unknown>;
 const hadDocument = "document" in globals;
 const savedDocument = globals.document;
 globals.document = dom.window.document;
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (hadDocument) globals.document = savedDocument;
   else delete globals.document;
   dom.window.close();

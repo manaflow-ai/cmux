@@ -136,6 +136,17 @@ class BaseMergeWarningTests(unittest.TestCase):
         done = self.pre_push(self.merge_base())
         self.assertEqual((done.returncode, done.stderr), (0, ""))
 
+    def test_github_unreadable_is_asked_once_per_push(self):
+        # cmux#41715 review: a down or signed-out gh cost its 15 s limit once per pushed branch with a base merge.
+        self.env["GH_EXIT"] = "1"
+        merge = self.merge_base()
+        lines = "".join(f"refs/heads/{branch} {merge} refs/heads/{branch} {self.old_head}\n"
+                        for branch in ("topic", "topic-2", "topic-3"))
+        done = subprocess.run(["python3", "-I", str(WARNING), "--pre-push", "--repo", str(self.repo)],
+                              input=lines, env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(len(self.gh_log.read_text().splitlines()), 1, self.gh_log.read_text())
+
     def test_update_branch_while_checks_run_adds_context_without_blocking(self):
         done = self.claude_hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/22801/update-branch")
         self.assertEqual(done.returncode, 0, done.stderr)

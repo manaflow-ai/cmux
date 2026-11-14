@@ -105,7 +105,7 @@
   opacity: 0;
   transition: opacity 0.12s ease-out;
 }
-.wn-card:is(:hover, :focus-within) .wn-card-close { opacity: 1; }
+.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .wn-card-close { transition: none; }
 }

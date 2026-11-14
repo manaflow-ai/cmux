@@ -5,9 +5,17 @@
 // in exactly one row at each step, and that row keeps its id across them, so it updates in place.
 // His capture: a pending Write's own row ("Writing a file") over the live line naming the same call
 // ("Write 12s").
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { turnView } from "./turns";
+
+// This file covers the `line` arm of liveTurnWork.experiment.ts (the shipped arm is `runs`).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "line" };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const J = JSON.stringify;

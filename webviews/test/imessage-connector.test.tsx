@@ -17,6 +17,7 @@ import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInf
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { connectorsSection } from "../src/agent-session/acpmux/session-info/native/connectors";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -52,6 +53,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   setNativeHost(undefined);
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -39,14 +39,28 @@ BOT = "github-actions[bot]"
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
+    return importlib.import_module(name)
+
+
+def runs_on_of(job: dict) -> str:
+    """A job's runs-on expression, read through workflow_jobs.resolve. These jobs have no matrix, so it is one cell;
+    a matrix nothing resolves (None) or one with several cells fails rather than evaluating one raw string."""
+    cells = workflow_jobs.resolve(job).runs_on_cells
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"runs-on cells {cells!r}: expected one runs-on expression")
+    return cells[0]
+
+
+def env_of(job: dict) -> dict:
+    """The env a job's steps start from (workflow_jobs.resolve)."""
+    return workflow_jobs.resolve(job).env
 
 
 cascade = load("next_macos_cascade")
@@ -380,13 +394,13 @@ class FleetGateway(unittest.TestCase):
         self.assertEqual(jobs["macos-placement"]["outputs"]["fleet_jobs"], "${{ steps.place.outputs.fleet_jobs }}")
         wiring = Wiring()
         for tier in (*CASCADED, *GUI_JOBS):
-            self.assertNotIn("outputs.fleet_jobs", jobs[tier]["runs-on"])
+            self.assertNotIn("outputs.fleet_jobs", runs_on_of(jobs[tier]))
             with self.subTest(tier=tier):
-                self.assertNotIn("gateway_runner", str(jobs[tier]["runs-on"]))
+                self.assertNotIn("gateway_runner", str(runs_on_of(jobs[tier])))
                 context = wiring.context()
                 context["needs"]["macos-placement"]["outputs"].update(
                     fleet_jobs=f" {tier} ", gateway_runner="gateway-test", placed_attempt="1")
-                self.assertNotEqual(evaluate(jobs[tier]["runs-on"], context), "gateway-test")
+                self.assertNotEqual(evaluate(runs_on_of(jobs[tier]), context), "gateway-test")
 
     def test_gateway_reservation_is_empty_without_requested_jobs(self):
         shot = snapshot(minutes_old=1)
@@ -980,9 +994,9 @@ class FeedNeverHosted(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         for name in ("cmux-scheme-compile", "release-compile"):
             with self.subTest(job=name):
-                self.assertNotIn("hosted_runner", str(jobs[name]["runs-on"]))
-                self.assertNotIn("hosted_jobs", str(jobs[name]["runs-on"]))
-                self.assertNotIn("hosted", str(jobs[name].get("env", {}).get("CMUX_NEXT_RUNNER", "")))
+                self.assertNotIn("hosted_runner", str(runs_on_of(jobs[name])))
+                self.assertNotIn("hosted_jobs", str(runs_on_of(jobs[name])))
+                self.assertNotIn("hosted", str(env_of(jobs[name]).get("CMUX_NEXT_RUNNER", "")))
                 self.assertNotIn("hosted_jobs", str(jobs[name].get("timeout-minutes", "")))
 
 
@@ -1061,7 +1075,7 @@ class Rerun(unittest.TestCase):
     def test_the_placement_steps_run_on_the_rescues_rerun_only(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         job = workflow["jobs"]["macos-placement"]
-        own, shared = job["env"]["CMUX_NEXT_SIDE_ROUTE"], workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
+        own, shared = env_of(job)["CMUX_NEXT_SIDE_ROUTE"], workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
         for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE), ("3", BOT, SIDE),
                                          ("2", "teamleaderleo", SMALL), ("4", BOT, SMALL)):
             with self.subTest(attempt=attempt, actor=actor):
@@ -1120,7 +1134,7 @@ class Rerun(unittest.TestCase):
     def test_bot_fast_tier_uses_actual_fresh_owned_placement(self):
         idle = {"name": "side-mini", "status": "online", "busy": False,
                 "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
-        runs_on = yaml.safe_load(WORKFLOW.read_text())["jobs"]["fast-tier"]["runs-on"]
+        runs_on = runs_on_of(yaml.safe_load(WORKFLOW.read_text())["jobs"]["fast-tier"])
         for runners, expected in (([idle], SIDE), ([], SMALL)):
             with self.subTest(idle=bool(runners)):
                 outputs = self.rerun_outputs(runners, {LARGE: 5, SMALL: 10}, {LARGE: 10, SMALL: 10},
@@ -1183,18 +1197,18 @@ class Rerun(unittest.TestCase):
         context = Wiring().context("2", BOT, large=" release-compile ", runner="")
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
         context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
-        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
+        self.assertEqual(evaluate(runs_on_of(jobs["release-compile"]), context), SMALL)
         # 6 vCPU fresh-stalled (next_macos_cascade.fresh_stalled()): the re-run takes the owned label instead.
         # (A feat-cmux-next push's re-run lists no release-compile on a Blacksmith label, as above.)
         context["needs"]["macos-placement"]["outputs"].update(fresh_stalled=f" {SMALL} ", blacksmith_12_jobs="")
         for key in ("runs-on", "CMUX_NEXT_RUNNER"):
-            expression = jobs["release-compile"]["runs-on"] if key == "runs-on" else jobs["release-compile"]["env"][key]
+            expression = runs_on_of(jobs["release-compile"]) if key == "runs-on" else env_of(jobs["release-compile"])[key]
             self.assertEqual(evaluate(expression, context), SIDE, key)
         # The same with the fleet fast check failed with no verdict, and a carried (older) placement keeps 6 vCPU.
         context["needs"]["release-compile-fast"] = {"result": "failure", "outputs": {"verdict": ""}}
-        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SIDE)
+        self.assertEqual(evaluate(runs_on_of(jobs["release-compile"]), context), SIDE)
         context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = "1"
-        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
+        self.assertEqual(evaluate(runs_on_of(jobs["release-compile"]), context), SMALL)
 
     def test_a_feat_push_rerun_counts_no_idle_mini_for_release_compile(self):
         # Review of #25707: JOBS lists release-compile first, so an idle mini counted for it left the
@@ -1299,7 +1313,7 @@ class Rerun(unittest.TestCase):
                     context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = evaluate(
                         outputs["placed_attempt"], context)
                     for name in ("swift-test", "daemon-test", "generated-files"):
-                        self.assertEqual(evaluate(workflow["jobs"][name]["runs-on"], context), expected, name)
+                        self.assertEqual(evaluate(runs_on_of(workflow["jobs"][name]), context), expected, name)
 
     def test_a_rerun_of_failed_jobs_never_takes_a_carried_blacksmith_reading(self):
         """Run 40398277457 (2026-10-26, #25446): the rescue re-ran the failed jobs as attempt 2 by
@@ -1327,7 +1341,7 @@ class Rerun(unittest.TestCase):
                                  "retry": SMALL}[key]
                         with self.subTest(job=name, attempt=attempt, actor=actor, reading=key):
                             context = wiring.context(attempt, actor, runner="", placed="1", **{key: value})
-                            for expression in (jobs[name]["runs-on"], jobs[name].get("env", {}).get("CMUX_NEXT_RUNNER")):
+                            for expression in (runs_on_of(jobs[name]), env_of(jobs[name]).get("CMUX_NEXT_RUNNER")):
                                 if expression is None:
                                     continue
                                 # Exactly the label it takes with no reading at all: the owned side label
@@ -1338,11 +1352,11 @@ class Rerun(unittest.TestCase):
                     # The same reading, fresh (the bot's attempt 2 placed afresh), is taken.
                     if actor == BOT:
                         fresh = wiring.context("2", BOT, runner="", small=f" {name} ")
-                        self.assertEqual(evaluate(jobs[name]["runs-on"], fresh), SMALL, name)
+                        self.assertEqual(evaluate(runs_on_of(jobs[name]), fresh), SMALL, name)
 
     def test_the_rerun_scheme_compile_takes_the_fresh_slot(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        runs_on = jobs["cmux-scheme-compile"]["runs-on"]
+        runs_on = runs_on_of(jobs["cmux-scheme-compile"])
         wiring = Wiring()
         self.assertEqual(evaluate(runs_on, wiring.context("2", BOT, small=" cmux-scheme-compile ", runner="")), SMALL)
         self.assertEqual(evaluate(runs_on, wiring.context("2", BOT, large=" cmux-scheme-compile ", runner="")), LARGE)
@@ -1377,7 +1391,7 @@ class Wiring(unittest.TestCase):
 
     def test_attempt_1_takes_the_blacksmith_slot_the_placement_found(self):
         for name in CASCADED:
-            runs_on = self.jobs[name]["runs-on"]
+            runs_on = runs_on_of(self.jobs[name])
             with self.subTest(job=name):
                 # Every cascade job, the PR's Release compile included, takes the slot the placement found:
                 # the placement gives one only when no idle mini took the job, and the side label (`runner`)
@@ -1402,8 +1416,8 @@ class Wiring(unittest.TestCase):
         owned-Mac route. It is the side label busy or not, so on a saturated fleet the compile queued there
         with nothing to move it. An idle mini still comes first: the placement lists the compile for a
         Blacksmith label only when no idle mini took it."""
-        runs_on = self.jobs["release-compile"]["runs-on"]
-        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        runs_on = runs_on_of(self.jobs["release-compile"])
+        self.assertEqual(env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"], runs_on)
         side = "glaeda-side-std-xcode-26.6"
         self.assertEqual(evaluate(runs_on, self.context(runner=side)), side)
         self.assertEqual(evaluate(runs_on, self.context(runner=side, large=" release-compile ")), LARGE)
@@ -1414,7 +1428,7 @@ class Wiring(unittest.TestCase):
         """An old placement's hosted_jobs/hosted_runner (a PR on an older base) is never read: the Mac jobs
         route as if it were empty (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS")."""
         for name in CASCADED:
-            for expression in (self.jobs[name]["runs-on"], self.jobs[name].get("env", {}).get("CMUX_NEXT_RUNNER")):
+            for expression in (runs_on_of(self.jobs[name]), env_of(self.jobs[name]).get("CMUX_NEXT_RUNNER")):
                 if expression is None:
                     continue
                 with self.subTest(job=name):
@@ -1425,7 +1439,7 @@ class Wiring(unittest.TestCase):
                     self.assertEqual(evaluate(expression, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
     def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
-        runs_on = self.jobs["release-compile"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["release-compile"])
 
         def push(**outputs: str) -> dict:
             context = self.context(**outputs)
@@ -1451,15 +1465,15 @@ class Wiring(unittest.TestCase):
         rerun["github"]["run_attempt"] = "2"
         self.assertEqual(evaluate(runs_on, rerun), SMALL)
         # The job's own label variable agrees with its runs-on.
-        runner_env = self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        runner_env = env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"]
         for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
             self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
         # The bot's attempt 3 carrying attempt 2's reading takes Blacksmith, not the owned label.
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, placed="2")), LARGE)
         # Release compile never targets the dedicated nightly runner.
-        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
-        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on_of(self.jobs["release-compile"]))
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"])
 
     NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
     NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
@@ -1533,15 +1547,15 @@ class Wiring(unittest.TestCase):
                     context["needs"]["macos-placement"]["outputs"].update(outputs)
                     context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
                     context["inputs"] = {"dev_daily": event == "workflow_dispatch"}
-                    self.assertEqual(evaluate(job["runs-on"], context), expected)
-                    self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), expected)
+                    self.assertEqual(evaluate(runs_on_of(job), context), expected)
+                    self.assertEqual(evaluate(env_of(job)["CMUX_NEXT_RUNNER"], context), expected)
                     if name == "release-compile":
                         # A fleet fast check that failed without a verdict sends the compile to Blacksmith, but
                         # an idle slot placement named comes first (review of #25817).
                         context["needs"]["release-compile-fast"] = {"result": "failure", "outputs": {"verdict": ""}}
                         failed = expected if expected == fresh else "blacksmith-6vcpu-macos-26"
-                        self.assertEqual(evaluate(job["runs-on"], context), failed)
-                        self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), failed)
+                        self.assertEqual(evaluate(runs_on_of(job), context), failed)
+                        self.assertEqual(evaluate(env_of(job)["CMUX_NEXT_RUNNER"], context), failed)
 
     def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
         """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,
@@ -1561,10 +1575,10 @@ class Wiring(unittest.TestCase):
         for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
                 self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
             context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
-            label = evaluate(job["runs-on"], context)
+            label = evaluate(runs_on_of(job), context)
             if config == "owned" and attempt in ("1", "2"):
                 seen[event].add(tuple(label) if isinstance(label, list) else label)
-            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(job["env"]["CMUX_NEXT_RUNNER"],
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(env_of(job)["CMUX_NEXT_RUNNER"],
                                                                                    context))):
                 if not self.off_the_nightly_runner(value):
                     failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
@@ -1576,11 +1590,11 @@ class Wiring(unittest.TestCase):
         # into the runner outputs (test_ci_side_lane_placement.NightlyRunnerStaysOffTheRoutes).
         for event in self.EVENTS:
             self.assertEqual(seen[event], {SMALL} if event[2] else {LARGE, SMALL, SIDE}, event)
-        self.assertEqual(evaluate(job["runs-on"], self.nightly_push("", fast=("failure", ""))), SMALL)
+        self.assertEqual(evaluate(runs_on_of(job), self.nightly_push("", fast=("failure", ""))), SMALL)
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
         # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
-        runs_on = self.jobs["release-compile"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["release-compile"])
         self.assertEqual(evaluate(runs_on, self.nightly_push("", large=" release-compile ")), LARGE)
         self.assertEqual(evaluate(runs_on, self.nightly_push("", small=" release-compile ")), SMALL)
         self.assertEqual(evaluate(runs_on, self.nightly_push("")), SIDE)
@@ -1634,7 +1648,7 @@ class Wiring(unittest.TestCase):
 
     def test_the_bots_overflow_takes_the_placements_retry_label(self):
         for name in CASCADED:
-            runs_on = self.jobs[name]["runs-on"]
+            runs_on = runs_on_of(self.jobs[name])
             with self.subTest(job=name):
                 # A carried placement takes Blacksmith (vars.MACOS_RUNNER_26 here), never the owned label.
                 expected_without_retry = LARGE
@@ -1654,7 +1668,7 @@ class Wiring(unittest.TestCase):
                                  expected_without_retry)
 
     def test_retry_runner_is_limited_to_the_placement_retry_set(self):
-        runs_on = self.jobs["release-compile"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["release-compile"])
         capped = self.context("2", BOT, retry=SMALL, runner="")
         capped["needs"]["macos-placement"]["outputs"]["retry_jobs"] = " fast-tier swift-canary "
         self.assertEqual(evaluate(runs_on, capped), SIDE)
@@ -1672,14 +1686,14 @@ class Wiring(unittest.TestCase):
         self.assertLessEqual(len(result.jobs[SMALL]) + len(result.retry_jobs), cascade.MAX_PER_RUN)
 
     def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
-        runs_on = self.jobs["fast-tier"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["fast-tier"])
         self.assertEqual(evaluate(runs_on, self.context(fork=True, runner="", placed="1")), SMALL)
         disabled = self.context(runner="", placed="1")
         disabled["vars"]["CI_PR_POOL_OWNED"] = "0"
         self.assertEqual(evaluate(runs_on, disabled), LARGE)
 
     def test_fast_tier_bot_retry_with_carried_placement_leaves_the_owned_queue(self):
-        runs_on = self.jobs["fast-tier"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["fast-tier"])
         self.assertEqual(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")), LARGE)
 
     def test_all_excluded_without_fleet_client_preserves_base_queue_and_coverage(self):
@@ -1709,7 +1723,7 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(outputs["deferred_runner"], SIDE)
                 context = self.context()
                 context["needs"]["macos-placement"]["outputs"].update(outputs, placed_attempt="1")
-                self.assertEqual(evaluate(self.jobs["fast-tier"]["runs-on"], context), SIDE)
+                self.assertEqual(evaluate(runs_on_of(self.jobs["fast-tier"]), context), SIDE)
                 context["inputs"] = {"same_tree_sha": "", "dev_daily": False}
                 context["github"].update(base_ref="feat-cmux-next")
                 context["needs"].update(path_route={"outputs": {"macos": "true", "fast_tier": "true"}},
@@ -1718,7 +1732,7 @@ class Wiring(unittest.TestCase):
 
     def test_display_jobs_keep_push_routes_and_take_allocated_pr_overflow(self):
         for name in GUI_JOBS:
-            runs_on = self.jobs[name]["runs-on"]
+            runs_on = runs_on_of(self.jobs[name])
             with self.subTest(job=name):
                 context = self.context(large=f" {name} ", small=f" {name} ")
                 self.assertEqual(evaluate(runs_on, context), LARGE)
@@ -1727,9 +1741,9 @@ class Wiring(unittest.TestCase):
 
     def test_each_jobs_own_label_copy_matches_runs_on(self):
         for name in CASCADED:
-            job_env = self.jobs[name].get("env") or {}
+            job_env = env_of(self.jobs[name])
             if "CMUX_NEXT_RUNNER" in job_env and name != "release-compile":
-                self.assertEqual(job_env["CMUX_NEXT_RUNNER"], label_copy(self.jobs[name]["runs-on"]), name)
+                self.assertEqual(job_env["CMUX_NEXT_RUNNER"], label_copy(runs_on_of(self.jobs[name])), name)
 
     def test_the_placement_job_reads_the_snapshot_and_exports_the_cascade(self):
         job = self.jobs["macos-placement"]
@@ -1785,11 +1799,11 @@ class CarriedPlacement(unittest.TestCase):
 
     def test_a_rerun_with_a_carried_placement_never_waits_on_an_owned_label(self):
         mac_jobs = [name for name, job in self.jobs.items()
-                    if "needs.macos-placement" in str(job.get("runs-on", ""))]
+                    if "needs.macos-placement" in workflow_jobs.runs_on(job)]
         self.assertTrue(set(CASCADED) | set(GUI_JOBS) <= set(mac_jobs))
         for name in mac_jobs:
-            runs_on = self.jobs[name]["runs-on"]
-            runner_env = (self.jobs[name].get("env") or {}).get("CMUX_NEXT_RUNNER")
+            runs_on = runs_on_of(self.jobs[name])
+            runner_env = env_of(self.jobs[name]).get("CMUX_NEXT_RUNNER")
             for event, attempt, actor in itertools.product(
                     ("pull_request", "push", "workflow_dispatch"), ("2", "3", "4", "6"),
                     ("teamleaderleo", BOT, "cmux-bot[bot]")):
@@ -1806,7 +1820,7 @@ class CarriedPlacement(unittest.TestCase):
     def test_a_carried_fast_tier_hand_back_is_not_read_on_a_rerun(self):
         # The hand-back placement may name the owned side label (side_lane_placement.handback()); a re-run of
         # failed jobs carries it like macos-placement's reading, so the fast tier takes Blacksmith instead.
-        runs_on = self.jobs["fast-tier"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["fast-tier"])
         for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("4", "cmux-bot[bot]")):
             for placed in ("1", str(int(attempt) - 1), ""):
                 with self.subTest(attempt=attempt, actor=actor, placed=placed):
@@ -1823,7 +1837,7 @@ class CarriedPlacement(unittest.TestCase):
 
     def test_attempt_1_and_a_placed_rerun_keep_the_owned_label_the_placement_read(self):
         for name in ("cmux-scheme-compile", "release-compile", "swift-canary"):
-            runs_on = self.jobs[name]["runs-on"]
+            runs_on = runs_on_of(self.jobs[name])
             for event in ("pull_request", "workflow_dispatch"):
                 with self.subTest(job=name, event=event):
                     self.assertEqual(evaluate(runs_on, self.context(event, "1", "teamleaderleo", "1")), SIDE)
@@ -1963,22 +1977,25 @@ class SaturatedOwnedPool(unittest.TestCase):
         wiring.jobs = jobs
         found = []
         for name, job in jobs.items():
-            runs_on = job.get("runs-on")
-            if not isinstance(runs_on, str) or "macos-placement.outputs.runner" not in runs_on:
-                continue
-            for attempt, actor in (("1", "teamleaderleo"), ("2", BOT)):
-                context = wiring.context(attempt, actor)
-                context["needs"].setdefault("path_route", {"outputs": {}})
-                if evaluate(runs_on, context) != SIDE:
+            # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+            cells = workflow_jobs.runs_on_cells(job)
+            self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+            for runs_on in cells:
+                if "macos-placement.outputs.runner" not in runs_on:
                     continue
-                found.append(name)
-                with self.subTest(job=name, attempt=attempt):
-                    place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
-                    declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
-                    self.assertIn(name, declared,
-                                  f"{name} can take the side label but the cascade never places it off it")
-                    self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
-                    self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)
+                for attempt, actor in (("1", "teamleaderleo"), ("2", BOT)):
+                    context = wiring.context(attempt, actor)
+                    context["needs"].setdefault("path_route", {"outputs": {}})
+                    if evaluate(runs_on, context) != SIDE:
+                        continue
+                    found.append(name)
+                    with self.subTest(job=name, attempt=attempt):
+                        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+                        declared = cascade.cascade_jobs({"CASCADE_JOBS": evaluate(place["env"]["CASCADE_JOBS"], context)})
+                        self.assertIn(name, declared,
+                                      f"{name} can take the side label but the cascade never places it off it")
+                        self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, small=f" {name} ")), SMALL)
+                        self.assertEqual(evaluate(runs_on, wiring.context(attempt, actor, large=f" {name} ")), LARGE)
         self.assertTrue(set(cascade.CASCADE_JOBS) <= set(found), found)
 
     def side_outputs(self, runners, counts, **extra: str) -> dict:

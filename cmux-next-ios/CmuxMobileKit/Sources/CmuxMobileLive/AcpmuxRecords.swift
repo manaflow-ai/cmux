@@ -52,6 +52,28 @@ struct AcpmuxRecords {
         }
     }
 
+    /// A tool call record (`tool_call` or `tool_call_update`, the chat's or a subagent's) as the
+    /// update it makes: what a cut output's whole record (``AcpmuxSessionSource/fullToolOutput(_:)``)
+    /// puts in place. Nil for any other record.
+    func toolCallUpdate(in record: JSONValue) -> ACPToolCallUpdate? {
+        for event in map(record) {
+            let update: ACPSessionUpdate
+            switch event {
+            case .update(let u), .subagentUpdate(_, let u): update = u
+            default: continue
+            }
+            switch update {
+            case .toolCallUpdate(let u): return u
+            case .toolCall(let call):
+                return ACPToolCallUpdate(toolCallId: call.id, title: call.title, kind: call.kind, status: call.status,
+                                         content: call.content, locations: call.locations, rawInput: call.rawInput,
+                                         rawOutput: call.rawOutput, outputCut: call.outputCut)
+            default: continue
+            }
+        }
+        return nil
+    }
+
     func mux(_ kind: String, _ msg: JSONValue, at: Date) -> [AgentSessionEvent] {
         switch kind {
         case "user_message":
@@ -180,8 +202,15 @@ struct AcpmuxRecords {
                                                        plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
+    /// `value` as `T`, walked straight from the parsed record (`JSONValue.decoded(as:)`), not
+    /// written out as JSON and parsed again. A value it refuses goes through `JSONDecoder` once
+    /// more, so nothing that decoded before stops decoding.
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        do {
+            return try value.decoded(as: T.self)
+        } catch {
+            return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        }
     }
 
     static func convert<T: Decodable, U: Encodable>(_ value: U, to type: T.Type) throws -> T {

@@ -50,6 +50,7 @@ import Testing
         var failure = ActionWorkFailure("the pane is still opening")
         failure.shown = true
         #expect(Self.notices(failure).isEmpty)
+        #expect(Self.notices(ActionWorkFailure(log: "move-sessions: refused", shown: true)).isEmpty)
     }
 
     /// Every way a daemon failure is built: none of the notices names the op, the command label, a deadline or the
@@ -97,5 +98,45 @@ import Testing
             }
         }
         #expect(offenders.isEmpty, "show these through registry.refuse(failure:) or failure.notice(title:): \(offenders)")
+    }
+
+    /// The detector for raw error text in a failure a person reads: an ``ActionWorkFailure`` built straight from an
+    /// error (`ActionWorkFailure(String(describing: error))`, `ActionWorkFailure(error.localizedDescription)`, or
+    /// `"label: \(error)"`) shows "X did not apply: <Swift dump or Cocoa text>". Build it with `log:` (the error, for
+    /// the log and a capturing caller) and a plain `reason:` instead (Leo, 2026-11-12: "we want good error states. We
+    /// don't want busted errors.").
+    @Test func noFailureIsBuiltFromRawErrorText() throws {
+        #expect(Self.rawFailureSites(in: "return ActionWorkFailure(String(describing: error))") == ["1"])
+        #expect(Self.rawFailureSites(in: "return .failure(ActionWorkFailure(error.localizedDescription))") == ["1"])
+        #expect(Self.rawFailureSites(in: "return ActionWorkFailure(Strings.failed(error.localizedDescription))") == ["1"])
+        #expect(Self.rawFailureSites(in: #"return ActionWorkFailure("import-classic: \(error)")"#) == ["1"])
+        #expect(Self.rawFailureSites(in: #"return ActionWorkFailure(log: "import-classic: \(error)", reason: nil)"#).isEmpty)
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let enumerator = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            guard text.contains("ActionWorkFailure(") else { continue }
+            offenders += Self.rawFailureSites(in: text).map { "\(url.lastPathComponent):\($0)" }
+        }
+        #expect(offenders.isEmpty, "build these with ActionWorkFailure(log:reason:) and a plain reason: \(offenders)")
+    }
+
+    /// The 1-based lines of `source` that build an unlabeled ``ActionWorkFailure`` from raw error text. A failure
+    /// whose reply missed its deadline (`mayHaveApplied`, `terminalMayAppear`) is never shown, so it may keep it.
+    nonisolated static func rawFailureSites(in source: String) -> [String] {
+        let raw = [#"String(describing: error"#, #"error.localizedDescription"#, #"\(error)"#]
+        var sites: [String] = []
+        for (index, line) in source.components(separatedBy: "\n").enumerated() {
+            guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//"),
+                  let start = line.range(of: "ActionWorkFailure(") else { continue }
+            let rest = line[start.upperBound...]
+            if rest.hasPrefix("log:") || rest.hasPrefix("code:") || rest.hasPrefix("refusal:") { continue }
+            if rest.contains("mayHaveApplied:") || rest.contains("terminalMayAppear:") { continue }
+            if raw.contains(where: { rest.contains($0) }) { sites.append(String(index + 1)) }
+        }
+        return sites
     }
 }

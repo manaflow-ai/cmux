@@ -9,6 +9,7 @@
 // - Open Chat stays.
 // - Escape in the reply field holding a typed answer keeps the question; an empty one puts it away.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { HatQuestion } from "../src/agent-session/acpmux/question/hatModel";
 
@@ -50,7 +51,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Document|Event|KeyboardEvent|InputEvent)/.test(key) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];

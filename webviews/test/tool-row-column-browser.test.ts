@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { pinArms } from "./support/pinArms";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -214,27 +215,24 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
     test(`mixed ${theme} ${harness} ${working ? "live" : "finished"} run has one step per call, shared columns and useful drill-in`, async () => {
       const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
       try {
+        // A running turn draws its finished runs under liveTurnWork.experiment.ts `runs` (shipped)
+        // only; `line` draws none (live-turn-one-line.test.ts). Pinned, so the default can move.
+        if (working) await pinArms(page, { "live-turn-work": "runs" });
         const port = (vite.httpServer!.address() as { port: number }).port;
         if (working) await pinLiveTurnRuns(page);
         await page.goto(
           `http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`,
         );
         const fixture = page.locator("[data-fixture-mixed]");
-        const line = fixture.getByRole("button", { name: "Ran 2 commands and used 3 tools" });
-        if (working) {
-          // While the turn runs nothing folds (cmux#38339): no run line, each call in sight with no
-          // click, in its group or on its own row.
-          await fixture.locator(".cv-tool").first().waitFor();
-          expect(await line.count()).toBe(0);
-        } else await line.click();
+        // Live or finished, the run is one folded line, as the Codex app draws a finished run while the
+        // turn still runs (Lucas, 2026-11-11); a click opens it.
+        await fixture.getByRole("button", { name: "Ran 2 commands and used 3 tools" }).click();
         // A finished call stays in its run while the live line reads Thinking (#37635): live or
         // finished, the run lists every call, each on its own row.
-        const steps = working ? fixture : fixture.locator("[data-mixed-tool-steps]");
-        const step = working ? ".cv-tool:not(.is-run)" : ":scope > .cv-step > .cv-tool";
-        if (!working) {
-          await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
-          expect(await steps.locator(".is-run").count()).toBe(0);
-        } else await expect(steps.locator(step).count()).resolves.toBe(5);
+        const steps = fixture.locator("[data-mixed-tool-steps]");
+        const step = ":scope > .cv-step > .cv-tool";
+        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
+        expect(await steps.locator(".is-run").count()).toBe(0);
         const geometry = await steps.locator(step).evaluateAll((rows) =>
           rows.map((row) => ({
             // A lone call with a picture draws in its visual's block (`.cv-tool-with-visual`): the
@@ -254,16 +252,17 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         expect(await steps.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
         expect(await steps.textContent()).not.toContain('"pattern"');
         if (!working) {
-          await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
-          await steps.getByRole("img", { name: "Capture the repaired screen" }).waitFor();
-          await steps
-            .getByRole("img", { name: "Capture the repaired screen" })
-            .evaluate((image) => (image as HTMLImageElement).decode());
-          expect(
-            await steps
-              .getByRole("img", { name: "Capture the repaired screen" })
-              .evaluate((image) => (image as HTMLImageElement).naturalWidth),
-          ).toBeGreaterThan(0);
+          // Closed, the capture's screenshot is the small image at its row's edge.
+          const edge = steps.getByRole("img", { name: "Capture the repaired screen" });
+          await edge.waitFor();
+          await steps.locator("button.cv-tool", { hasText: "Capture the repaired screen" }).click();
+          // Opened, the row shows its image under it (ToolImages) and the small one steps aside, so a
+          // run of captures stays a list of lines (Lucas, 2026-11-11).
+          const shot = steps.locator(".cv-tool-images img").first();
+          await shot.waitFor();
+          await shot.evaluate((image) => (image as HTMLImageElement).decode());
+          expect(await shot.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+          expect(await edge.count()).toBe(0);
         }
         expect(await steps.textContent()).not.toContain("Loaded tools");
         expect(await steps.textContent()).not.toContain("Waiting…");

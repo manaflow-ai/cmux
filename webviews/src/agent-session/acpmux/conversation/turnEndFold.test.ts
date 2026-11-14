@@ -35,6 +35,15 @@ test("an update ends the turn only when it takes the line away", () => {
   );
 });
 
+test("switching the running status line does not end its turn", () => {
+  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
+  const status = [row("u", "user"), row("activityLine-u", "activityLine")];
+  expect(hasLiveLine(status)).toBe(true);
+  expect(endsTurn(running, status)).toBe(false);
+  expect(endsTurn(status, running)).toBe(false);
+  expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
+});
+
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
   // An incoming message's line (model.ts `isLineRow`) after the prompt regroups under a new id as the
   // turn ends: the prompt above it stays, so the turn ended.
@@ -77,6 +86,89 @@ test("a capture from another chat plays nothing and draws nothing of it", async 
   expect(thread.contains(copy)).toBe(false);
   expect(thread.hasAttribute("data-turn-end-folding")).toBe(false);
   dom.window.close();
+});
+
+test("folded work stays between the header and final answer while they move", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
+  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  const proto = dom.window.HTMLElement.prototype;
+  Object.defineProperty(proto, "offsetTop", {
+    get() {
+      return Number.parseFloat(this.style.top) || 0;
+    },
+  });
+  Object.defineProperty(proto, "offsetHeight", {
+    get() {
+      return Number.parseFloat(this.style.height) || 0;
+    },
+  });
+  proto.getBoundingClientRect = function () {
+    return {
+      top: this.offsetTop,
+      bottom: this.offsetTop + this.offsetHeight,
+      height: this.offsetHeight,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: this.offsetTop,
+      toJSON() {},
+    };
+  };
+  const frames = new Map<HTMLElement, Keyframe[]>();
+  proto.animate = function (keyframes) {
+    frames.set(this, keyframes as Keyframe[]);
+    return { cancel() {}, finish() {} } as Animation;
+  };
+  const draw = (id: string, kind: string, top: number, height: number) => {
+    const node = dom.window.document.createElement("article");
+    node.className = `acpmux-row acpmux-${kind}`;
+    node.dataset.rowId = id;
+    node.style.top = `${top}px`;
+    node.style.height = `${height}px`;
+    thread.append(node);
+    return node;
+  };
+  draw("working-u", "working", 0, 34);
+  draw("work", "activity", 34, 60);
+  draw("answer", "assistant", 94, 50);
+  draw(LIVE_THINKING, "thinking", 144, 22);
+  const capture = captureTurnEnd(thread, thread, [row("worked-u", "worked"), row("answer")], "chat")!;
+  expect(capture.rows.find((entry) => entry.id === "worked-u")?.copy).toBeUndefined();
+  expect(capture.rows.some((entry) => entry.id === "worked-u")).toBe(true);
+  const copy = capture.rows.find((entry) => entry.id === "work")!.copy!;
+  thread.replaceChildren();
+  draw("worked-u", "worked", 100, 34);
+  draw("answer", "assistant", 134, 50);
+  const fold = playTurnEnd(thread, capture, "chat")!;
+  try {
+    const motion = frames.get(copy)!;
+    expect(motion).toBeDefined();
+    expect(motion[0]!.clipPath).toBe("inset(0px -4096px 0px -4096px)");
+    expect(motion.at(-1)!.clipPath).toBe("inset(0px -4096px 60px -4096px)");
+    expect(motion.at(-1)!.translate).toBe("0 100px");
+    const header = frames.get(thread.querySelector('[data-row-id="worked-u"]') as HTMLElement)!;
+    const answer = frames.get(thread.querySelector('[data-row-id="answer"]') as HTMLElement)!;
+    const interpolate = (from: number, to: number, progress: number) => from + (to - from) * progress;
+    const translated = (motion: Keyframe[], progress: number) =>
+      interpolate(
+        Number.parseFloat(String(motion[0]!.translate).split(" ")[1]!),
+        Number.parseFloat(String(motion.at(-1)!.translate).split(" ")[1]!),
+        progress,
+      );
+    const clipped = (frame: Keyframe) => Number.parseFloat(String(frame.clipPath).split(" ")[2]!);
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      const top = copy.offsetTop + translated(motion, progress);
+      const bottom = top + copy.offsetHeight - interpolate(clipped(motion[0]!), clipped(motion.at(-1)!), progress);
+      expect(top).toBeGreaterThanOrEqual(100 + translated(header, progress) + 34);
+      expect(bottom).toBeLessThanOrEqual(134 + translated(answer, progress));
+    }
+  } finally {
+    settleTurnEnd(thread, fold);
+    dom.window.close();
+  }
 });
 
 test("a long fold resolves on the settle, its frames under the bound up to what the straight line fits", async () => {

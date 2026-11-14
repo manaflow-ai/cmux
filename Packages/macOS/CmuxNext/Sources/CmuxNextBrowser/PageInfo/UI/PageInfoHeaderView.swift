@@ -39,13 +39,13 @@ final class PageInfoHeaderView: NSView {
             close.trailingAnchor.constraint(equalTo: trailingAnchor),
             close.topAnchor.constraint(equalTo: topAnchor),
             texts.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -PageInfoStyle.spacing),
-            texts.centerYAnchor.constraint(equalTo: close.centerYAnchor).withPriority(.defaultLow),
+            texts.centerYAnchor.constraint(equalTo: close.centerYAnchor).prioritized(.defaultLow),
             texts.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
             bottomAnchor.constraint(greaterThanOrEqualTo: texts.bottomAnchor),
             bottomAnchor.constraint(greaterThanOrEqualTo: close.bottomAnchor),
         ]
         if showsBack {
-            let back = PageInfoIconButton(symbol: "arrow.left", label: PageInfoStrings.back) { [weak self] in self?.onBack?() }
+            let back = PageInfoIconButton(symbol: Self.backSymbol(rightToLeft: NSApp.userInterfaceLayoutDirection == .rightToLeft), label: PageInfoStrings.back) { [weak self] in self?.onBack?() }
             addSubview(back)
             constraints += [
                 back.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -56,6 +56,12 @@ final class PageInfoHeaderView: NSView {
             constraints.append(texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: PageInfoStyle.rowInset))
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    /// The back button's arrow: it points at the leading edge, where the button sits, the way
+    /// ``PageInfoController/backKey(rightToLeft:)`` goes back.
+    static func backSymbol(rightToLeft: Bool) -> String {
+        rightToLeft ? "arrow.right" : "arrow.left"
     }
 
     @available(*, unavailable)

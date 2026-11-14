@@ -119,8 +119,9 @@ struct CloudCredentialTransferTests {
         #expect(creator.preflight == CloudCredentialInstaller.creatorTeamPreflight)
         #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("owner|team"))
         #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("/etc/cmux/agent-auth.sh"))
-        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner <<"))
-        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner '' <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team '' <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", account: "user_a").contains("'/p' owner 'user_a' <<"))
     }
 
     /// Without the allowance, a caller-owned machine whose guest is a team one is refused before any login.

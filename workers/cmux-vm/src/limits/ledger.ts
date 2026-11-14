@@ -127,6 +127,9 @@ const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
 const isLock = Schema.is(Lock);
+/** A mesh's apply coverage: `wanted` counts the changes that need an apply, `applied` is the highest one an apply has read. */
+const Coverage = Schema.Struct({ wanted: Schema.Number, applied: Schema.Number });
+const isCoverage = Schema.is(Coverage);
 
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
@@ -149,6 +152,19 @@ export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
 const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
   dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
+
+/**
+ * Takes lock `key` for `holder` inside the caller's transaction. Every read-modify-write of a lock or a coverage key runs
+ * in one ledger transaction: a Durable Object's input gate already kept two calls from interleaving between the read
+ * and the write, but the in-memory ledger has no gate, and there 50 concurrent writers all took one lock.
+ */
+const takeLock = async (storage: LedgerStorage, key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> => {
+  const storageKey = `lock:${key}`;
+  const held = checked(isLock, await storage.get(storageKey));
+  if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
+  await storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
+  return true;
+};
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
@@ -437,18 +453,58 @@ export class TenantLedger {
    * that died blocks the next one.
    */
   async lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> {
-    const storageKey = `lock:${key}`;
-    const held = checked(isLock, await this.storage.get(storageKey));
-    if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
-    await this.storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
-    return true;
+    return this.storage.transaction((storage) => takeLock(storage, key, holder, leaseMs, nowMs));
+  }
+
+  /**
+   * Takes lock `key` as `lock` does, unless coverage `coverageKey` has applied
+   * `need` already: then it answers "covered" and takes nothing, so a writer
+   * whose change another writer's apply already covered leaves the queue.
+   */
+  async lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered"> {
+    return this.storage.transaction(async (storage) => {
+      const coverage = checked(isCoverage, await storage.get(`coverage:${coverageKey}`));
+      if (coverage !== undefined && coverage.applied >= need) return "covered";
+      return (await takeLock(storage, key, holder, leaseMs, nowMs)) ? "taken" : "busy";
+    });
+  }
+
+  /** Counts one more change that needs an apply; answers its number. */
+  async coverageWant(key: string): Promise<number> {
+    // One transaction from the read to the write: two wants that interleaved there would share one number, and the
+    // attach left with it could be answered by an apply that never read its member row (#41517 review F1).
+    return this.storage.transaction(async (storage) => {
+      const storageKey = `coverage:${key}`;
+      const coverage = checked(isCoverage, await storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+      const wanted = coverage.wanted + 1;
+      await storage.put(storageKey, { ...coverage, wanted });
+      return wanted;
+    });
+  }
+
+  /** The number of the latest change: an apply that reads state after this answer covers every change up to it. */
+  async coverageWanted(key: string): Promise<number> {
+    return checked(isCoverage, await this.storage.get(`coverage:${key}`))?.wanted ?? 0;
+  }
+
+  /** Records that an apply covering every change up to `upTo` has landed; `applied` only grows. */
+  async coverageApplied(key: string, upTo: number): Promise<void> {
+    // In one transaction too: a want that landed between this read and write would be overwritten and lost.
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `coverage:${key}`;
+      const coverage = checked(isCoverage, await storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+      if (upTo <= coverage.applied) return;
+      await storage.put(storageKey, { wanted: Math.max(coverage.wanted, upTo), applied: upTo });
+    });
   }
 
   /** Releases the lock when `holder` still holds it. */
   async unlock(key: string, holder: string): Promise<void> {
-    const storageKey = `lock:${key}`;
-    const held = checked(isLock, await this.storage.get(storageKey));
-    if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `lock:${key}`;
+      const held = checked(isLock, await storage.get(storageKey));
+      if (held !== undefined && held.holder === holder) await storage.delete(storageKey);
+    });
   }
 
   /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */

@@ -28,6 +28,9 @@
 //! - `{"type":"needs_you","items":[{"id","title","body","kind","source","url","created_at_ms"}]}`:
 //!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
 //!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
+//! - `{"type":"appearance","theme":{"background","foreground","palette",...},
+//!   "wallpaper":{"path","tint_opacity"}}`: the colors the app's chrome derives from and the
+//!   picture its windows show, the whole state each time it changes (`appearance.rs`).
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -302,6 +305,8 @@ pub enum Inbound {
     NeedsYou {
         items: Vec<crate::needs_you::Request>,
     },
+    /// The app's theme and wallpaper, the whole state (`appearance.rs`).
+    Appearance(crate::appearance::FromApp),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -551,6 +556,10 @@ pub fn spawn_stdin_reader() -> Supplied {
                     }
                 }
                 Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
+                // Read off this loop: a wallpaper read never holds a token or a device line.
+                Some(Inbound::Appearance(appearance)) => {
+                    tokio::spawn(crate::appearance::set(appearance));
+                }
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -751,6 +760,12 @@ mod tests {
                 }]
             })
         );
+        let appearance = Inbound::parse(
+            r##"{"type":"appearance","theme":{"background":"#000000","foreground":"#ffffff","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"blue"},"wallpaper":{"path":"/tmp/w.jpg","tint_opacity":0.6}}"##,
+        );
+        let Some(Inbound::Appearance(appearance)) = appearance else { panic!("appearance did not parse") };
+        assert_eq!(appearance.theme.accent, "blue");
+        assert_eq!(appearance.wallpaper.map(|w| w.path), Some("/tmp/w.jpg".to_owned()));
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }

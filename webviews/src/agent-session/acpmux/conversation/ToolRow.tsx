@@ -46,7 +46,7 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { Check, ChevronRight } from "./icons";
+import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
@@ -152,7 +152,9 @@ export const ToolRow = memo(function ToolRow({
   const hasDetails = shell || hasDiff || Boolean(result?.text.trim()) || hasInput;
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
-  const expandable = hasDetails || clipped;
+  // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
+  const images = useMemo(() => toolImages(tool), [tool]);
+  const expandable = hasDetails || clipped || images.length > 0;
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -166,7 +168,6 @@ export const ToolRow = memo(function ToolRow({
     observer.observe(node);
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
-  const images = useMemo(() => toolImages(tool), [tool]);
   // Any other call opens to its input, one labeled field per argument, over its output
   // (ToolDetail.tsx); read only while drawn, as the diff is.
   const fields = useMemo(
@@ -183,8 +184,7 @@ export const ToolRow = memo(function ToolRow({
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
-      {/* The failure word is a tag after the words, outside their ellipsis, so a long label never
-          hides it (as CommandRow's "Failed"; conversation.css `.cv-tool > .cv-tool__failed`). */}
+      {/* The failure word, for screen readers only (conversation.css clips it away; Codex draws none). */}
       {failure && (
         <span className="cv-tool__failed" data-find-skip>
           {" "}
@@ -207,7 +207,7 @@ export const ToolRow = memo(function ToolRow({
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
@@ -236,8 +236,8 @@ export const ToolRow = memo(function ToolRow({
             )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
-            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
-            {duration && <span className="cv-command__time">{duration}</span>}
+            {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
+            {running && duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )
       )}
@@ -247,14 +247,17 @@ export const ToolRow = memo(function ToolRow({
   // status such as "Wait 60000 ms" with no body is a plain row.
   return (
     <>
-      <ToolVisualRow sources={images} label={label}>
+      {/* The small image at the row's edge stands for the images until the row opens to them. */}
+      <ToolVisualRow sources={images} label={label} opened={open}>
         {expandable ? (
           <button
             type="button"
             className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
             data-tool-id={tool.id}
             aria-expanded={open}
-            aria-controls={open && (shell || files.length > 0 || body || fields) ? detailsId : undefined}
+            aria-controls={
+              open && (shell || files.length > 0 || body || fields || images.length > 0) ? detailsId : undefined
+            }
             ref={fold.headerRef}
             onClick={fold.toggle}
           >
@@ -272,9 +275,12 @@ export const ToolRow = memo(function ToolRow({
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
-      {images.length > 0 && <ToolImages sources={images} />}
-      {fold.present && (shell || files.length > 0 || body || fields) && (
+      {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
+          of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
+          because it has so many images"), as the Codex app's does. */}
+      {fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
+          {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (
             <ShellBlock
               id={detailsId}
@@ -303,7 +309,8 @@ export const ToolRow = memo(function ToolRow({
   );
 });
 
-/// The images a call returned or wrote, shown under its row whether or not it is open: a returned
+/// The images a call returned or wrote, shown in its opened row (a small one at the row's edge until
+/// then, ToolVisualPreview.tsx): a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
 /// and a click opens the viewer. Images draw in the fixed-shape thumbnail (at most 320px wide), so
 /// one that loads never moves the transcript; a file that is not there draws nothing.

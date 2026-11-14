@@ -81,6 +81,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidebarHidden = false {
         didSet {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
+            if sidebarHidden { endSidebarHoverHold() } // before the band hears of it: no hover holds a hidden sidebar (msg 29542)
             collapsedBand.setSidebarHidden(sidebarHidden)
             applyTitlebarButtonsMode()
             // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
@@ -160,10 +161,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
-        sidebarFloat.install(in: self) { [weak self] in self?.applySidebarRail() }
+        sidebarFloat.install(in: self) { [weak self] in
+            if let self, sidebarHidden, !sidebar.model.isFloating { endSidebarHoverHold() } // an ended float leaves no hover
+            self?.applySidebarRail()
+        }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TopRowSpacing.buttonSide, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
@@ -287,14 +291,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
-            // The toggle's glyph sits as far right of the lights as they sit from the window's edge (`TopRowSpacing`).
-            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(lightsInset: min(local.minX, bounds.maxX - local.maxX), glyphWidth: toolbarBand.sidebarToggle.image?.size.width ?? 0))
+            // One ink gap before the toggle's glyph and between glyphs (`TopRowSpacing.glyphGap`).
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots.leadingInk))
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TopRowSpacing.buttonSide
         let fullBand = CGRect(x: lightsMaxX + lead, y: midY - bandHeight / 2,
-                              width: TitlebarToolbarBand.width, height: bandHeight)
+                              width: toolbarBand.slots.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
         toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + lead * presence, y: fullBand.minY,

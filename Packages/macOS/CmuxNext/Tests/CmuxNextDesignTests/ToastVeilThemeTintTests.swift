@@ -7,7 +7,10 @@ import Testing
 /// Leo 2026-11-07: "these toasts are still coloured unthemed". The toast's glass carried the
 /// neutral gray veil in every theme; it lays the theme's glass tint (the theme background, as the
 /// popovers' glass) at the toast's veil opacity, so a red theme's toast is red glass. The toast
-/// role's glass is the one each native toast draws on (`CmuxToastView`).
+/// role's glass is the one each native toast draws on (`CmuxToastView`) and the Import Cookies card's.
+/// The surface takes the picked glass variant, as the app does: variant 1 (Apple's Liquid Glass, picked
+/// 2026-11-10) dropped the veil, and this test, pinned to variant 3, stayed green while every toast
+/// shipped untinted.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct ToastVeilThemeTintTests {
     /// The colour the surface lays over its glass: the Liquid Glass tint or the vibrancy tint
@@ -33,7 +36,8 @@ struct ToastVeilThemeTintTests {
         defer { window.close() }
         let root = try #require(window.contentView)
         scope.root(root)
-        // The toast role's glass with Reduce Transparency off (the glass, not the opaque fallback).
+        // The toast role's glass with Reduce Transparency off (the glass, not the opaque fallback), in the
+        // variant the app ships.
         let surface = OverlaySurfaceView(interactive: false, cornerRadius: SurfaceRole.toast.cornerRadius,
                                          reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()),
                                          tone: SurfaceRole.toast.tone)

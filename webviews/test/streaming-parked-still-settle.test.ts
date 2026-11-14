@@ -4,7 +4,7 @@
 // frames. A scroll that never stops must never read as parked, however its events fall (review of
 // #40918 F1: 100 frames still moving were read as settled).
 import { expect, test } from "bun:test";
-import { PARKED, parkedAfterScroll, stillness, type Sample } from "./support/parkedStill";
+import { PARKED, PARKED_FRAMES, parkedAfterScroll, stillness, type Sample } from "./support/parkedStill";
 
 test("a scroll still moving at the last frame, or after scrollend, never reads as parked", () => {
   const frame = (index: number, top: number, at: Partial<Sample>): Sample => ({
@@ -43,6 +43,17 @@ test("a scroll still moving at the last frame, or after scrollend, never reads a
     { glides: 1, gliding: index <= 10, ended: true },
   ]);
   expect(parkedAfterScroll(stillness(creeping))).not.toEqual(PARKED);
+  // The view holds PARKED_FRAMES frames after the glide ends, then drifts a quarter pixel a frame for
+  // 109 frames (27 px): no frame scrolls past half a pixel, and the first PARKED_FRAMES held, but the
+  // picture moved (review of #41454 F1).
+  const drifting = run(150, (index) => [
+    index <= 10 ? 1000 - 4 * index : index <= 11 + PARKED_FRAMES ? 960 : 960 - 0.25 * (index - 11 - PARKED_FRAMES),
+    { glides: 1, gliding: index <= 10, ended: true },
+  ]);
+  expect(stillness(drifting).late).toEqual([]);
+  expect(stillness(drifting).parkedTop).toBe(0);
+  expect(stillness(drifting).parkedDrift).toBeCloseTo(0.25 * (150 - 11 - PARKED_FRAMES), 1);
+  expect(parkedAfterScroll(stillness(drifting))).not.toEqual(PARKED);
   // And the scroll that does come to rest: ten eased frames, then the view holds.
   const resting = run(60, (index) => [
     index <= 10 ? 1000 - 4 * index : 960,

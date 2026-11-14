@@ -109,6 +109,9 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
+        // A Feed row (an update, a merged pull request) is a line from the Feed, not a message: no
+        // sender's name or avatar over it, and it never joins the Chief's run (HomeFeedRow.author).
+        if item.feedRow != nil { message.cmuxAside = true }
         if item.isRetracted, hidesRetracted(summary, me: me) {
             // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
             message.deletedAt = message.retractedAt
@@ -165,8 +168,6 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
-            else if case .widget(let widget) = p, let widgets = HomeWidgetRowProvider.installed,
-                    let card = widgets.part(widget, key: HomeWidgetRowProvider.key(item, part: i)) { shown = [card] }
             // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
             else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
                     let card = HomeTurnFailureRowProvider.part(failure) {
@@ -456,10 +457,9 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question, .widget:
+        case .work, .approval, .question:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.
-            // A widget without an installed host shows its fallback text.
             return .text(p.plainText, runs: [])
         }
     }

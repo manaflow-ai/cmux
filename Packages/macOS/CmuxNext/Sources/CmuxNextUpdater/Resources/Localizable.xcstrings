@@ -22801,127 +22801,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't restart %1$@: %2$@"
+            "value": "Couldn't restart %@. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة تشغيل %1$@: %2$@"
+            "value": "تعذّرت إعادة تشغيل %@. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće ponovo pokrenuti %1$@: %2$@"
+            "value": "Nije moguće ponovo pokrenuti %@. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kunne ikke genstartes: %2$@"
+            "value": "%@ kunne ikke genstartes. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konnte nicht neu gestartet werden: %2$@"
+            "value": "%@ konnte nicht neu gestartet werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo reiniciar %1$@: %2$@"
+            "value": "No se pudo reiniciar %@. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de redémarrer %1$@ : %2$@"
+            "value": "Impossible de redémarrer %@. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riavviare %1$@: %2$@"
+            "value": "Impossibile riavviare %@. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を再起動できませんでした：%2$@"
+            "value": "%@ を再起動できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម %1$@ ឡើងវិញបានទេ៖ %2$@"
+            "value": "មិនអាចចាប់ផ្ដើម %@ ឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@을(를) 재시작할 수 없습니다: %2$@"
+            "value": "%@을(를) 재시작할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke starte %1$@ på nytt: %2$@"
+            "value": "Kunne ikke starte %@ på nytt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można ponownie uruchomić %1$@: %2$@"
+            "value": "Nie można ponownie uruchomić %@. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível reiniciar o %1$@: %2$@"
+            "value": "Não foi possível reiniciar o %@. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перезапустить %1$@: %2$@"
+            "value": "Не удалось перезапустить %@. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่ม %1$@ ใหม่ไม่ได้: %2$@"
+            "value": "เริ่ม %@ ใหม่ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ yeniden başlatılamadı: %2$@"
+            "value": "%@ yeniden başlatılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перезапустити %1$@: %2$@"
+            "value": "Не вдалося перезапустити %@. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động lại %1$@: %2$@"
+            "value": "Không thể khởi động lại %@. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法重新启动 %1$@：%2$@"
+            "value": "无法重新启动 %@。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法重新啟動 %1$@：%2$@"
+            "value": "無法重新啟動 %@。請再試一次。"
           }
         }
       }
@@ -28821,133 +28821,788 @@
         }
       }
     },
-    "updater.channels.switchFailed": {
+    "updater.channels.switchFailedPlain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not switch: %@"
+            "value": "Couldn't switch: that build didn't download or didn't pass its checks. Try again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر التبديل: %@"
+            "state": "needs_review",
+            "value": "تعذّر التبديل: لم يتم تنزيل هذا الإصدار أو لم يجتز فحوصه. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prebacivanje nije uspjelo: %@"
+            "state": "needs_review",
+            "value": "Prebacivanje nije uspjelo: taj build se nije preuzeo ili nije prošao provjere. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke skifte: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke skifte: den build blev ikke hentet eller bestod ikke sine tjek. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wechsel nicht möglich: %@"
+            "state": "needs_review",
+            "value": "Wechsel fehlgeschlagen: Dieser Build wurde nicht geladen oder hat die Prüfungen nicht bestanden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cambiar: %@"
+            "state": "needs_review",
+            "value": "No se pudo cambiar: esa compilación no se descargó o no pasó sus comprobaciones. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de basculer : %@"
+            "state": "needs_review",
+            "value": "Changement impossible : ce build n'a pas été téléchargé ou n'a pas passé ses vérifications. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile passare: %@"
+            "state": "needs_review",
+            "value": "Impossibile cambiare: quella build non è stata scaricata o non ha superato i controlli. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "切り替えられませんでした: %@"
+            "state": "needs_review",
+            "value": "切り替えられませんでした。そのビルドはダウンロードされなかったか、チェックに通りませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចប្ដូរបានទេ៖ %@"
+            "state": "needs_review",
+            "value": "មិនអាចប្ដូរបានទេ៖ build នោះមិនបានទាញយក ឬមិនបានឆ្លងការពិនិត្យ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "전환할 수 없음: %@"
+            "state": "needs_review",
+            "value": "전환하지 못했습니다. 그 빌드가 다운로드되지 않았거나 검사를 통과하지 못했습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke bytte: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke bytte: det bygget ble ikke lastet ned eller besto ikke kontrollene. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przełączyć: %@"
+            "state": "needs_review",
+            "value": "Nie można przełączyć: ta kompilacja nie pobrała się lub nie przeszła kontroli. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível trocar: %@"
+            "state": "needs_review",
+            "value": "Não foi possível trocar: essa build não foi baixada ou não passou nas verificações. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось переключиться: %@"
+            "state": "needs_review",
+            "value": "Не удалось переключиться: эта сборка не загрузилась или не прошла проверки. Попробуйте снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "สลับไม่ได้: %@"
+            "state": "needs_review",
+            "value": "สลับไม่ได้: บิลด์นั้นดาวน์โหลดไม่สำเร็จหรือไม่ผ่านการตรวจสอบ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Geçilemedi: %@"
+            "state": "needs_review",
+            "value": "Geçiş yapılamadı: bu derleme indirilmedi veya denetimlerden geçmedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося перемкнути: %@"
+            "state": "needs_review",
+            "value": "Не вдалося перемкнутися: цю збірку не завантажено або вона не пройшла перевірки. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể chuyển: %@"
+            "state": "needs_review",
+            "value": "Không thể chuyển: bản dựng đó không tải xuống được hoặc không vượt qua kiểm tra. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法切换:%@"
+            "state": "needs_review",
+            "value": "无法切换：该版本未下载或未通过检查。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "無法切換：該版本未下載或未通過檢查。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "無法切換:%@"
+            "value": "cmux couldn't read the update list. Try again later."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux قراءة قائمة التحديثات. حاول مرة أخرى لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pročitati listu ažuriranja. Pokušajte ponovo kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke læse listen over opdateringer. Prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte die Update-Liste nicht lesen. Versuche es später erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo leer la lista de actualizaciones. Inténtalo de nuevo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n'a pas pu lire la liste des mises à jour. Réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a leggere l'elenco degli aggiornamenti. Riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はアップデート一覧を読み込めませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចអានបញ្ជីបច្ចុប្បន្នភាពបានទេ។ សូមព្យាយាមម្ដងទៀតនៅពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 업데이트 목록을 읽지 못했습니다. 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke lese oppdateringslisten. Prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł odczytać listy aktualizacji. Spróbuj ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu ler a lista de atualizações. Tente novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось прочитать список обновлений. Попробуйте позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux อ่านรายการอัปเดตไม่ได้ ลองอีกครั้งในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux güncelleme listesini okuyamadı. Daha sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося прочитати список оновлень. Спробуйте пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không đọc được danh sách bản cập nhật. Hãy thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法读取更新列表。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法讀取更新清單。請稍後再試。"
+          }
+        }
+      }
+    },
+    "updater.failure.download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update didn't download. Check your network, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تنزيل التحديث. تحقق من الشبكة، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se nije preuzelo. Provjerite mrežu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen blev ikke hentet. Tjek dit netværk, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wurde nicht geladen. Prüfe dein Netzwerk und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización no se descargó. Revisa tu red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour n'a pas été téléchargée. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento non è stato scaricato. Controlla la rete, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをダウンロードできませんでした。ネットワークを確認してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពមិនបានទាញយកទេ។ ពិនិត្យបណ្ដាញរបស់អ្នក រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen ble ikke lastet ned. Sjekk nettverket, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja się nie pobrała. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização não foi baixada. Verifique sua rede e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление не загрузилось. Проверьте сеть и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลดอัปเดตไม่สำเร็จ ตรวจสอบเครือข่าย แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme indirilemedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення не завантажилося. Перевірте мережу й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không tải được bản cập nhật. Hãy kiểm tra mạng rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能下载。请检查网络，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能下載。請檢查網路，然後再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.verify": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The downloaded update didn't pass its safety check. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يجتز التحديث الذي تم تنزيله فحص الأمان. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeto ažuriranje nije prošlo sigurnosnu provjeru. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den hentede opdatering bestod ikke sikkerhedstjekket. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das geladene Update hat die Sicherheitsprüfung nicht bestanden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización descargada no pasó la comprobación de seguridad. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour téléchargée n'a pas passé le contrôle de sécurité. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento scaricato non ha superato il controllo di sicurezza. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードしたアップデートが安全チェックに通りませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពដែលបានទាញយកមិនបានឆ្លងការពិនិត្យសុវត្ថិភាពទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드한 업데이트가 안전 검사를 통과하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nedlastede oppdateringen besto ikke sikkerhetskontrollen. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobrana aktualizacja nie przeszła kontroli bezpieczeństwa. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização baixada não passou na verificação de segurança. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загруженное обновление не прошло проверку безопасности. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตที่ดาวน์โหลดไม่ผ่านการตรวจสอบความปลอดภัย ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirilen güncelleme güvenlik denetiminden geçmedi. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажене оновлення не пройшло перевірку безпеки. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật đã tải không vượt qua kiểm tra an toàn. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载的更新未通过安全检查。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載的更新未通過安全檢查。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update didn't install. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تثبيت التحديث. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se nije instaliralo. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen blev ikke installeret. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wurde nicht installiert. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización no se instaló. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour ne s'est pas installée. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento non è stato installato. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをインストールできませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពមិនបានដំឡើងទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 설치하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen ble ikke installert. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja się nie zainstalowała. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização não foi instalada. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление не установилось. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้งอัปเดตไม่สำเร็จ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme yüklenemedi. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення не встановилося. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không cài được bản cập nhật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能安装。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能安裝。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong with the update. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدث خطأ ما في التحديث. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nešto nije u redu s ažuriranjem. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noget gik galt med opdateringen. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Update ist etwas schiefgelaufen. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algo salió mal con la actualización. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un problème est survenu avec la mise à jour. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qualcosa è andato storto con l'aggiornamento. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートで問題が発生しました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានបញ្ហាជាមួយបច្ចុប្បន្នភាព។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트 중 문제가 발생했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noe gikk galt med oppdateringen. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coś poszło nie tak z aktualizacją. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algo deu errado com a atualização. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "С обновлением что-то пошло не так. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เกิดข้อผิดพลาดกับการอัปเดต ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncellemede bir sorun oluştu. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З оновленням щось пішло не так. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xảy ra lỗi với bản cập nhật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新出了点问题。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新發生問題。請再試一次。"
           }
         }
       }

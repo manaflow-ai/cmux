@@ -235,7 +235,7 @@ struct AcpmuxRefusedRestartDaemonTests {
         do { outcome = .success(try await restart(otherBin: otherBin, bin: bin, socket: socket, environment: environment)) } catch { outcome = .failure(error) }
         // Whatever failed, every daemon this test started ends with it.
         let last = try? await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(5)).pid
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, reason: "test", deadline: .seconds(10))
         if let last { #expect(await AgentPaneProcessExit(pid: last).event(within: .seconds(10)), "the daemon outlived its shutdown") }
         _ = try outcome.get()
     }

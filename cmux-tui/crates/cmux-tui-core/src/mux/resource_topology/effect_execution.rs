@@ -360,6 +360,7 @@ impl Mux {
                             size: effect_cell_size(fields)?,
                             ratio: None,
                             viewport_width: None,
+                            fit: false,
                             row_height: None,
                             focus: true,
                         },
@@ -409,6 +410,10 @@ impl Mux {
                             .get("viewport_width")
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
+                        fit: fields
+                            .get(PANE_SPLIT_FIT_FIELD)
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                         row_height: rows::row_height_field(fields)?,
                         // Absent only on the daemon's own and the user's
                         // splits: the resource router sends `focus: false`
@@ -889,8 +894,19 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height, focus } =
-            options;
+        let PaneAddOptions {
+            direction,
+            argv,
+            cwd,
+            size,
+            ratio,
+            viewport_width,
+            fit,
+            row_height,
+            focus,
+        } = options;
+        // `fit` makes a column too; its width is set once the screen is known.
+        let viewport_width = viewport_width.or(fit.then_some(FIT_SCROLLING_COLUMN_WIDTH));
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -1001,10 +1017,16 @@ impl Mux {
                 let base = base_column_id.expect("viewport column reserved a base id");
                 // `direction: "left"` (`column-left-v1`) opens the column before the target's.
                 let before = split_direction.is_some_and(|(_, before_target)| before_target);
+                // A `fit` column on a screen that fits the window shares it.
+                let fits = fit && screen.strip_fits_window();
+                let column_id = column.id;
                 anyhow::ensure!(
                     screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
+                if fits {
+                    screen.fit_strip_after_insert(column_id);
+                }
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
                 let in_viewport_column = screen.layout_columns_active();

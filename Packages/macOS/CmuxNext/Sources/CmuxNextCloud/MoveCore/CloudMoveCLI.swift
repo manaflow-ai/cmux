@@ -87,13 +87,88 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var createSent: Bool = false
         public var environmentId: String?
         public var setup: CloudStartSetup?
+        /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
+        /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
+        public var madeForSend: Bool = false
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
                     environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
-                    createTeam: String? = nil, createSent: Bool = false) {
+                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false) {
             (self.machine, self.newName, self.createKey, self.tabKey, self.targetPane) = (machine, newName, createKey, tabKey, targetPane)
             (self.createTeam, self.createSent, self.environmentId, self.setup) = (createTeam, createSent, environmentId, setup)
+            self.madeForSend = madeForSend
         }
+
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            machine = try container.decodeIfPresent(String.self, forKey: .machine)
+            newName = try container.decodeIfPresent(String.self, forKey: .newName)
+            createKey = try container.decode(String.self, forKey: .createKey)
+            tabKey = try container.decode(String.self, forKey: .tabKey)
+            targetPane = try container.decodeIfPresent(String.self, forKey: .targetPane)
+            createTeam = try container.decodeIfPresent(String.self, forKey: .createTeam)
+            createSent = try container.decodeIfPresent(Bool.self, forKey: .createSent) ?? false
+            environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
+            setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
+            madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
+        }
+    }
+
+    /// `cmux link start-chat preflight`'s refusal: the folder a start may not copy (past the copy's limits, and not in
+    /// git), asked before any machine or lease is made for it, with the git working copies right inside it to start in instead.
+    public nonisolated struct StartChatPreflightRefusal: Sendable, Equatable, Error {
+        public nonisolated struct Repo: Sendable, Equatable {
+            public var name: String, path: String
+            public init(name: String, path: String) { (self.name, self.path) = (name, path) }
+        }
+        /// The CLI's own sentence (logged; the page words the card from the fields below).
+        public var message: String
+        /// The folder as the person reads it (`~/Projects`), and at least what it holds.
+        public var folder: String
+        public var bytes: Double?, files: Double?
+        public var repos: [Repo]
+        /// More repositories were found than ``repos`` names.
+        public var more: Bool
+
+        public init(message: String, folder: String, bytes: Double? = nil, files: Double? = nil, repos: [Repo] = [], more: Bool = false) {
+            (self.message, self.folder, self.bytes, self.files, self.repos, self.more) = (message, folder, bytes, files, repos, more)
+        }
+
+        /// The refusal an answer object names: only `copy.too_large`; nil for a pass or any other answer.
+        public init?(answer: [String: Any]) {
+            guard answer["ok"] as? Bool == false, answer["error_code"] as? String == Self.code else { return nil }
+            let repos = (answer["repos"] as? [[String: Any]] ?? []).compactMap { repo -> Repo? in
+                guard let name = repo["name"] as? String, let path = repo["path"] as? String, path.hasPrefix("/") else { return nil }
+                return Repo(name: name, path: path)
+            }
+            self.init(message: answer["error"] as? String ?? Self.code, folder: answer["folder"] as? String ?? "",
+                      bytes: (answer["bytes"] as? NSNumber)?.doubleValue, files: (answer["files"] as? NSNumber)?.doubleValue,
+                      repos: repos, more: answer["repos_more"] as? Bool ?? false)
+        }
+
+        /// The copy's refusal code (cmux-tui `size_cap::CODE`).
+        public static let code = "copy.too_large"
+        /// The start card's code for it (webviews cloudStartProgress.ts).
+        public static let replyCode = "cloud_folder_too_big"
+
+        /// The start card's details: the folder, its size and the repositories to offer (CloudStartView).
+        public var details: [String: Any] {
+            var details: [String: Any] = ["folder": folder, "repos": repos.map { ["name": $0.name, "path": $0.path] }, "more": more]
+            if let bytes { details["bytes"] = bytes }
+            if let files { details["files"] = files }
+            return details
+        }
+    }
+
+    /// `cmux link start-chat preflight --local FOLDER`, before any machine or lease is made for a start: the refusal of a
+    /// folder past the copy's limits, else nil (a pass, and also a check that could not run: the copy counts it again).
+    public func startChatPreflight(local: String) async -> StartChatPreflightRefusal? {
+        struct Call: Encodable { var verb = "start-chat-preflight"; var local: String }
+        guard let read = try? await run(Call(local: local), reading: "reservation"), let object = read.object,
+              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return nil }
+        return StartChatPreflightRefusal(answer: answer)
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
@@ -147,15 +222,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
         public var account: String
         public var team: String
+        /// Rust's attempt fence, returned unchanged when the copy completes.
+        public var generation: String?
 
-        public init(machineID: String, account: String, team: String) {
-            (self.machineID, self.account, self.team) = (machineID, account, team)
+        public init(machineID: String, account: String, team: String, generation: String? = nil) {
+            (self.machineID, self.account, self.team, self.generation) = (machineID, account, team, generation)
         }
     }
 
     /// How the App's login copy of a warm ended: installed (Rust keeps it as the start's login receipt), done otherwise
     /// (or given up for good), or abandoned to an account or team switch.
-    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), finished(String), abandoned(String) }
+    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), verified(String), finished(String), abandoned(String) }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
     /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
@@ -163,27 +240,33 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
     /// With `claimed`, it asks no warm: a reserve's or a claim's answer named that machine, and Rust answers the copy onto
     /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
+    /// With `ready`, likewise no warm: the platform said that spare became ready, and Rust answers its copy the same way.
     public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
-                                   claimed: String? = nil) async -> SpareWarm? {
+                                   claimed: String? = nil, ready: String? = nil, generation: String? = nil,
+                                   scope: [String: String]? = nil, currentScope: [String: String]? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed)
+        var request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
+        request["generation"] = generation
+        if let scope { request["scope"] = scope }
+        if let currentScope { request["currentScope"] = currentScope }
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
               let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
               copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, account: account, team: team)
+        return SpareWarm(machineID: machineID, account: account, team: team, generation: copy["generation"] as? String)
     }
 
     /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
-    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?) -> [String: Any] {
+    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?, ready: String? = nil) -> [String: Any] {
         var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
         case .installed(let machine): request["installed"] = machine
+        case .verified(let machine): request["verified"] = machine
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
-        case nil: request["claimed"] = claimed
+        case nil: request["claimed"] = claimed; request["ready"] = claimed == nil ? ready : nil
         }
         return request
     }
@@ -212,9 +295,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
-    public func startChatLoginReceipt(machine: String, account: String, provider: String) async -> Bool {
+    public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        var ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        if let scope { ask["scope"] = scope }
         guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
@@ -233,6 +317,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         var call = ["verb": "start-chat-pin", "key": key, "account": account, "machine": machine]
         call["workspace"] = workspace
         return (try await run(call).answer, ())
+    }
+
+    /// `cmux link start-chat strand`: the start of the send `key` can't go on and gives up `machine`, the one made for
+    /// it. True only when no other send is on the machine, so the App may delete it (under the ledger lock later sends
+    /// pin under, so a chat that took the machine first keeps it). Any failure answers false: nothing is deleted.
+    public func startChatStrand(key: String, account: String, machine: String) async -> Bool {
+        struct Reply: Decodable { var ok: Bool; var delete: Bool? }
+        guard let read = try? await run(["verb": "start-chat-strand", "key": key, "account": account, "machine": machine], reading: "reservation"),
+              let object = read.object, let reply = try? JSONDecoder().decode(Reply.self, from: object) else { return false }
+        return reply.ok && reply.delete == true
+    }
+
+    /// Gives up `machine`, made for the start of send `key`, and runs `delete` on it only when ``startChatStrand(key:account:machine:)``
+    /// says no other send took it meanwhile: a second chat of the workspace that planned onto it keeps it and its files.
+    @MainActor public func strandThenDelete(key: String, account: String, machine: String, delete: @MainActor (String) async throws -> Void) async throws {
+        if await startChatStrand(key: key, account: account, machine: machine) { try await delete(machine) }
     }
 
     public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {

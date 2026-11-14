@@ -9,11 +9,19 @@
 //! {surface}`, `send-key`, the `terminal.input.*` effects, image paste, `clear-history`) waits
 //! for it, or starts it when the commit's flush has not
 //! ([`Mux::wait_for_creating_input_flush`]), so queued bytes precede all later input. No
-//! daemon-wide lock is held while bytes go to a host. A creation that fails, a closed
-//! connection, or no commit within the expiry (from the first queued byte) writes nothing;
-//! each sending connection gets its own bytes back in one `terminal-input-unclaimed` notice, so
-//! the client can give them to the terminal that has focus. Clients send keys to the new
-//! terminal at once and never hold or replay them.
+//! daemon-wide lock is held while bytes go to a host. A creation that fails or a closed
+//! connection writes nothing; each sending connection gets its own bytes back in one
+//! `terminal-input-unclaimed` notice. Clients send keys to the new terminal at once and never
+//! hold or replay them.
+//!
+//! One rule for every queue (a creation's and an adoption's): the queue lives until its
+//! operation ends, and that end writes it in order or gives it back. Every creation that starts
+//! its commit ends it (`CreateCleanup`'s drop: commit, failure, cancel or panic) and every
+//! adoption thread ends it ([`Mux::finish_adopting_input`]). [`INPUT_QUEUE_BACKSTOP`] (from the
+//! first queued byte) gives a queue back (`reason: "expired"`) only when its operation never
+//! ends. A queue was given back 10 s after its first byte before: a creation or an adoption that
+//! took longer still went live, and the keys typed into it went to the focused terminal of the
+//! window (the app types given-back bytes there) or nowhere, not to the terminal they were for.
 //!
 //! The connection that sent a creation can cancel its input (`cancel-creating-input`,
 //! `creating-input-cancel-v1`, [`Mux::cancel_creating_input`]): the person closed the pane that
@@ -30,16 +38,24 @@
 //! terminal`, so keys typed during an update were lost. Input for it is queued once an adoption
 //! of the id runs; the adoption's end ([`Mux::finish_adopting_input`]) writes the queue to the
 //! adopted terminal in order, or gives it back (`reason: "failed"`) when no live terminal has
-//! the id. The expiry bounds it as for a creation.
+//! the id. Its queue waits for that end, by the rule above: an update's new owner adopted for
+//! 48 s at 320 terminals on a loaded Mac.
 
 use super::*;
 
 /// The most bytes queued for one creating terminal; more is refused (`input.overflow`).
 pub(crate) const CREATING_INPUT_LIMIT: usize = 64 * 1024;
-/// A creating terminal whose creation does not end this long after its first queued byte gives
-/// its input back (`reason: "expired"`). It also bounds how long other input waits for a flush.
+/// How long other input waits for a queue being written, and how long a cancelled creation that
+/// committed refuses input by its id. No queue is given back at this time (see
+/// [`INPUT_QUEUE_BACKSTOP`]).
 const CREATING_INPUT_EXPIRY: Duration = Duration::from_secs(10);
-/// Test hook: a shorter expiry in milliseconds.
+/// A queue (a creation's or an adoption's) is written or given back when its operation ends;
+/// this gives it back (`reason: "expired"`) only when the operation has not ended this long
+/// after the first queued byte, so it only bounds one that never ends. 2.5 times the slowest
+/// operation measured (an adoption of 48 s: 320 terminals, load 4-6 times the cores). The queue
+/// holds at most [`CREATING_INPUT_LIMIT`] bytes meanwhile.
+const INPUT_QUEUE_BACKSTOP: Duration = Duration::from_secs(120);
+/// Test hook: a shorter [`CREATING_INPUT_EXPIRY`] in milliseconds.
 const EXPIRY_OVERRIDE_ENV: &str = "CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS";
 /// Test hook (fault injection): the flush starts this many milliseconds after the commit, so a
 /// test can send input by another path inside that window.
@@ -99,7 +115,20 @@ impl CreatingTerminal {
 }
 
 /// The creating terminals of one daemon, keyed by host terminal id (32 hex).
-#[derive(Default)]
+/// The time of the queues' backstop. The daemon uses the system's; a test injects one it moves by
+/// hand ([`Mux::set_input_queue_clock_for_test`]), so a backstop test waits for no real time.
+pub(crate) trait InputQueueClock: Send + Sync {
+    fn now(&self) -> Instant;
+}
+
+struct SystemInputQueueClock;
+
+impl InputQueueClock for SystemInputQueueClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
 pub(crate) struct CreatingInputs {
     terminals: Mutex<HashMap<String, CreatingTerminal>>,
     /// How many terminals have a queue that can still be written (every entry of the map but a cancelled creation
@@ -108,6 +137,24 @@ pub(crate) struct CreatingInputs {
     creating: AtomicUsize,
     ended: Condvar,
     next_generation: AtomicU64,
+    /// Queues given back by [`INPUT_QUEUE_BACKSTOP`] since the daemon started: each is a creation
+    /// or adoption that never ended. The backstop's log line prints it.
+    backstop_give_backs: AtomicU64,
+    /// The backstop's time ([`InputQueueClock`]).
+    clock: RwLock<Arc<dyn InputQueueClock>>,
+}
+
+impl Default for CreatingInputs {
+    fn default() -> Self {
+        Self {
+            terminals: Mutex::default(),
+            creating: AtomicUsize::default(),
+            ended: Condvar::default(),
+            next_generation: AtomicU64::default(),
+            backstop_give_backs: AtomicU64::default(),
+            clock: RwLock::new(Arc::new(SystemInputQueueClock)),
+        }
+    }
 }
 
 impl CreatingInputs {
@@ -218,7 +265,7 @@ pub(crate) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<InputCancelled>().map(|_| "input.cancelled".to_string())
 }
 
-/// The give-back reason of a queue whose creation did not end within the expiry.
+/// The give-back reason of a queue whose creation or adoption did not end within the backstop.
 const EXPIRED: &str = "expired";
 
 /// [`CREATING_INPUT_EXPIRY`], or the test's shorter one.
@@ -330,7 +377,7 @@ impl Mux {
     }
 
     /// Queue input in `creating`'s FIFO (the caller holds the creating lock), or refuse it whole
-    /// past [`CREATING_INPUT_LIMIT`]. The first queued byte starts the expiry.
+    /// past [`CREATING_INPUT_LIMIT`]. The first queued byte starts the backstop.
     fn queue_input(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -347,7 +394,7 @@ impl Mux {
         creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
         if !creating.expiry_started && !creating.flushing {
             creating.expiry_started = true;
-            self.start_creating_input_expiry(terminal_id, creating.generation);
+            self.start_input_queue_backstop(terminal_id, creating.generation);
         }
         Ok(TerminalInputTarget::Queued)
     }
@@ -592,13 +639,16 @@ impl Mux {
         }
     }
 
-    /// Give a creating terminal's input back when its creation has not ended by the expiry.
-    fn start_creating_input_expiry(self: &Arc<Self>, terminal_id: &str, generation: u64) {
-        let deadline = Instant::now() + creating_input_expiry();
+    /// Give a creating (or adopting) terminal's input back when its creation (or adoption) has
+    /// not ended [`INPUT_QUEUE_BACKSTOP`] from now: an operation that never ends.
+    fn start_input_queue_backstop(self: &Arc<Self>, terminal_id: &str, generation: u64) {
+        let clock =
+            self.creating_inputs.clock.read().unwrap_or_else(PoisonError::into_inner).clone();
+        let deadline = clock.now() + INPUT_QUEUE_BACKSTOP;
         let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
         let spawned =
-            std::thread::Builder::new().name("creating-input-expiry".into()).spawn(move || {
+            std::thread::Builder::new().name("input-queue-backstop".into()).spawn(move || {
                 let Some(mux) = mux.upgrade() else { return };
                 let inputs = &mux.creating_inputs;
                 let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
@@ -609,7 +659,7 @@ impl Mux {
                     }) {
                         return;
                     }
-                    let now = Instant::now();
+                    let now = clock.now();
                     if now >= deadline {
                         break;
                     }
@@ -619,12 +669,43 @@ impl Mux {
                         .unwrap_or_else(PoisonError::into_inner)
                         .0;
                 }
+                // The loop returned when the entry was gone.
+                let Some(creating) = terminals.get(&terminal_id) else { return };
+                let operation = if creating.adopting { "adoption" } else { "creation" };
+                let bytes = creating.bytes;
                 drop(terminals);
+                let total = inputs.backstop_give_backs.fetch_add(1, Ordering::Relaxed) + 1;
+                eprintln!(
+                    "cmux-tui: {bytes} bytes queued for terminal {terminal_id} given back: its \
+                     {operation} did not end in {INPUT_QUEUE_BACKSTOP:?} ({total} given back by the \
+                     backstop since start)"
+                );
                 mux.finish_creating_input(&terminal_id, generation, Some(EXPIRED));
             });
         if let Err(error) = spawned {
-            eprintln!("cmux-tui: no expiry for creating terminal input: {error}");
+            eprintln!("cmux-tui: no backstop for queued terminal input: {error}");
         }
+    }
+
+    /// Puts `clock` in place of the system's for the backstops of queues started from now on.
+    #[cfg(test)]
+    pub(crate) fn set_input_queue_clock_for_test(&self, clock: Arc<dyn InputQueueClock>) {
+        *self.creating_inputs.clock.write().unwrap_or_else(PoisonError::into_inner) = clock;
+    }
+
+    /// Wakes every backstop to read its clock again (a test moved its clock). Under the queues'
+    /// lock, so a backstop between its check and its wait cannot miss it.
+    #[cfg(test)]
+    pub(crate) fn wake_input_queue_backstops_for_test(&self) {
+        let _terminals =
+            self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        self.creating_inputs.ended.notify_all();
+    }
+
+    /// Queues the backstop gave back since this mux started.
+    #[cfg(test)]
+    pub(crate) fn input_queue_backstop_give_backs_for_test(&self) -> u64 {
+        self.creating_inputs.backstop_give_backs.load(Ordering::Relaxed)
     }
 
     /// Runs `hold` while this thread holds the creating-input lock (tests: a person's key must not wait for it).

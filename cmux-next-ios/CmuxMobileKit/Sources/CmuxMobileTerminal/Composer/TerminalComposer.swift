@@ -9,18 +9,25 @@ import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
-/// glass circles, then the growing field in a rounded glass container with the send
-/// circle inside it, riding the last line. Send delivers the draft as one
-/// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
-/// It sits below the key row, nearest the keyboard, and is open by default.
-/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
+/// The composer row: one full-width rounded glass field that holds
+/// everything (user, 2026-11-12: "thise buttons (clip and voice) will be
+/// going inside the box"): the attachment tray on top, then the paperclip
+/// menu (Photo Library, Choose Files, Paste, Camera), the growing text, voice
+/// mode and the send circle on one row, the buttons riding the last line as
+/// the field grows upward. Send delivers the draft as one paste plus Return
+/// (`ComposerSubmit`); Return in the field starts a new line. It sits below
+/// the key row, nearest the keyboard, and is open by default. Jump to bottom
+/// is its own row above the key row (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
+
+    private var voiceSource: (any AgentVoiceSource)? {
+        guard let source = model.voiceSource, source.voiceAvailable, voice.isAvailable else { return nil }
+        return source
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -28,35 +35,56 @@ struct TerminalComposer: View {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, 14)
                     .accessibilityIdentifier("terminal.composer.notSent")
+            }
+            if let line = model.connectionLine {
+                // The connection's one quiet line, after 10 s of an outage; the
+                // page keeps its last frame meanwhile (no pill over it).
+                HStack(spacing: 6) {
+                    Text(verbatim: line)
+                    if let retry = model.reconnect {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 14)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("terminal.connectionLine")
             }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, 14)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
-            if !model.attachments.isEmpty {
-                AttachmentStrip(model: model)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            GlassEffectContainer(spacing: 0) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
-                    fieldContainer
-                }
-            }
+            field
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Always its own height, never the hosting view's current one: offered
+        // the old, shorter height, the field's min-height frame took it and
+        // the grown draft and send circle ran out below the rounded field
+        // (user report 2026-11-12), and since the row's height then never
+        // changed, nothing asked the screen to grow it.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
+        // Measured here, on the card, before the frame below.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
+        // Grows up from the keyboard: the frame takes the hosting view's
+        // height, so until the view takes a taller card's height (the pass
+        // after it is measured) the card overflows upward from the bottom
+        // edge, never centered half below it over the keyboard (Leo,
+        // 2026-11-12: "whoa it go down"). With no height offered (the
+        // intrinsic size) the frame is the card's own height.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
@@ -99,7 +127,7 @@ struct TerminalComposer: View {
                 }
             }
         } label: {
-            ComposerCircleLabel(systemImage: "paperclip")
+            ComposerInlineCircle(systemImage: "paperclip")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add Attachment")
@@ -114,9 +142,9 @@ struct TerminalComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
+            ComposerInlineCircle(systemImage: "waveform",
+                                 foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                 tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
         .buttonStyle(.plain)
@@ -124,33 +152,48 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.voice")
     }
 
-    /// The field and its send circle share one rounded glass container; the
-    /// circle rides the last line as the field grows (classic, iMessage).
-    private var fieldContainer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            ComposerTextView(
-                text: $model.composerText,
-                placeholder: model.composerPlaceholder,
-                focusRequest: model.composerFocusRequest,
-                focusOnAppear: model.composerFocusOnAppear,
-                isDisabled: false,
-                onFocusChange: { isFocused in
-                    model.composerFocused = isFocused
-                    if isFocused { model.composerFocusOnAppear = false }
-                    if isFocused { model.directTyping = false }
-                    model.controller?.inputFocusChanged()
-                },
-                onReturn: { send() },
-                shouldInsert: { model.composerShouldInsert($0) },
-                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
-            )
-            sendButton
+    /// The rounded glass field, full width: the attachment tray on top, then
+    /// paperclip, the text, voice and send on one row; the buttons ride the
+    /// last line as the field grows (Messages, with its buttons inside).
+    private var field: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !model.attachments.isEmpty {
+                AttachmentStrip(model: model)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                if model.attachmentsAvailable { attachMenu }
+                textView
+                    .padding(.leading, model.attachmentsAvailable ? 0 : 8)
+                if let source = voiceSource { voiceButton(source) }
+                sendButton
+            }
+            .padding(TerminalDockMetrics.fieldPadding)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
-        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .frame(minHeight: TerminalDockMetrics.control, alignment: .bottom)
+        // The rounded glass always wraps the whole field (see `body`).
+        .fixedSize(horizontal: false, vertical: true)
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
+    }
+
+    private var textView: some View {
+        ComposerTextView(
+            text: $model.composerText,
+            placeholder: model.composerPlaceholder,
+            focusRequest: model.composerFocusRequest,
+            focusOnAppear: model.composerFocusOnAppear,
+            isDisabled: false,
+            onFocusChange: { isFocused in
+                model.composerFocused = isFocused
+                if isFocused { model.composerFocusOnAppear = false }
+                if isFocused { model.directTyping = false }
+                model.controller?.inputFocusChanged()
+            },
+            onReturn: { send() },
+            shouldInsert: { model.composerShouldInsert($0) },
+            onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
+        )
     }
 
     private var sendButton: some View {
@@ -293,19 +336,21 @@ struct TerminalComposer: View {
     }
 }
 
-/// A 40 pt glass circle with an icon: the composer's paperclip and mic (classic).
-struct ComposerCircleLabel: View {
+/// A button inside the composer's field (paperclip, voice): a 28 pt circle
+/// of the `fill` token, not glass (never glass on glass, SPEC 2.4), the
+/// send circle's size; tinted with the accent while on (voice mode running).
+struct ComposerInlineCircle: View {
     let systemImage: String
+    var diameter: CGFloat = TerminalDockMetrics.sendDiameter
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
-    /// On (voice mode running): glass tinted like the send circle.
     var tint: Color?
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
-            .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            .frame(width: diameter, height: diameter)
+            .background(Circle().fill(tint ?? Color.cmuxMobileFill))
             .contentShape(.circle)
     }
 }
@@ -335,8 +380,9 @@ struct MovieFile: Transferable {
     }
 }
 
-/// Inline previews: 56 x 56 thumbnails (radius 12) for photos and videos, 56 h
-/// chips for files, each with a 20 pt remove badge.
+/// The attachment tray inside the composer's field: 56 x 56 thumbnails
+/// (radius 12) for photos and videos, 56 h chips for files on the `fill`
+/// token, each with a 20 pt remove badge on `surfaceRaised` (SPEC 4.3).
 struct AttachmentStrip: View {
     let model: TerminalModel
 
@@ -355,24 +401,24 @@ struct AttachmentStrip: View {
                             Button {
                                 model.removeAttachment(attachment.id)
                             } label: {
-                                // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
-                                    .frame(width: 44, height: 44)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color.primary)
+                                    .frame(width: 20, height: 20)
+                                    .background(Circle().fill(Color.cmuxMobileSurfaceRaised))
+                                    .overlay(Circle().strokeBorder(Color.cmuxMobileBackground.opacity(0.6), lineWidth: 1))
+                                    .frame(width: 36, height: 36)
                                     .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 16, y: -16)
+                            .offset(x: 12, y: -12)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 2)
         }
         .scrollIndicators(.hidden)
     }
@@ -418,7 +464,7 @@ struct AttachmentStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 56)
-            .glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
+            .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 12, style: .continuous))
         }
     }
 }

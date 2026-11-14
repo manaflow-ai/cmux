@@ -817,8 +817,8 @@ When the agent requests permission (ACP `session/request_permission`):
 
 ### 6.6 Questions (AskUserQuestion / ACP elicitation)
 
-- `QuestionCard`: `surface` radius 20, padding 16; header `questionmark.bubble` + question text
-  (`headline`); optional `rowSubtitle` context.
+- `QuestionCard`: `surface` radius 20, padding 16; header row: the item's header (caption, uppercased) and "1 of N",
+  no icon; then the question text (`headline`); optional `rowSubtitle` context.
 - Single choice: options as 48 h rows inside the card, radius 14, `fill`; selected:
   `fillSelected` + trailing `checkmark` (`label`). Multi-select: trailing `circle` /
   `checkmark.circle.fill`. Last row "Other..." expands an inline text field.

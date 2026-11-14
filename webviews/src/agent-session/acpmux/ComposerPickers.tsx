@@ -1443,14 +1443,25 @@ function AccessMenu({
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  const [optimistic, setOptimistic] = useState<{ sessionId?: string; modeId: string }>();
+  // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
+  // answered) any other than the one the pick left, which the agent runs instead (it mapped the
+  // pick onto its own mode, or another window changed it). A pick kept until the session reported
+  // exactly its id named a mode the chat never ran whenever the agent ran another.
+  const [optimistic, setOptimistic] = useState<{
+    sessionId?: string;
+    modeId: string;
+    from?: string;
+    answered?: boolean;
+  }>();
+  const optimisticSettled =
+    optimistic !== undefined &&
+    (optimistic.sessionId !== sessionId ||
+      optimistic.modeId === current ||
+      (optimistic.answered === true && current !== optimistic.from));
   useEffect(() => {
-    if (optimistic && optimistic.sessionId !== sessionId) setOptimistic(undefined);
-  }, [optimistic, sessionId]);
-  useEffect(() => {
-    if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
-  }, [current, optimistic, sessionId]);
-  const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
+    if (optimisticSettled) setOptimistic(undefined);
+  }, [optimisticSettled]);
+  const optimisticMode = optimistic && !optimisticSettled ? optimistic.modeId : undefined;
   // Modes the agent refused in this session (a company-managed Mac's Claude Code settings can
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
   const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
@@ -1472,10 +1483,14 @@ function AccessMenu({
   const fullAccess = answeredForYou || unrestricted(value);
   const pick = (next: string) => {
     if (blocked(next)) return;
-    setOptimistic({ sessionId, modeId: next });
+    const pick = { sessionId, modeId: next, from: current };
+    setOptimistic(pick);
     setOpen(false);
     void settle(() => onMode(next)).then((applied) => {
-      if (applied) return;
+      if (applied) {
+        setOptimistic((pending) => (pending === pick ? { ...pick, answered: true } : pending));
+        return;
+      }
       setOptimistic((pending) => (pending?.modeId === next ? undefined : pending));
       setRefused((old) => ({
         sessionId,
@@ -1674,7 +1689,7 @@ export function ContextRing({
     ? t("planUsage.ringLabel", { percent })
     : known
       ? t(PICKER_LABELS.context, { percent })
-      : t("context.title");
+      : `${t("context.title")} · ${t("status.notReported")}`;
   const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
@@ -1777,6 +1792,8 @@ export function ContextRing({
         className="acpmux-context-ring"
         data-menu={t("context.title")}
         aria-label={label}
+        // tooltip-allow: unknown usage has no hover card; explain the empty ring without inventing a percentage.
+        title={known ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.

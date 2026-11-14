@@ -15,6 +15,8 @@
 //   followed a DOM change, their intervals' `p50`, `p95` and `max` in ms, `miss120` and `miss60`
 //   (intervals that missed a 120 Hz or a 60 Hz frame), `over50`, and `ms` the span covered (Leo,
 //   2026-11-07: "find, like, where we're dropping frames"). `cmux perf record` reads them.
+// - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
+//   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -132,18 +134,24 @@ export class FrameWatch {
   private windowStart: number | undefined;
   private windowEnd = 0;
 
+  /// `stopWhenStill`: the engine reports long frames itself (`long-animation-frame`), so a frame that drew no
+  /// change has nothing to time: the watch stops at the first such frame, not WATCH_MS after the change. A page at
+  /// rest then asks for no frame at all; before, each change at rest (a minute label, a presence row) cost a second
+  /// of frames, 43 to 60 wakeups (bench chat_switch.*.idle_wakeups).
   constructor(
     private readonly report: (ms: number) => void,
     private readonly visible: () => boolean,
     private readonly frame: (run: (time: number) => void) => void,
     private readonly now: () => number,
     private readonly summary: (stats: FrameStats) => void = () => undefined,
+    private readonly stopWhenStill = false,
   ) {}
 
   arm(): void {
     this.until = this.now() + WATCH_MS;
     this.pending = true;
     if (this.running) return;
+    if (this.windowStart !== undefined && this.now() - this.windowStart >= WINDOW_MS) this.endWindow();
     this.running = true;
     // From the change itself: a frame that the change made long is the first one timed.
     this.last = this.visible() ? this.now() : undefined;
@@ -176,6 +184,12 @@ export class FrameWatch {
     this.drew = visible && this.pending;
     this.pending = false;
     this.last = visible ? time : undefined;
+    if (this.stopWhenStill && !this.drew && this.now() < this.until) {
+      // Still: no frame until the next change. The window stays open, so changes a few frames apart still make
+      // one summary a second; the next change closes a window that is a second old (`arm`).
+      this.running = false;
+      return;
+    }
     if (this.now() >= this.until) {
       this.running = false;
       this.endWindow();
@@ -202,6 +216,12 @@ export function noteTranscriptMount(): void {
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+}
+
+/// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
+/// `why` names what hides it, `h` the row's height; nothing before startFlickerLog.
+export function noteReplyUnpainted(why: string, h: number): void {
+  log?.record("reply-unpainted", { why, h });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
@@ -288,6 +308,7 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
     (run) => win.requestAnimationFrame(run),
     () => win.performance.now(),
     (stats) => flicker.record("frames", stats),
+    engineLongFrames,
   );
   new (win as Window & typeof globalThis).MutationObserver(() => watch.arm()).observe(doc.documentElement, {
     childList: true,

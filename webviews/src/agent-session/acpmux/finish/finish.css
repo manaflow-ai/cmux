@@ -1,0 +1,119 @@
+/* Finish moments (finishMoments.ts): a short "done" state on the line that says the work ended. Each
+   plays once on its state change and ends with the moment's one timer (FINISH_MS: 700 ms for a turn
+   and green checks, 950 ms for a merge), when the attribute goes. Nothing loops, pulses or takes
+   input: every mark is pointer-events none and takes no width, so no row or chip moves.
+   Reduce Motion and motion off draw the same end state still for the same time. */
+
+/* The moments' lengths (finishMoments.ts FINISH_MS) and marks' sizes, defined once. */
+:root {
+  --cmux-finish-short: 700ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
+  --cmux-finish-merged: 950ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
+  --cmux-finish-burst: 900ms; /* motion-allow: a whole one-shot moment (FINISH_MS): its draw runs about the settle, the rest is a still hold, then it fades back */
+  --cmux-finish-check: 14px;
+  --cmux-finish-dot: 4px;
+}
+
+/* ---- A long turn's end: the "Worked for" row (TurnRows.tsx WorkedFor). ---- */
+/* The check sits over the chevron: its negative margin gives back its width and the row's gap. */
+.cv-finish-check {
+  flex: none;
+  margin-inline-start: calc(-1 * var(--cmux-finish-check) - var(--grid-gap));
+  fill: none;
+  stroke: var(--agent-status-success);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.cv-worked[data-finish] > .cv-worked__label {
+  color: var(--agent-status-success);
+}
+.cv-worked[data-finish] > .cv-worked__chevron {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The check draws in on the settle, holds, then gives the chevron back as the label's tint fades. */
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-finish-check {
+    stroke-dasharray: 1;
+    animation: cv-finish-draw var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: a one-shot finish moment, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__label {
+    animation: cv-finish-tint var(--cmux-finish-short) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__chevron {
+    animation: cv-finish-chevron var(--cmux-finish-short) linear both; /* motion-allow: one-shot, gated above */
+  }
+}
+@keyframes cv-finish-draw {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  38% { stroke-dashoffset: 0; opacity: 1; }
+  78% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes cv-finish-tint {
+  0%, 55% { color: var(--agent-status-success); }
+  100% { color: var(--cv-activity-text); }
+}
+@keyframes cv-finish-chevron {
+  0%, 78% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* ---- Green checks and a merge: the header's pull request chip (header/PullRequestChip.tsx). ---- */
+.acpmux-header-pr[data-finish] {
+  position: relative;
+  overflow: visible;
+}
+/* Green checks: the checks dot, now green, sends out one ring. */
+.acpmux-header-pr[data-finish="ci"]::after {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-status-success) 35%, transparent);
+}
+/* A merge: the chip's text takes the merged purple, and a few dots burst out of the chip and fade. */
+.acpmux-header-pr[data-finish="merged"] {
+  color: var(--agent-status-merged);
+}
+.acpmux-finish-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.acpmux-finish-burst > i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--cmux-finish-dot);
+  height: var(--cmux-finish-dot);
+  margin: calc(var(--cmux-finish-dot) / -2) 0 0 calc(var(--cmux-finish-dot) / -2);
+  border-radius: 50%;
+  background: var(--agent-status-merged);
+  opacity: 0;
+}
+.acpmux-finish-burst > i:nth-child(3n + 1) {
+  background: var(--agent-status-success);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-header-pr[data-finish="ci"]::after {
+    animation: acpmux-finish-ring var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
+  }
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-header-pr[data-finish="merged"] {
+    animation: acpmux-finish-merged var(--cmux-finish-merged) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
+  }
+  /* Each dot flies out along its own angle (--a) and fades; together they end by 900 ms. */
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-finish-burst > i {
+    animation: acpmux-finish-dot var(--cmux-finish-burst) var(--cmux-ease-settle) both; /* motion-allow: one-shot, gated above */
+  }
+}
+@keyframes acpmux-finish-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--agent-status-success) 55%, transparent); }
+  100% { box-shadow: 0 0 0 6px transparent; }
+}
+@keyframes acpmux-finish-merged {
+  0% { transform: scale(1); }
+  22% { transform: scale(1.08); }
+  60%, 100% { transform: scale(1); }
+}
+@keyframes acpmux-finish-dot {
+  0% { opacity: 1; transform: rotate(var(--a)) translateX(4px) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--r, 18px)) scale(0.5); }
+}

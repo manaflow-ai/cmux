@@ -40,6 +40,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs as job_fields  # noqa: E402  (this file's own workflow_jobs() lists every job)
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 TABLE = ROOT / ".github" / "warm-sources.json"
@@ -100,22 +103,29 @@ def step_text(step: dict) -> str:
 
 def job_steps_text(job: dict) -> str:
     texts = [step_text(step) for step in job.get("steps") or [] if isinstance(step, dict)]
-    if isinstance(job.get("env"), dict):
-        texts.extend(f"{key}={value}" for key, value in job["env"].items())
+    texts.extend(f"{key}={value}" for key, value in job_fields.effective_env(None, job).items())
     return "\n".join(texts)
 
 
-def runs_on_text(job: dict) -> str:
-    return json.dumps(job.get("runs-on"), sort_keys=True) if "runs-on" in job else ""
+def runs_on_text(job: dict, key: str = "") -> str | None:
+    """Every matrix cell of the job's runs-on, one per line; None when a matrix value nothing resolves could name
+    any runner, "" when that matrix is audited by name (workflow_jobs.audited_matrix of `key`, "file:job")."""
+    cells = job_fields.runs_on_cells(job)
+    if cells is None:
+        workflow, _, job_id = key.partition(":")
+        return "" if workflow and job_id and job_fields.audited_matrix(workflow, job_id) else None
+    return "\n".join(cells)
 
 
-def compile_reasons(job: dict) -> list[str]:
-    """Why a job counts as a compile, build or test job; empty when it does not."""
+def compile_reasons(job: dict, key: str = "") -> list[str]:
+    """Why a job counts as a compile, build or test job; empty when it does not. A runs-on matrix nothing resolves
+    may name a Mac, so it counts as one."""
     if not isinstance(job, dict) or "uses" in job:  # a reusable-workflow call: its callee's jobs count
         return []
     text = uncommented(job_steps_text(job))  # a comment about xcodebuild is not a compile
     reasons = [name for name, pattern in COMPILE_COMMANDS.items() if pattern.search(text)]
-    if MAC_RUNS_ON.search(runs_on_text(job)) or XCODE_STEP.search(text):
+    runs_on = runs_on_text(job, key)
+    if runs_on is None or MAC_RUNS_ON.search(runs_on) or XCODE_STEP.search(text):
         reasons.append("mac-runner")
     return reasons
 
@@ -283,7 +293,7 @@ def workflow_jobs(root: Path) -> dict[str, dict]:
 
 
 def compile_jobs(root: Path) -> dict[str, list[str]]:
-    return {key: reasons for key, job in workflow_jobs(root).items() if (reasons := compile_reasons(job))}
+    return {key: reasons for key, job in workflow_jobs(root).items() if (reasons := compile_reasons(job, key))}
 
 
 def load_table(path: Path) -> dict:
@@ -300,7 +310,7 @@ def problems(root: Path, table: dict) -> list[str]:
             errors.append(f"source {source_id}: needs a 'what' and a 'runbook'")
     entries = table.get("jobs") or {}
     jobs = workflow_jobs(root)
-    detected = {key: reasons for key, job in jobs.items() if (reasons := compile_reasons(job))}
+    detected = {key: reasons for key, job in jobs.items() if (reasons := compile_reasons(job, key))}
     for key in sorted(set(detected) - set(entries)):
         line = json.dumps({key: suggestion(root, jobs[key], key, entries, detected[key])})[1:-1]
         errors.append(f"(a) {key} compiles, builds or tests ({', '.join(detected[key])}) but is not in .github/warm-sources.json;"
@@ -376,7 +386,7 @@ def guess_class(key: str, entries: dict, reasons: list[str]) -> str:
 
 
 def suggestion(root: Path, job: dict, key: str = "", entries: dict | None = None, reasons: list[str] | None = None) -> dict:
-    cls = guess_class(key, entries or {}, reasons if reasons is not None else compile_reasons(job))
+    cls = guess_class(key, entries or {}, reasons if reasons is not None else compile_reasons(job, key))
     wired = wired_sources(root, job)
     if wired:
         return {"class": cls, "warm": wired}

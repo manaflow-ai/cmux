@@ -84,12 +84,12 @@ extension WindowManager {
                 state.enterProfile(fallback)
                 visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
             }
-            // A room change shows the workspace last shown in that room.
-            var wanted = preferred[window.id] ?? []
+            // A room change shows the workspace last shown in that room. A top page over a workspace that left stays up (a chat Bring Back took).
+            var wanted = preferred[window.id] ?? [], gone = state.workspaceID.map { !visible.contains($0) } ?? false
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
             registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? "")) }
         }
     }
 
@@ -108,11 +108,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
-    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:keepsPage:)`.
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false, keepsPage: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state), keepsPage: keepsPage)
         recordSaver.stateDidChange(state)
     }
 
@@ -354,7 +354,7 @@ extension WindowManager {
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
-        if select { bringToFront(moved) }
+        if select { bringToFront(moved) }; if !whole { WindowOwnSpace.give(moved.state.id, in: self) } // its own space, reached from the switcher
     }
 
     /// The user closed window `id`: it stays registered, closed, with its
@@ -440,7 +440,7 @@ extension WindowManager {
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)] + PhoneIncognitoHiding.ephemeralIDs(machines.local).sorted()
+                    + [Self.profileTags(of: machines.local)] + EphemeralWorkspaces.ephemeralIDs(machines.local).sorted()
             }) {
                 self?.reconcileMembership()
                 self?.recordIncognitoWorkspaces()

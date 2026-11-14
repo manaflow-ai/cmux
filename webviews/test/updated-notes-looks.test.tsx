@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { teardownDom } from "./support/domTeardown";
 
 const titles = [
   "Agent chats show what is new since you looked",
@@ -76,13 +77,9 @@ describe("the Updated card's changes popover looks", () => {
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root?.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 
   async function mount(node: React.ReactNode) {

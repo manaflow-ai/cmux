@@ -93,22 +93,34 @@ public enum MacHomeReply: Equatable, Sendable {
     public init(homeInbox data: [String: Any]) {
         let wire = data["rows"] as? [[String: Any]] ?? []
         guard let total = (data["total"] as? NSNumber)?.intValue else {
-            self = .all(wire.compactMap(MacHomeRow.init(wire:)))
+            self = .all(wire.compactMap(MacHomeRow.pooled(wire:)))
             return
         }
         if let offset = (data["offset"] as? NSNumber)?.intValue {
-            self = .window(wire.compactMap(MacHomeRow.init(wire:)), offset: offset, total: total)
+            self = .window(wire.compactMap(MacHomeRow.pooled(wire:)), offset: offset, total: total)
             return
         }
         self = .named(wire.compactMap { object in
             guard let index = (object["index"] as? NSNumber)?.intValue, index >= 0,
-                  let row = MacHomeRow(wire: object) else { return nil }
+                  let row = MacHomeRow.pooled(wire: object) else { return nil }
             return MacHomeRows.Found(index: index, row: row)
         }, total: total, order: data["order"] as? String)
     }
 
     /// A reply line, or the owner's (or the host's) refusal as `LinkError` `refused`.
+    ///
+    /// The whole read runs in an autorelease pool, as each row does (``MacHomeRow/pooled(wire:)``):
+    /// what parsing and bridging the reply leave autoreleased goes when the read returns, not
+    /// when the task that read it ends.
     public init(line: Data) throws {
+        #if canImport(ObjectiveC)
+        self = try autoreleasepool { try Self.parse(line) }
+        #else
+        self = try Self.parse(line)
+        #endif
+    }
+
+    private static func parse(_ line: Data) throws -> MacHomeReply {
         guard let reply = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             throw LinkError(code: "bad_reply", message: "bad reply to home-inbox")
         }
@@ -117,7 +129,7 @@ public enum MacHomeReply: Equatable, Sendable {
             let text = (error as? [String: Any])?["message"] as? String ?? error as? String ?? "home-inbox failed"
             throw LinkError(code: "refused", message: text)
         }
-        self.init(homeInbox: reply["data"] as? [String: Any] ?? [:])
+        return MacHomeReply(homeInbox: reply["data"] as? [String: Any] ?? [:])
     }
 
     /// The rows this reply carries, in the owner's order.
@@ -128,10 +140,16 @@ public enum MacHomeReply: Equatable, Sendable {
         }
     }
 
+    /// The priority the whole list (and `conversation-list`) is parsed at: below the first
+    /// screen's, so on a phone with few free cores the megabytes of a large Mac's list never
+    /// compete with the first window painting (`home_list_first_screen_under_load`).
+    public static let wholeListPriority: TaskPriority = .utility
+
     /// Reads `home-inbox` with `params` and parses the reply off the main actor (a whole
-    /// list is megabytes on a large Mac; only the rows come back to the caller).
-    static func read(_ client: DaemonClient, _ params: sending [String: Any]) async throws -> MacHomeReply {
+    /// list is megabytes on a large Mac; only the rows come back to the caller), at `priority`.
+    static func read(_ client: DaemonClient, _ params: sending [String: Any],
+                     priority: TaskPriority = .userInitiated) async throws -> MacHomeReply {
         let line = try await client.request("home-inbox", params: params)
-        return try await Task.detached(priority: .userInitiated) { try MacHomeReply(line: line) }.value
+        return try await Task.detached(priority: priority) { try MacHomeReply(line: line) }.value
     }
 }

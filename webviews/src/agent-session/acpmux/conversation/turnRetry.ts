@@ -86,3 +86,27 @@ export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client,
   if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
   return deps.send(draft);
 }
+
+export type FailedPromptRetryDeps<Client, Draft> = Omit<OwnedResendDeps<Client, Draft>, "restore"> & {
+  sessionId: string;
+  rowId: string | undefined;
+  prompt: string | undefined;
+  capabilities: ReadonlySet<string> | undefined;
+  request: TurnRetryDeps["request"];
+  restore: (rowId: string, prompt: string) => Promise<Draft>;
+};
+
+/// Failed attachment-only prompts have a defined empty text; only an absent prompt lacks a fallback.
+export function retryFailedPrompt<Client, Draft>(deps: FailedPromptRetryDeps<Client, Draft>) {
+  if (!deps.owns() || deps.currentClient() !== deps.client) return Promise.resolve("retry.failed" as const);
+  const { rowId, prompt } = deps;
+  return retryFailedTurn({
+    sessionId: deps.sessionId,
+    capabilities: deps.capabilities,
+    request: deps.request,
+    resend:
+      rowId && prompt !== undefined
+        ? () => resendToOwner({ ...deps, restore: () => deps.restore(rowId, prompt) })
+        : undefined,
+  });
+}

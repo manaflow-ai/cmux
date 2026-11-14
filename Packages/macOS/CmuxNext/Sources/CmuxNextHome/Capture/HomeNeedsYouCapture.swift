@@ -11,8 +11,9 @@ package import Foundation
 ///   it (the peer is this app). It serves one peer session (`acp_peer_capture` of `peer-a`) holding
 ///   one prompt. `initialize`, the watch and `_acpmux/sessions` list it as acpmux lists a peer's
 ///   session (``peerRow``: its raw `sessionId`, `peer` and `qualifiedSessionId`
-///   `peer-a/acp_peer_capture`). `_acpmux/info` reads it by that qualified id only, as acpmux reads
-///   a peer's session: any other id is an error, not an empty answer. It returns the prompt until
+///   `peer-a/acp_peer_capture`). `_acpmux/info` reads it by that qualified id or by its raw id, as
+///   acpmux's unix socket routes a peer's session (`hub/key_route.rs`: a raw id that names one live
+///   session, here or on a peer, is swapped for its route); any other id is an error, not an empty answer. It returns the prompt until
 ///   ``resolve()`` and nothing after. Notices carry the raw `sessionId`, as acpmux sends them, with
 ///   `peer` and `qualifiedSessionId`. Any other request gets an empty result. Only the first
 ///   connection is served.
@@ -229,7 +230,7 @@ package nonisolated final class HomeNeedsYouCapture: Sendable {
                 state.infoReads.append(target)
                 return state.resolved
             }
-            guard target == Self.qualifiedSession else {
+            guard target == Self.qualifiedSession || target == Self.rawSession else {
                 reply(["jsonrpc": "2.0", "id": id, "error": ["code": -32602, "message": "unknown session: \(target)"]])
                 return
             }

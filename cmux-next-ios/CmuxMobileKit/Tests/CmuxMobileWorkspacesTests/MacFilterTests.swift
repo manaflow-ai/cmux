@@ -248,8 +248,8 @@ import Testing
     }
 }
 
-/// Opening: a needs-you workspace on its waiting tab, else the last tab
-/// used here, else the Mac's active tab, else the first.
+/// Opening: a needs-you workspace on its waiting tab, else the layout's
+/// top-left pane's active tab, else the Mac's active tab, else the first.
 @MainActor @Suite struct OpeningTabTests {
     @Test func mockOpensTheWaitingTabAndTheMacsActiveTab() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
@@ -260,7 +260,7 @@ import Testing
         #expect(ghostty.agentTab(for: status)?.id == "t-gh-codex")
         let ios = try #require(store.workspace(id: "ws-ios"))
         #expect(store.openingTab(for: ios)?.id == "t-ios-build")
-        store.noteOpened(tabID: "t-ios-claude", in: "ws-ios")
+        store.requestOpen(tabID: "t-ios-claude", in: "ws-ios")
         #expect(store.openingTab(for: ios)?.id == "t-ios-claude")
     }
 

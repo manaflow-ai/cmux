@@ -31,10 +31,11 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
               app-host-only route (cmux-tui Rust, App/) does; swift test, the
               daemon and scheme tiers carry those.
 
-An app FFI re-pin (the app-ffi-repin bot's pull request) runs no tier but native: its diff is only the
+An app FFI re-pin runs native and the fast tier's HandlerCoverageTests only: its diff is only the
 pin in app-ffi-pin.json and the checksum line of Package.swift's loader block, and that release's source commit has
 HEAD's FFI sources (pure_ffi_repin, read with `--base-rev`). The app compile is its compile verdict, with the Mac Release
 compile as the fallback when the build fleet gives none; "Check the app FFI pin" (checks) proves the pin.
+HandlerCoverageTests binds the app actions against that pin so a catalog-only addition cannot trap at launch.
 
 A change to .github/workflows/cmux-next.yml runs every tier, unless `--base-rev`
 names the base and the change leaves every job a Mac job runs or needs as it was
@@ -66,6 +67,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from select_package_tests import input_prefixes, package_dirs, under  # noqa: E402
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "Packages/macOS/CmuxNext/"
@@ -521,7 +523,7 @@ class Route:
     # The fast tier's own registry, runner or job action changed.
     fast_registry: bool = False
     vendored_pin: bool = False
-    # A pure app FFI re-pin (pure_ffi_repin): the app compile alone, never the Mac fast tier.
+    # A pure app FFI re-pin (pure_ffi_repin): the app compile and only handler coverage in the Mac fast tier.
     ffi_repin: bool = False
     # A change to the swift test job's own steps (WORKFLOW_JOB_TIERS): every test target runs.
     all_tests: bool = False
@@ -544,8 +546,8 @@ class Route:
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
         suites' test targets read, a package it builds, its registry, runner or job action, an input only
-        the Mac Release compile sees, or an input of every tier. Never for a pure app FFI re-pin."""
-        return not self.ffi_repin and (self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
+        the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
+        return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
 
 
@@ -878,18 +880,31 @@ def linux_runs_on(value) -> bool:
     text = value.strip()
     if "${{" not in text:
         return "ubuntu" in text
-    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    match = gh_expressions.EXPRESSION.fullmatch(text)
     return bool(match) and "${{" not in match.group(1) and linux_values(match.group(1))
 
 
+def _workflow_jobs():
+    """tests/workflow_jobs.py, the one reader of a job's runs-on. Imported on use, not at the top: it needs PyYAML,
+    and jobs with a sparse scripts/ci checkout import this module without tests/."""
+    tests = str(ROOT / "tests")
+    if tests not in sys.path:
+        sys.path.append(tests)
+    import workflow_jobs  # noqa: PLC0415
+
+    return workflow_jobs
+
+
 def linux_job(job, root: Path | None, seen: frozenset[str] = frozenset()) -> bool:
-    """Whether a job runs only on Linux: its runs-on (linux_runs_on), or for a call of a local reusable
-    workflow (`uses: ./.github/workflows/X.yml`, read at `root`), every job of that workflow."""
+    """Whether a job runs only on Linux: every matrix cell of its runs-on (workflow_jobs.runs_on_label_cells,
+    each one label that linux_runs_on reads), or for a call of a local reusable workflow
+    (`uses: ./.github/workflows/X.yml`, read at `root`), every job of that workflow."""
     if not isinstance(job, dict):
         return False
     uses = job.get("uses")
     if uses is None:
-        return linux_runs_on(job.get("runs-on"))
+        cells = _workflow_jobs().runs_on_label_cells(job)
+        return bool(cells) and all(len(cell) == 1 and linux_runs_on(cell[0]) for cell in cells)
     if root is None or not isinstance(uses, str) or not uses.startswith("./.github/workflows/") or uses in seen:
         return False
     try:
@@ -938,7 +953,7 @@ def never_on_pull_request(name: str, jobs: dict, seen: frozenset[str] = frozense
     if not isinstance(job, dict) or name in seen:
         return False
     text = str(job.get("if") or "").strip()
-    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    match = gh_expressions.EXPRESSION.fullmatch(text)
     needs = job.get("needs", [])
     needs = {needs} if isinstance(needs, str) else set(needs) if isinstance(needs, list) else set()
 
@@ -976,6 +991,7 @@ def workflow_change(base_text: str, head_text: str, root: Path | None = None) ->
     failure included, so an unreadable change runs every tier)."""
     try:
         import yaml  # noqa: PLC0415
+        _workflow_jobs()  # linux_job reads runs-on through it: no reader runs every tier, like a parse failure
         base = yaml.load(base_text, Loader=yaml.BaseLoader)
         head = yaml.load(head_text, Loader=yaml.BaseLoader)
     except Exception as error:  # noqa: BLE001 - any failure to compare runs every tier
@@ -1032,7 +1048,7 @@ REPIN_MANIFEST = PACKAGE + "Package.swift"
 REPIN_PIN_FILE = PACKAGE + "app-ffi-pin.json"
 # A re-pin writes the pin file and the checksum line of Package.swift's loader block together (app_ffi_pin.rewrite).
 REPIN_PATHS = sorted((REPIN_MANIFEST, REPIN_PIN_FILE))
-REPIN_REASON = "(an app FFI re-pin: no other Mac tier)"
+REPIN_REASON = "(an app FFI re-pin: compile and handler coverage only)"
 
 
 def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) -> str | None:
@@ -1105,10 +1121,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         return result
     if repin is not None and sorted(changed) == REPIN_PATHS and "dev-build" not in labels:
         # The pin and Package.swift are inputs of every package test, but a pure re-pin changes only which published
-        # release the app links: the app compile decides it (mac_release keeps the Mac Release compile as the
-        # fallback when the build fleet gives no verdict), and checks' "Check the app FFI pin" proves the pin.
+        # release the app links. Compile plus runtime handler coverage decide it; ffi_repin limits both
+        # fast-tier routes to that suite. mac_release remains the compile fallback.
         result.native = result.mac_release = result.ffi_repin = True
-        result.reasons.append(f"{repin}: only the app compile runs {REPIN_REASON}")
+        result.reasons.append(f"{repin}: the app compile and handler coverage run {REPIN_REASON}")
         return result
 
     # The workflow defines the native build and its routing contract. A change
@@ -1341,6 +1357,7 @@ def outputs(result: Route) -> dict[str, str]:
         "mac_release": flag(result.mac_release),
         "macos": flag(macos),
         "fast_tier": flag(fast_tier),
+        "ffi_repin": flag(result.ffi_repin),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
         "swift": flag(result.swift),

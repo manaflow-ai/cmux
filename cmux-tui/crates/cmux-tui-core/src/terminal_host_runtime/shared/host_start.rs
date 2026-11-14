@@ -59,7 +59,7 @@ pub(crate) fn start_host_runtime(
     let pid = child.process_id();
     let killer = child.clone_killer();
     let pty_poll_fd = sys::pty_poll_handle(master.as_ref())?;
-    let mut pty_reader = master.try_clone_reader()?;
+    let pty_reader = master.try_clone_reader()?;
     let pty_writer = master.take_writer()?;
     let (pty_drain_waker, pty_drain_waiter) = HostStream::pair()?;
 
@@ -172,50 +172,7 @@ pub(crate) fn start_host_runtime(
 
     let reader_host = shared.clone();
     thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
-        reader_host.wait_for_launch_owner_stream_ready();
-        let mut buffer = [0u8; PTY_READ_BYTES];
-        // File-medium Kitty images are read here, next to the program, so
-        // every consumer of the stream gets in-band image data.
-        let mut kitty_media = KittyMediaRewriter::new();
-        let mut kitty_scratch = Vec::new();
-        let mut forced_at = None;
-        let mut pty_drain_waiter = pty_drain_waiter;
-        while let Ok(true) = wait_for_pty_readable_or_forced_drain(
-            pty_poll_fd,
-            &mut pty_drain_waiter,
-            &reader_host.force_pty_drain,
-            &mut forced_at,
-        ) {
-            let count = match pty_reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => count,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                    ) =>
-                {
-                    continue;
-                }
-                Err(_) => break,
-            };
-            cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
-            let read = buffer.get(..count).unwrap_or(&buffer);
-            if !publish_pty_output(
-                &reader_host,
-                kitty_media.rewrite_borrowed(read, &mut kitty_scratch),
-            ) {
-                break;
-            }
-        }
-        // An unfinished command at end of stream goes out as it came.
-        let mut held = Vec::new();
-        kitty_media.finish(&mut held);
-        let _ = publish_pty_output(&reader_host, &held);
-        // Drain is ordered after the final source byte. The parser worker,
-        // rather than the reader, publishes the drained rendezvous.
-        let _source_order = reader_host.source_order_lock.lock().recover_poison();
-        let _ = reader_host.parser_commands.send(ParserCommand::Drain);
+        read_pty_output(&reader_host, pty_reader, pty_poll_fd, pty_drain_waiter);
     })?;
     let child_host = shared.clone();
     thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
@@ -267,8 +224,71 @@ pub(crate) fn start_host_runtime(
     Ok(shared)
 }
 
-/// Bytes per PTY read, and the most one Output frame carries.
+/// The PTY reader (thread `terminal-host-pty`): reads the program's output
+/// until end of stream or the end of a forced drain, publishes each read,
+/// then queues the parser's drain behind the last byte.
+pub(crate) fn read_pty_output(
+    reader_host: &HostShared,
+    mut pty_reader: Box<dyn Read + Send>,
+    pty_poll_fd: sys::PtyPollHandle,
+    mut pty_drain_waiter: HostStream,
+) {
+    reader_host.wait_for_launch_owner_stream_ready();
+    let mut buffer = [0u8; PTY_READ_BUFFER_BYTES];
+    // File-medium Kitty images are read here, next to the program, so
+    // every consumer of the stream gets in-band image data.
+    let mut kitty_media = KittyMediaRewriter::new();
+    let mut kitty_scratch = Vec::new();
+    let mut forced_at = None;
+    while let Ok(true) = wait_for_pty_readable_or_forced_drain(
+        pty_poll_fd,
+        &mut pty_drain_waiter,
+        &reader_host.force_pty_drain,
+        &mut forced_at,
+    ) {
+        let count = match pty_reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue;
+            }
+            Err(_) => break,
+        };
+        cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
+        let read = buffer.get(..count).unwrap_or(&buffer);
+        if !publish_pty_output(reader_host, kitty_media.rewrite_borrowed(read, &mut kitty_scratch))
+        {
+            break;
+        }
+    }
+    // An unfinished command at end of stream goes out as it came.
+    let mut held = Vec::new();
+    kitty_media.finish(&mut held);
+    let _ = publish_pty_output(reader_host, &held);
+    // Drain is ordered after the final source byte. The parser worker,
+    // rather than the reader, publishes the drained rendezvous.
+    let _source_order = reader_host.source_order_lock.lock().recover_poison();
+    let _ = reader_host.parser_commands.send(ParserCommand::Drain);
+}
+
+/// The most one Output frame carries; a rewritten Kitty image can be larger
+/// than the read it came from.
 const PTY_READ_BYTES: usize = 64 * 1024;
+
+/// The PTY reader's buffer, zero-filled on its thread's stack. A PTY read
+/// returns at most 1 KiB on macOS and 4 KiB on Linux (the tty layer's read
+/// buffer), so 16 KiB holds every read; a 64 KiB buffer kept 48 KiB more of
+/// every host's stack dirty for no read. A ConPTY pipe read returns up to
+/// the buffer, so Windows keeps the frame size.
+#[cfg(unix)]
+const PTY_READ_BUFFER_BYTES: usize = 16 * 1024;
+#[cfg(not(unix))]
+const PTY_READ_BUFFER_BYTES: usize = PTY_READ_BYTES;
 
 /// Publishes PTY output to viewers and the parser in frames of at most one
 /// read; a rewritten Kitty image can be larger than the read it came from.

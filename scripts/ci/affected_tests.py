@@ -410,6 +410,24 @@ def resolve(root: Path, ref: str) -> str:
     return git(root, "rev-parse", "--verify", f"{ref}^{{commit}}")
 
 
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = Path(__file__).resolve().parents[1] / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"affected_tests: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], epilog=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -425,6 +443,8 @@ def main(argv: list[str]) -> int:
     root = Path(args.root).resolve()
     head = resolve(root, args.head)
     files = sorted(set(args.files)) if args.files is not None else None
+    if not args.base:
+        refresh_base(root, "origin/feat-cmux-next")
     try:
         base = resolve(root, args.base or git(root, "merge-base", head, "origin/feat-cmux-next"))
     except subprocess.CalledProcessError:

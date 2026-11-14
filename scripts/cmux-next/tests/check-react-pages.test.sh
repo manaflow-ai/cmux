@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Behavior test of check-react-pages.py on throwaway repositories.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects, no background maintenance
 here="$(cd "$(dirname "$0")" && pwd)"
 check="$here/../check-react-pages.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+remove_tmp() { rm -rf "$tmp"; }
+git_fixture_trap_exit remove_tmp
 
 fail() { echo "check-react-pages.test: $1" >&2; exit 1; }
 
 repo="$tmp/repo"
 mkdir -p "$repo/webviews/src/pages/settings" "$repo/webviews/src/pages/shared" "$repo/scripts/cmux-next"
-git -C "$repo" init -q
+git_fixture_init "$repo"
 git -C "$repo" config user.email t@example.com
 git -C "$repo" config user.name t
 git -C "$repo" config maintenance.auto false

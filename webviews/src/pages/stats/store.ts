@@ -1,6 +1,7 @@
 // The Stats page's state owner: the chosen range and the summary for it. React reads it through
 // `useSyncExternalStore`; a reply for a range the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { RANGES, StatsOps, type Range, type StatsSummary } from "./types";
 
 export interface StatsSnapshot {
@@ -66,7 +67,11 @@ export class StatsStore {
       if (id !== this.request) return;
       // acpmux's own error text is for logs: it can be English, technical or name a path.
       const unavailable = isPageError(error) && error.code === "cmux.stats.unavailable";
-      this.set({ range, loading: false, failed: { message: unavailable ? error.message : undefined } });
+      this.set({
+        range,
+        loading: false,
+        failed: { message: unavailable ? userMessage(error, { [error.code]: OWNER_SENTENCE }) : undefined },
+      });
     }
   }
 

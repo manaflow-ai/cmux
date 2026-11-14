@@ -1598,6 +1598,8 @@ fn start(
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
+        // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
+        .with_goal(true)
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())

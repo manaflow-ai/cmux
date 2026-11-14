@@ -514,7 +514,7 @@ impl Hub {
         refused.then(|| {
             RpcError::new(
                 -32000,
-                "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.",
+                "Only the cmux app on this Mac can control a Claude chat started on this Mac. From another device, start a new chat there. On this Mac itself, close and reopen the chat to reconnect.",
             )
             .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
         })

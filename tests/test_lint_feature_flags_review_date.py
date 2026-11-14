@@ -78,7 +78,9 @@ class ReviewDateScopeTests(unittest.TestCase):
              mock.patch.object(self.linter, "swift_registry_files", return_value=["Example.swift"]), \
              mock.patch.object(self.linter, "grep_key_files", return_value=set()), \
              contextlib.redirect_stdout(out):
-            status = self.linter.main(list(argv))
+            # A fixed date, never the real one: CURRENT's 2099 must stay unexpired whatever the clock
+            # (the tooling-tests time-bomb row runs this file with CMUX_NOW_EPOCH in 2101).
+            status = self.linter.main(["--today", "2026-06-01", *argv])
         return status, out.getvalue()
 
     def test_expired_flag_in_untouched_file_warns_and_passes(self):

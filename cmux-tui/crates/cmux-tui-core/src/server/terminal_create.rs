@@ -534,6 +534,15 @@ impl MessageSink for OrderedReplySink {
         self.inner.send_control(text)
     }
 
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.wait_turn();
+        self.inner.send_control_backpressured(text, deadline)
+    }
+
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,

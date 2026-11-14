@@ -61,13 +61,19 @@ impl LocalAppAuth {
 
     /// Whether `hello` is the local app: every condition in the module docs.
     pub fn is_local_app(&self, hello: &Hello<'_>) -> bool {
+        self.from_page(hello) && hello.first_frame.is_some_and(|f| self.frame_has_token(f))
+    }
+
+    /// Loopback and the page's own origin, the token aside: a hello that is the pane unless its
+    /// token is missing or another launch's. Only for the log line that names such a pane.
+    pub fn from_page(&self, hello: &Hello<'_>) -> bool {
         let loopback = hello.listener.ip().is_loopback() && hello.peer.ip().is_loopback();
         let origin = match hello.origins {
             [one] => cmux_local_auth::parse_origin(one)
                 .is_some_and(|o| self.page_origins.iter().any(|p| p == &o)),
             _ => false,
         };
-        loopback && origin && hello.first_frame.is_some_and(|f| self.frame_has_token(f))
+        loopback && origin
     }
 
     fn frame_has_token(&self, frame: &str) -> bool {

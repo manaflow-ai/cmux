@@ -4,7 +4,7 @@
 // acpmux logged a real Claude Code background Agent and a real Codex spawn_agent on 2026-11-07.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { foldOwnLog, subagentPaneView, type OwnLogRecord } from "./subagentOwnLog";
+import { foldOwnLog, needsOwnLog, subagentPaneView, type OwnLogRecord } from "./subagentOwnLog";
 import { SUBAGENT_EMPTY, SUBAGENT_OF } from "./subagentRows";
 import { shownSubagentFacts } from "./subagentShown";
 
@@ -180,4 +180,56 @@ test("a subagent pane's tab gets its subagent's own state, since when and model,
   expect(facts.sinceMs).toBe(log.agent!.endedAt! + 250);
   const running = shownSubagentFacts({ state: "running", startedAt: 5_000 }, 0);
   expect(running).toEqual({ state: "running", sinceMs: 5_000 });
+});
+
+// Leo, 2026-11-12: "NO MESSAGES DISPLAYED?" A background subagent stopped after 3m 25s of tool calls.
+// The chat's loaded page held its spawn and its stop (the "Subagent stopped" line) but none of its
+// own rows, so its pane read nothing else and drew "No messages yet". Its own records hold its run.
+const stopped = (state: string) => [
+  claudeLog[0]!,
+  update(
+    200,
+    CHAT,
+    { subagents: [{ id: CLAUDE, parent: null, name: "Count files in tmp", state }] },
+    { sessionUpdate: "subagent_state_update", state, subagentSessionId: CLAUDE },
+  ),
+];
+
+test("a stopped subagent whose chat page holds only its start and stop reads and draws its own records", () => {
+  const page = foldOwnLog(CLAUDE, stopped("cancelled"), { session: CHAT, harness: "claude" });
+  const chat = { rows: [...chatRows, ...page.rows], views: page.views };
+  expect(needsOwnLog(CLAUDE, chat)).toBe(true);
+  // Before its records arrive: its pill and loading, never "No messages yet".
+  const loading = subagentPaneView(CLAUDE, chat, { loading: true }, new Set(), "coordinator");
+  expect(loading[0]?.kind).toBe(SUBAGENT_OF);
+  expect(loading.at(-1)?.kind).toBe(SUBAGENT_EMPTY);
+  expect(loading.at(-1)?.status).toBe("loading");
+  // Its own records: its tool call and its words.
+  const log = foldOwnLog(CLAUDE, [...claudeLog.slice(0, 4), ...stopped("cancelled").slice(1)], {
+    session: CHAT,
+    harness: "claude",
+  });
+  const rows = subagentPaneView(CLAUDE, chat, { log, loading: false }, new Set(), "coordinator");
+  expect(parentRow(rows)).toBe(false);
+  expect(rows.some((row) => row.kind === SUBAGENT_EMPTY)).toBe(false);
+  expect(texts(rows.slice(1))).toContain("There are 42 entries in /tmp.");
+});
+
+test("a finished subagent reads its own records; a running one the chat holds draws live from the chat", () => {
+  const whole = foldOwnLog(CLAUDE, claudeLog, { session: CHAT, harness: "claude" });
+  expect(needsOwnLog(CLAUDE, { rows: whole.rows, views: whole.views })).toBe(true);
+  const running = foldOwnLog(CLAUDE, claudeLog.slice(0, 4), { session: CHAT, harness: "claude" });
+  expect(running.agent?.state).toBe("running");
+  expect(needsOwnLog(CLAUDE, { rows: running.rows, views: running.views })).toBe(false);
+  // Not in the chat's rows at all: read.
+  expect(needsOwnLog(CLAUDE, { rows: chatRows, views: {} })).toBe(true);
+});
+
+test("a finished subagent draws the fuller of the chat's page and its own records", () => {
+  // The chat's page holds only its last words; its own records hold its call too.
+  const tail = foldOwnLog(CLAUDE, [claudeLog[0]!, claudeLog[3]!, claudeLog[4]!], { session: CHAT, harness: "claude" });
+  const whole = foldOwnLog(CLAUDE, claudeLog, { session: CHAT, harness: "claude" });
+  const chat = { rows: tail.rows, views: tail.views };
+  const rows = subagentPaneView(CLAUDE, chat, { log: whole, loading: false }, new Set(), "coordinator");
+  expect(rows.length).toBeGreaterThan(subagentPaneView(CLAUDE, chat, { loading: false }, new Set(), "c").length);
 });

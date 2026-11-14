@@ -23,8 +23,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import ios_internal_runner as picker  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 LABEL = "glaeda-runner-mini-ios-internal"
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-internal-nightly.yml"
@@ -143,11 +145,15 @@ class Workflow(unittest.TestCase):
     def test_runs_on_never_reads_the_variable_directly(self) -> None:
         jobs = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
         archive = jobs["archive"]
-        self.assertNotIn("CI_IOS_INTERNAL_RUNNER", archive["runs-on"])
+        cells = workflow_jobs.runs_on_cells(archive)
+        self.assertIsNotNone(cells, "archive: runs-on reads a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        (runs_on,) = cells
+        self.assertNotIn("CI_IOS_INTERNAL_RUNNER", runs_on)
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
-                      "needs.pick-archive-runner.outputs.dedicated || ", archive["runs-on"])
-        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
+                      "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
+        self.assertTrue(runs_on.rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])

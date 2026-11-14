@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
-/// `sockaddr_un.sun_path` on macOS (104 bytes) less its terminating NUL.
-const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
 /// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
@@ -56,6 +54,14 @@ impl AppIdentity {
             Some(own) if own.names_other_build(&from_env) => {
                 warn_other_app_once(&own, &from_env);
                 Some(own)
+            }
+            // Only `CMUX_SOCKET_PATH` (a Chief brain's turn, a script driving the app) names no
+            // build: the bundle around this `cmux` is the build, listening on that socket. Taking
+            // the bare environment instead resolved NIGHTLY's shared roots from a DEV bundle, so
+            // `cmux setup trust` wrote `~/.acpmux/trust.json` while the app read its own build's
+            // (Cloud workspace matrix runs 43111635938, 43122276238: every start "doesn't trust").
+            Some(own) if from_env.bundle_id.is_none() && from_env.tag.is_none() => {
+                Some(Self { socket_override: from_env.socket_override, ..own })
             }
             _ => Some(from_env),
         }
@@ -144,7 +150,9 @@ impl AppIdentity {
             .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
         let Ok(name) = old.strip_prefix("/tmp") else { return old };
         let moved = home.join(".local/state/cmux").join(name);
-        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+        if moved.as_os_str().len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
+            || (!moved.exists() && old.exists())
+        {
             return old;
         }
         moved
@@ -443,6 +451,35 @@ mod tests {
         );
         assert_eq!(found.daemon_session().as_deref(), Some("cmux-app-own"));
         assert_eq!(AppIdentity::detect(|_| None, None), None);
+    }
+
+    /// A `cmux` bundled in a DEV app with only `CMUX_SOCKET_PATH` set (the Cloud matrix's CLI, a
+    /// Chief brain's turn) is that DEV build, on that socket: its acpmux home, and so its trust
+    /// record, is the one the app reads, never NIGHTLY's shared `~/.acpmux`.
+    #[test]
+    fn a_socket_only_environment_keeps_the_bundled_build() {
+        let root = std::env::temp_dir().join(format!("cmux-socket-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let contents = root.join("cmux DEV mx.app/Contents");
+        std::fs::create_dir_all(contents.join("Resources/bin")).unwrap();
+        let mut info = plist::Dictionary::new();
+        info.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.debug.mx".into());
+        plist::Value::Dictionary(info).to_file_xml(contents.join("Info.plist")).unwrap();
+        let exe = contents.join("Resources/bin/cmux");
+        let socket_only =
+            |key: &str| (key == "CMUX_SOCKET_PATH").then(|| "/tmp/cmux-debug-mx.sock".to_owned());
+        let found = AppIdentity::detect(socket_only, Some(&exe)).unwrap();
+        let bundled = AppIdentity::detect(|_| None, Some(&exe)).unwrap();
+        assert_eq!(found.bundle_id.as_deref(), Some("com.cmuxterm.app.debug.mx"));
+        assert_eq!(found.build().key(), bundled.build().key());
+        let home = Path::new("/Users/a");
+        assert_eq!(found.build().acpmux_home(home), bundled.build().acpmux_home(home));
+        let nightly = identity(Some("com.cmuxterm.app.nightly"), None).build();
+        assert_ne!(found.build().acpmux_home(home), nightly.acpmux_home(home));
+        assert_eq!(found.control_socket(home), PathBuf::from("/tmp/cmux-debug-mx.sock"));
+        // Outside any bundle the environment still decides.
+        assert_eq!(AppIdentity::detect(socket_only, None).unwrap().bundle_id, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

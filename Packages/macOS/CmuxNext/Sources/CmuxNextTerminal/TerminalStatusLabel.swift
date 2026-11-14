@@ -19,8 +19,9 @@ final class TerminalStatusLabel {
     /// earlier wait shows nothing).
     private var waiting: (start: Duration, delay: Duration, task: Task<Void, Never>, generation: Int)?
     private var generation = 0
-    /// The words the label shows when the wait ends (the latest status's).
+    /// The words the label shows when the wait ends (the latest status's), and whether as the mark.
     private var waitingText: String?
+    private var waitingInBetween = true
     /// A status that says more when it lasts (a pane still starting: other words and Close after
     /// ``TerminalStatusBanner/overdueDelay(for:stall:)``): when it began (on ``clock``), how long until
     /// it says more, those words, and the task of that deadline with its number. The task is armed
@@ -64,8 +65,8 @@ final class TerminalStatusLabel {
     /// Shows the label for `status` (with the host loss, its cause and the daemon's stall), hides it,
     /// or waits. A label on screen stays (with the new words); a hidden one waits its status's delay
     /// first. A change while it still waits keeps the longer wait from the same start, so
-    /// "Restoring…" turning into a reconnecting stall does not show early. Returns whether the
-    /// label's view changed (the host lays it out).
+    /// "Restoring…" turning into a reconnecting stall does not show early; "Disconnected" keeps its
+    /// own shorter one from that start. Returns whether the label's view changed (the host lays it out).
     @discardableResult
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss?, cause: TerminalHostLossCause?,
               stall: TerminalShellStall?) -> Bool {
@@ -94,7 +95,7 @@ final class TerminalStatusLabel {
             armOverdue()
             return true
         }
-        wait(.seconds(delay), text: text)
+        wait(.seconds(delay), text: text, inBetween: inBetween)
         // A label view built for a button above it takes the words now, still hidden, so its place does not move.
         banner?.setText(text, inBetween: inBetween)
         return false
@@ -108,19 +109,25 @@ final class TerminalStatusLabel {
         made.onClose = { [weak self] in self?.onClose?() }
         install(made)
         banner = made
-        if let waitingText { made.setText(waitingText, inBetween: true) }
+        if let waitingText { made.setText(waitingText, inBetween: waitingInBetween) }
     }
 
-    private func wait(_ delay: Duration, text: String) {
+    private func wait(_ delay: Duration, text: String, inBetween: Bool) {
         waitingText = text
+        waitingInBetween = inBetween
         let now = clock.elapsed()
         // The deadline passed and its task has not run yet: the label shows now.
         if let pending = waiting, now >= pending.start + pending.delay { return waitEnded(pending.generation) }
         if let pending = waiting, now < pending.start + pending.delay {
-            // Still waiting: keep that wait unless this status waits longer from the same start.
-            guard delay > pending.delay else { return }
+            // Still waiting: keep that wait unless this status waits longer from the same start. A state
+            // in words ("Disconnected") waits only its own delay from that start: it is no longer in between.
+            guard delay > pending.delay || (!inBetween && delay < pending.delay) else { return }
             pending.task.cancel()
             waiting = revealing(start: pending.start, delay: delay)
+            if let shortened = waiting, now >= shortened.start + shortened.delay {
+                shortened.task.cancel()
+                waitEnded(shortened.generation)
+            }
             return
         }
         waiting?.task.cancel()
@@ -146,7 +153,7 @@ final class TerminalStatusLabel {
         guard let pending = waiting, pending.generation == ended, let text = waitingText else { return }
         waiting = nil
         waitingText = nil
-        showNow(text, inBetween: true, fadeIn: true)
+        showNow(text, inBetween: waitingInBetween, fadeIn: true)
         armOverdue()
         didReveal()
     }

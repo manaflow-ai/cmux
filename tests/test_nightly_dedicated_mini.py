@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import nightly_build_runner as picker
 import runner_label_policy as policy
 from test_nightly_trusted_routing import evaluate, parse_expression
+import workflow_jobs
 
 LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
@@ -37,8 +38,16 @@ def context(**changes):
     return value
 
 
+def written_runs_on(job):
+    """The job's runs-on as written: one cell, since none of these jobs has a runner matrix."""
+    cells = workflow_jobs.runs_on_cells(DOC["jobs"][job])
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"{job}: expected one runs-on, read {cells!r}")
+    return cells[0]
+
+
 def selected(job, values):
-    return evaluate(parse_expression(DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")), values)
+    return evaluate(parse_expression(written_runs_on(job).removeprefix("${{").removesuffix("}}")), values)
 
 
 class DedicatedMini(unittest.TestCase):
@@ -235,7 +244,7 @@ class DedicatedMini(unittest.TestCase):
                 self.assertNotEqual(evaluate(expression, {**valid, **changes}), LABEL)
 
         for job in VERIFY_OWNED:
-            source = DOC["jobs"][job]["runs-on"]
+            source = written_runs_on(job)
             selected_job = evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")),
                                      {**valid,
                                       "needs.pick-nightly-sign-runner.outputs.attempt": "1",

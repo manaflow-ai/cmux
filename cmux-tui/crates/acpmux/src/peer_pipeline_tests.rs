@@ -153,7 +153,8 @@ async fn link_once_then(
             .expect("the link stays open");
         match notice {
             PeerNotice::Sessions(rows) => lists.push(
-                rows.iter()
+                crate::peer::parse_rows(&rows)
+                    .iter()
                     .map(|r| r["sessionId"].as_str().unwrap_or_default().to_owned())
                     .collect(),
             ),

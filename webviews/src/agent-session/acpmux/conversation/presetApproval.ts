@@ -126,6 +126,22 @@ export class PresetApprovalFold {
     this.cards.clear();
   }
 
+  /// Forgets the requests and decisions at or after `seq`, keeping the older ones: a rebuild that
+  /// folds again from `seq` (direct.ts `rebuild` past a cut) reads those records again, and a
+  /// decision among them settles a request older than `seq`, whose card stays drawn above.
+  forgetFrom(seq: number): void {
+    for (const [key, held] of this.requests)
+      this.requests.set(
+        key,
+        held.filter((each) => each.seq < seq),
+      );
+    for (const [key, held] of this.decisions)
+      this.decisions.set(
+        key,
+        held.filter((each) => each.seq < seq),
+      );
+  }
+
   /// A request record at `seq` (its time `at`).
   request(seq: number, at: number, ask: PresetApprovalAsk): PresetApprovalChange {
     const key = keyOf(ask);

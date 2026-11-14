@@ -11,6 +11,7 @@
 // structure, the toggle, Copy and the paste ranges.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -67,7 +68,7 @@ const { resetTranscriptDisclosure } =
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-// Strings by key (REVIEW.md: tests never pin English copy).
+// Strings by key: tests never pin English copy.
 const MORE = translate("message.more");
 const LESS = translate("message.less");
 const COPY = `.cv-user__actions button[aria-label="${translate("turn.copy")}"]`;
@@ -517,12 +518,8 @@ try {
     ]);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

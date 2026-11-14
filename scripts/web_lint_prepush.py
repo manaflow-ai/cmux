@@ -1922,7 +1922,10 @@ def main(argv: list[str] | None = None) -> int:
                 ranges, errors = push_range.pushed_ranges(repo, sys.stdin.read().splitlines(), args.remote)
             else:
                 # The working tree (no --head) is linted over the own range of HEAD.
-                ranges, errors = [push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
+                # Fetching the shared base first, as a push does (manual_range; an older installed copy lacks it).
+                manual = getattr(push_range, "manual_range", None)
+                ranges, errors = [manual(repo, args.head or "HEAD", remote=args.remote) if manual
+                                  else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
         if errors:
@@ -1931,6 +1934,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{mode}: refused; nothing was linted. Fix the clone as said above and push again.", file=sys.stderr)
             return 1
         for own in ranges:
+            # The range's note says how its base was chosen, and that a base the refresh could not fetch is this
+            # clone's stale copy (push_range.refresh_base): files a newer base brought in then count as the push's.
+            print(f"{mode}: linting {own.describe()}", file=sys.stderr)
             head = own.head if args.pre_push else args.head
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 

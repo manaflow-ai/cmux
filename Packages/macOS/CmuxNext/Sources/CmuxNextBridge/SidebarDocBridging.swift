@@ -84,7 +84,7 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 public final class SidebarDocSections {
     private var groups: [String: WorkspaceGroupModel] = [:]
     /// Where the daemon's create puts a new workspace (`workspaces.newPlacement`): first in its machine section
-    /// (`top`), right below the window's current workspace (`afterCurrent`, the default; first when there is
+    /// (`top`, the default), right below the window's current workspace (`afterCurrent`; first when there is
     /// none), or last (`bottom`). A live workspace the document does not place yet lists at that slot, so its
     /// item's arrival moves nothing, and none made by the CLI or an agent shows at the sidebar's end first and
     /// then jumps (Leo 2026-11-06; plans/cmux-next/sidebar-ordering-DESIGN.md).

@@ -12,6 +12,7 @@ import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWindowRules
 import Observation
 
 /// Makes an agent chat tab in a pane of a daemon, in a new split on that side of it when given (``AgentTabStore/open(in:of:session:seed:newTab:spare:linked:adopt:host:idempotencyKey:split:)``).
@@ -241,7 +242,7 @@ final class AgentTabStore {
     /// then the folders under it), for the same project list; none from an older daemon.
     var remoteMachineFoldersScoped: (@MainActor (AgentTabKey) async -> [String])?
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
-    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    /// its Cloud machine (``CloudCLICall/shareChatWithMe(machine:signedIn:socket:)``).
     var shareMachineWithMeScoped: (@MainActor (AgentTabKey) async -> AgentPaneMachineShare)?
     /// The Share dialog's op on tab `key`'s own chat (``AgentShareActions/pane(_:tab:host:)``).
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
@@ -292,6 +293,8 @@ final class AgentTabStore {
             }
         }
     }
+    /// Toggle Terminal and Chat's hand-offs of a chat's session to a new terminal, by `harness:agentSessionId`.
+    var terminalHandOffs: [String: WindowRules.HandOff] = [:]
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?

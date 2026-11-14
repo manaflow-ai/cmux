@@ -36,7 +36,8 @@ fn embedded() -> Result<PathBuf, String> {
             .then_some(path)
             .ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
     }
-    let exe = std::env::current_exe().map_err(|error| format!("{error}"))?;
+    // The file itself, never the link it was started by (`~/.local/bin/acpmux`).
+    let exe = cmux_link::app_caller::own_executable()?;
     let contents = exe
         .parent()
         .and_then(Path::parent)

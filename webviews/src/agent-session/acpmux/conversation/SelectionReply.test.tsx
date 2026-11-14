@@ -2,6 +2,7 @@
 // The selection's Reply chip (SelectionReply.tsx): it shows when a transcript selection ends,
 // quotes the selection through Quote in Reply when clicked, and goes when the selection collapses.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -10,8 +11,8 @@ import {
   configureSelectionReply,
   quoteMarkdown,
   selectionReplyPlace,
-  selectionReplyTarget,
   setQuoteReplySink,
+  selectionReplyTarget,
 } from "./selectionReplyModel";
 
 let dom: JSDOM | undefined;
@@ -41,12 +42,13 @@ function mount(body: string): Document {
   return doc;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
   unsink?.();
   unsink = undefined;
   configureSelectionReply("chip");
+  await settleReact();
   for (const key of KEYS) {
     const value = saved.get(key);
     if (value === undefined) delete scope[key];

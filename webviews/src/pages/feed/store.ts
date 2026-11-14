@@ -7,6 +7,7 @@
 // `useSyncExternalStore`; tests drive it directly.
 import { createNoticeQueue, type NoticeQueue } from "../../ui/NoticeStack";
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   Answers,
@@ -624,9 +625,8 @@ export class FeedStore {
   }
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 /** The feed's refusal code and details: a feed refusal is the catalog's `operation.failed` with the
  * code in `details.extra` (feed-page.md section 2); any other refusal is its own code. */
@@ -651,6 +651,6 @@ export function rejectOf(error: unknown): FeedReject {
     case LINK_CLOSED:
       return { kind: "disconnected" };
     default:
-      return { kind: "refused", message: error.message };
+      return { kind: "refused", message: message(error) };
   }
 }

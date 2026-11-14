@@ -108,5 +108,5 @@ jobs:
         with:
           name: react-doctor-reports
           path: ${{ runner.temp }}/react-doctor
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: ignore

@@ -116,7 +116,7 @@ import Security
                 }
             case .failure(let error):
                 Self.logger.error("launch: the move to Applications failed: \(String(describing: error), privacy: .public)")
-                _ = await center.present(CmuxDialogSpec(title: UpdaterStrings.moveFailedTitle, lines: [error.localizedDescription],
+                _ = await center.present(CmuxDialogSpec(title: UpdaterStrings.moveFailedTitle, lines: [PlainErrorText.text(error)],
                                                         buttons: [.ok()], identifier: "cmux.move-to-applications.failed"), in: .app)
             }
         }

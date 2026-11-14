@@ -84,3 +84,31 @@ test("without row samples the turn end is read from the thread's box, as before"
   expect(report.turnEnd.frames).toBe(0);
   expect(report.jumpPx.max).toBeCloseTo(48.6, 1);
 });
+
+test("a row the turn end carries out of view counts, while another stays covered (#41470 F1)", () => {
+  // The review's replay: the thread's box moves up 48.6 px. The reply row is covered by the fold (its
+  // offset what the frame moved it) and holds still in view; the row above it is not covered and jumps
+  // 48.6 px, out of the view's top. Read only among rows in view in both frames, both checks read 0.
+  const before = 1000;
+  const after = before - 48.6;
+  const viewTop = 995;
+  const rows = (thread: number, ended: boolean): RowSample[] => [
+    { ...row("above", thread, 0, 0), inView: thread + 40 > viewTop },
+    row("reply", thread, 400, ended ? 48.6 : 0),
+  ];
+  const samples = [
+    frame(0, "segment", before, 14.6, rows(before, false)),
+    frame(1, "segment", before, 14.6, rows(before, false)),
+    frame(2, "end", after, 0, rows(after, true)),
+    frame(3, "end", after, 0, rows(after, true)),
+    frame(4, "after", after, 0, rows(after, true)),
+  ];
+  // The row above was in view before the frame and is not after it: the jump took it out.
+  expect(samples[1]!.rows![0]!.inView).toBe(true);
+  expect(samples[2]!.rows![0]!.inView).toBe(false);
+  const report = analyze(samples, [FRAME_MS], 0, 2 * LINE_PX, LINE_PX);
+  expect(report.turnEnd.netPx).toBeCloseTo(48.6, 1);
+  expect(report.jumpPx.max).toBeCloseTo(48.6, 1);
+  expect(report.turnEnd.netPx).toBeGreaterThan(MAX_FRAME_PX);
+  expect(report.jumpPx.max).toBeGreaterThan(MAX_FRAME_PX);
+});

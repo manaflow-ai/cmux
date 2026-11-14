@@ -1,90 +1,35 @@
-// l10n-allow-file: gallery fixtures (sample prompts, a diff, code and tool output), not shipped UI.
-// The Show more / Show less row under every block the transcript cuts (ExpandRow.tsx): an edit's
-// diff in the edited-files card and in a tool row, a Shell block, a file read (code), a search's files, a call's
-// output, and a long sent prompt, each collapsed, expanded and with the pointer on its row. Leo,
-// 2026-11-07, on an edit's diff card: "why is it, like, just this hard line cut off here between
-// the green and then the rest of the card situation?" and "what if the whole bottom row area were
-// clickable in this, like, show more show less area? And I mean likewise for the other bits".
+// l10n-allow-file: gallery fixtures (sample prompts, a file search and tool output), not shipped UI.
+// The Show more / Show less row under every block the transcript cuts (ExpandRow.tsx): a Shell
+// block and a call's output long enough that only their last 400 lines are drawn (Show all output),
+// a search's files, and a long sent prompt, each collapsed, expanded and with the pointer on its
+// row. An edit's diff and a file read have no row: past eight lines they scroll in their box (Leo,
+// 2026-11-12: "this is a really useless show all 9 lines"). Leo, 2026-11-07, on an edit's diff
+// card: "why is it, like, just this hard line cut off here between the green and then the rest of
+// the card situation?" and "what if the whole bottom row area were clickable in this, like, show
+// more show less area? And I mean likewise for the other bits".
 // The experiment's arms (expandRow.experiment.ts) compare the row continuing the block's surface
 // (shipped), its label in the fade over the last lines, a tinted row under a hairline, and a centred
 // label. The `*-hover-*` variants compare what the pointer lights (Leo, 2026-11-11: "the whole line
 // should not be highlighted. Just the text."): the shipped tint behind the words, the words' ink
 // alone, the words underlined, and the whole row's band as before (`band`).
-import { useLayoutEffect } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import type { DiffHunk, TurnFile } from "../diff";
-import type { AcpmuxRow } from "../model";
 import type { SearchResult } from "./fileResults";
-import { setCardOpen } from "../turnChanges/openStore";
-import { EditDiff } from "./EditDiff";
 import { expandRowLook } from "./expandRow.experiment";
-import { EditedFilesCard } from "./EditedFilesCard";
 import { FileResultCard } from "./FileResultCard";
 import { PromptText } from "./PromptText";
 import { ShellBlock } from "./ShellBlock";
 import { ToolOutput } from "./ToolOutputBody";
 
-export type Block = "edited" | "diff" | "shell" | "read" | "search" | "output" | "prompt";
+export type Block = "shell" | "search" | "output" | "prompt";
 type Props = { block: Block };
 
-const BRIEF = Array.from(
-  { length: 23 },
-  (_, index) =>
-    [
-      "You are the native-glass lane (cmux NEXT, macOS). Task: every menu, popover and floating control",
-      "uses the same native glass material as the sidebar, instead of the flat dark plates.",
-      "Start from the references, then list every surface that still draws its own plate.",
-      "Open one PR per surface family; quote the ask in each.",
-    ][index % 4]!,
-);
-
-function added(lines: readonly string[]): DiffHunk {
-  return {
-    lines: lines.map((text, index) => ({ type: "add" as const, text, newLine: index + 1 })),
-  };
-}
-
-const NEW_TEXT = `${BRIEF.join("\n")}\n`;
-
-const FILE: TurnFile = {
-  path: "docs/glass-brief.md",
-  displayPath: "docs/glass-brief.md",
-  additions: 23,
-  deletions: 0,
-  created: true,
-  edits: [{ toolId: "glass-brief", numbered: true, hunks: [added(BRIEF)] }],
-};
-
-const EDIT_ROW: AcpmuxRow = {
-  id: "expand-row-edited",
-  version: 1,
-  at: Date.now() - 60_000,
-  kind: "activity",
-  ended: true,
-  items: [
-    {
-      kind: "tool",
-      text: "Edit docs/glass-brief.md",
-      tool: {
-        id: "glass-brief",
-        title: "Edit docs/glass-brief.md",
-        kind: "edit",
-        status: "completed",
-        diffs: [{ path: "docs/glass-brief.md", oldText: "", newText: NEW_TEXT }],
-      },
-    },
-  ],
-} as AcpmuxRow;
-
-const OUTPUT = Array.from({ length: 20 }, (_, index) => `✓ retry policy case ${index + 1} (${2 + index} ms)`).join(
+/// A test run past the 400 lines a Shell block or a call's output draws of its end
+/// (toolOutputModel.ts `outputTail`): its box scrolls through that end, and Show all output under it
+/// draws the rest. A shorter output has no row; it scrolls in its box.
+const OUTPUT = Array.from({ length: 450 }, (_, index) => `✓ retry policy case ${index + 1} (${2 + index} ms)`).join(
   "\n",
 );
-
-const READ = Array.from(
-  { length: 18 },
-  (_, index) => `export const step${index} = (attempt: number) => Math.min(30_000, 250 * 2 ** attempt);`,
-).join("\n");
 
 /// A text search over more rows than its card shows closed (FileResultCard.tsx SEARCH_PREVIEW_ROWS).
 const SEARCH: SearchResult = {
@@ -107,23 +52,10 @@ const PROMPT = Array.from(
 ).join("\n");
 
 function Stage({ block }: Props) {
-  // The edited-files card keeps its one file's diff open by row (openStore.ts); open it before paint.
-  useLayoutEffect(() => {
-    if (block === "edited") setCardOpen(`${EDIT_ROW.id}\u0000diff`, true);
-  }, [block]);
   return (
     <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
       <div data-gallery-block={block} style={{ width: "100%" }}>
-        {block === "edited" && <EditedFilesCard row={EDIT_ROW} />}
-        {block === "diff" && <EditDiff file={FILE} />}
         {block === "shell" && <ShellBlock command="bun test test/retry.test.ts" output={OUTPUT} exitCode={0} />}
-        {block === "read" && (
-          <FileResultCard
-            id="expand-row-read"
-            reveal={0}
-            card={{ kind: "read", read: { path: "src/net/retry.ts", start: 1, end: 18, code: READ } }}
-          />
-        )}
         {block === "search" && (
           <FileResultCard id="expand-row-search" reveal={0} card={{ kind: "search", tool: "search", result: SEARCH }} />
         )}
@@ -144,10 +76,7 @@ function Stage({ block }: Props) {
 
 /// The row under each block (its Show more / Show less button).
 export const ROW: Record<Block, string> = {
-  edited: ".acpmux-edited .cv-edit-diff .cv-output-more",
-  diff: ".cv-edit-diff .cv-output-more",
   shell: ".cv-shell .cv-output-more",
-  read: ".cv-filepeek .cv-output-more",
   search: ".cv-filematches .cv-output-more",
   output: ".cv-tool-output-card .cv-output-more",
   prompt: ".cv-user__bubble .cv-user__more",
@@ -155,24 +84,18 @@ export const ROW: Record<Block, string> = {
 
 /// The block each row belongs to: its card, or the prompt's bubble.
 export const CARD: Record<Block, string> = {
-  edited: ".acpmux-edited",
-  diff: ".cv-edit-diff",
   shell: ".cv-shell",
-  read: ".cv-filepeek",
   search: ".cv-filematches",
   output: ".cv-tool-output-card",
   prompt: ".cv-user__bubble",
 };
 
-const BLOCKS = ["edited", "diff", "shell", "read", "search", "output", "prompt"] as const;
+export const BLOCKS: readonly Block[] = ["shell", "search", "output", "prompt"];
 
 const ready =
   (block: Block): Play =>
   async (ctx) => {
     await ctx.waitFor(() => ctx.document.querySelector(ROW[block]));
-    // An edit's lines draw a frame or more after its card (EditDiff.tsx `useDiffPainted`).
-    if (block === "edited" || block === "diff")
-      await ctx.waitFor(() => ctx.document.querySelector(".cv-edit-diff__stack[data-painted]"));
   };
 const expanded =
   (block: Block): Play =>
@@ -247,9 +170,6 @@ export default componentEntry<Props>({
   pane: true,
   height: 420,
   covers: [
-    "agent-session/acpmux/conversation/BlockParts.tsx",
-    "agent-session/acpmux/conversation/EditDiff.tsx",
-    "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/FileResultCard.tsx",
     "agent-session/acpmux/conversation/PromptText.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx",
@@ -257,19 +177,13 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/toolOutput.tsx",
   ],
   load: async () => Stage,
-  styles: () =>
-    Promise.all([
-      import("../styles.css"),
-      import("./conversation.css"),
-      import("./FileResultCard.css"),
-      import("../turnChanges/turnChanges.css"),
-    ]),
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("./FileResultCard.css")]),
   variants,
   experiment: {
     definition: expandRowLook,
     script: [
-      { name: "Hover the row", run: hovered("edited") },
-      { name: "Show all", run: expanded("edited") },
+      { name: "Hover the row", run: hovered("shell") },
+      { name: "Show all output", run: expanded("shell") },
     ],
   },
 });

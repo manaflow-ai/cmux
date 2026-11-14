@@ -110,7 +110,7 @@ final class NewTabSparePool {
         if services.agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }
 
-    /// WebKit's setup on this host; a slow one gets no spare this run.
+    /// WebKit's setup on this host; a slow one gets no spare until it is asked again (``WebKitSetupGate/recheck``).
     let webKit = WebKitSetupGate()
     /// At launch: follow the key main window; park in the first visible one.
     func start() {

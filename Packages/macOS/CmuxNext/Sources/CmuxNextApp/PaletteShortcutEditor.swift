@@ -59,7 +59,7 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
             } catch {
                 logger.error("shortcut write failed: \(String(describing: error), privacy: .public)")
                 await settings.reload()
-                return ActionWorkFailure("cmux.json write failed: \(error)")
+                return ActionWorkFailure(log: "cmux.json write failed: \(error)")
             }
         })
     }

@@ -24,12 +24,20 @@ pub const FORK_OPERATIONS: [&str; 2] =
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
+/// A fork of a chat on another computer (a peer's) through a turn or before a
+/// prompt stays `acp.session.fork`: it is forwarded whole (`peer_forward.rs`),
+/// and the peer's own daemon makes it the `session/fork`, with its own checks
+/// of the chat it holds. A live one becomes that machine's `session/fork` here
+/// (`to_session_fork`).
 pub(super) async fn as_session_fork<'m>(
     hub: &Hub,
     m: &'m str,
     params: &mut Value,
 ) -> Result<&'m str, RpcError> {
     if m == method::ACP_SESSION_FORK {
+        if names_a_peers_chat(hub, params) && !plain_live(params) {
+            return Ok(m);
+        }
         *params = to_session_fork(hub, params).await?;
         return Ok(method::SESSION_FORK);
     }
@@ -103,16 +111,18 @@ pub(super) fn through(params: &Value) -> Option<u64> {
     params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
 }
 
-/// Why a chat on another computer (a peer's) cannot be forked here: a `live`
-/// fork names no turn. Daemon error text, in English as acpmux's other
-/// errors; the pane never sends a fork of a peer's chat (webviews
-/// `messageMenu.ts` `forkServed`), so only a raw client reads it.
-fn remote_refusal(live: bool) -> &'static str {
-    if live {
-        "forking a chat on another computer is not supported yet"
-    } else {
-        "forking a chat on another computer through a turn is not supported yet"
-    }
+/// A `live` fork with no turn or prompt boundary: the one `to_session_fork` sends to a peer's
+/// chat as that machine's `session/fork`.
+fn plain_live(params: &Value) -> bool {
+    params.get("live").and_then(Value::as_bool).unwrap_or(false)
+        && params.get("throughSeq").is_none()
+        && params.get("beforePromptId").is_none()
+}
+
+/// Whether the request names a chat on a peer, not one on this daemon.
+fn names_a_peers_chat(hub: &Hub, params: &Value) -> bool {
+    session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
 }
 
 /// What a turn fork keeps of the caller's request: the forward mark and full-access guard, and the
@@ -174,13 +184,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         mux.insert("startLater".into(), json!(true));
         return Ok(json!({"sessionId": key, "_meta": {"acpmux": mux}}));
     }
-    let session = hub.resolve(key).map_err(|e| {
-        if hub.resolve_remote(key).is_some() {
-            RpcError::invalid_params(remote_refusal(live))
-        } else {
-            e
-        }
-    })?;
+    let session = hub.resolve(key)?;
     if params.get("beforePromptId").is_some() {
         use crate::hub::fork_before::refused;
         if params.get("throughSeq").is_some() || params.get("live").is_some() {
@@ -308,7 +312,8 @@ mod tests {
         let hub = Hub::new(config, store);
         let row = crate::hub::RemoteSession {
             peer: "hb".into(),
-            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"}),
+            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"})
+                .into(),
             receipt: SessionReceipt {
                 host_id: "hb".into(),
                 mux_session_id: "peer-chat-1".into(),
@@ -340,35 +345,38 @@ mod tests {
         assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
     }
 
-    /// A `live` fork of a peer's chat (a Cloud machine's too) is that machine's `session/fork`,
-    /// onto another harness when the pick names one (Leo 2026-11-11: "across any and all
-    /// conditions of workspaces/folders/models/provides/harnesses"); a fork through a turn there
-    /// is still refused, saying so.
+    /// Leo, 2026-11-11: "why are only some chats forkable". A fork of a peer's chat through a turn
+    /// or before a prompt stays `acp.session.fork` with its params as sent, so it is forwarded
+    /// whole and the peer that holds the chat forks it. A `live` one (a Cloud machine's too) is
+    /// that machine's `session/fork`, onto another harness when the pick names one (Leo
+    /// 2026-11-11: "across any and all conditions of workspaces/folders/models/provides/harnesses").
     #[tokio::test]
-    async fn a_peer_chats_live_fork_goes_there_and_a_turn_fork_is_refused() {
+    async fn a_peer_chats_fork_is_left_for_the_peer() {
         let hub = hub_with_a_peer_chat();
         assert!(
             hub.resolve_remote("hb/peer-chat-1").is_some(),
             "the fixture lists the peer's chat"
         );
-        let live = to_session_fork(
-            &hub,
-            &json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex", "model": "m"}),
-        )
-        .await
-        .unwrap();
+        for sent in [
+            json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}),
+            json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r"}),
+        ] {
+            let mut params = sent.clone();
+            let m = as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.unwrap();
+            assert_eq!(m, method::ACP_SESSION_FORK, "{sent}");
+            assert_eq!(params, sent);
+        }
+        let mut live =
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex", "model": "m"});
+        let m = as_session_fork(&hub, method::ACP_SESSION_FORK, &mut live).await.unwrap();
+        assert_eq!(m, method::SESSION_FORK);
         assert_eq!(live["sessionId"], "hb/peer-chat-1");
         assert_eq!(live["_meta"]["acpmux"]["harness"], "codex");
         assert_eq!(live["_meta"]["acpmux"]["model"], "m");
         assert_eq!(live["_meta"]["acpmux"]["startLater"], true);
-        let through =
-            to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}))
-                .await
-                .unwrap_err();
-        assert_eq!(
-            through.message,
-            "forking a chat on another computer through a turn is not supported yet"
-        );
+        // A chat neither here nor on a peer is still this daemon's unknown session.
+        let mut params = json!({"sessionId": "nowhere", "live": true});
+        assert!(as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.is_err());
     }
 
     /// A switch onto another harness forks the chat as it is now: `harness` or `model` with a turn

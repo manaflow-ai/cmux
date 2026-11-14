@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5.
+// cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1558,6 +1558,9 @@ pub struct CreateTerminalRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub command: Optional<String>,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub create_workspace: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1586,6 +1589,9 @@ pub struct CreateTerminalRequest {
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
+    /// The name of the workspace create_workspace makes.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace_name: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2123,6 +2129,10 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub known: Optional<T::ListWorkspacesKnown>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -4789,6 +4799,10 @@ impl CmuxClient {
     }
 
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if request.create_workspace.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
+        }
         if request.detached.is_some() {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "detached-terminals-v1")?;
@@ -4807,6 +4821,10 @@ impl CmuxClient {
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
+        }
+        if !request.workspace_name.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
         }
         self.execute(&CREATE_TERMINAL_METADATA, &request)
     }
@@ -5018,6 +5036,14 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.known.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
+        }
+        if !request.limit.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 

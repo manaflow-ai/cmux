@@ -2,6 +2,7 @@
 // card stayed on screen with the pointer no longer on it): a pointer that leaves the page or a
 // window that loses focus sends no leave. A scroll is ui/scrollHover.ts's (#40035).
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -55,6 +56,7 @@ async function render(): Promise<HTMLElement> {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

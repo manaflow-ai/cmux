@@ -14,7 +14,7 @@
 #
 # usage: cmux-next-ios/scripts/testflight-build.sh [--ref <git ref>] [--marketing-version X.Y.Z]
 #          [--build-number N] [--internal-only] [--allow-backend-down]
-#          [--allow-package-drift] [--unsigned] [--skip-validate] [--upload]
+#          [--unsigned] [--skip-validate] [--upload]
 #          [--no-asc] [--from-archive <CmuxMobileApp.xcarchive>]
 #          [--config TestFlight|TestFlightStaging|AppStore]
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
@@ -30,7 +30,6 @@
 #                         external groups (e.g. "cmux family")
 #   --allow-backend-down  archive even if the production Worker's /v1/health is not
 #                         live with only the production Stack project (never with --upload)
-#   --allow-package-drift build even if CmuxTabsKit/CmuxConversation differ from upstream
 #   --unsigned            no distribution identity needed: archive unsigned and run the
 #                         binary checks only (no export, no validation)
 #   --skip-validate       skip `altool --validate-app`
@@ -107,7 +106,7 @@ dev_stack_project=454ecd03-1db2-4050-845e-4ce5b0cd9895
 config=TestFlight what_to_test=""
 
 ref=HEAD marketing="" build_number="" internal_only=false allow_backend_down=0
-allow_drift=0 unsigned=0 skip_validate=0 upload=0 no_asc=0 from_archive=""
+unsigned=0 skip_validate=0 upload=0 no_asc=0 from_archive=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref=$2; shift 2 ;;
@@ -115,7 +114,7 @@ while [[ $# -gt 0 ]]; do
     --build-number) build_number=$2; shift 2 ;;
     --internal-only) internal_only=true; shift ;;
     --allow-backend-down) allow_backend_down=1; shift ;;
-    --allow-package-drift) allow_drift=1; shift ;;
+    --allow-package-drift) shift ;;  # accepted for old callers: Packages/iOS live in feat-cmux-next (2026-11-11)
     --unsigned) unsigned=1; shift ;;
     --skip-validate) skip_validate=1; shift ;;
     --upload) upload=1; shift ;;
@@ -130,8 +129,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-if [[ $upload == 1 && ( $allow_backend_down == 1 || $unsigned == 1 || $skip_validate == 1 || $allow_drift == 1 ) ]]; then
-  echo "error: --upload cannot be combined with --allow-backend-down, --unsigned, --skip-validate or --allow-package-drift" >&2
+if [[ $upload == 1 && ( $allow_backend_down == 1 || $unsigned == 1 || $skip_validate == 1 ) ]]; then
+  echo "error: --upload cannot be combined with --allow-backend-down, --unsigned or --skip-validate" >&2
   exit 2
 fi
 # production: the production Worker (its address may be overridden with
@@ -281,13 +280,6 @@ if [[ "$cloud_health" == *'"ok":true'* ]]; then
   echo "Cloud service $cloud_api_base live: $cloud_health"
 else
   [[ $allow_backend_down == 1 ]] || die "Cloud service $cloud_api_base/v1/health is not live (got: ${cloud_health:-no response})"
-fi
-
-# --- Shared packages must match upstream -----------------------------------
-log "shared packages vs upstream"
-if ! "$script_dir/check-tabskit-sync.sh" --ref "$sha"; then
-  [[ $allow_drift == 1 ]] || die "shared iOS packages differ from upstream; sync them or pass --allow-package-drift (never for an upload)"
-  notes+=("Shared packages differ from upstream (check-tabskit-sync.sh).")
 fi
 
 # --- Signing material -------------------------------------------------------

@@ -1,0 +1,24 @@
+[package]
+name = "desktop-lease"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Computer use for agents as a pool of leased desktops: lease, act, release; the slot is suspended (cgroup freeze + reclaim into zswap) while the model thinks and resumed on the next action"
+
+[[bin]]
+name = "desktop-lease"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+cmux-process.workspace = true
+cmux-scope.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

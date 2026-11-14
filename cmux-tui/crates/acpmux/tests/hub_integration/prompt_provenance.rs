@@ -84,7 +84,7 @@ impl Client {
         Self::open_as(hub, Origin::Local)
     }
 
-    fn open_as(hub: &Arc<Hub>, origin: Origin) -> Self {
+    pub(super) fn open_as(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
@@ -209,8 +209,8 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
 /// their prompt, drawn as their bubble (regression of #37497, manaflow-ai/cmux#37497 comment
 /// 6716711734: it drew as "Unverified sender"). Only what the daemon checks or the CLI declares
 /// tells an agent from them (`requests.rs` `owner_terminal`): a harness claim, a named sender, a
-/// relay label, a caller token proven or not, or the app's transport without its proof each keep
-/// the prompt off the person.
+/// relay label, or a caller token proven or not each keep the prompt off the person. The app's
+/// own pane before it proved the person is the person's too (`requests/prompt_sender.rs`).
 #[tokio::test]
 async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_them() {
     let hub = hub();
@@ -240,7 +240,7 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
     stale.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
     stale.call("session/prompt", with("p-stale", json!({}))).await;
-    // The app's own transport without the person's proof.
+    // The app's own pane before it proved the person: still theirs.
     let mut app = Client::open_as(&hub, Origin::LocalApp);
     app.call("session/prompt", with("p-app", json!({}))).await;
     // A proven session's send.
@@ -252,17 +252,15 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
     let client = mine["client"].as_str().unwrap();
     assert!(client.ends_with("@my-mac"), "{mine}");
+    let pane = owner.user_message(&receiver, "p-app").await;
+    assert_eq!(pane.pointer("/_meta/provenance"), None, "{pane}");
 
     let named = owner.user_message(&receiver, "p-named").await;
     assert_eq!(named.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{named}");
     assert_eq!(named.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{named}");
-    for (id, transport) in [
-        ("p-harness", "unix"),
-        ("p-chain", "unix"),
-        ("p-via", "unix"),
-        ("p-stale", "unix"),
-        ("p-app", "app"),
-    ] {
+    for (id, transport) in
+        [("p-harness", "unix"), ("p-chain", "unix"), ("p-via", "unix"), ("p-stale", "unix")]
+    {
         let message = owner.user_message(&receiver, id).await;
         assert_eq!(
             message.pointer("/_meta/provenance/kind"),

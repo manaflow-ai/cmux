@@ -311,6 +311,7 @@ public final class PaletteController {
     /// page it closed on (a refused command's notice).
     private func presentAgain() {
         guard !isVisible else { return }
+        model.didShowAgain()
         // Without a parent (opened while no window was key or main, as in a
         // no-activate run) `present` picks the key or main window again.
         present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })

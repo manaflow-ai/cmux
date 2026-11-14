@@ -32,6 +32,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const mode = process.env.CMUX_TEST_LEAKS ?? "on";
 /// Source modules whose top-level state is registered and drained.
@@ -464,7 +465,8 @@ function testOperands(): string[] | undefined {
   return operands;
 }
 
-const AGENT_SESSION = new URL("../../src/agent-session", import.meta.url).pathname;
+// A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+const AGENT_SESSION = fileURLToPath(new URL("../../src/agent-session", import.meta.url));
 
 /// Whether this `bun test` can reach a checked test file. One that runs only files outside the
 /// checked folder (CI runs each file in its own process) gets no loader, timer or listener wrapper

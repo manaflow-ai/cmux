@@ -332,6 +332,102 @@ pub fn harness(agent: Option<&str>) -> Option<&'static str> {
     }
 }
 
+// MARK: Toggle Terminal and Chat
+
+/// The focused tab, as Toggle Terminal and Chat reads it.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToggleFacts {
+    /// A terminal tab: `agent` and `session` are its agent's report.
+    pub terminal: bool,
+    /// An agent chat tab: `agent` and `session` are the outside session it resumes, if any.
+    pub chat: bool,
+    pub agent: Option<String>,
+    pub session: Option<String>,
+    /// A chat: another live terminal reports its session.
+    pub running: bool,
+    /// A chat: its turn is still running.
+    pub busy: bool,
+    /// A chat: the session's hand-off to a terminal an earlier Toggle started, if any.
+    pub hand_off: Option<HandOff>,
+    /// Whether `hand_off`'s terminal tab is still open.
+    pub hand_off_open: bool,
+    /// Now, in seconds since 1970 (`hand_off`'s clock).
+    pub now: f64,
+}
+
+/// A chat's session handed to a new terminal (its acpmux run stopped, the
+/// harness's resume typed there), until that terminal's hooks report it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HandOff {
+    /// Seconds since 1970 after which the hand-off is over, reported or not.
+    pub deadline: f64,
+    /// The terminal tab resuming the session; None while the chat's run stops.
+    pub tab: Option<String>,
+}
+
+/// What Toggle Terminal and Chat does: the same agent session swaps between
+/// its terminal and its chat view, both ways.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "route")]
+pub enum TerminalChatToggle {
+    /// Neither a terminal nor an agent chat.
+    NotAgentTab,
+    /// A terminal with no agent session, or a chat that resumes no terminal's session.
+    NoSession,
+    /// The terminal's agent is not one acpmux can resume (only Claude Code and Codex).
+    UnsupportedHarness,
+    /// The terminal's session shows as its chat (Open Terminal as Chat's adopt).
+    ToChat { harness: String, session: String },
+    /// The chat shows the live terminal running the session it resumes.
+    ToTerminal { harness: String, session: String },
+    /// No terminal runs the chat's session: its acpmux run stops and a new
+    /// terminal resumes it in place of the chat.
+    ResumeInTerminal { harness: String, session: String },
+    /// An earlier Toggle is handing the session to a terminal: that terminal
+    /// shows (`tab`), or nothing while the chat's run stops.
+    HandingOff { tab: Option<String> },
+    /// The chat is mid-turn: stopping it would cut the turn off.
+    Busy,
+}
+
+pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
+    let (agent, session) = (facts.agent.as_deref(), facts.session.as_deref());
+    if facts.terminal {
+        return match terminal_chat(agent, session) {
+            TerminalChat::NoSession => TerminalChatToggle::NoSession,
+            TerminalChat::UnsupportedHarness => TerminalChatToggle::UnsupportedHarness,
+            TerminalChat::Adopt { harness, session } => {
+                TerminalChatToggle::ToChat { harness, session }
+            }
+        };
+    }
+    if !facts.chat {
+        return TerminalChatToggle::NotAgentTab;
+    }
+    // A chat resumes only sessions acpmux adopts, so any other harness ran in no terminal.
+    let TerminalChat::Adopt { harness, session } = terminal_chat(agent, session) else {
+        return TerminalChatToggle::NoSession;
+    };
+    // A live terminal reporting the session wins over any hand-off record.
+    if facts.running {
+        return TerminalChatToggle::ToTerminal { harness, session };
+    }
+    // A hand-off ends at its deadline or when its terminal closed: a second
+    // Toggle meanwhile must not resume the session twice.
+    if let Some(hand_off) = &facts.hand_off
+        && facts.now < hand_off.deadline
+        && (hand_off.tab.is_none() || facts.hand_off_open)
+    {
+        return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
+    }
+    if facts.busy {
+        return TerminalChatToggle::Busy;
+    }
+    TerminalChatToggle::ResumeInTerminal { harness, session }
+}
+
 // MARK: Duplicate Tab
 
 /// The facts of one tab Duplicate Tab acts on.

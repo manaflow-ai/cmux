@@ -42,7 +42,7 @@ async fn listening_fleet(peers: usize, rows: usize) -> u16 {
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..rows).map(|i| row(p, i)).collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
             hub.peer_notices.send((name.clone(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))
@@ -130,7 +130,7 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
                 .expect("the link connects")
                 .expect("the link stays open");
             match notice {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
                 PeerNotice::Connected => break,
                 PeerNotice::Disconnected(why) => panic!("the link dropped: {why}"),
                 _ => {}
@@ -166,7 +166,8 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
 /// initialize reply says nothing of compression.
 #[tokio::test]
 async fn a_client_that_does_not_ask_gets_text_frames() {
-    let port = listening_fleet(2, 200).await;
+    // 200 rows: about 0.8 MB, so the watch list is one reply (`REPLY_PAGE_BYTES` is 1 MiB).
+    let port = listening_fleet(2, 100).await;
     for ask in [false, true] {
         let mut req = format!("ws://127.0.0.1:{port}").into_client_request().unwrap();
         req.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
@@ -201,7 +202,7 @@ async fn a_client_that_does_not_ask_gets_text_frames() {
                     answered.insert(1);
                 }
                 Some(2) => {
-                    assert_eq!(reply["result"]["sessions"].as_array().unwrap().len(), 400);
+                    assert_eq!(reply["result"]["sessions"].as_array().unwrap().len(), 200);
                     answered.insert(2);
                 }
                 _ => {}

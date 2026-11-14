@@ -51,6 +51,17 @@ extension Metrics {
         let flush: Bool? = CornerFlush.current.isOn ? true : nil
         return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
+    /// The card's edge is the sidebar's seam, so the sidebar's edge line stays in the titlebar band and its hover
+    /// and drag glow light nothing: the curved main pane, where the flush corner counts only when picked in Debug
+    /// Settings (``CornerFlush/isChosen``). Since #40282 made the flush corner the default, ``mainPaneCurved`` is
+    /// true under the stock `flat` style too, and the sidebar lost its full-height line and its resize highlight.
+    /// Leo, 2026-11-12: "you've, like, slightly regressed the border thing, the border divider. And then there's,
+    /// like, no more drag divider highlight or anything like that." The default folder tab keeps both.
+    public static var cardEdgeIsSidebarSeam: Bool {
+        let tunable = ChromeTunables.mainPaneCurved
+        let flush: Bool? = CornerFlush.isChosen ? true : nil
+        return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+    }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
     /// (`MainPaneChromeShadeView`); the main pane itself draws no card.
@@ -90,6 +101,12 @@ extension Metrics {
     /// standard titlebar strip the pane's top corners sit below it, against
     /// the window's straight side, so the pane is square there (the window
     /// still rounds its own corners). A Debug Settings override wins.
+    ///
+    /// With no radius the person set and no outline, the card a pill strip nests in rounds from its
+    /// tabs instead (Lawrence 2026-11-11, "same roundness as chrome";
+    /// ``chromeRowConcentricCardRadius(windowCornerRadius:)``): 10 pt at Compact, as before, and at
+    /// most the window's own radius. The flush corner keeps its window-concentric card: its strip sits
+    /// on the frame above the card, not inside it.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         // The flush corner: concentric with the window across its 4 pt gap (12 pt in a 16 pt window).
@@ -97,8 +114,28 @@ extension Metrics {
         if flush.isOn { return windowCornerRadius > 0 ? max(0, windowCornerRadius - flush.gap) : flush.cardRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
+        // Chrome's tab radius sizes the card the strip nests in, so the first pill stays concentric with it.
+        if mainPaneRoundsFromTabs { return chromeRowConcentricCardRadius(windowCornerRadius: windowCornerRadius) }
         return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),
                                             setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+
+    /// Whether the curved main pane rounds from its tabs (``chromeRowConcentricCardRadius(windowCornerRadius:)``):
+    /// Chrome's tab radius applies (``usesChromeRowCorner``), the card has a gutter, no outline and no
+    /// Debug Settings radius, and the flush corner is off (its strip sits on the frame, not in the card).
+    public static var mainPaneRoundsFromTabs: Bool {
+        guard usesChromeRowCorner, mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil,
+              !CornerFlush.current.isOn, paneBorder == .none else { return false }
+        return mainPaneGutter > 0
+    }
+
+    /// The radius of the card a top-row pill strip nests in, concentric with its tabs: Chrome's tab
+    /// radius (``chromeRowCornerRadius(height:)`` at ``tabHeight``) plus the pill's inset from the
+    /// card's corner (``tabStripCardInset``), at most the window's radius (the titled window's when
+    /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
+    public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
     }
 
     /// The radius of a card `edgeInset` points inside a window whose corners have
@@ -127,11 +164,48 @@ extension Metrics {
         guard let window, window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return inset }
         return max(inset, PaneTabRowRim.height)
     }
-    /// Black's alpha over the chrome around the main pane: the shade of the
+    /// Black's alpha over the chrome around the main pane (the sidebar, the titlebar and the tab row
+    /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by ``titleAreaShadeScale``. Leo,
+    /// 2026-11-11, on the title area: "the contrast, I guess it's fine, but I feel like it may be too intense for
+    /// some people, so it needs to be adjustable." At most 1.
+    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+        let base = mainPaneChromeShadeBase(isDark: isDark)
+        let scale = titleAreaShadeScale
+        return scale == 1 ? base : min(1, max(0, base * scale))
+    }
+
+    /// The least chrome shade under which a selected folder tab in the content's surface still reads
+    /// (``Palette/folderTabFill``): Subtle Tone's light frame (0.045 × ``TitleAreaTone/subtleShare``) still
+    /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
+    public static let folderTabMinimumShade: CGFloat = 0.011
+
+    /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
+    /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
+    /// contrast of 1 or more (the shipped look, no line), 1 at a contrast of 0 (one colour: the line and the
+    /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
+    /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    public static var tabRowDividerStrength: CGFloat {
+        min(1, max(0, 1 - titleAreaShadeScale))
+    }
+
+    /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
+    /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
+    /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
+    /// wanted the default to be mono ish (the tab bar the side bar the main view kinda the same-ish) we can make that
+    /// the default... but i still think at least a subtle toning might be a bit nice."
+    public static var titleAreaShadeScale: CGFloat {
+        let design = DesignSettings.shared
+        guard CornerFlush.current.isOn else { return design.titleAreaContrast }
+        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+    }
+
+    /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the
     /// default shares the pane's surface, `SidebarSurface`); 0 when the pane
     /// is edge to edge.
-    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+    public static func mainPaneChromeShadeBase(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
         // The flush corner shades its frame so the card reads on the one surface.
         if CornerFlush.current.isOn { return CornerFlush.current.shade(isDark: isDark) }

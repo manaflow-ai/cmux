@@ -37,7 +37,10 @@ run_one() {
   for i in $(seq 1 150); do [ -S "/tmp/cmux-debug-$TAG.sock" ] && break; sleep 0.2; done
   sleep 6
   "$@"
-  echo "cmd_exit=$?"
+  local status=$?
+  # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
+  # before the kills (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE; echo "cmd_exit=$status" ) || true
   kill "$pid" 2>/dev/null; sleep 3
   for p in $(pgrep -f "ffre-cmp/$TAG/cmux DEV $TAG.app"); do kill "$p"; done
   p=$(pgrep -f "session cmux-app-$TAG "); [ -n "$p" ] && kill "$p"

@@ -37,11 +37,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-spec = importlib.util.spec_from_file_location(
-    "validate_test_execution_registry", ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
-)
-validator = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as validator  # noqa: E402
 
 BRANCH = "feat-cmux-next"
 FEAT_PULL_REQUEST = "on:\n  pull_request:\n    branches: [feat-cmux-next]\n"

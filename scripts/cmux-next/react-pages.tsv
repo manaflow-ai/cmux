@@ -30,7 +30,6 @@ machines	debt	a right sidebar section (#37279); the right sidebar is gone
 markdown	page	a full tab page
 mobile-pairing	page	a full tab page
 onboarding	page	a full tab page
-overlay	debt	dialogs on a web overlay above native views (#37296)
 passwords	page	a full tab page
 server-cards	review	cards hosted in native chrome
 settings	page	a full tab page

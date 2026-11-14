@@ -71,7 +71,7 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
-            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
@@ -280,6 +280,20 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
+    /// row and the sidebar) is shaded, as a share of the theme's shade
+    /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
+    /// The shade follows through `WindowRootView.observeMainPane`; a change repaints the themed views too, so a
+    /// selected folder tab takes the selection fill where the softer shade no longer sets it apart
+    /// (``Palette/folderTabFill``).
+    public var titleAreaContrast: CGFloat = 1 {
+        didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.titleAreaTone`: one colour (the default) or a subtle tone (``TitleAreaTone``,
+    /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
+    public var titleAreaTone: TitleAreaTone = .oneColor {
+        didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
@@ -354,7 +368,7 @@ public final class DesignSettings {
 
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0.85), 1.5)
+        min(max(value, 0.25), 5)
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {

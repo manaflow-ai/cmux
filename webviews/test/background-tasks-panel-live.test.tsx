@@ -13,6 +13,7 @@ import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 import { NestedAgents, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -50,6 +51,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -641,4 +643,27 @@ test("a transcript replaced by as many new rows takes the newest window", async 
   await act(async () => root!.render(<SubagentTranscript rows={fresh(500)} running anchor="r20" />));
   expect(container.querySelector('[data-row-id="n499"]')).not.toBeNull();
   expect(container.querySelector('[data-row-id="n20"]')).toBeNull();
+});
+
+// Rows replaced while the reader is scrolled up (a fresh page that still holds the row they are on):
+// the window is taken around that row, never the newest one, which sent the reader to the bottom
+// (Leo, 2026-11-12: "IT JUST [...] SENDS ME TO THE BOTTOM").
+test("a transcript replaced while scrolled up keeps the reader's row mounted", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running anchor="r20" />));
+  // The reader's row is r20: rows above it end above the view's top, r20's bottom edge is 10 px in.
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement) {
+      const id = this.dataset.rowId;
+      const bottom = id?.startsWith("r") ? (Number(id.slice(1)) - 20) * 20 + 10 : 0;
+      return { top: bottom - 20, bottom, left: 0, right: 0, width: 0, height: 20, x: 0, y: 0 };
+    },
+  });
+  scrolledUp(container);
+  await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+  // A fresh page: the first five rows gone, five new ones at the end.
+  await act(async () => root!.render(<SubagentTranscript rows={rows(505).slice(5)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
 });

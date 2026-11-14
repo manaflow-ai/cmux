@@ -31,6 +31,10 @@ pub(super) const STAGGER: Duration = Duration::from_millis(250);
 /// The longest a probe's dial may take (a dead path's connect is cut off well before the
 /// link's own connect deadline; it is probed again on its recovery backoff).
 const PROBE_CONNECT: Duration = Duration::from_secs(10);
+/// A route that already carried this peer must get a fresh attempt after a
+/// freeze. Bound its transport dial and WebSocket upgrade together; the cold
+/// connect budget still accommodates a first handshake or a slow ssh login.
+const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
@@ -267,8 +271,26 @@ impl Peer {
     }
 
     /// The hub's last-known-good book (`peer_last_good.rs`).
+    /// It keeps the remote tokens an `ssh://` peer reads there too, and starts with those it
+    /// kept on an earlier run (`peer_kept_tokens.rs`) unless they disagree with a configured one.
     pub(crate) fn set_last_good(&self, book: Arc<crate::peer_last_good::LastGood>) {
+        if self.ssh_parts().is_some() {
+            self.read_tokens.back(book.clone(), &self.name, &self.url, |(token, peer)| {
+                self.token.as_ref().is_none_or(|t| t == token)
+                    && (self.peer_token.is_none() || self.peer_token == *peer)
+            });
+        }
         let _ = self.last_good.set(book);
+    }
+
+    /// Preparation may run concurrently; the registered peer owns token writes.
+    /// This only sets an atomic generation, so registration does no file I/O.
+    pub(crate) fn activate_read_tokens(&self) {
+        self.read_tokens.activate();
+    }
+
+    pub(crate) fn persist_read_tokens(&self) {
+        self.read_tokens.persist();
     }
 
     /// The paths this peer has, before any is dialed.
@@ -509,9 +531,16 @@ impl Peer {
             .await
             .map_err(|e| e.to_string())
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, opening)
+        let deadline = if self.linked_once.load(Ordering::SeqCst)
+            && matches!(via, Via::Wireguard | Via::Link)
+        {
+            self.timings.connect.min(DIRECT_REDIAL_CONNECT)
+        } else {
+            self.timings.connect
+        };
+        let (ws, _) = tokio::time::timeout(deadline, opening)
             .await
-            .map_err(|_| connect_timed_out(self.timings.connect))??;
+            .map_err(|_| connect_timed_out(deadline))??;
         Ok(Opened {
             ws: OpenedWs::Boxed(Box::new(ws)),
             heard,

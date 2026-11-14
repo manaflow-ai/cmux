@@ -28,13 +28,23 @@ public struct ConversationContact: Sendable, Hashable, Identifiable {
     public var initials: String
     public var colorHex: String
     public var handles: [ConversationContactHandle]
+    /// The line under the name in the list under To:, in the secondary
+    /// color, instead of the first handle ("Chief · Main · Cloud"). Nil:
+    /// Messages' handle line.
+    public var detail: String?
+    /// The detail line names an address: it takes the service color, as Messages tints an
+    /// address row, instead of the secondary gray of cmux's "Chief · …" and "Team" lines.
+    public var tintsWithService = false
 
-    public init(id: String, name: String, initials: String, colorHex: String, handles: [ConversationContactHandle]) {
+    public init(id: String, name: String, initials: String, colorHex: String, handles: [ConversationContactHandle],
+                detail: String? = nil, tintsWithService: Bool = false) {
+        self.tintsWithService = tintsWithService
         self.id = id
         self.name = name
         self.initials = initials
         self.colorHex = colorHex
         self.handles = handles
+        self.detail = detail
     }
 
     /// The service a message to this contact uses: iMessage when any handle has it.

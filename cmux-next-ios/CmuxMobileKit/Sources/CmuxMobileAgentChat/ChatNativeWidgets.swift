@@ -86,10 +86,10 @@ struct ChatNativeWidgets {
     // MARK: Prompt
 
     /// `UserBubble`: body text with 4 pt line spacing in the bubble color, 16/11 pt padding,
-    /// radius 20, at most 80% of the column, on the trailing edge.
+    /// radius 20, at most 80% of the column (`UserBubble.maxWidth`), on the trailing edge.
     private func prompt(_ prompt: String) -> Layout {
         let attributed = text(prompt, styles.font(.body), .label, lineBreak: .byWordWrapping, lineSpacing: 4)
-        let maxText = width * 0.8 - 32
+        let maxText = UserBubble.maxWidth(in: width) - 32
         // The height UILabel draws: n lines 4 pt apart, a fallback font's taller line (emoji, CJK in
         // a pasted log) at its own height, no font leading anywhere (CMUX-54). `measure` adds the
         // body font's 1.7 pt leading to every line, which UILabel does not draw: a 1,300-line prompt

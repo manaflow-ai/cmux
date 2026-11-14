@@ -8,11 +8,11 @@ import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { GroupList } from "./GroupList";
 
 /**
- * Matching (or changed) rows from every category, editable in place, grouped by category. Every
+ * Matching rows from every category, editable in place, grouped by category. Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
-export function SearchResults({ query, changedOnly = false }: { query: string; changedOnly?: boolean }) {
+export function SearchResults({ query }: { query: string }) {
   const state = useSettingsState();
   const devBuild = state.host?.dev_build === true;
   const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
@@ -20,14 +20,12 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     () =>
       filterRows({
         query,
-        changedOnly,
         valueOf: (key) => valueOf(state, key),
-        isChanged: (key) => state.rows.get(key)?.customized ?? false,
         devBuild,
         scope: "user",
         revision: state.revision,
       }),
-    [changedOnly, devBuild, query, state],
+    [devBuild, query, state],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   const empty = shown.size === 0;
@@ -39,9 +37,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
   return (
     <div className="search-results" data-search-results="">
       <p className="empty collapse" data-open={empty ? "" : undefined}>
-        <span className="collapse-body">
-          {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
-        </span>
+        <span className="collapse-body">{t("settingsPage.noResults")}</span>
       </p>
       {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));

@@ -11,6 +11,7 @@ import { ShimmerText } from "./ShimmerText";
 import { configureThemeSlots } from "../../../slots/registry";
 import { THINKING_INDICATOR_VARIANTS } from "../../../slots/thinkingIndicator";
 import { LONG_THINK_MS } from "../../../slots/thinkingIndicator/CountingDots";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -37,10 +38,11 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   configureThemeSlots(undefined);
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

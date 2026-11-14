@@ -256,6 +256,54 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
 
 
+# A job that tolerates a need (continue-on-error) can still end `cancelled` when it hits its
+# timeout-minutes. A job whose `if` names no status function gets an implicit success(), which asks
+# that every ancestor (not only its own needs) succeeded, so GitHub skips it and the started run loses
+# its build with no cancel-in-progress anywhere. On 2026-11-12 pick-nightly-build-runner timed out at
+# 13 minutes while a signing job held its mini, and build-nightly-app was skipped in nightly-next runs
+# 43129045111 and 43138638076. Same class: cmuxterm-hq docs/handbook/skipped-by-a-job-it-does-not-need.md.
+STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure|success)\(\)")
+
+
+def jobs_a_tolerated_ancestor_skips(jobs: dict) -> list[str]:
+    def needs(name: str) -> list[str]:
+        value = jobs[name].get("needs") or []
+        return [value] if isinstance(value, str) else list(value)
+
+    ancestors: dict[str, set[str]] = {}
+
+    def of(name: str) -> set[str]:
+        if name not in ancestors:
+            ancestors[name] = set()
+            for need in needs(name):
+                ancestors[name] |= {need} | of(need)
+        return ancestors[name]
+
+    tolerated = {name for name, job in jobs.items() if job.get("continue-on-error") is True}
+    return [f"{name} (ancestor {sorted(of(name) & tolerated)})" for name, job in jobs.items()
+            if of(name) & tolerated and not STATUS_FUNCTION.search(str(job.get("if", "")))]
+
+
+def test_the_tolerated_ancestor_check_catches_the_2026_11_12_shape() -> None:
+    jobs = {
+        "pick": {"continue-on-error": True},
+        "build": {"needs": ["pick"], "if": "needs.decide.outputs.should_build == 'true'"},
+        "prepare": {"needs": "build", "if": "inputs.x == ''"},
+        "safe": {"needs": ["build"], "if": "${{ !cancelled() && needs.build.result == 'success' }}"},
+    }
+    assert sorted(jobs_a_tolerated_ancestor_skips(jobs)) == ["build (ancestor ['pick'])", "prepare (ancestor ['pick'])"]
+
+
+def test_a_tolerated_need_never_skips_its_dependents() -> None:
+    import yaml
+
+    found = []
+    for path in delivery_workflows():
+        jobs = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+        found += [f"{path.name}: {entry}" for entry in jobs_a_tolerated_ancestor_skips(jobs)]
+    assert not found, ("a timed-out continue-on-error ancestor skips these jobs; give their `if` "
+                       f"!cancelled() and the needs' results: {found}")
+
 if __name__ == "__main__":
     test_delivery_workflows_never_cancel_in_progress_work()
     test_a_conditional_group_is_not_run_scoped()
@@ -264,4 +312,6 @@ if __name__ == "__main__":
     test_next_feed_writers_share_no_group_on_nightly_next()
     test_next_feed_writers_take_the_r2_lease()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
+    test_the_tolerated_ancestor_check_catches_the_2026_11_12_shape()
+    test_a_tolerated_need_never_skips_its_dependents()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

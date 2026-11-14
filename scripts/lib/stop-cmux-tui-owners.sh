@@ -28,7 +28,9 @@ cmux_stop_cmux_tui_owners() {
     if [[ -n "$socket" ]] && "$exe" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
       continue
     fi
-    echo "cmux_stop_cmux_tui_owners: server stop failed for owner PID $pid; sending SIGTERM to that PID only (its terminal hosts keep running)" >&2
+    # In a subshell that ignores SIGPIPE: a message to a stderr nobody reads would otherwise end the caller
+    # before the SIGTERM (tests/test_guard_logs_survive_closed_pipe.py).
+    ( trap '' PIPE; echo "cmux_stop_cmux_tui_owners: server stop failed for owner PID $pid; sending SIGTERM to that PID only (its terminal hosts keep running)" >&2 ) || true
     kill -TERM "$pid" 2>/dev/null || true
   done < <(ps -axww -o pid= -o args= 2>/dev/null)
 }

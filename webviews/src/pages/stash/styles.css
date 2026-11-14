@@ -47,7 +47,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 

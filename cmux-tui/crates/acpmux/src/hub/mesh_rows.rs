@@ -177,7 +177,7 @@ mod mesh_route_tests {
     fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
         RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}),
+            summary: json!({"sessionId": id, "name": name}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),

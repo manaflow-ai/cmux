@@ -61,6 +61,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that generate-nightly-deltas checks out only scripts/ of the build ref and that the reel's apt install retries; run python3 tests/test_nightly_deltas_sparse_checkout.py yourself after changing either (about 1 s, no Mac)."
 
 [[test]]
+path = "tests/test_nightly_deltas_yield.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that build-nightly-deltas waits for a quiet nightly-next loop before the keyed job asks for the signer Mac, and skips deltas the live feed has passed; run python3 tests/test_nightly_deltas_yield.py yourself after changing the yield script or the three delta jobs (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
@@ -169,6 +174,11 @@ lane = "linux-guard"
 path = "tests/test_nightly_next_one_feed_readers.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Keeps scripts/ off the retired nightly-next/next/ feed; run python3 tests/test_nightly_next_one_feed_readers.py yourself after changing a script that reads the nightly feed (under 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_next_one_job.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-job nightly-next path (vars.NIGHTLY_NEXT_ONE_JOB, the nightly-next-one job on cmux15's signer label) of nightly.yml: its gate, label, concurrency, signing admission, no app artifact hop, the stray-process checks before its secrets, and that the split jobs skip only when it is on; run python3 tests/test_nightly_next_one_job.py yourself after changing either path (about 2 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_next_pipeline.py"
@@ -313,6 +323,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_signing_on_cmux15.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_speed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_spm_artifact_preflight.py"
 lane = "linux-guard"
 
 [[test]]

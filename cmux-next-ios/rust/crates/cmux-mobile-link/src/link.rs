@@ -874,6 +874,13 @@ impl Link {
         self.inner.closed_reason().is_some()
     }
 
+    /// How long ago the reader last received any frame (a pong, channel
+    /// data, a control frame). Measured where frames arrive, so a channel
+    /// whose reader lags its buffer still shows a dead link going quiet.
+    pub fn received_ago(&self) -> Duration {
+        self.inner.last_received().elapsed()
+    }
+
     /// Resolves with the reason once the link is closed.
     pub async fn closed(&self) -> String {
         let mut state = self.inner.closed.subscribe();
@@ -1012,9 +1019,9 @@ async fn read_loop<R>(
                         && inner.lock_channels().remove(&frame.channel).is_some()
                     {
                         tracing::warn!(
-                        channel = frame.channel,
-                        "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
-                    );
+                            channel = frame.channel,
+                            "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                        );
                         refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
                     }
                 }

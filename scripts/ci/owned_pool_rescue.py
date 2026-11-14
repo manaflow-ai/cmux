@@ -310,6 +310,11 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/first-user-journey-ios.yml":
+        "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
+        "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
+        "retry_runs_on (Blacksmith macOS) from attempt 2, so a stuck or refused job ends at its 75-minute timeout "
+        "and the next night's run or a person's re-run takes Blacksmith",
     ".github/workflows/ios-reliability-matrix.yml":
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "

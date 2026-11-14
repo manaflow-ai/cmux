@@ -203,6 +203,8 @@ export class MockSettingsProvider {
   private connected: boolean;
   private museumArt: MuseumArtResult[];
   readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
+  /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
+  holdHost: Promise<void> | null = null;
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -243,7 +245,10 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
-      "cmux.settings.host.lists": () => this.host,
+      "cmux.settings.host.lists": async () => {
+        if (this.holdHost) await this.holdHost;
+        return this.host;
+      },
       "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),

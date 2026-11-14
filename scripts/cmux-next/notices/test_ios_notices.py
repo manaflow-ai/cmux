@@ -14,6 +14,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/known_red.py: a skip against an issue that fails once its checked-in date passes.
+_known_red_spec = importlib.util.spec_from_file_location(
+    "known_red", Path(__file__).resolve().parents[3] / "tests" / "known_red.py")
+_known_red = importlib.util.module_from_spec(_known_red_spec)
+_known_red_spec.loader.exec_module(_known_red)
+known_red = _known_red.known_red
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 SPEC = importlib.util.spec_from_file_location("ios_notices", HERE / "ios_notices.py")
@@ -28,11 +35,11 @@ MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_tex
 
 
 class RepositoryTests(unittest.TestCase):
-    @unittest.skip("red on feat-cmux-next, line 32: notices/ios/link-set.json does not match the GhosttyKit pin (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 32: notices/ios/link-set.json does not match the GhosttyKit pin")
     def test_pane_link_set_and_exceptions_match_the_ghosttykit_pin(self) -> None:
         self.assertEqual(ios.check_repo(), [])
 
-    @unittest.skip("red on feat-cmux-next, line 40: no app_link for the current GhosttyKit pin (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 40: no app_link for the current GhosttyKit pin")
     def test_the_pane_omits_only_what_the_real_link_proves_absent(self) -> None:
         # The evidence is the real link of a cmux-ci iOS build for the CURRENT pin
         # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used

@@ -14,6 +14,7 @@ import {
   inboxHover,
 } from "../src/agent-session/acpmux/conversation/MessageGroupHover";
 import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -23,6 +24,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

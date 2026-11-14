@@ -9,8 +9,6 @@ struct CloseToastRule {
     enum Decision {
         case show
         case skip
-        /// Shows only if one of these live terminals runs a program.
-        case askTerminals([TabModel])
     }
 
     var titles: TabTitleResolver
@@ -41,7 +39,6 @@ struct CloseToastRule {
         switch toast {
         case .show: return .show
         case .skip: return .skip
-        case .askTerminals(let indices): return .askTerminals(indices.filter(tabs.indices.contains).map { tabs[$0] })
         }
     }
 }

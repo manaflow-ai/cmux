@@ -5,6 +5,7 @@
 // click of Add). This file holds the rule for the line's element; the move itself is measured by
 // the gallery's shift baseline for that state, in a browser.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
@@ -26,7 +27,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

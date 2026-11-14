@@ -10,7 +10,7 @@ struct SidebarPress {
     /// the same row without a drag.
     var clickOnRelease: WorkspaceID?
     /// A plain press that switched on mouse-down (the default, `sidebar.multiView` off): what was shown and
-    /// selected before it, put back if the press becomes a drag.
+    /// selected before it. A drag keeps the switch (`beginDrag`); this only says the press switched.
     var switchedOnPress: (shown: WorkspaceID?, selection: Set<WorkspaceID>)?
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.

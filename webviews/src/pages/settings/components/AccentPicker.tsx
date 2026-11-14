@@ -69,7 +69,7 @@ export function AccentPicker({
       >
         {chosen && <Swatch choice={chosen} />}
         <span className="theme-button-name">{chosen?.label ?? value}</span>
-        <Icon name="chevron" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}

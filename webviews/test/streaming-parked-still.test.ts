@@ -27,6 +27,7 @@
 // from the order of events (wheels and glides counted), never from a clock, so a starved runner that
 // stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { PARKED, parkedAfterScroll, stillness, type Sample } from "./support/parkedStill";
@@ -192,6 +193,18 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       const page = await streaming(name);
       await page.evaluate(() => ((window as unknown as Probe).__still.sampling = true));
       await page.mouse.wheel(0, -Number(px));
+      // With CMUX_MOTION_STILLS=<dir>: whole-window stills of the parked view as the reply streams on
+      // below it, for review (#41454). They read the same picture each time: the view holds.
+      const stills = process.env.CMUX_MOTION_STILLS;
+      if (stills && px === "120") {
+        const dir = path.join(stills, "parked-reader", name);
+        mkdirSync(dir, { recursive: true });
+        for (const at of [1, 2, 3]) {
+          // fixed-wait: the reply streams on between stills.
+          await page.waitForTimeout(600);
+          await page.screenshot({ path: path.join(dir, `${at}-parked-${at * 600}ms-after-wheel.png`) });
+        }
+      }
       const report = stillness(await sampleToEnd(page));
       console.log(`streaming-parked-still ${label}: ${JSON.stringify(report)}`);
       // The reply was on screen, and the reader stayed off its latest line (past the follow

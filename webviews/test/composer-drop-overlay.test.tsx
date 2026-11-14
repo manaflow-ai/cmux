@@ -19,6 +19,7 @@ import {
   summarizeDrag,
 } from "../src/agent-session/acpmux/composer/dropOverlayState";
 import { DropOverlay } from "../src/agent-session/acpmux/composer/DropOverlay";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -57,7 +58,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
