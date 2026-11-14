@@ -15,6 +15,23 @@ runbook for doing it, and the plan for machines it cannot reach.
 
 ## Self-update
 
+The first status report also carries `updater.first_ready`, the image's
+pre-ready update observation saved across the exec into the channel build.
+It records `image_behind`, content-addressed binary versions (`from_version`
+and `to_version`, SHA256), the full `channel_commit`, Unix-ms `started_at`
+and `finished_at`, monotonic `check_ms`, and `update_ms`. Durations round up
+to milliseconds. An already-current image has `image_behind=false` and
+`update_ms=0`; a channel that could not be read has null comparison and
+update duration. `outcome` is `updated`, `current`, or `on_image`, so a failed
+attempt is never presented as a successful update. Later updater checks and
+the post-update process retain this first observation. Older machines have
+no observation; consumers must report unavailable, never infer zero.
+
+The `first_ready` and `a_machine_made_on_an_old_image` tests in
+`cmux-host/src/updater/tests.rs` exercise the report from fake behind/current
+images, persistence across exec, and an unreadable channel. The existing
+Cloud status sender carries this updater block without a second route.
+
 `cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
 reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
 30 s after it starts, on every resume and every minute. CI moves the
