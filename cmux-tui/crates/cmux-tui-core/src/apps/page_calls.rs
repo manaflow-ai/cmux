@@ -193,10 +193,10 @@ impl Supervisor {
         slot.inflight += 1;
         inner.pages.next_waiter += 1;
         let waiter = inner.pages.next_waiter;
-        inner.pages.waiters.insert(
-            waiter,
-            PageWaiter { app: app.to_string(), key: key.clone(), id: id.clone(), respond },
-        );
+        inner
+            .pages
+            .waiters
+            .insert(waiter, PageWaiter { app: app.to_string(), key: key.clone(), id, respond });
         let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
         if !supervisor_op && !self.router.owns(&op) {
             if op == "integration.request" {

@@ -175,8 +175,10 @@ fn a_provider_op_without_a_provider_is_answered_at_once() {
     assert!(f.router.calls.lock().unwrap().is_empty(), "a provider op never reached the router");
 }
 
-/// How a test takes back an app's access.
-const REVOCATIONS: [(&str, fn(&mut SetOp)); 3] = [
+/// How a test takes back an app's access: its name and the change.
+type Revocation = (&'static str, fn(&mut SetOp));
+
+const REVOCATIONS: [Revocation; 3] = [
     ("uninstall", |o| o.installed = Some(false)),
     ("disable", |o| o.enabled = Some(false)),
     // Narrower: the fetch's host is no longer granted.
