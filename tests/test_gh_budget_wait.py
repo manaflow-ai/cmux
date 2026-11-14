@@ -359,7 +359,7 @@ PUBLISH_PATH = (
     # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
+    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
@@ -406,6 +406,11 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
+    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
+    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
+    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
+    ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),

@@ -115,8 +115,8 @@ online on a full mini and offline while the mini's one simulator token is
 taken; a job it takes may wait there for CPU units, with priority. When the
 live path's own route does not fit, a lane whose `runs_on` serves only jobs
 glaeda classes as simulator or simulator-step, the only ones that runner takes
-(SIM_FIRST_LANES: the capture and the reliability matrix's phone cells, lane
-`phone-cells`), takes the sim-first label alone for the pin when its
+(SIM_FIRST_LANES: the capture, the kit tests and the reliability matrix's phone
+cells, lane `phone-cells`), takes the sim-first label alone for the pin when its
 simulator jobs fit in sim_first_free: the minis with an online idle
 sim-first runner that no running simulator job holds, less every simulator
 charged to in-flight runs (the same Hold.sims that SIM_LABEL's count loses,
@@ -284,8 +284,9 @@ MAX_SIM_JOBS = 2
 # The lanes whose `runs_on` serves only jobs glaeda classes as simulator or
 # simulator-step, the only jobs its sim-first runner takes (it refuses the
 # rest; see Sim-first runners). Not test-ios, whose `runs_on` serves
-# ios-simulator-build, nor kit, whose CmuxMobileKit job glaeda does not class so.
-SIM_FIRST_LANES = ("screenshots", "phone-cells")
+# ios-simulator-build. kit's `runs_on` serves only its CmuxMobileKit job, which glaeda
+# classes as simulator-step (teamleaderleo/glaeda#1986).
+SIM_FIRST_LANES = ("screenshots", "phone-cells", "kit")
 
 
 @dataclasses.dataclass(frozen=True)

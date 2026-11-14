@@ -1,6 +1,6 @@
 //! Book reads at fixed reply size, in five alternating steady-state rounds.
-use crate::log::{Anchor, MAX_BLOB_READ, MAX_FRAME_BYTES};
-use crate::testkit::{BlobFixture, blob_fixture, folded_book, ids};
+use crate::log::{Anchor, Edge, MAX_BLOB_READ, MAX_FRAME_BYTES};
+use crate::testkit::{BlobFixture, blob_fixture, folded_book, folded_turns, ids, turn_group};
 use std::io::Write;
 use std::time::Instant;
 
@@ -143,6 +143,49 @@ fn v2_pr03c_fold_window() {
     );
     emit(name, measures);
     measures.check(name, "fold");
+}
+
+/// Turns in the god chat (80,000 messages in turns of four) and in the small one (200).
+const GOD_TURNS: u64 = 20_000;
+const SMALL_TURNS: u64 = 50;
+/// A turns page small enough that the small chat has turns left before it.
+const TURNS_PAGE_BYTES: usize = 2 * 1024;
+
+fn turns_sample(
+    log: &mut crate::log::Log,
+    folds: &crate::folds::Folds,
+) -> (u64, crate::log::Window) {
+    let start = Instant::now();
+    let page =
+        log.read_turns(Edge::Before(turn_group(GOD_TURNS + 1)), TURNS_PAGE_BYTES, folds).unwrap();
+    std::hint::black_box(&page);
+    (start.elapsed().as_nanos() as u64, page)
+}
+
+#[test]
+#[ignore]
+fn v2_pr03d_turns_page() {
+    let root = tempfile::tempdir().unwrap();
+    // Both chats end at the same turn, so their newest turns are the same rows.
+    let (mut small_log, small_folds) =
+        folded_turns(&root.path().join("small"), GOD_TURNS - SMALL_TURNS + 1, SMALL_TURNS);
+    let (mut god_log, god_folds) = folded_turns(&root.path().join("god"), 1, GOD_TURNS);
+    let (_, small_page) = turns_sample(&mut small_log, &small_folds);
+    let (_, god_page) = turns_sample(&mut god_log, &god_folds);
+    // Outside the clock: the same reply, cut by its bytes, with turns left before it.
+    assert_eq!(ids(&small_page.rows), ids(&god_page.rows));
+    assert_eq!(small_page.bytes, god_page.bytes);
+    assert!(small_page.rows.len() > 1 && (small_page.rows.len() as u64) < SMALL_TURNS);
+    assert!(small_page.has_before && god_page.has_before && !god_page.has_after);
+    let name = "v2.pr03d.turns_page";
+    let measures = paired(
+        name,
+        "newest",
+        || turns_sample(&mut small_log, &small_folds).0,
+        || turns_sample(&mut god_log, &god_folds).0,
+    );
+    emit(name, measures);
+    measures.check(name, "newest");
 }
 
 fn blob_sample(fixture: &mut BlobFixture, open: bool, bytes: &mut Vec<u8>) -> u64 {

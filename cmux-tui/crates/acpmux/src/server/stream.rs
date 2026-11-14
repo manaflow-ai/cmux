@@ -136,19 +136,15 @@ fn v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> Option<(Value, Vec<Stri
         .iter()
         .map(Value::as_str)
         .collect::<Option<Vec<_>>>()?;
-    if !requested.iter().all(|surface| matches!(*surface, "list" | "chat"))
-        || !v2.allows_surfaces(&requested)
-    {
-        return None;
-    }
-    Some((
-        id,
-        ["list", "chat"]
-            .into_iter()
-            .filter(|surface| requested.contains(surface))
-            .map(str::to_owned)
-            .collect(),
-    ))
+    // Decision 223: the upgrade grants the named surfaces this build serves and has on, and the
+    // reply names them. A name it does not know is never an error, so a newer client keeps v2
+    // on an older daemon; with nothing granted the connection stays v1.
+    let granted: Vec<String> = ["list", "chat"]
+        .into_iter()
+        .filter(|surface| requested.contains(surface) && v2.allows_surfaces(&[*surface]))
+        .map(str::to_owned)
+        .collect();
+    (!granted.is_empty()).then_some((id, granted))
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the
