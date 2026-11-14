@@ -545,6 +545,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-link",
+ "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
  "cmux-terminal-prediction",
