@@ -304,6 +304,11 @@ fn waiters_counts_a_locker_that_waits_and_no_locker_that_holds() {
 /// the hold that each committed part returned, so that compare guards the choice. The clock
 /// guards the sleep: the thread ran at least as long as its parts held the locks plus that
 /// pause, so it did stay away from the locks for it.
+///
+/// THE CHECK. In a build that runs the projection cross-check, the worker compares one full
+/// projection with the journal after its last step and records the lap `session.restate.check`:
+/// no difference in a session that the parts stated. That projection is not committed and is
+/// not in the count of full projections.
 #[test]
 fn the_worker_thread_states_the_session_and_records_its_laps() {
     let mux = without_crosscheck(|| session_in(test_mux(), 10));
@@ -321,17 +326,29 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
     let laps = mux.session_restate_laps_for_test().expect("the worker recorded no laps");
     let laps = laps.as_array().unwrap();
     let steps = laps.iter().map(|lap| lap["step"].as_str().unwrap()).collect::<Vec<_>>();
-    assert_eq!(
-        steps,
-        [
-            "session.restate.wait",
-            "session.restate.part",
-            "session.restate.part",
-            "session.restate.pause",
-            "session.restate"
-        ],
-        "{laps:?}"
-    );
+    let mut expected = vec![
+        "session.restate.wait",
+        "session.restate.part",
+        "session.restate.part",
+        "session.restate.pause",
+        "session.restate",
+    ];
+    // A build that runs the projection cross-check (a Debug build; it is on in the worker
+    // thread) compares one full projection with the journal after the last step.
+    let compares = cfg!(debug_assertions)
+        || std::env::var_os("CMUX_TUI_PROJECTION_CROSSCHECK").is_some_and(|value| value == "1");
+    if compares {
+        expected.push("session.restate.check");
+    }
+    assert_eq!(steps, expected, "{laps:?}");
+    if compares {
+        let check = &laps[5];
+        assert_eq!(check["difference"], false, "the journal differs after the parts: {check}");
+        assert!(
+            check["equal"].as_u64().unwrap() >= 10,
+            "the compare read fewer values than the session has workspaces: {check}"
+        );
+    }
     assert_eq!(laps[1]["workspaces"], 8, "{laps:?}");
     assert_eq!(laps[2]["workspaces"], 2, "{laps:?}");
     let (pause, sum) = (&laps[3], &laps[4]);
