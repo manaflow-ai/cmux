@@ -1586,6 +1586,13 @@ pub struct Config {
     /// Labs-only transport switches (`transport.wireguard`).
     #[serde(default)]
     pub transport: TransportConfig,
+    /// `remoteDaemon`: the loopback `host:port` of this machine's cmux-tui remote daemon
+    /// (`cmux --headless --remote-ws 127.0.0.1:PORT`), which this person's other machines reach
+    /// through the hub carrier (`cmux remote exec|cp|connect --via-machine`). Unset (the
+    /// default): no circuit reaches it. A joined machine also needs its "control" consent
+    /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_daemon: Option<String>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1704,10 +1711,21 @@ impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
-    /// (`set_permission_mode`), else a session resource limit
-    /// (`set_session_resource`).
+    /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`), else a
+    /// session resource limit (`set_session_resource`).
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         if self.set_permission_mode(key, value)? {
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "remote_daemon" | "remotedaemon"
+        ) {
+            let value = value.trim();
+            self.remote_daemon = match value.to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
             return Ok(());
         }
         self.set_session_resource(key, value)
@@ -2318,3 +2336,16 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod startup_seams;
+
+/// A `remoteDaemon` address: a socket address on loopback, the only place a circuit may reach.
+pub fn loopback_daemon_address(value: &str) -> Result<std::net::SocketAddr> {
+    let address: std::net::SocketAddr = value
+        .trim()
+        .parse()
+        .with_context(|| format!("remote_daemon must be a loopback host:port, not `{value}`"))?;
+    anyhow::ensure!(
+        address.ip().is_loopback() && address.port() != 0,
+        "remote_daemon must be a loopback host:port with a port (127.0.0.1:PORT or [::1]:PORT)"
+    );
+    Ok(address)
+}

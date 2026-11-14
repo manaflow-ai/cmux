@@ -24,6 +24,12 @@
 //!   to the daemon's loopback WebSocket listener, as `wireguard.rs` bridges WireGuard streams.
 //! - Peers: a peer whose config names a WireGuard key reaches it through the carrier too
 //!   ([`HubCarrierSlot`]); [`HubCarrier::set_route`] names another.
+//! - Services: a circuit reaches the acpmux listener unless its first record names another
+//!   service ([`CircuitService`]). [`CircuitService::CmuxTui`] reaches the machine's cmux-tui
+//!   remote daemon on loopback (`cmux remote exec|cp|connect --via-machine`), only while the
+//!   machine's owner named that daemon and granted control ([`CmuxTuiGate`],
+//!   `cmux_tui_service.rs`). The remote protocol's own Noise handshake and device enrollment run
+//!   inside the circuit: the carrier proves which machine dialed, never who may run commands.
 //!
 //! The node key in two protocols. `node.wg.key` is WireGuard's static key and this carrier's
 //! Noise XX static key. The acpmux owner allows that reuse on these conditions, and they bind
@@ -107,6 +113,110 @@ impl std::fmt::Debug for CarrierAnswer {
     }
 }
 
+/// What a circuit reaches on the machine it was dialed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitService {
+    /// The acpmux daemon's loopback WebSocket listener. A circuit whose first record names no
+    /// service is this one's, as every circuit was before services had names.
+    Acpmux,
+    /// The machine's cmux-tui remote daemon, its WebSocket listener on loopback `port`.
+    CmuxTui { port: u16 },
+}
+
+/// The first bytes of a record that names a circuit's service. A WebSocket upgrade (the acpmux
+/// service's first bytes) never starts with NUL.
+pub const SERVICE_HELLO: &[u8] = b"\0cmux-circuit/1\n";
+/// The service name a hello gives [`CircuitService::CmuxTui`].
+pub const CMUX_TUI_SERVICE: &str = "cmux-tui";
+/// The longest hello or answer record.
+const MAX_HELLO_BYTES: usize = 1024;
+
+/// Why a machine refused a circuit's service: a `reason` code the dialer can act on and a line
+/// for the person.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceRefusal {
+    pub reason: String,
+    pub message: String,
+}
+
+impl ServiceRefusal {
+    pub fn new(reason: &str, message: impl Into<String>) -> Self {
+        Self { reason: reason.to_owned(), message: message.into() }
+    }
+}
+
+impl std::fmt::Display for ServiceRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.message, self.reason)
+    }
+}
+
+/// Whether this machine lets a circuit reach its cmux-tui remote daemon, and where it listens.
+#[async_trait]
+pub trait CmuxTuiGate: Send + Sync + 'static {
+    /// The loopback address a circuit that asked for `port` reaches, or why it may not.
+    async fn admit(&self, port: u16) -> Result<SocketAddr, ServiceRefusal>;
+}
+
+/// The hello record of `service`; None for the acpmux listener, whose circuits send none.
+fn service_hello(service: CircuitService) -> Option<Bytes> {
+    let CircuitService::CmuxTui { port } = service else { return None };
+    let mut record = SERVICE_HELLO.to_vec();
+    record.extend_from_slice(
+        serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port}).to_string().as_bytes(),
+    );
+    Some(Bytes::from(record))
+}
+
+/// The service a circuit's first record names: None when it names none (the acpmux listener's
+/// bytes), else the service or why the hello does not parse.
+fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>> {
+    let body = first.strip_prefix(SERVICE_HELLO)?;
+    let unknown = || {
+        ServiceRefusal::new("service.unknown", "the circuit named no service this machine serves")
+    };
+    if first.len() > MAX_HELLO_BYTES {
+        return Some(Err(unknown()));
+    }
+    let Ok(hello) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Some(Err(unknown()));
+    };
+    let port =
+        hello.get("port").and_then(serde_json::Value::as_u64).and_then(|p| u16::try_from(p).ok());
+    Some(match (hello.get("service").and_then(serde_json::Value::as_str), port) {
+        (Some(CMUX_TUI_SERVICE), Some(port)) if port != 0 => Ok(CircuitService::CmuxTui { port }),
+        _ => Err(unknown()),
+    })
+}
+
+/// The answer record to a hello: `{"ok":true}`, or the refusal.
+fn service_answer(answer: &Result<(), ServiceRefusal>) -> Bytes {
+    let value = match answer {
+        Ok(()) => serde_json::json!({"ok": true}),
+        Err(refusal) => serde_json::json!({
+            "ok": false, "reason": refusal.reason, "error": refusal.message,
+        }),
+    };
+    Bytes::from(value.to_string())
+}
+
+/// The far end's answer record, read back.
+fn read_service_answer(record: &[u8]) -> Result<(), ServiceRefusal> {
+    let bad = || ServiceRefusal::new("service.bad_answer", "the machine sent no service answer");
+    if record.len() > MAX_HELLO_BYTES {
+        return Err(bad());
+    }
+    let value: serde_json::Value = serde_json::from_slice(record).map_err(|_| bad())?;
+    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+    Err(ServiceRefusal {
+        reason: text("reason").ok_or_else(bad)?,
+        message: text("error").unwrap_or_else(|| "the machine refused the service".into()),
+    })
+}
+
 /// Where the relay tickets come from: the platform in a daemon, a fixed relay in tests.
 #[async_trait]
 pub trait Tickets: Send + Sync + 'static {
@@ -167,6 +277,8 @@ pub struct HubCarrier {
     timings: Timings,
     stats: Arc<Stats>,
     key_check: Option<KeyCheck>,
+    /// Whether a circuit may reach this machine's cmux-tui remote daemon; none refuses it.
+    cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -191,6 +303,7 @@ impl HubCarrier {
             timings,
             stats: Arc::default(),
             key_check: None,
+            cmux_tui: RwLock::new(None),
         })
     }
 
@@ -213,6 +326,7 @@ impl HubCarrier {
             timings,
             stats: Arc::default(),
             key_check: Some(check),
+            cmux_tui: RwLock::new(None),
         })
     }
 
@@ -276,9 +390,29 @@ impl HubCarrier {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()
     }
 
+    /// Let circuits reach this machine's cmux-tui remote daemon as `gate` decides.
+    pub fn set_cmux_tui_gate(&self, gate: Arc<dyn CmuxTuiGate>) {
+        *self.cmux_tui.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn cmux_tui_gate(&self) -> Option<Arc<dyn CmuxTuiGate>> {
+        self.cmux_tui.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
     /// to the platform's `peer_key`, as a byte stream. The caller speaks WebSocket over it.
     pub async fn dial(&self, daemon: &str) -> Result<HubStream, String> {
+        self.dial_service(daemon, CircuitService::Acpmux).await
+    }
+
+    /// [`Self::dial`] to `service` on that machine. A service other than the acpmux listener is
+    /// named in the circuit's first record, and the dial returns once the machine answered that
+    /// it reached it (or fails with its refusal).
+    pub async fn dial_service(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+    ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
@@ -346,6 +480,18 @@ impl HubCarrier {
         )
         .await
         .map_err(|e| e.to_string())?;
+        if let Some(hello) = service_hello(service) {
+            secure.send(hello).await.map_err(|e| e.to_string())?;
+            let answer = tokio::time::timeout(self.timings.handshake, secure.receive())
+                .await
+                .map_err(|_| "the machine did not answer the service hello in time".to_owned())?
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "the machine closed the circuit before answering".to_owned())?;
+            if let Err(refusal) = read_service_answer(&answer) {
+                let _ = secure.close().await;
+                return Err(refusal.to_string());
+            }
+        }
         self.stats.dials.fetch_add(1, Ordering::Relaxed);
         let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
         let stats = self.stats.clone();
@@ -596,13 +742,65 @@ impl RelayIncoming for Incoming {
             }
             Err(_) => return,
         };
-        let Ok(local) = tokio::net::TcpStream::connect(self.websocket).await else {
-            let _ = accepted.link.close().await;
-            return;
+        let link = accepted.link;
+        // The first record says which service the circuit is for: a hello names one, anything
+        // else is the acpmux listener's own first bytes (a WebSocket upgrade).
+        let first = match tokio::time::timeout(self.carrier.timings.handshake, link.receive()).await
+        {
+            Ok(Ok(Some(first))) => first,
+            _ => {
+                let _ = link.close().await;
+                return;
+            }
+        };
+        let target = match named_service(&first) {
+            None => Ok(self.websocket),
+            Some(Err(refusal)) => Err(refusal),
+            Some(Ok(CircuitService::Acpmux)) => Ok(self.websocket),
+            Some(Ok(CircuitService::CmuxTui { port })) => match self.carrier.cmux_tui_gate() {
+                Some(gate) => gate.admit(port).await,
+                None => Err(ServiceRefusal::new(
+                    "service.off",
+                    "this machine does not serve its cmux-tui remote daemon to its other machines",
+                )),
+            },
+        };
+        let target = match target {
+            Ok(target) => target,
+            Err(refusal) => {
+                tracing::info!("hub carrier: a circuit's service was refused: {refusal}");
+                let _ = link.send(service_answer(&Err(refusal))).await;
+                let _ = link.close().await;
+                return;
+            }
+        };
+        let mut local = match tokio::net::TcpStream::connect(target).await {
+            Ok(local) => local,
+            Err(e) => {
+                if named_service(&first).is_some() {
+                    let refusal = ServiceRefusal::new(
+                        "service.unreachable",
+                        format!("the cmux-tui remote daemon at {target} is not listening: {e}"),
+                    );
+                    let _ = link.send(service_answer(&Err(refusal))).await;
+                }
+                let _ = link.close().await;
+                return;
+            }
         };
         let _ = local.set_nodelay(true);
+        // A hello is answered; the acpmux listener's first bytes go on to it.
+        let started = if named_service(&first).is_some() {
+            link.send(service_answer(&Ok(()))).await.map_err(|e| e.to_string())
+        } else {
+            local.write_all(&first).await.map_err(|e| e.to_string())
+        };
+        if started.is_err() {
+            let _ = link.close().await;
+            return;
+        }
         self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
-        pump(Box::new(accepted.link), local, &self.carrier.stats).await;
+        pump(Box::new(link), local, &self.carrier.stats).await;
     }
 }
 
@@ -773,6 +971,8 @@ pub async fn start_configured(
         Timings::default(),
         check,
     );
+    // Off unless the owner names the daemon (`remoteDaemon`) and grants control.
+    carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))
 }

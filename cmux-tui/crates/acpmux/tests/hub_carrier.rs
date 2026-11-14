@@ -874,3 +874,179 @@ async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
         }
     }
 }
+
+/// What machine B lets a circuit reach of its cmux-tui remote daemon, as its owner's
+/// `remoteDaemon` and consent decide (`cmux_tui_service::ConfiguredGate` in a daemon).
+struct TestGate {
+    daemon: SocketAddr,
+    granted: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::CmuxTuiGate for TestGate {
+    async fn admit(&self, port: u16) -> Result<SocketAddr, acpmux::hub_carrier::ServiceRefusal> {
+        let consent = json!({
+            "consentRequired": true,
+            "consent": {"control": if self.granted.load(Ordering::SeqCst) { "granted" } else { "none" }},
+        });
+        acpmux::cmux_tui_service::admit(Some(&self.daemon.to_string()), &consent, port)
+    }
+}
+
+/// `cmux remote exec|cp|connect --via-machine` end to end: a cmux remote daemon on B's loopback,
+/// reached from A only through A's acpmux socket (`_acpmux/remote.pipe`) and the hub carrier's
+/// relay, with the remote protocol's own enrollment and Noise inside. B refuses until its owner
+/// grants control, and never reaches a port it did not name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_the_pipe() {
+    use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+    use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
+    use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
+    use cmux_remote::identity::AuthDatabase;
+    use cmux_remote::provider::{
+        ConnectRequest, Dialer, DirectWebSocketProvider, MachinePipeDialer, TransportProvider,
+    };
+    use cmux_remote::session::SessionLimits;
+    use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // B: a cmux remote daemon on loopback, and the carrier serving B's slot.
+    let state = tempfile::tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(state.path(), "machine-b", false).unwrap();
+    let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+    let server = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
+        .await
+        .unwrap();
+    let daemon_address = server.local_addr();
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let gate = Arc::new(TestGate { daemon: daemon_address, granted: AtomicBool::new(false) });
+    carrier_b.set_cmux_tui_gate(gate.clone());
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+
+    // A: its daemon's unix socket and its carrier, with a route to B named `mac`.
+    let a = hub();
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    carrier_a.set_route("mac", &public(&key_b));
+    a.hub_carrier.set(carrier_a.clone());
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("acpmux.sock");
+    let listener = acpmux::server::bind_unix(&socket).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(a.clone(), listener));
+    let dialer = Arc::new(MachinePipeDialer::new(socket.clone(), "mac".into()));
+
+    // Until B's owner grants control, the pipe says so, and B's daemon is never reached.
+    let refused = tokio::time::timeout(
+        Duration::from_secs(20),
+        dialer.dial("127.0.0.1", daemon_address.port()),
+    )
+    .await
+    .unwrap()
+    .err()
+    .expect("no consent, no daemon");
+    assert!(refused.to_string().contains("consent_required"), "{refused}");
+    gate.granted.store(true, Ordering::SeqCst);
+    // A port B did not name is never reached, consent or not.
+    let refused = dialer.dial("127.0.0.1", 22).await.err().expect("not the named port");
+    assert!(refused.to_string().contains("service.port"), "{refused}");
+
+    // The remote protocol through the pipe: an invitation the owner approves, then frames.
+    let endpoint = url::Url::parse(&format!("ws://{daemon_address}/v1/link")).unwrap();
+    let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+    let approver = tokio::spawn({
+        let auth = auth.clone();
+        async move {
+            let pending = auth.wait_for_pending(Duration::from_secs(20)).await.unwrap();
+            auth.approve(&pending[0].invitation_id).await.unwrap();
+        }
+    });
+    let session = SessionId([91; 16]);
+    let started = std::time::Instant::now();
+    let group = DirectWebSocketProvider::with_dialer(65_535, dialer.clone())
+        .connect(ConnectRequest {
+            endpoint,
+            session,
+            lane_policy: LanePolicy::Isolated,
+            routing: Default::default(),
+        })
+        .await
+        .unwrap();
+    let secret = invitation.secret_bytes().unwrap();
+    let client = tokio::time::timeout(
+        Duration::from_secs(30),
+        ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: Some(auth.identity().public_key()),
+                auth: ClientAuthMode::Invitation {
+                    id: invitation.id,
+                    secret: zeroize::Zeroizing::new(secret),
+                },
+                device_name: "lane-vm".into(),
+                session,
+                lane_policy: LanePolicy::Isolated,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy::default(),
+            },
+        ),
+    )
+    .await
+    .expect("connect through the pipe timed out")
+    .unwrap();
+    approver.await.unwrap();
+    let connected = started.elapsed();
+    let daemon_client =
+        tokio::time::timeout(Duration::from_secs(10), accepted.recv()).await.unwrap().unwrap();
+    client
+        .send(Lane::Interactive, 1, bytes::Bytes::from_static(b"keys"), FrameFlags::empty())
+        .await
+        .unwrap();
+    assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"keys".as_slice());
+    let screen = vec![0x5a; 200_000];
+    daemon_client
+        .send(Lane::Bulk, 2, bytes::Bytes::from(screen.clone()), FrameFlags::empty())
+        .await
+        .unwrap();
+    assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
+    assert!(carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1, "B took the circuits");
+    eprintln!(
+        "remote pipe over the relay: connected (4 lanes, invitation) in {connected:?}, A dialed {} circuits",
+        carrier_a.stats().dials.load(Ordering::Relaxed)
+    );
+}
