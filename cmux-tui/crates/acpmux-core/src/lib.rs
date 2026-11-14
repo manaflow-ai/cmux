@@ -29,7 +29,7 @@ mod allocation_metrics {
     }
 
     fn adjust(delta: isize) {
-        let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |live| {
+        let _ = LIVE_BYTES.try_update(Ordering::Relaxed, Ordering::Relaxed, |live| {
             Some(live.saturating_add(delta))
         });
     }
