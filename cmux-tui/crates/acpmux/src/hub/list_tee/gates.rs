@@ -612,3 +612,57 @@ async fn hub_row_submit_breakdown() {
         side.close().await;
     }
 }
+
+impl HubRowSide {
+    /// One changed hub row's drain, step by step after the book read: an optional 1 MiB
+    /// allocation (`settle`), the book lookup, the summary and the submit. p95 of each.
+    async fn steps(&mut self, settle: bool) -> [u128; 5] {
+        let mut times: [Vec<u128>; 5] = Default::default();
+        let id = crate::god_fixture::chat_id(0);
+        for n in 0..400_u64 {
+            let next = if n.is_multiple_of(2) { "running" } else { "ready" };
+            self.sessions[0] = hub_book_session(0, next);
+            let (hosts, rows) = hub_book(self.sessions.clone());
+            let started = Instant::now();
+            self.v1.set_mesh_book(hosts, rows);
+            times[0].push(started.elapsed().as_nanos());
+            let _ = self.state.take_remote(BATCH);
+            let before = self.v2.hub.snapshot().seq();
+            let started = Instant::now();
+            if settle {
+                std::hint::black_box(vec![1_u8; 1 << 20]);
+            }
+            times[1].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            let row = self.v1.mesh_book_row("machine-b", &id).unwrap();
+            times[2].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            let summary = summary_from_remote("machine-b", &row.summary).unwrap();
+            times[3].push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            self.v2.hub.submit_from(Source::V1, summary).unwrap();
+            times[4].push(started.elapsed().as_nanos());
+            eventually(|| self.v2.hub.snapshot().seq() > before).await;
+        }
+        times.map(|samples| p95(&samples))
+    }
+}
+
+/// [`hub_row_submit_breakdown`]'s drain, step by step, at 1 and 2,048 book rows.
+#[ignore = "Linux release breakdown of the hub row drain"]
+#[tokio::test]
+async fn hub_row_drain_steps() {
+    for book in [1, 2_048] {
+        let mut side = HubRowSide::new(book, 0).await;
+        for settle in [false, true] {
+            let [read, alloc, lookup, summary, submit] = side.steps(settle).await;
+            eprintln!(
+                "{}",
+                json!({"steps": "hub_row_drain", "book_rows": book, "settle": settle,
+                    "book_read_p95": read, "alloc_p95": alloc, "lookup_p95": lookup,
+                    "summary_p95": summary, "submit_p95": submit})
+            );
+        }
+        side.close().await;
+    }
+}
