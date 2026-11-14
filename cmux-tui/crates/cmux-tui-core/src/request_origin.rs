@@ -136,6 +136,8 @@ pub(crate) struct ConnectionOrigin {
     /// `token:<pid>.<pidversion>` of the socket peer, read at accept.
     /// The install-key proof never changes it (request-origin.md).
     pub(crate) peer_key: Option<String>,
+    /// Audit token retained from socket accept for exact-peer capture binding checks.
+    pub(crate) peer_token: Option<cmux_link::app_caller::PeerToken>,
     /// Kernel-bound local peer class, set at accept. An exit of the peer, a
     /// change of its session, or a pass of its connected descriptor does not
     /// change it. One thing changes it: the seat of a kept host that gave it
