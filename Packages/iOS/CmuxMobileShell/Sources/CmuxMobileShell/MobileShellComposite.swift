@@ -14710,7 +14710,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    if self.stateSyncActive, let client = self.remoteClient {
+                        // The host emits this level-triggered update alongside
+                        // state-sync deltas. Keep it as a coalesced repair
+                        // signal so a close cannot strand a stale row when the
+                        // delta is delayed or lost during reconnect.
+                        self.requestStateSyncFetch(client: client)
+                    } else {
+                        self.scheduleWorkspaceListRefreshFromEvent()
+                    }
                     self.refreshVisibleMobileBrowserPanels()
                 } else if event.topic == "mobile.sync.delta" {
                     self.handleStateSyncDeltaEvent(event)
