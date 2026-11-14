@@ -45,8 +45,12 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
 
     /// Safe from Ghostty's I/O thread. Named keys never reach the host: with no
     /// key-name resolver installed, Ghostty encodes every key to bytes itself.
+    /// The mirror's own query replies and focus reports never reach it either:
+    /// the host terminal already answered those queries and owns focus.
     func enqueue(_ input: TerminalManualInput) {
-        guard case .bytes(let data) = input, !data.isEmpty else { return }
+        guard case .bytes(let written) = input else { return }
+        let data = written.removingTerminalMirrorReplies
+        guard !data.isEmpty else { return }
         queue.async { [self] in
             guard !invalidated, enabled else { return }
             guard pending.count + data.count <= pendingByteLimit else {
