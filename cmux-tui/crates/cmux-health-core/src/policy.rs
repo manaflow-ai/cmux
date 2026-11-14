@@ -8,8 +8,11 @@
 
 use crate::RepairAction;
 
-/// Pages beat every 2 s while visible (the page's own timer; informational here).
+/// Pages beat every 2 s while visible and active (the page's own timer; informational here).
 pub const PAGE_BEAT_MS: u64 = 2_000;
+/// A visible page with no input, scroll, edit or host call for this long sends a `rest` beat and
+/// stops beating (the page's own clock; informational here): an idle app wakes for no page.
+pub const PAGE_REST_AFTER_MS: u64 = 10_000;
 /// A visible page silent this long is `slow`.
 pub const PAGE_SLOW_SILENT_MS: u64 = 5_000;
 /// Input sent but not handled this long is `slow`.

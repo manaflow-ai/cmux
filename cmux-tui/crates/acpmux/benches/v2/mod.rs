@@ -34,7 +34,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "1",
         name: "v2.pr01.append_time",
         done_when: "Append is O(row): time per append within 1.2x at 2M rows against 40.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -43,7 +43,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "1",
         name: "v2.pr01.append_bytes",
         done_when: "Append is O(row): bytes written per append within 1.2x at 2M rows against 40.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -52,7 +52,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "1",
         name: "v2.pr01.first_window",
         done_when: "First window read (open, window and fill): under 5 ms, 1.2x at 2M rows against 40.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: Some(5_000_000.0),
@@ -61,7 +61,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "1b",
         name: "v2.pr01b.cold_first_append",
         done_when: "PR 1's gates still pass with the record layout: the first append to a book just opened within 1.2x at 2M rows against 40.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -70,7 +70,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "1b",
         name: "v2.pr01b.torn_open",
         done_when: "Work at open 1.2x, 2M rows against 40: an open that cuts off a torn record.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -79,7 +79,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "2",
         name: "v2.pr02.translate_line",
         done_when: "Translate cost per line is at most 1.2x god against small.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -88,7 +88,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "2",
         name: "v2.pr02.translate_line_full_state",
         done_when: "Translate cost with the bounded open state is at most 1.2x god against small.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -97,7 +97,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "2",
         name: "v2.pr02.jsonl_peak_rss",
         done_when: "The 1.1 GB JSONL shape stays under 64 MB RSS and within 1.2x god against small.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -106,7 +106,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "2b",
         name: "v2.pr02b.translate_line_queue_full",
         done_when: "fold(a ++ b) == apply(fold(a), b) holds for the queue as for the rows, over 10k random splits. For every settled group in every interleaving, the rows in sight are the group row and out, nothing else. The state is inside its bound with 1,024 entries waiting.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -133,7 +133,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.byte_credit_drop_resume",
         done_when: "1 GB of events to a stopped reader: RSS stays under the connection budget; the reader resumes with no row lost or repeated.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -142,7 +142,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.credit_without_read_drop",
         done_when: "A reader that sends credit without reading gets dropped on that sid; the connection stays up and another sid remains ordered.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -151,7 +151,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.offer_256_subscriptions",
         done_when: "Offering one frame to 256 subscriptions costs at most 1.2x the one-subscription case.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -160,7 +160,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.list_resume_end",
         done_when: "A list resume that missed nothing ends with one empty end frame, and no live op precedes the end mark.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -169,7 +169,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.not_fed_bytes",
         done_when: "A subscriber that is not fed retains zero frame bytes through the god run.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
@@ -205,7 +205,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -214,7 +214,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5",
         name: "v2.pr05.summary_change",
         done_when: "A summary change copies one tree path: best p95 within 3.7x, all-sample p95 within 6.2x, and god best p95 at most 10 microseconds.",
-        measured: false,
+        measured: true,
         ratio: 3.7,
         ratio_all: Some(6.2),
         god_max: Some(10_000.0),
@@ -223,7 +223,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.start_first_window",
         done_when: "From exec to the first list window out of the snapshot: under 200 ms at 11,000 sessions, 1.2x against 20.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: Some(200_000_000.0),
@@ -232,7 +232,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.start_rss",
         done_when: "Bounded list storage: start rss, measured at 20 and 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -241,7 +241,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.hot_rss",
         done_when: "Cold rows leave the hot maps at startup and compaction install; retained RSS at 11,000 stays within 1.2x of 20 at the same writer phase.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -259,7 +259,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_first",
         done_when: "Bounded list storage: page first, measured at 20 and 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -268,7 +268,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_first_bytes",
         done_when: "Physical page first bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 19 fixture rows of at most 160 bytes (decision 110).",
-        measured: false,
+        measured: true,
         ratio: 15.4,
         ratio_all: None,
         god_max: Some((64 * 1024 + 19 * 160) as f64),
@@ -277,7 +277,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_first_filter",
         done_when: "Bounded list storage: page first filter, measured at 20 and 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -286,7 +286,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_middle",
         done_when: "Bounded list storage: page middle, measured at 20 and 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -295,7 +295,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_middle_bytes",
         done_when: "Physical page middle bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 9 fixture rows of at most 160 bytes (decision 110).",
-        measured: false,
+        measured: true,
         ratio: 15.4,
         ratio_all: None,
         god_max: Some((64 * 1024 + 9 * 160) as f64),
@@ -304,7 +304,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_middle_filter",
         done_when: "Bounded list storage: page middle filter, measured at 20 and 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -313,7 +313,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_last",
         done_when: "True last-key page: 14.9x best, 24.8x all-sample, and 400 microseconds; the derived bound accounts for different terminal stride phases (decision 110).",
-        measured: false,
+        measured: true,
         ratio: 14.9,
         ratio_all: Some(24.8),
         god_max: Some(400_000.0),
@@ -322,7 +322,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_last_bytes",
         done_when: "Physical page last bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 0 fixture rows of at most 160 bytes (decision 110).",
-        measured: false,
+        measured: true,
         ratio: 15.4,
         ratio_all: None,
         god_max: Some((64 * 1024) as f64),
@@ -331,7 +331,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.page_last_filter",
         done_when: "True last-key page: 14.9x best, 24.8x all-sample, and 400 microseconds; the derived bound accounts for different terminal stride phases (decision 110).",
-        measured: false,
+        measured: true,
         ratio: 14.9,
         ratio_all: Some(24.8),
         god_max: Some(400_000.0),
@@ -340,7 +340,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.tee_change",
         done_when: "A v1 list-changing update reaches the v2 index with one mark and one summary op within 1.2x against 20 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -349,7 +349,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.stream_chunk",
         done_when: "100,000 streamed text chunks produce zero tee marks and keep append p95 within 1.2x of v1 without the tee.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -367,7 +367,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.live_view",
         done_when: "The live view pages 20 live chats through 11,000 sessions within 1.2x and tracks close/reopen state changes.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -376,7 +376,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.keyed_page",
         done_when: "A keyed page of 100 closed chats returns provider rows and missing/unknown keys within 1.2x at 11,000 sessions.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -385,7 +385,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.replay_frame",
         done_when: "A full 1 MiB ring replay uses frames no larger than 256 KiB, each ending at an operation boundary.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: Some((256 * 1024) as f64),
@@ -403,7 +403,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.single_encode",
         done_when: "A change sent to 100 list subscribers is encoded once, with no subscriber-side deep clone or re-encode.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: Some(1.0),
@@ -412,7 +412,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.kin_table_change",
         done_when: "A parent move path-copies tables at 20 versus 11,000 hot rows; unchanged relations write zero paths.",
-        measured: false,
+        measured: true,
         ratio: 3.7,
         ratio_all: Some(6.2),
         god_max: Some(10_000.0),
@@ -421,7 +421,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.folder_change",
         done_when: "A folder move path-copies tables at 20 versus 11,000 hot rows.",
-        measured: false,
+        measured: true,
         ratio: 3.7,
         ratio_all: Some(6.2),
         god_max: Some(10_000.0),
@@ -430,7 +430,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.sibling_insert",
         done_when: "A parent with 5,000 children gains one against a parent with five, under the tree-height bound.",
-        measured: false,
+        measured: true,
         ratio: 6.350435609064215,
         ratio_all: Some(10.58405934844036),
         god_max: Some(10_000.0),
@@ -457,7 +457,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.folder_page",
         done_when: "The same page of 50 folder rows with 20 versus 11,000 unrelated rows reads at most limit plus one.",
-        measured: false,
+        measured: true,
         ratio: 1.2,
         ratio_all: Some(2.0),
         god_max: None,
@@ -466,7 +466,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.random_replay",
         done_when: "After 10,000 randomized starts, forks, moves, closes, residency transitions and deletes, tables equal a fresh build from hot rows.",
-        measured: false,
+        measured: true,
         ratio: 1.2,
         ratio_all: None,
         god_max: None,
@@ -475,7 +475,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5e",
         name: "v2.pr05e.cold_continuation",
         done_when: "An explicit cold folder walk progresses through every candidate with each request inside the sparse-read and 256 KiB bounds.",
-        measured: false,
+        measured: true,
         ratio: 15.4,
         ratio_all: None,
         god_max: Some(256.0 * 1024.0),
@@ -484,16 +484,34 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.apply_newest",
         done_when: "A chat made newest in its folder is a persistent path copy: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
-        measured: false,
+        measured: true,
         ratio: 5.7,
         ratio_all: Some(9.4),
         god_max: Some(10_000.0),
     },
     GateRow {
+        pr: "5g",
+        name: "v2.pr05g.open_damage",
+        done_when: "1,000 seeded random damages across snapshot heads, checkpoints, log generations and edition markers rebuild at open without a daemon failure and match a first start after the source walk.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5g",
+        name: "v2.pr05g.rebuild_cost",
+        done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5f",
         name: "v2.pr05f.apply_move",
         done_when: "A chat moved between folders copies two persistent paths: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
-        measured: false,
+        measured: true,
         ratio: 5.7,
         ratio_all: Some(9.4),
         god_max: Some(10_000.0),
@@ -502,7 +520,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.first_window",
         done_when: "The first folders window stays within 1.2x at 2,000 folders against 5.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -511,7 +529,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.deep_page",
         done_when: "A deep folders page stays within 1.2x at 2,000 folders against 5.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -538,16 +556,25 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5f",
         name: "v2.pr05f.equal_entry",
         done_when: "An equal folder entry produces zero folder operations.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.tail_replay",
+        done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
         pr: "5d",
         name: "v2.pr05d.origin_state_ops",
         done_when: "A peer down, stale and connected transition writes three origin records and no row operations; god 500 rows stays within 1.2x of 20.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -556,7 +583,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5d",
         name: "v2.pr05d.removed_origin_batch",
         done_when: "Removing a peer with 500 rows emits one origin op and removes rows in bounded batches; god stays within 1.2x of 20.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -565,7 +592,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5d",
         name: "v2.pr05d.submit_time",
         done_when: "One summary preparation and enqueue costs at most 1.2x at 11,000 live rows against 20; pooled god p95 stays within 2x.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -788,23 +815,75 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
         "limit": row.ratio, "limit_all": row.ratio_all, "god_max": row.god_max, "unit": measure.unit })
 }
 
-/// Build the nightly-report JSON. `--measures` is optional while all rows are placeholders.
-pub fn report(measure_files: &[PathBuf]) -> Result<Value, String> {
+fn merge_for_report(
+    measures: &[Measure],
+    required: &[&str],
+) -> Result<(HashMap<String, Measure>, Vec<String>), String> {
+    let names = registered_names();
+    let mut joined = HashMap::new();
+    for measure in measures {
+        if !names.contains(measure.name.as_str()) {
+            return Err(format!("unknown v2 gate row {}", measure.name));
+        }
+        let row = GATE_ROWS
+            .iter()
+            .find(|row| row.name == measure.name)
+            .ok_or_else(|| format!("unknown v2 gate row {}", measure.name))?;
+        if row.ratio_all.is_some() && measure.god_p95_all.is_none() {
+            return Err(format!("{} requires god_p95_all", measure.name));
+        }
+        if joined.insert(measure.name.clone(), measure.clone()).is_some() {
+            return Err(format!("duplicate v2 gate row {}", measure.name));
+        }
+    }
+    let missing = required
+        .iter()
+        .copied()
+        .filter(|name| !joined.contains_key(*name))
+        .map(str::to_owned)
+        .collect();
+    Ok((joined, missing))
+}
+
+fn report_value(
+    measure_files: &[PathBuf],
+    measures_requested: bool,
+) -> Result<(Value, bool), String> {
     let required =
         GATE_ROWS.iter().filter(|row| row.measured).map(|row| row.name).collect::<Vec<_>>();
-    let measures = merge_measures(&read_measures(measure_files)?, &required)?;
+    let measures = read_measures(measure_files)?;
+    let (measures, missing) =
+        merge_for_report(&measures, if measures_requested { &required } else { &[] })?;
+    let missing_set: HashSet<_> = missing.iter().map(String::as_str).collect();
     let rows = GATE_ROWS.iter().map(|row| {
         if let Some(measure) = measures.get(row.name) {
             measured_row(row, measure)
+        } else if row.measured && measures_requested && missing_set.contains(row.name) {
+            json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
+                "status": "failed", "reason": "the gate did not report a measure",
+                "small_p95": Value::Null, "god_p95": Value::Null })
         } else if row.measured {
-            unreachable!("measured rows are checked before rendering")
+            json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
+                "status": "not_run", "reason": "the spec check did not request gate measures",
+                "small_p95": Value::Null, "god_p95": Value::Null })
         } else {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when, "status": "skipped", "reason": format!("PR {} implementation has not landed; turn on {} by this name", row.pr, row.name), "small_p95": Value::Null, "god_p95": Value::Null })
         }
     }).collect::<Vec<_>>();
-    Ok(
+    Ok((
         json!({ "schema": 1, "name": "acpmux-agent-service-v2", "comparison": "god-vs-small", "god_small_limit": GOD_SMALL_LIMIT, "fixtures": { "small": shape_json(small()), "god": shape_json(god()) }, "rows": rows }),
-    )
+        !missing.is_empty(),
+    ))
+}
+
+/// Build the nightly-report JSON when measures are required.
+pub fn report(measure_files: &[PathBuf]) -> Result<Value, String> {
+    let (value, missing) = report_value(measure_files, true)?;
+    if missing {
+        Err("one or more measured v2 gate rows did not report a measure".to_owned())
+    } else {
+        Ok(value)
+    }
 }
 
 pub fn validate_measure_files(measure_files: &[PathBuf], required: &[&str]) -> Result<(), String> {
@@ -812,13 +891,26 @@ pub fn validate_measure_files(measure_files: &[PathBuf], required: &[&str]) -> R
 }
 
 pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<(), String> {
-    let text = serde_json::to_string(&report(measure_files)?).map_err(|e| e.to_string())?;
+    print_report_with_mode(measure_files, output, true)
+}
+
+pub fn print_report_with_mode(
+    measure_files: &[PathBuf],
+    output: Option<&Path>,
+    measures_requested: bool,
+) -> Result<(), String> {
+    let (value, missing) = report_value(measure_files, measures_requested)?;
+    let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     if let Some(path) = output {
         fs::write(path, format!("{text}\n")).map_err(|e| format!("{path:?}: {e}"))?;
     } else {
         println!("{text}");
     }
-    Ok(())
+    if missing {
+        Err("one or more measured v2 gate rows did not report a measure".to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1021,6 +1113,27 @@ mod tests {
 #[cfg(test)]
 mod zero_baseline_tests {
     use super::*;
+
+    #[test]
+    fn missing_nightly_measure_is_named_as_a_failure() {
+        let (value, missing) = report_value(&[], true).unwrap();
+        assert!(missing);
+        assert!(report(&[]).is_err());
+        let rows = value["rows"].as_array().unwrap();
+        let row = rows.iter().find(|row| row["name"] == "v2.pr01.append_time").unwrap();
+        assert_eq!(row["status"], "failed");
+        assert_eq!(row["reason"], "the gate did not report a measure");
+    }
+
+    #[test]
+    fn the_spec_run_marks_measured_rows_not_run_without_input() {
+        let (value, missing) = report_value(&[], false).unwrap();
+        assert!(!missing);
+        let rows = value["rows"].as_array().unwrap();
+        assert!(rows.iter().any(|row| row["status"] == "not_run"));
+        assert!(!rows.iter().any(|row| row["status"] == "ok"));
+    }
+
     fn zero_measure(god: f64) -> Value {
         let row = GATE_ROWS.first().unwrap();
         let measure = parse_measure(

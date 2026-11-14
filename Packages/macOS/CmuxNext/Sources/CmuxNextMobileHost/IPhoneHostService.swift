@@ -141,7 +141,6 @@ public final class IPhoneHostService {
     public let pairedStore: MobileHostPairedStore
     /// The app's one guard of the Keychain UI switch (this Mac's identity key).
     private let loginKeychain: LoginKeychain
-    @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -333,7 +332,6 @@ public final class IPhoneHostService {
     /// when it next connects.
     public func removePhone(id: String) async {
         if id.hasPrefix("iroh:") {
-            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
             pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
             phonesError = nil
             return
