@@ -48,6 +48,20 @@ import Testing
         sizing.tuiStarted()
         #expect(rows(sizing) == 20)
     }
+
+    /// The settled stack top is a position on the page. A dock change after it
+    /// (the composer or key row coming in) moves the resting top above it, and
+    /// a TUI started then claimed rows below the composer: vim opened with the
+    /// keyboard down and its first rows clipped under the toolbar (kbtui demo,
+    /// stack top 790 pt kept while resting was 708 pt: 45 rows in a 40-row area).
+    @Test func aTUINeverGetsMoreRowsThanTheKeyboardDownLayout() {
+        var sizing = TerminalTUISizing()
+        // Settled while the dock sat lower (no composer yet): not "up" then.
+        sizing.keyboardSettled(stackTop: 790, restingStackTop: 800, isTUI: false)
+        sizing.tuiStarted()
+        // The dock grew: resting is now 676; 790 is below it.
+        #expect(rows(sizing) == 37)
+    }
 }
 
 /// User report 2026-10-14: no resize for a size that only lasts a layout pass.
