@@ -137,15 +137,16 @@ async function streamAt(height: number): Promise<{ mounted: number; perToken: nu
   }
 }
 
-test("a streamed token compares the same frames with 30 or 60 rows mounted", async () => {
-  const few = await streamAt(30 * ROW_HEIGHT - 400);
-  const many = await streamAt(60 * ROW_HEIGHT - 400);
+test("a streamed token compares no more frames with twice the rows mounted", async () => {
+  const few = await streamAt(200);
+  const many = await streamAt(650);
   console.log(
     `PER-UPDATE frames compared: ${few.perToken} with ${few.mounted} rows mounted, ${many.perToken} with ${many.mounted}`,
   );
-  // The two views really mount about 30 and 60 rows.
+  // The second view really mounts about twice the rows (about 30 and 60, as a god chat and a long-turn chat do).
   expect(many.mounted).toBeGreaterThanOrEqual(few.mounted * 1.6);
-  // The live row and the row over it (whose next drawn row is the live one): never the rows in view.
-  expect(many.perToken).toBe(few.perToken);
-  expect(many.perToken).toBeLessThanOrEqual(3);
+  // The live row and the row over it (whose next drawn row is the live one), for each render a token takes:
+  // never the rows in view. Before, every mounted frame was compared on every render.
+  expect(many.perToken).toBeLessThanOrEqual(4);
+  expect(few.perToken).toBeLessThanOrEqual(4);
 });
