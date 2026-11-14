@@ -466,7 +466,7 @@ pub(super) fn try_handle(
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
-            supervisor.mount(client, &mount_id, &app, &interface, context)
+            supervisor.mount_as(client, &mount_id, &app, &interface, context, origin)
         }
         Command::Unmount { mount_id } => supervisor.unmount(client, &mount_id),
         Command::Dispatch { mount_id, node, event, payload } => {

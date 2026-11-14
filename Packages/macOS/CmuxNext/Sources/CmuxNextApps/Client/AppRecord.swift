@@ -137,3 +137,20 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         ]
     }
 }
+
+public nonisolated extension AppRecord.Command {
+    /// `command` names this command: the full op (`coderouter.app.connect_account`),
+    /// or the last segment in either case style (`connect_account`, `connectAccount`).
+    func matches(_ command: String) -> Bool {
+        if op == command { return true }
+        let last = op.split(separator: ".").last.map(String.init) ?? op
+        return last == command || last == Self.snakeCase(command)
+    }
+
+    static func snakeCase(_ name: String) -> String {
+        name.reduce(into: "") { out, character in
+            if character.isUppercase, !out.isEmpty { out.append("_") }
+            out.append(Character(character.lowercased()))
+        }
+    }
+}

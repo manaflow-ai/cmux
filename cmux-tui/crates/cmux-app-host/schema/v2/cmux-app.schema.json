@@ -318,6 +318,29 @@
           "type": "boolean",
           "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
         },
+        "overlay": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The app's cmux.pane/1 scene may also open as a floating overlay over the window. Only the person opens it (a palette pick or a click in cmux); an app, a script, the CLI or an agent cannot. Escape or a click outside closes it.",
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/text",
+              "description": "Default: the app name."
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 240,
+              "maximum": 960,
+              "description": "Points. Default 480; the window's size caps it."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 120,
+              "maximum": 720,
+              "description": "Points. Default 320; the window's size caps it."
+            }
+          }
+        },
         "hiddenByDefault": {
           "type": "boolean",
           "description": "Installed but hidden until the user shows it; still reachable from the palette, CLI and App Store."

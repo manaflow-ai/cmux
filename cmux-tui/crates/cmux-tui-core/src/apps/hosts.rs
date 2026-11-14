@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use super::grants::Grant;
 use super::host::{Exit, HostProcess};
+use super::mirror::Origin;
 use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
 };
@@ -29,8 +30,7 @@ const HEALTHY_AFTER: Duration = Duration::from_secs(30);
 const MAX_SUBSCRIPTIONS: usize = 256;
 
 impl Supervisor {
-    /// `apps-mount`. `context.preview = true` runs an app that is not
-    /// installed with no grants and no storage (store previews).
+    /// `apps-mount` from no gesture: what an app, a script or a test asks.
     pub fn mount(
         &self,
         client: u64,
@@ -38,6 +38,22 @@ impl Supervisor {
         app: &str,
         interface: &str,
         context: Value,
+    ) -> Result<Value, ApiError> {
+        self.mount_as(client, mount_id, app, interface, context, Origin::Script)
+    }
+
+    /// `apps-mount`. `context.preview = true` runs an app that is not
+    /// installed with no grants and no storage (store previews).
+    /// `context.surface = "overlay"` opens the app's overlay, which only the
+    /// person's own gesture (`origin` user) may do (`overlay.rs`).
+    pub fn mount_as(
+        &self,
+        client: u64,
+        mount_id: &str,
+        app: &str,
+        interface: &str,
+        context: Value,
+        origin: Origin,
     ) -> Result<Value, ApiError> {
         if mount_id.is_empty() || mount_id.len() > 128 {
             return Err(ApiError::new("bad-request", "mount_id must be 1 to 128 bytes"));
@@ -50,6 +66,7 @@ impl Supervisor {
                 .packages
                 .get(app)
                 .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
+            super::overlay::admit(package, interface, &context, origin)?;
             let export = package.export_for(interface).ok_or_else(|| {
                 ApiError::new(
                     "apps.interface",

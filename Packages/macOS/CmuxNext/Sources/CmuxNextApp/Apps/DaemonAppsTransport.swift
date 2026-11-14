@@ -136,6 +136,10 @@ final class DaemonAppsTransport: AppsTransport {
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {
         _ = try await send(AppsMountRequest(app: app, interface: interface, mountID: mountID, context: context.daemonValue))
     }
+    func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError) {
+        _ = try await send(AppsMountRequest(app: app, interface: interface, mountID: mountID, context: context.daemonValue,
+                                            origin: origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)))
+    }
 
     func unmount(mountID: String) async throws(AppsTransportError) {
         _ = try await send(AppsUnmountRequest(mountID: mountID), whileTurnedOff: true)
