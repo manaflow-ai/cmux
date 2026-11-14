@@ -6,8 +6,12 @@ import {
   postHogFlagsUrl,
 } from "../client-config/posthogFlags";
 
-/** Web Plus is publicly available. App Store Go keeps its own rollout. */
-export async function isWebPlusPlanEnabled(_distinctId = "anonymous"): Promise<boolean> {
+/**
+ * Web Plus is publicly available. App Store Go keeps its own rollout. The
+ * answer never depends on the visitor, so the pricing page's first paint can
+ * lay out the Plus column before the account resolves.
+ */
+export function isWebPlusPlanEnabled(_distinctId = "anonymous"): boolean {
   return (process.env.NODE_ENV ?? "test") !== "test" || process.env.CMUX_TEST_GO_PLAN_DISABLED !== "1";
 }
 

@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     if (team?.id) return await explicitTeamPortal(request, user, team.id);
     const target = request.nextUrl.searchParams.get("plan");
     const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
-    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
+    if (wantsSwitch && target === "go" && !isGoPlanEnabled(user.id)) {
       return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
     }
     // A switch the hosted portal cannot do goes to checkout or the dashboard

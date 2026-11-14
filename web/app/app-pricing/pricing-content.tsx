@@ -235,7 +235,7 @@ export function AppPricingContent({
               )}
             </div>
           ) : appStorePaymentGated ? (
-            <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+            <DisabledButton>{pending ? pricing.go.cta : pricing.billingUnavailable}</DisabledButton>
           ) : (
             <PricingCheckoutButton
               href={appPricingCheckoutURL(
@@ -357,7 +357,7 @@ export function AppPricingContent({
         period={pricing.perUserMonth}
       >
         {appStorePaymentGated ? (
-          <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+          <DisabledButton>{pending ? pricing.team.cta : pricing.billingUnavailable}</DisabledButton>
         ) : (
           <PricingCheckoutButton
             href={teamCheckoutHref}
@@ -374,7 +374,7 @@ export function AppPricingContent({
 
       <PlanCard name={pricing.enterprise.name} price={pricing.enterprise.price}>
         {appStorePaymentGated ? (
-          <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+          <DisabledButton>{pending ? pricing.enterprise.cta : pricing.billingUnavailable}</DisabledButton>
         ) : (
           <SecondaryLink href={ENTERPRISE_CTA_URL}>
             {pricing.enterprise.cta}
