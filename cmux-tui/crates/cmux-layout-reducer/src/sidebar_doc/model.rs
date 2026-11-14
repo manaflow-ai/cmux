@@ -982,12 +982,12 @@ impl Refusal {
             Refusal::DuplicateRef => "That workspace is already in the sidebar.",
             Refusal::CrossMachine => "Workspaces stay on their machine.",
             Refusal::ProviderOwned => "An app fills this section.",
-            Refusal::Nesting => "A group can't go inside itself or nest more than 16 deep.",
+            Refusal::Nesting => "A group can’t go inside itself or nest more than 16 deep.",
             Refusal::InvalidTarget => "The place it was dropped is gone.",
-            Refusal::MachineRequired => "A machine's section can't be removed.",
+            Refusal::MachineRequired => "A machine’s section can’t be removed.",
             Refusal::NoMachine => "Its machine is no longer in the sidebar.",
             Refusal::InvalidTitle => "A name needs 1 to 80 characters.",
-            Refusal::InvalidValue => "The sidebar doesn't take that setting.",
+            Refusal::InvalidValue => "The sidebar doesn’t take that setting.",
             Refusal::TooMany => "The sidebar is full: 64 sections and 20,000 items at most.",
         }
     }
@@ -1005,8 +1005,8 @@ pub fn change_failure_text(code: &str) -> &'static str {
         return refusal.text();
     }
     match code {
-        "no_answer" => "cmux didn't answer, so the sidebar shows what it last saved.",
-        "unavailable" => "The sidebar can't move items until cmux finishes connecting.",
-        _ => "cmux couldn't save this change, so the item went back.",
+        "no_answer" => "cmux didn’t answer, so the sidebar shows what it last saved.",
+        "unavailable" => "The sidebar can’t move items until cmux finishes connecting.",
+        _ => "cmux couldn’t save this change, so the item went back.",
     }
 }
