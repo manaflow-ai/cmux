@@ -58,11 +58,18 @@ public final class DeviceHubService {
     private var watch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
     private var removalWatch: Task<Void, Never>?
-    /// Completion of the last asynchronous hub sign-out, awaited by the
-    /// protected capture cleanup before it touches the keychain.
-    private var stopCompletion: Task<Void, Never>?
-    /// Completion of an identity load cancelled by a sign-out.
-    private var loadingCompletion: Task<Void, Never>?
+    private struct TrackedTask {
+        let task: Task<Void, Never>
+        let completion: Task<Void, Never>
+    }
+    /// Active identity loads only; completed tasks remove themselves.
+    private var loadingCompletions: [UUID: TrackedTask] = [:]
+    /// Active hub sign-out/reset tasks only; completed tasks remove themselves.
+    private var stopCompletions: [UUID: TrackedTask] = [:]
+    /// Active hub starts only; cleanup cancels and joins these before stopping.
+    private var hubStartCompletions: [UUID: TrackedTask] = [:]
+    /// Fences observation callbacks and reconciliation during lease cleanup.
+    private var captureCleanupActive = false
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
@@ -120,6 +127,7 @@ public final class DeviceHubService {
     }
 
     private func reconcile() {
+        guard !captureCleanupActive else { return }
         guard let url, let user, !leftHub else {
             stopHub(endingSessions: true)
             return
@@ -164,15 +172,16 @@ public final class DeviceHubService {
             install(hub, url: url, user: user)
         }
         let task = loading
-        loadingCompletion = Task { _ = await task?.value }
+        if let task { trackLoading(task) }
     }
 
     private func install(_ hub: DeviceHub, url: URL, user: String) {
+        pages.captureHub = hub
         self.hub = hub
         running = (url, user)
         pages.hub = hub
         // task-owner: one registration and socket start; stop() cancels the socket
-        Task { await hub.start() }
+        trackHubStart(Task { await hub.start() })
         // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
         removalWatch = Task { [weak self] in
             for await removed in ObservationStream({ hub.connection == .removed }) where removed {
@@ -200,19 +209,29 @@ public final class DeviceHubService {
                                requestedBundleIdentifier: String) async -> DeviceHubCaptureCleanupResult {
         #if DEBUG
         guard requestedBundleIdentifier == bundleIdentifier else { return .failure(.bundleMismatch) }
+        guard !captureCleanupActive else { return .failure(.hubNotQuiescent) }
+        captureCleanupActive = true
+        defer { captureCleanupActive = false }
+        loading?.cancel()
+        for completion in loadingCompletions.values.map(\.completion) { await completion.value }
+        loadingCompletions.removeAll()
+        for tracked in hubStartCompletions.values { tracked.task.cancel() }
+        for completion in hubStartCompletions.values.map(\.completion) { await completion.value }
+        hubStartCompletions.removeAll()
+        for completion in stopCompletions.values.map(\.completion) { await completion.value }
+        stopCompletions.removeAll()
+        await pages.captureHub?.freezeForCapture()
+        loading = nil
+        loadingFor = nil
         guard hub == nil, loading == nil else { return .failure(.hubNotQuiescent) }
-        await loadingCompletion?.value
-        loadingCompletion = nil
-        await stopCompletion?.value
-        stopCompletion = nil
         let namespace = CaptureKeychainNamespace()
         switch phase {
         case .prepare:
-            return await Task.detached {
+            return await Task.detached(priority: .utility) {
                 namespace.prepare(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
             }.value
         case .cleanup:
-            return await Task.detached {
+            return await Task.detached(priority: .utility) {
                 namespace.cleanup(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
             }.value
         }
@@ -233,20 +252,33 @@ public final class DeviceHubService {
         loadingFor = nil
         removalWatch?.cancel()
         removalWatch = nil
-        guard let hub else { return }
+        for tracked in hubStartCompletions.values { tracked.task.cancel() }
+        let starts = Array(hubStartCompletions.values)
+        guard let hub else {
+            guard !starts.isEmpty else { return }
+            trackStop(Task {
+                for start in starts { await start.completion.value }
+            })
+            return
+        }
         self.hub = nil
+        pages.captureHub = hub
         running = nil
         hubChanged?(nil, nil, nil)
         if removed { pages.endHubSessions(reason: "device_removed:viewer") }
         let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
         pages.hub = nil
         guard endingSessions else {
-            hub.stop()
+            trackStop(Task {
+                for start in starts { await start.completion.value }
+                await hub.stopAndWait()
+            })
             logger.info("device hub stopped")
             return
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
-        stopCompletion = Task {
+        let completion = Task {
+            for start in starts { await start.completion.value }
             do { try await hub.signOutDevice() } catch {
                 await withTaskGroup(of: Void.self) { group in
                     for id in ids {
@@ -254,8 +286,36 @@ public final class DeviceHubService {
                     }
                 }
             }
-            hub.stop()
+            await hub.stopAndWait()
         }
+        trackStop(completion)
         logger.info("device hub signing out")
+    }
+
+    private func trackLoading(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.loadingCompletions.removeValue(forKey: id)
+        }
+        loadingCompletions[id] = TrackedTask(task: task, completion: completion)
+    }
+
+    private func trackHubStart(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.hubStartCompletions.removeValue(forKey: id)
+        }
+        hubStartCompletions[id] = TrackedTask(task: task, completion: completion)
+    }
+
+    private func trackStop(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.stopCompletions.removeValue(forKey: id)
+        }
+        stopCompletions[id] = TrackedTask(task: task, completion: completion)
     }
 }

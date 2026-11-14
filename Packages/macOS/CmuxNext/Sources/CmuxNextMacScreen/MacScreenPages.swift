@@ -58,6 +58,9 @@ public final class MacScreenPages {
             hubChanged(from: oldValue)
         }
     }
+    /// The hub retained for the protected capture cleanup barrier. It remains
+    /// available after sign-out until its relay vault has been frozen.
+    var captureHub: DeviceHub?
     /// Whether this build has a usable device hub address: always, unless a
     /// DEV build's `deviceHub.url` override is not valid. The home page says
     /// "sign in" when it does and asks to fix the address when it does not.

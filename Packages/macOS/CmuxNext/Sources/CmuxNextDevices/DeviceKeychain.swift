@@ -62,7 +62,15 @@ public struct DeviceKeychain: Sendable {
         guard status == errSecSuccess, let items = out as? [[String: Any]] else {
             throw DeviceIdentity.Failure.keychain(status)
         }
-        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+        var accounts: [String] = []
+        accounts.reserveCapacity(items.count)
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String else {
+                throw DeviceIdentity.Failure.keychain(errSecDecode)
+            }
+            accounts.append(account)
+        }
+        return accounts
     }
 
     public func delete(_ account: String) throws {

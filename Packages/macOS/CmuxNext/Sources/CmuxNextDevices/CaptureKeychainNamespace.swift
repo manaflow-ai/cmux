@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The result returned by the protected screen-capture keychain actions.
@@ -98,10 +99,21 @@ public struct CaptureKeychainNamespace: Sendable {
                     return .failure(.verificationFailed)
                 }
             }
+            // Re-enumerate before deleting the ownership marker. This catches
+            // a late relay/identity writer and keeps the marker retryable.
+            for store in stores {
+                let remaining = Set(try store.accountsThrowing())
+                guard remaining.isEmpty || remaining == [Self.markerAccount] else {
+                    return .failure(.namespaceNotEmpty)
+                }
+            }
             // Keep the ownership marker until every other account is verified;
             // a failed read/delete must leave cleanup retryable.
             for store in stores { try store.delete(Self.markerAccount) }
             for store in stores where try store.read(Self.markerAccount) != nil {
+                return .failure(.verificationFailed)
+            }
+            for store in stores where try !store.accountsThrowing().isEmpty {
                 return .failure(.verificationFailed)
             }
             return .success(identityRemoved: all.intersection(identity).count,

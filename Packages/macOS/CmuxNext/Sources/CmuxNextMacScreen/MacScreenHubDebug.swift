@@ -37,19 +37,17 @@ import Foundation
 /// - `audit` {limit?}: the newest entries as History shows them.
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
-                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?,
-                                captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)? = nil) {
+                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
         router?.register([
             .async("debug.device_hub") { [weak self] call in
                 guard let self else { return .null }
-                return await deviceHubDebug(call.params, settings: settings, openTab: openTab, captureCleanup: captureCleanup)
+                return await deviceHubDebug(call.params, settings: settings, openTab: openTab)
             },
         ])
     }
 
     func deviceHubDebug(_ params: [String: JSONValue], settings: MacScreenDevicesSettings?,
-                        openTab: @MainActor (MacScreenRecord, String?) -> String?,
-                        captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)?) async -> JSONValue {
+                        openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
         let action = params["action"]?.stringValue ?? "state"
         if action == "state" { return hubState }
         if action == "capture_prepare" || action == "capture_cleanup" {
@@ -59,13 +57,14 @@ extension MacScreenPages {
                         "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
                         "hub_quiescent": .bool(false)]
             }
-            guard let captureCleanup else {
+            guard let captureHub else {
                 return ["ok": .bool(false), "code": .string("capture_cleanup_unavailable"),
                         "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
                         "hub_quiescent": .bool(false)]
             }
             let phase: DeviceHubCaptureCleanupPhase = action == "capture_prepare" ? .prepare : .cleanup
-            let result = await captureCleanup(phase, leaseID, bundleID)
+            let result = await captureHub.captureCleanup(phase: phase, leaseID: leaseID,
+                                                         requestedBundleIdentifier: bundleID)
             return ["ok": .bool(result.ok), "code": .string(result.code.rawValue),
                     "identity_removed": .number(Double(result.identityRemoved)),
                     "relays_removed": .number(Double(result.relaysRemoved)),
@@ -224,7 +223,6 @@ extension MacScreenPages {
 #else
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
-                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?,
-                                captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)? = nil) {}
+                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {}
 }
 #endif

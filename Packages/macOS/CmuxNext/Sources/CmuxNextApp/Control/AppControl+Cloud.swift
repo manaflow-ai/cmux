@@ -8,16 +8,6 @@ import CmuxNextSettings
 // `auth.status` (signed in, email) and `cloud.machines`. Short main-actor
 // reads of observable state; no network.
 extension AppControl {
-    #if DEBUG || CMUX_BENCH_HOOKS
-    private static func captureAuthJSON(_ result: CaptureAuthCleanupResult) -> JSONValue {
-        var encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        guard let data = try? encoder.encode(result),
-              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
-        return JSONValue(foundation: object) ?? .null
-    }
-    #endif
-
     func registerCloudMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("auth.status") { _ in
@@ -52,7 +42,7 @@ extension AppControl {
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
         ])
-        registerRunMethods(services)
+        registerRunMethods(services); CaptureAuthControl().register(on: service?.router) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
@@ -84,24 +74,6 @@ extension AppControl {
                 guard let data = try? JSONEncoder().encode(report),
                       let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
                 return CmuxNextSettings.JSONValue(foundation: object) ?? .null
-            },
-            .async("debug.cloud.capture_prepare") { [weak services] call in
-                guard let leaseID = call.params["lease_id"]?.stringValue,
-                      let bundleID = call.params["bundle_id"]?.stringValue,
-                      let auth = await MainActor.run(body: { services?.cloud.auth }) else {
-                    return Self.captureAuthJSON(.failure(.invalidLease))
-                }
-                return Self.captureAuthJSON(await auth.captureAuthCleanup(phase: .prepare, leaseID: leaseID,
-                                                                           requestedBundleIdentifier: bundleID))
-            },
-            .async("debug.cloud.capture_cleanup") { [weak services] call in
-                guard let leaseID = call.params["lease_id"]?.stringValue,
-                      let bundleID = call.params["bundle_id"]?.stringValue,
-                      let auth = await MainActor.run(body: { services?.cloud.auth }) else {
-                    return Self.captureAuthJSON(.failure(.invalidLease))
-                }
-                return Self.captureAuthJSON(await auth.captureAuthCleanup(phase: .cleanup, leaseID: leaseID,
-                                                                           requestedBundleIdentifier: bundleID))
             },
             // Ends the Cloud session here without the app's sign-out (as an
             // expired or remote sign-out does), for the link's GUI proof.

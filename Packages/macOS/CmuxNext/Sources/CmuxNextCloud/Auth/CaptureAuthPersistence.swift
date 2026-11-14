@@ -25,6 +25,7 @@ public struct CaptureAuthCleanupResult: Codable, Equatable, Sendable {
         case ownershipMismatch = "ownership_mismatch"
         case markerWriteFailed = "marker_write_failed"
         case markerVerificationFailed = "marker_verification_failed"
+        case authNotQuiescent = "auth_not_quiescent"
     }
 
     public let ok: Bool
@@ -62,37 +63,37 @@ public struct CaptureAuthPersistence: Sendable {
         let marker = markerURL(configuration: configuration, homeDirectory: homeDirectory)
         switch phase {
         case .prepare:
-            guard !FileManager.default.fileExists(atPath: marker.path) else { return .failure(.markerPresent) }
-            guard files.allSatisfy({ !FileManager.default.fileExists(atPath: $0.path) }) else {
+            guard !FileManager.checked.fileExists(atPath: marker.path) else { return .failure(.markerPresent) }
+            guard files.allSatisfy({ !FileManager.checked.fileExists(atPath: $0.path) }) else {
                 return .failure(.fileStorePresent)
             }
             let keychain = keychainProof(configuration: configuration, delete: false)
             guard keychain.ok else { return keychain }
             do {
                 let data = Data((leaseID + "\n" + requestedBundleIdentifier).utf8)
-                try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true,
+                try FileManager.checked.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                         attributes: [.posixPermissions: 0o700])
-                try data.write(to: marker, options: [.atomic])
-                guard try Data(contentsOf: marker) == data else { return .failure(.markerVerificationFailed) }
+                try data.blockingWrite(to: marker, options: [.atomic])
+                guard try Data(blockingContentsOf: marker) == data else { return .failure(.markerVerificationFailed) }
             } catch { return .failure(.markerWriteFailed) }
             return CaptureAuthCleanupResult(ok: true, code: .ok, keychainAbsent: true, filesAbsent: true, verifiedAbsent: true)
         case .cleanup:
-            guard let markerData = try? Data(contentsOf: marker) else { return .failure(.ownershipMissing) }
+            guard let markerData = try? Data(blockingContentsOf: marker) else { return .failure(.ownershipMissing) }
             guard markerData == Data((leaseID + "\n" + requestedBundleIdentifier).utf8) else {
                 return .failure(.ownershipMismatch)
             }
             let keychain = keychainProof(configuration: configuration, delete: true)
             guard keychain.ok else { return keychain }
-            for file in files where FileManager.default.fileExists(atPath: file.path) {
-                do { try FileManager.default.removeItem(at: file) }
+            for file in files where FileManager.checked.fileExists(atPath: file.path) {
+                do { try FileManager.checked.removeItem(at: file) }
                 catch { return .failure(.fileDeleteFailed) }
             }
-            guard files.allSatisfy({ !FileManager.default.fileExists(atPath: $0.path) }) else {
+            guard files.allSatisfy({ !FileManager.checked.fileExists(atPath: $0.path) }) else {
                 return .failure(.fileDeleteFailed)
             }
             do {
-                try FileManager.default.removeItem(at: marker)
-                guard !FileManager.default.fileExists(atPath: marker.path) else { return .failure(.markerVerificationFailed) }
+                try FileManager.checked.removeItem(at: marker)
+                guard !FileManager.checked.fileExists(atPath: marker.path) else { return .failure(.markerVerificationFailed) }
             } catch { return .failure(.markerWriteFailed) }
             return .success
         }

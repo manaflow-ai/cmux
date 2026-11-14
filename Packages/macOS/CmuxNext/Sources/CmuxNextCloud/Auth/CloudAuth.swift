@@ -6,6 +6,10 @@ import os
 public import Observation
 import CmuxNextCompat
 
+private enum CaptureAuthCleanupError: Error {
+    case active
+}
+
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
 /// token store with the file fallback and `cmux.auth.*` defaults keys (scoped
@@ -19,6 +23,11 @@ public final class CloudAuth {
     @ObservationIgnored public let browserSignIn: HostBrowserSignInFlow
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
     @ObservationIgnored private let usesCaptureFixture: Bool
+    /// Prevents a new auth writer while a protected capture proves stores
+    /// absent. Existing token readers are joined before deletion.
+    @ObservationIgnored private var captureCleanupActive = false
+    @ObservationIgnored private var activeTokenReads = 0
+    @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
     /// This build's stored session (refresh token, and the access token when one is stored), read off the
     /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
     /// signed out. The two tokens are one pair (``consistentSession(refresh:access:)``).
@@ -335,6 +344,9 @@ public final class CloudAuth {
 
     /// A coherent access/refresh pair for one API call.
     public func tokens() async throws -> (access: String, refresh: String) {
+        guard !captureCleanupActive else { throw CaptureAuthCleanupError.active }
+        activeTokenReads += 1
+        defer { finishCaptureTokenRead() }
         let pair = try await coordinator.currentTokens()
         return (pair.accessToken, pair.refreshToken)
     }
@@ -354,6 +366,7 @@ public final class CloudAuth {
     /// Account) asks the hosted page which account to use.
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
+        guard !captureCleanupActive else { return Task { false } }
         let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
         return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
     }
@@ -362,7 +375,7 @@ public final class CloudAuth {
     /// way on when the popup shows nothing); false when none is in progress.
     @discardableResult
     public func continueSignInInBrowser() -> Bool {
-        guard !usesCaptureFixture, let url = browserSignIn.activeAttemptSignInURL else { return false }
+        guard !captureCleanupActive, !usesCaptureFixture, let url = browserSignIn.activeAttemptSignInURL else { return false }
         return NSWorkspace.shared.openInForeground(url)
     }
 
@@ -375,15 +388,30 @@ public final class CloudAuth {
         await withTaskCancellationHandler { await signIn() } onCancel: { Task { @MainActor in self.cancelSignIn() } }
     }
 
-    public func signOut() async { await browserSignIn.signOut() }
+    public func signOut() async {
+        guard !captureCleanupActive else { return }
+        await browserSignIn.signOut()
+    }
 
     /// DEBUG-only proof and cleanup for the exact auth stores of a protected
     /// capture. The probe runs off the main actor and never returns token data.
     #if DEBUG || CMUX_BENCH_HOOKS
     public func captureAuthCleanup(phase: CaptureAuthCleanupPhase, leaseID: String,
                                    requestedBundleIdentifier: String) async -> CaptureAuthCleanupResult {
+        guard !captureCleanupActive else { return .failure(.authNotQuiescent) }
+        captureCleanupActive = true
+        defer {
+            captureCleanupActive = false
+            let waiters = captureCleanupWaiters
+            captureCleanupWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+        await waitForCaptureTokenReaders()
+        guard !browserSignIn.isSigningIn, !coordinator.isLoading, !coordinator.isRestoringSession else {
+            return .failure(.authNotQuiescent)
+        }
         let configuration = configuration
-        return await Task.detached {
+        return await Task.detached(priority: .utility) {
             CaptureAuthPersistence().run(configuration: configuration, phase: phase, leaseID: leaseID,
                                          requestedBundleIdentifier: requestedBundleIdentifier)
         }.value
@@ -399,8 +427,22 @@ public final class CloudAuth {
 
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.
     public func handleCallback(_ url: URL) async -> Bool {
+        guard !captureCleanupActive else { return false }
         guard callbackRouter.isAuthCallbackURL(url) else { return false }
         return await browserSignIn.handleCallbackURL(url)
+    }
+
+    private func waitForCaptureTokenReaders() async {
+        guard activeTokenReads > 0 else { return }
+        await withCheckedContinuation { captureCleanupWaiters.append($0) }
+    }
+
+    private func finishCaptureTokenRead() {
+        activeTokenReads -= 1
+        guard activeTokenReads == 0 else { return }
+        let waiters = captureCleanupWaiters
+        captureCleanupWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 }
 
