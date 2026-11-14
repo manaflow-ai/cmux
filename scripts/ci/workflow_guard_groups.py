@@ -84,7 +84,6 @@ PATH_OWNERS = {
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
-    ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
@@ -462,9 +461,6 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         owners.add("quality-determinism")
     if _determinism_scan(path):
         owners.add("quality-determinism")
-
-    if path == ".github/workflows/ios-testflight.yml":
-        owners.update(("preflight", "ci"))
 
     if not owners:
         return None

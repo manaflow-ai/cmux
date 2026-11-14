@@ -82,7 +82,6 @@
     "ios-screenshots.yml:app-store-upload": {"class": "ios", "warm": [], "exempt": "uploads screenshots an earlier job captured; selects Xcode for its tools and compiles nothing"},
     "ios-screenshots.yml:screenshots": {"class": "ios", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; no warm source wired yet"},
     "ios-streamed-validate.yml:validate": {"class": "ios", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; a build script from a clean tree; no warm source wired yet"},
-    "ios-testflight.yml:upload": {"class": "ios", "warm": ["actions-cache"]},
     "iroh-relay-minter.yml:test": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
     "iroh-release-gate.yml:simulator-e2e": {"class": "mac-build", "warm": [], "exempt": "cold: xcodebuild into a fresh DerivedData; no warm source wired yet"},
     "iroh-release-gate.yml:tailscale-version-skew": {"class": "mac-build", "warm": [], "exempt": "cold: swift test into a scratch path the gate script empties first; no warm source wired yet"},

@@ -23,6 +23,9 @@ CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER = $(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)
 // id stamped by ios/scripts/upload-testflight.sh on upload.
 CMUX_IOS_BETA_MARKETING_VERSION = 1.0.6
 CMUX_IOS_APPSTORE_MARKETING_VERSION = 1.0.0
+// cmux CLASSIC (dev.cmux.app.classic) is the classic app's internal TestFlight
+// home since com.cmux.app moved to cmux-next. It stays on the 1.0.x line.
+CMUX_IOS_CLASSIC_MARKETING_VERSION = 1.0.0
 MARKETING_VERSION = $(CMUX_IOS_BETA_MARKETING_VERSION)
 CURRENT_PROJECT_VERSION = 1
 

@@ -3141,7 +3141,7 @@ class Wiring(unittest.TestCase):
 
 
 IOS_SIM = "glaeda-ios-sim"
-SIGNING_WORKFLOWS = ("ios-testflight.yml", "ios-app-store.yml", "ios-appstore-upload.yml")
+SIGNING_WORKFLOWS = ("ios-app-store.yml", "ios-appstore-upload.yml")
 IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 

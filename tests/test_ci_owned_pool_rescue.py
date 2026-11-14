@@ -4516,7 +4516,7 @@ class IOSDispatch(unittest.TestCase):
         target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
         self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path), (0, True, "runner", path))
         # Signing and streamed validation never take an owned Mac, so they are never watched.
-        for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
+        for path in (".github/workflows/ios-appstore-upload.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
 
     def test_kit_pr_rescues_only_the_unstarted_test_after_three_minutes(self):

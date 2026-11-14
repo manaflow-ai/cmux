@@ -61,9 +61,11 @@ if ! git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
   exit 0
 fi
 
-# iOS-affecting paths: mirror the push-trigger filter in ios-testflight.yml so the
-# notes only mention changes that could be in this build.
-PATHS="ios Packages/iOS Packages/Shared Packages/macOS/CmuxPhonePush Sources/Mobile vendor/stack-auth-swift-sdk-prerelease ghostty ghostty.h scripts/ensure-ghosttykit.sh scripts/ghosttykit-checksums.txt scripts/install-zig-ci.sh scripts/ghostty-zig-version.sh scripts/validate-xcframework-archive.py .github/workflows/ios-testflight.yml"
+# iOS-affecting paths, so the notes only mention changes that could be in this
+# build. This list came from the retired ios-testflight.yml and now stands on its
+# own: the cmux CLASSIC upload decides with a broader public filter, and this
+# list only narrows which commits the notes mention.
+PATHS="ios Packages/iOS Packages/Shared Packages/macOS/CmuxPhonePush Sources/Mobile vendor/stack-auth-swift-sdk-prerelease ghostty ghostty.h scripts/ensure-ghosttykit.sh scripts/ghosttykit-checksums.txt scripts/install-zig-ci.sh scripts/ghostty-zig-version.sh scripts/validate-xcframework-archive.py .github/workflows/ios-appstore-upload.yml"
 
 # First-line subjects of non-merge commits in range touching those paths. Squash
 # merges carry the PR title + "(#N)" as the subject, which is exactly what we want.

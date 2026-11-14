@@ -967,15 +967,7 @@ path = "tests/test_ios_testflight_external_distribution.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_main_push_filter.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ios_testflight_notes.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1432,14 +1424,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_archive_log.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_assignment_after_upload.py"
 lane = "linux-guard"
 
 [[test]]
