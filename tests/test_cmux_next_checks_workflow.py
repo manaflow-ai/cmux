@@ -3992,8 +3992,11 @@ esac
                 script = re.sub(r"\$\{\{.*?\}\}", tmp, step["run"])
                 env = git_fixture_env.fixture_env({"PATH": tmp, "RUNNER_TEMP": tmp,
                       "ARGS_FILE": str(root / "args"), "FFI_REPIN": repin})
-                subprocess.run(["/bin/bash", "-eu", "-c", script], env=env, check=True,
-                               capture_output=True, text=True, timeout=10)
+                # The fleet's Linux check can execute the same script with the pinned Bash 3.2 build.
+                shell = os.environ.get("CMUX_PARSE_BASH", "/bin/bash")
+                result = subprocess.run([shell, "-eu", "-c", script], env=env,
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
                 args = (root / "args").read_text().splitlines()
                 self.assertEqual("--only" in args, repin == "true")
                 if repin == "true":

@@ -215,8 +215,6 @@ public final class DeviceHubService {
         case .corruptKeyBlob: return "device_identity_corrupt_key_blob"
         case nil: return "device_identity_unavailable"
         }
-        let task = loading
-        if let task { trackLoading(task) }
     }
 
     private func install(_ hub: DeviceHub, url: URL, user: String) {

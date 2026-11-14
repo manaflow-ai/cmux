@@ -201,7 +201,8 @@ struct ClassicImportTests {
             return session
         }
         for (tab, name) in [("logs", "api/logs"), ("web", "web"), ("db", "db")] {
-            let screen = imported.probes["split api/\(tab)"] ?? ""
+            let screen = try #require(imported.probes["split api/\(tab)"],
+                                      "missing \(tab); shapes: \(imported.shapes); probes: \(imported.probes); notice: \(imported.notice ?? "none")")
             #expect(screen.contains("saved in \(name)"), "\(tab): \(screen)")
             #expect(screen.components(separatedBy: "saved in ").count == 2, "\(tab) printed another terminal's scrollback: \(screen)")
         }
@@ -263,7 +264,11 @@ struct ClassicImportTests {
                                  stateDirectory: root.appendingPathComponent("state"), installKey: key),
             environment: { home.daemonEnvironment() })
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        var environment = AppEnvironment.current([:])
+        // Replay terminals have their own env, supplied by the app rather than the daemon.
+        // Keep their shell and home identical to the daemon's fixture, not the runner's login shell.
+        environment.terminalEnvironment.merge(home.daemonEnvironment()) { _, fixture in fixture }
+        let services = AppServices(environment: environment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.onboarding.classicMigrationAtLaunch = false
