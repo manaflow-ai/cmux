@@ -43,7 +43,8 @@ fn three_tabs_share_one_host_and_each_has_its_own_cache_dir() {
     assert!(second.iter().any(|a| matches!(a, Action::ToHost(l) if l.contains("\"b\""))));
     let dirs: Vec<_> = s.tabs().map(|t| t.cache.clone()).collect();
     assert_eq!(dirs.len(), 3);
-    assert!(dirs.iter().all(|d| d.starts_with("/r/tabs")));
+    // Directly under the root: Chrome makes a profile only there.
+    assert!(dirs.iter().all(|d| d.parent() == Some(Path::new("/r"))), "{dirs:?}");
     let mut unique = dirs.clone();
     unique.dedup();
     assert_eq!(unique.len(), 3, "every tab has its own request context directory: {dirs:?}");
