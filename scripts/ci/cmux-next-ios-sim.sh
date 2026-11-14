@@ -102,6 +102,9 @@
 #           (CMUX_MOBILE_LIST_*), lets it settle, then samples the app process
 #           once a second with macOS `top` (CPU %, idle wakeups, POWER, the
 #           energy impact Activity Monitor shows, and MEM, its footprint).
+#           After the samples, a busy case (scroll, stream) also gets a 5 s call
+#           tree of the app from macOS `sample` (energy/RUN.sample.txt): where
+#           its CPU goes, with no Instruments.
 #           Optional arguments (each one `--arg`):
 #             base=SHA     also build SHA and run every case on both apps, base
 #                          then head, on the one simulator (as listperf's base=)
@@ -959,6 +962,11 @@ if [[ "$mode" == energy ]]; then
         fi
         # One sample a second for case_seconds, plus top's first sample (dropped: its rates are since launch).
         top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 || true
+        # Where a busy case's CPU goes: a call tree of every thread, after `top` (sampling slows
+        # the app, so never during it).
+        if [[ "$phase" == stream || "$phase" == scroll ]]; then
+          sample "$pid" 5 -mayDie -file "$en/$run.sample.txt" >/dev/null 2>&1 || echo "$run: no sample"
+        fi
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
         python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
