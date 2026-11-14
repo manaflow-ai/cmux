@@ -78,6 +78,7 @@ extension HomeService {
     var defaultChiefConversation: String? {
         // A teleported Chief: the conversation where it answers now (HomeService+ChiefRoster).
         if let followed = chiefFollow.conversation { return followed }
+        if let cached = homeStore.launchChief { return cached.rawValue }  // until this launch names its Chief (CMUX-571)
         let local = HomeChiefName.select(from: conversations)
         return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)
