@@ -286,6 +286,9 @@ final class Viewer: NSObject, NSApplicationDelegate {
 let options = Options.parse(Array(CommandLine.arguments.dropFirst()))
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
-let viewer = Viewer(options: options)
-app.delegate = viewer
-app.run()
+// main.swift's top level runs on the main thread; the delegate is weak, so the viewer lives through run().
+MainActor.assumeIsolated {
+    let viewer = Viewer(options: options)
+    app.delegate = viewer
+    withExtendedLifetime(viewer) { app.run() }
+}

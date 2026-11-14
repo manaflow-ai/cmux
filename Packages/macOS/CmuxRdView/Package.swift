@@ -29,7 +29,7 @@ let package = Package(
     name: "CmuxRdView",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(name: "CmuxNext", path: cmuxNext),
+        .package(path: cmuxNext),
     ],
     targets: [
         .executableTarget(
