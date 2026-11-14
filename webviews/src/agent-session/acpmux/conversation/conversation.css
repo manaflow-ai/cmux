@@ -8040,7 +8040,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-revised__toggle:hover:not(:disabled),
 .cv-revised__toggle:focus-visible {
