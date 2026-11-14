@@ -9,7 +9,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimHealthSnapshot, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim records preserve the claim-to-bound split and receipt state", () => {
@@ -67,6 +67,11 @@ describe("cloud journey", () => {
     expect(md).toContain("mode: preclaim");
     expect(md).not.toContain("user_secret");
     expect(md).not.toContain("install_secret");
+  });
+
+  test("cold preclaim claims use the post-bind login fallback before chat", () => {
+    expect(preclaimLoginMode(null)).toBe("post-bind");
+    expect(preclaimLoginMode("ready-spare")).toBe("preclaim");
   });
 
   test("lease classification uses explicit broker evidence and keeps unknown separate from a miss", () => {

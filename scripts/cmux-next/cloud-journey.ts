@@ -364,7 +364,7 @@ export type PreclaimClaimRecord = {
   health_before: PreclaimHealthSnapshot;
   health_after: PreclaimHealthSnapshot;
   claim_to_bound: PreclaimClaimSplit;
-  post_bind_login: "receipt" | "missing" | "not_checked";
+  post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
   first_chat_ms: number | null;
   first_reply_ms: number | null;
 };
@@ -418,7 +418,7 @@ export function preclaimClaimRecord(input: {
   leaseHit?: boolean | null;
   healthBefore?: PreclaimHealthSnapshot;
   healthAfter?: PreclaimHealthSnapshot;
-  postBindLogin?: "receipt" | "missing" | "not_checked";
+  postBindLogin?: "receipt" | "post-bind" | "missing" | "not_checked";
   firstChatMs?: number | null;
   firstReplyMs?: number | null;
 }): PreclaimClaimRecord {
@@ -548,6 +548,25 @@ async function runPreclaimChat(exec: Exec, session: string, prompt: string, budg
   throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
 }
 
+/** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
+export function preclaimLoginMode(spare: string | null): "preclaim" | "post-bind" {
+  return spare === null ? "post-bind" : "preclaim";
+}
+
+async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
+  await waitPreflight(exec, programs.preflight, ownerScope, 300_000);
+  const folder = "/home/cmux/.cmux/credential-transfer";
+  const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+  try {
+    const wrote = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
+    if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
+    const installed = await exec(programs.install(file));
+    if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+  } finally {
+    await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+  }
+}
+
 async function runPreclaimBurst(args: {
   backend: Backend;
   api: Api;
@@ -597,17 +616,7 @@ async function runPreclaimBurst(args: {
         if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
         const exec = directExec(args.api, spare, args.journey);
         await waitMachine(args.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
-        await waitPreflight(exec, programs.preflight, args.team ? "owner or team" : "owner");
-        const folder = "/home/cmux/.cmux/credential-transfer";
-        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
-        try {
-          const wrote = await args.api.raw("POST", `/v1/cloud/machines/${spare}/fs/write`, { path: file, dataBase64: Buffer.from(args.login).toString("base64"), mode: 0o644 });
-          if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
-          const installed = await exec(programs.install(file));
-          if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
-        } finally {
-          await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
-        }
+        await installPreclaimLogin(args.api, spare, exec, programs, args.login, index, args.team ? "owner or team" : "owner");
         const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
         if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${index}: guest receipt missing before claim`);
         if (copy.generation) await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, installed: spare, generation: copy.generation });
@@ -618,6 +627,9 @@ async function runPreclaimBurst(args: {
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
       if (typeof machine === "string") {
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        if (spare === null) {
+          await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
+        }
       }
       const receipt: Record<string, unknown> = copy.generation && typeof machine === "string"
         ? await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({}))
@@ -630,7 +642,7 @@ async function runPreclaimBurst(args: {
         firstReplyMs = chat.replyMs;
       }
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: spare === null ? "post-bind" : receipt.installed === true ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
