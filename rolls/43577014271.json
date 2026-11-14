@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43577014271",
+  "recorded_at": "2026-11-14T08:50:57Z",
+  "reason": "cmux-tui 764b12d7a969 changes the image's cmux-tui (pinned 6da5025a74b0)",
+  "dry_run": false,
+  "cmux_tui": "764b12d7a9695f7fd6ff59b09c831095b03f56c8",
+  "fixes": [
+    {
+      "sha": "764b12d7a9695f7fd6ff59b09c831095b03f56c8",
+      "mergedAt": "2026-11-14T00:21:19-08:00",
+      "subject": "cmux-tui: hold the carrier drill's deadline past the async boundary (#40494)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T08:50:57Z",
+    "snapshot_id": "sh-f6a43281c6524545a2c0622e8f548a04",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43577014271): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0be208cb89dd9c229b1ac73ad1a878920718dbdc",
+    "image": "cloud-native-auto-764b12d7-43577014271-1",
+    "revision": "ci-43577014271-1",
+    "at": "2026-11-14T08:50:57Z"
+  },
+  "rolled_back": false
+}
