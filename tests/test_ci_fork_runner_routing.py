@@ -204,6 +204,10 @@ UNRESOLVED_NAME_EXEMPT = {
         "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
         "commit after the fact, never a pull request's required context"
     ),
+    ("cmux-tui.yml", "test"): (
+        "dispatch-only test legs named by matrix.shard (core tests (linux), test (linux, focused) or test shard "
+        "(linux, k/3)); the test-linux job reports test (linux), and no leg name is a required context"
+    ),
     ("rust-workspaces.yml", "workspace"): (
         "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
         "key), never one of the required context names"

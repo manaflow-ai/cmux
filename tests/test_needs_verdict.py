@@ -281,6 +281,7 @@ MIXED = {
 SINGLE_RESULT = {
     ("backend-migrations.yml", "gate", "Plan succeeded"): "the plan job alone",
     ("cmux-tui.yml", "valgrind-leak-check", "Require every Valgrind shard"): "the shard matrix's one result",
+    ("cmux-tui.yml", "test-linux", "Require every test leg"): "the test matrix's one result",
 }
 
 
