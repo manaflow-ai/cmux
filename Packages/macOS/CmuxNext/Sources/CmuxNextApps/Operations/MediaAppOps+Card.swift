@@ -26,7 +26,7 @@ extension MediaAppOps {
     /// The artwork as a PNG data URL at most ``side`` pixels on its long edge, redrawn once per image:
     /// cmux's own player hands over a file's embedded art as is. Keeps the last image and its URL.
     @MainActor final class ArtworkURL {
-        static let side = 176
+        nonisolated static let side = 176
         private var last: (data: Data, url: String?)?
 
         func url(for data: Data?) -> String? {
