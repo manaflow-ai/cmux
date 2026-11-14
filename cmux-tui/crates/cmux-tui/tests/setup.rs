@@ -2340,3 +2340,22 @@ fn cmux_setup_mcp_keeps_an_entry_with_a_relative_script_and_no_cwd() {
     assert_eq!(result["state"], "ok", "{result}");
     assert!(world.take_mcp_calls().is_empty(), "setup replaced an entry it could not judge");
 }
+
+/// A relative launcher script with no `cwd` is no development build either:
+/// where it runs is unknown, so a shipped build keeps the entry, and a DEV
+/// build's `--remove` leaves it.
+#[test]
+fn cmux_setup_mcp_never_judges_a_relative_script_without_cwd_a_dev_build() {
+    let world = World::new("mcprelative2").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    World::executable(&world.bin.join("node"), "#!/bin/sh\nexit 0\n");
+    let entry = json!({"command": "node", "args": ["lib/cmux.js", "mcp", "serve"]});
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": entry}}).to_string(),
+    )
+    .unwrap();
+    let result = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(result["state"], "ok", "{result}");
+    assert!(world.take_mcp_calls().is_empty(), "setup replaced an entry it could not judge");
+}
