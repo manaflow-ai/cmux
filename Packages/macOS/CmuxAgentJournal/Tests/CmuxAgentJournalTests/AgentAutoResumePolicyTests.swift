@@ -391,6 +391,37 @@ struct AgentAutoResumePolicyTests {
         _ = live.expectSchedule(attempt: 1, "an error after a child spawned past the Stop should schedule a resume")
     }
 
+    @Test func thePanesSettlementWithAChildRunningLetsASlowStopFailureSchedule() {
+        // The pane settles while a child still runs. Its settlement stays
+        // provisional through the child's completion, so the agent's own
+        // StopFailure for that turn still gets its resume.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.childSpawned, child: "child") == .none)
+        #expect(live.paneSettles() == .none)
+        #expect(live.observe(.childCompleted, child: "child") == .none)
+        _ = live.expectSchedule(attempt: 1, "a failure after the pane's settlement should schedule")
+    }
+
+    @Test func aCompletionWithBackgroundWorkAndAChildLetsTheNextErrorSchedule() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.childSpawned, child: "child") == .none)
+        #expect(live.observe(.turnCompleted, pendingWork: true) == .none)
+        #expect(live.observe(.childCompleted, child: "child") == .none)
+        _ = live.expectSchedule(attempt: 1, "the turn continues while background work runs")
+    }
+
+    @Test func theFinalStopAfterBackgroundWorkAndAChildEndsTheTurn() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.childSpawned, child: "child") == .none)
+        #expect(live.observe(.turnCompleted, pendingWork: true) == .none)
+        #expect(live.observe(.childCompleted, child: "child") == .none)
+        #expect(live.observe(.turnCompleted, notify: true) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+    }
+
     @Test func aSubagentsCompletedTurnDoesNotHoldBackTheParentsError() {
         var live = LiveObservation(surface: surface)
         #expect(live.observe(.turnStarted) == .none)
