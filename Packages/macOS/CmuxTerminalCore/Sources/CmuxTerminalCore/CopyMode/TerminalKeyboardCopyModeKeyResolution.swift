@@ -1,7 +1,9 @@
 private func terminalKeyboardCopyModeNormalizedModifiers(
     _ modifiers: TerminalKeyboardCopyModeModifiers
 ) -> TerminalKeyboardCopyModeModifiers {
-    modifiers.subtracting([.numericPad, .function, .capsLock])
+    // Option only selects word motion on the arrow keys; letters keep their
+    // plain meaning so Option-layer characters do not change command matching.
+    modifiers.subtracting([.numericPad, .function, .capsLock, .option])
 }
 
 private func terminalKeyboardCopyModeChars(
@@ -107,15 +109,16 @@ public func terminalKeyboardCopyModeAction(
         return .exit
     }
 
+    let isOptionArrow = modifiers.contains(.option) && !normalized.contains(.control)
     switch keyCode {
     case 126:
         return .adjustSelection(.up)
     case 125:
         return .adjustSelection(.down)
     case 123:
-        return .adjustSelection(.left)
+        return .adjustSelection(isOptionArrow ? .wordBackward : .left)
     case 124:
-        return .adjustSelection(.right)
+        return .adjustSelection(isOptionArrow ? .wordEndForward : .right)
     case 116:
         return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
     case 121:
@@ -173,6 +176,12 @@ public func terminalKeyboardCopyModeAction(
         return .adjustSelection(.left)
     case "l":
         return .adjustSelection(.right)
+    case "w":
+        return .adjustSelection(isUppercaseCommand ? .bigWordForward : .wordForward)
+    case "b":
+        return .adjustSelection(isUppercaseCommand ? .bigWordBackward : .wordBackward)
+    case "e":
+        return .adjustSelection(isUppercaseCommand ? .bigWordEndForward : .wordEndForward)
     case "g":
         if isUppercaseCommand {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom

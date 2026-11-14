@@ -19,8 +19,11 @@ import CmuxTerminalCore
         )
     }
 
-    @Test func ignoresOptionAndDeviceDependentBits() {
-        #expect(TerminalKeyboardCopyModeModifiers(modifierFlags: .option) == [])
+    @Test func mapsOptionForWordMotionArrows() {
+        #expect(TerminalKeyboardCopyModeModifiers(modifierFlags: .option) == [.option])
+    }
+
+    @Test func ignoresDeviceDependentBits() {
         let withDeviceBits = NSEvent.ModifierFlags(
             rawValue: NSEvent.ModifierFlags.shift.rawValue | 0x2 // raw left-shift device bit
         )

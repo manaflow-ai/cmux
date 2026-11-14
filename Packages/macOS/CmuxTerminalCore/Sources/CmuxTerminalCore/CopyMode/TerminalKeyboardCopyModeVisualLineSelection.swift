@@ -150,6 +150,11 @@ public struct TerminalKeyboardCopyModeVisualLineSelection: Equatable, Sendable {
             offsetEndpointScreenRow(delta: clampedRows * clampedCount, totalRows: totalRows)
         case .home, .end:
             break
+        case .wordForward, .wordBackward, .wordEndForward,
+             .bigWordForward, .bigWordBackward, .bigWordEndForward:
+            // Word targets depend on row text; the host resolves them with
+            // TerminalKeyboardCopyModeWordMotion.
+            break
         }
 
         let scrollDelta: Int

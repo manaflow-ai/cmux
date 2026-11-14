@@ -42,4 +42,8 @@ public struct TerminalKeyboardCopyModeModifiers: OptionSet, Equatable, Sendable 
 
     /// The Caps Lock modifier, ignored during command matching.
     public static let capsLock = TerminalKeyboardCopyModeModifiers(rawValue: 1 << 5)
+
+    /// The Option modifier. Option-Left and Option-Right are word motions;
+    /// other keys ignore it during command matching.
+    public static let option = TerminalKeyboardCopyModeModifiers(rawValue: 1 << 6)
 }

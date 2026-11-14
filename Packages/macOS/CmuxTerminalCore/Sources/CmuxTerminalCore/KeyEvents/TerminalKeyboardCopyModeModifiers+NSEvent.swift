@@ -19,6 +19,9 @@ extension TerminalKeyboardCopyModeModifiers {
         if normalized.contains(.control) {
             modifiers.insert(.control)
         }
+        if normalized.contains(.option) {
+            modifiers.insert(.option)
+        }
         if normalized.contains(.numericPad) {
             modifiers.insert(.numericPad)
         }

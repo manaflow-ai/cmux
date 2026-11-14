@@ -6080,9 +6080,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         count: Int,
         surface: ghostty_surface_t
     ) {
-        guard let nativeCount = UInt16(
-            exactly: terminalKeyboardCopyModeClampCount(count)
-        ) else {
+        if let wordMotion = TerminalKeyboardCopyModeWordMotion(direction) {
+            moveKeyboardCopyModeByWord(
+                wordMotion,
+                count: count,
+                extendSelection: false,
+                linewise: false,
+                surface: surface
+            )
+            return
+        }
+        guard let nativeMove = nativeKeyboardCopyModeMove(direction),
+              let nativeCount = UInt16(
+                  exactly: terminalKeyboardCopyModeClampCount(count)
+              ) else {
             return
         }
 
@@ -6091,7 +6102,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var widthCells: UInt16 = 0
         guard ghostty_surface_keyboard_selection_move(
             surface,
-            nativeKeyboardCopyModeMove(direction),
+            nativeMove,
             nativeCount,
             false,
             false,
@@ -6107,9 +6118,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    /// The Ghostty move for a cell or row move, or `nil` for a word move,
+    /// which ``moveKeyboardCopyModeByWord(_:count:extendSelection:linewise:surface:)``
+    /// builds from these.
     private func nativeKeyboardCopyModeMove(
         _ direction: TerminalKeyboardCopyModeSelectionMove
-    ) -> ghostty_keyboard_selection_move_e {
+    ) -> ghostty_keyboard_selection_move_e? {
         switch direction {
         case .left:
             GHOSTTY_KEYBOARD_SELECTION_MOVE_LEFT
@@ -6131,7 +6145,206 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             GHOSTTY_KEYBOARD_SELECTION_MOVE_BEGINNING_OF_LINE
         case .endOfLine:
             GHOSTTY_KEYBOARD_SELECTION_MOVE_END_OF_LINE
+        case .wordForward, .wordBackward, .wordEndForward,
+             .bigWordForward, .bigWordBackward, .bigWordEndForward:
+            nil
         }
+    }
+
+    /// Moves the copy-mode cursor, or the visual-selection endpoint, by a vim
+    /// word motion.
+    ///
+    /// Ghostty moves by glyphs and rows but has no word motion, so this reads
+    /// row text and resolves the motion in `TerminalKeyboardCopyModeWordMotion`.
+    /// Each row the motion crosses is a native up/down move, which scrolls the
+    /// viewport the way `j`/`k` do. The landing glyph is then reached with a
+    /// beginning-of-line move and one right move per glyph: Ghostty's right
+    /// move steps one glyph, and its row text lists one character per glyph.
+    private func moveKeyboardCopyModeByWord(
+        _ motion: TerminalKeyboardCopyModeWordMotion,
+        count: Int,
+        extendSelection: Bool,
+        linewise: Bool,
+        surface: ghostty_surface_t
+    ) {
+        guard let start = keyboardCopyModeTrackedCursor(surface: surface)?.cursor,
+              let startLine = readKeyboardCopyModeRowGlyphs(row: start.row, surface: surface),
+              let startIndex = keyboardCopyModeGlyphIndex(
+                  column: start.column,
+                  row: start.row,
+                  surface: surface
+              ) else { return }
+
+        var row = start.row
+        var crossedRows = false
+        var rowReadFailed = false
+        let move: (ghostty_keyboard_selection_move_e, UInt16) -> TerminalKeyboardCopyModeCursor? = {
+            self.performKeyboardCopyModeNativeMove(
+                $0,
+                count: $1,
+                extendSelection: extendSelection,
+                linewise: linewise,
+                surface: surface
+            )
+        }
+
+        let target = motion.resolve(
+            count: count,
+            line: startLine,
+            index: startIndex
+        ) { forward in
+            // At a viewport edge Ghostty scrolls instead of changing rows, so
+            // ask the scrollbar whether any scrollback is left that way.
+            var scrollbar = ghostty_surface_scrollbar_s()
+            guard ghostty_surface_scrollbar(surface, &scrollbar) else { return nil }
+            let atViewportEdge = forward
+                ? UInt64(row) + 1 >= scrollbar.len
+                : row <= 0
+            if atViewportEdge {
+                let canScroll = forward
+                    ? scrollbar.offset + scrollbar.len < scrollbar.total
+                    : scrollbar.offset > 0
+                guard canScroll else { return nil }
+            }
+            guard let moved = move(
+                forward ? GHOSTTY_KEYBOARD_SELECTION_MOVE_DOWN : GHOSTTY_KEYBOARD_SELECTION_MOVE_UP,
+                1
+            ), atViewportEdge || moved.row != row else { return nil }
+            row = moved.row
+            crossedRows = true
+            guard let glyphs = self.readKeyboardCopyModeRowGlyphs(row: row, surface: surface) else {
+                // The cursor already moved; a target resolved without this
+                // row's text would belong to the previous row.
+                rowReadFailed = true
+                return nil
+            }
+            return glyphs
+        }
+
+        // A failed read leaves no target for the current row, and a motion
+        // that stayed put must not re-land: an index in empty cells names the
+        // start of that run, not the cursor's cell.
+        guard !rowReadFailed, crossedRows || target != startIndex else {
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
+            return
+        }
+        if move(GHOSTTY_KEYBOARD_SELECTION_MOVE_BEGINNING_OF_LINE, 1) != nil,
+           target > 0 {
+            _ = move(
+                GHOSTTY_KEYBOARD_SELECTION_MOVE_RIGHT,
+                UInt16(clamping: target)
+            )
+        }
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func performKeyboardCopyModeNativeMove(
+        _ move: ghostty_keyboard_selection_move_e,
+        count: UInt16,
+        extendSelection: Bool,
+        linewise: Bool,
+        surface: ghostty_surface_t
+    ) -> TerminalKeyboardCopyModeCursor? {
+        var resolvedColumn: UInt16 = 0
+        var resolvedRow: UInt16 = 0
+        var widthCells: UInt16 = 0
+        guard ghostty_surface_keyboard_selection_move(
+            surface,
+            move,
+            count,
+            extendSelection,
+            linewise,
+            &resolvedColumn,
+            &resolvedRow,
+            &widthCells
+        ) else { return nil }
+        return TerminalKeyboardCopyModeCursor(
+            row: Int(resolvedRow),
+            column: Int(resolvedColumn)
+        )
+    }
+
+    /// Reads plain text for an inclusive viewport range. Ghostty clamps the
+    /// coordinates to the grid, prints one character per glyph, turns empty
+    /// cells into spaces only when text follows them, and skips wide-glyph
+    /// spacer cells.
+    private func readKeyboardCopyModeViewportText(
+        surface: ghostty_surface_t,
+        fromColumn: Int,
+        fromRow: Int,
+        toColumn: Int,
+        toRow: Int
+    ) -> String? {
+        func point(_ column: Int, _ row: Int) -> ghostty_point_s {
+            ghostty_point_s(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                coord: GHOSTTY_POINT_COORD_EXACT,
+                x: UInt32(clamping: column),
+                y: UInt32(clamping: row)
+            )
+        }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(
+            surface,
+            ghostty_selection_s(
+                top_left: point(fromColumn, fromRow),
+                bottom_right: point(toColumn, toRow),
+                rectangle: false
+            ),
+            &text
+        ) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(
+            decoding: Data(bytes: pointer, count: Int(text.text_len)),
+            as: UTF8.self
+        )
+    }
+
+    /// The glyphs of one viewport row, without a trailing line break.
+    private func readKeyboardCopyModeRowGlyphs(
+        row: Int,
+        surface: ghostty_surface_t
+    ) -> [Character]? {
+        guard var glyphs = readKeyboardCopyModeViewportText(
+            surface: surface,
+            fromColumn: 0,
+            fromRow: row,
+            toColumn: Int(UInt16.max),
+            toRow: row
+        ).map(Array.init) else { return nil }
+        while glyphs.last?.isNewline == true { glyphs.removeLast() }
+        return glyphs
+    }
+
+    /// The glyph index of a viewport cell in its row's text.
+    ///
+    /// Reads the row up to and including the cell, and up to the cell before
+    /// it. Ghostty drops empty cells at the end of a read, so the cell holds a
+    /// glyph exactly when including it adds one; otherwise the cell is in a
+    /// run of empty cells, and the index of that run's first cell serves every
+    /// word motion the same way.
+    private func keyboardCopyModeGlyphIndex(
+        column: Int,
+        row: Int,
+        surface: ghostty_surface_t
+    ) -> Int? {
+        guard column > 0 else { return 0 }
+        guard let throughCell = readKeyboardCopyModeViewportText(
+            surface: surface,
+            fromColumn: 0,
+            fromRow: row,
+            toColumn: column,
+            toRow: row
+        )?.count,
+            let beforeCell = readKeyboardCopyModeViewportText(
+                surface: surface,
+                fromColumn: 0,
+                fromRow: row,
+                toColumn: column - 1,
+                toRow: row
+            )?.count else { return nil }
+        return throughCell > beforeCell ? throughCell - 1 : throughCell
     }
 
     @discardableResult
@@ -6544,9 +6757,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         linewise: Bool,
         surface: ghostty_surface_t
     ) {
-        guard let nativeCount = UInt16(
-            exactly: terminalKeyboardCopyModeClampCount(count)
-        ) else {
+        if let wordMotion = TerminalKeyboardCopyModeWordMotion(direction) {
+            moveKeyboardCopyModeByWord(
+                wordMotion,
+                count: count,
+                extendSelection: true,
+                linewise: linewise,
+                surface: surface
+            )
+            return
+        }
+        guard let nativeMove = nativeKeyboardCopyModeMove(direction),
+              let nativeCount = UInt16(
+                  exactly: terminalKeyboardCopyModeClampCount(count)
+              ) else {
             return
         }
 
@@ -6555,7 +6779,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var widthCells: UInt16 = 0
         guard ghostty_surface_keyboard_selection_move(
             surface,
-            nativeKeyboardCopyModeMove(direction),
+            nativeMove,
             nativeCount,
             true,
             linewise,
