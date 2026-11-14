@@ -42,7 +42,7 @@ Permissions, each optional and asked only when first used:
 - Local Network: a direct link to the user's own Mac on the same network.
 
 In-app purchases (auto-renewable subscriptions):
-- Settings > "Plan" opens "Plans": cmux Go, cmux Pro and cmux Max, monthly. "Subscribe" buys in the Sandbox; the demo account then shows the plan as "Current plan".
+- Settings > "Plan" opens "Plans": Go, Pro and Max (in the App Store: cmux Go, cmux Pro, cmux Max), monthly. "Subscribe" buys in the Sandbox; the demo account then shows the plan as "Current plan".
 - "Restore Purchases" is on that screen; with an App Store subscription, "Manage Subscription" opens Apple's subscription settings.
 - Below: "Terms of Use", "Privacy Policy" and the 3.1.2 terms: renews at the price shown until cancelled at least 24 hours before the period ends.
 - No other purchase, checkout or billing links.

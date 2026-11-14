@@ -197,14 +197,17 @@ class Lint:
 
     # --------------------------------------------------------------- metadata
 
-    def metadata(self) -> dict[str, dict]:
+    def metadata(self, report: bool = True) -> dict[str, dict]:
+        """Every metadata JSON file; a file that does not parse is a finding
+        when `report` (check_metadata reports it once; later readers skip it)."""
         out: dict[str, dict] = {}
         base = self.root / METADATA_DIR
         for path in sorted(base.rglob("*.json")):
             try:
                 out[self.rel(path)] = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError) as exc:
-                self.add("metadata.parse", "2.3", "blocker", f"metadata file does not parse: {exc}", self.rel(path))
+                if report:
+                    self.add("metadata.parse", "2.3", "blocker", f"metadata file does not parse: {exc}", self.rel(path))
         return out
 
     def check_metadata(self) -> list[tuple[str, str, str]]:
@@ -398,7 +401,7 @@ class Lint:
         self.ran("subscriptions")
         joined = "\n".join(texts.values())
         where = self.rel(storekit[0])
-        if not re.search(r"\"Restore Purchases\"", joined) or not re.search(r"\bAppStore\.sync\(\)|restorePurchases\(", joined):
+        if not re.search(r"\"Restore Purchases\"", joined) or not re.search(r"\bAppStore\.sync\(\)", joined):
             self.add("iap.restore", "3.1.1", "blocker",
                      "the app sells through StoreKit but has no \"Restore Purchases\" control that runs AppStore.sync()", where)
         missing = [label for label, pattern in (
@@ -412,7 +415,7 @@ class Lint:
         if not re.search(r"manageSubscriptionsSheet|showManageSubscriptions", joined):
             self.add("iap.manage", "3.1.2", "warning",
                      "no in-app way to manage the subscription (manageSubscriptionsSheet)", where)
-        descriptions = [body.get("description", "") for body in self.metadata().values() if isinstance(body, dict)]
+        descriptions = [body.get("description", "") for body in self.metadata(report=False).values() if isinstance(body, dict)]
         if descriptions and not any(re.search(r"terms-of-service|/terms\b|EULA", d, re.I) for d in descriptions):
             self.add("metadata.subscription-terms", "3.1.2", "blocker",
                      "the app sells subscriptions but no store description links its Terms of Use (EULA)", METADATA_DIR)

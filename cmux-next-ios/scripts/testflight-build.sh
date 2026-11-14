@@ -358,37 +358,35 @@ Import one of their .p12 files into the login keychain (see verify/testflight-re
   grep -qx "$identity" <<<"$ext_authorized" || die "\"$ext_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   grep -qx "$identity" <<<"$svc_authorized" || die "\"$svc_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
   echo "profile $profile_uuid, extension profiles $ext_profile_uuid $svc_profile_uuid, identity $identity"
-  # Entitlements beyond the base set, each signed in only when the app's
-  # profile carries its capability (a key the profile lacks fails signing or
-  # the upload): Time Sensitive notifications, and cmux's universal links (the
-  # list in App/CmuxMobileApp-TestFlight-Links.entitlements; project.yml
-  # CMUX_MOBILE_ASSOCIATED_DOMAINS). check_entitlements and the --from-archive
-  # signing both use this set.
-  python3 -I - "$private/profile.plist" "$script_dir/../App/CmuxMobileApp-TestFlight-Links.entitlements" \
-      "$private/optional-ent.plist" <<'PY' || die "could not read the profile's capabilities"
+  # Entitlements beyond the base set, decided by the app's profile (a key the
+  # profile lacks fails signing or the upload). Time Sensitive notifications
+  # are required: the TestFlight entitlements files carry the key, asks are
+  # sent time-sensitive, and both App IDs have the capability. cmux's
+  # universal links (the list in App/CmuxMobileApp-TestFlight-Links.entitlements)
+  # are signed in only when the profile carries Associated Domains: the build
+  # then gets CMUX_MOBILE_ASSOCIATED_DOMAINS=YES (project.yml), and
+  # check_entitlements and the --from-archive signing expect exactly this set.
+  read -r profile_time_sensitive profile_associated_domains < <(python3 -I -c '
 import plistlib,sys
 have=plistlib.load(open(sys.argv[1],"rb")).get("Entitlements",{})
-links=plistlib.load(open(sys.argv[2],"rb"))["com.apple.developer.associated-domains"]
-out={}
-if "com.apple.developer.usernotifications.time-sensitive" in have:
-    out["com.apple.developer.usernotifications.time-sensitive"]=True
-if "com.apple.developer.associated-domains" in have:
-    out["com.apple.developer.associated-domains"]=links
-plistlib.dump(out,open(sys.argv[3],"wb"))
-PY
-  if plutil -extract com.apple.developer.usernotifications.time-sensitive raw "$private/optional-ent.plist" >/dev/null 2>&1; then
-    echo "ok: profile carries Time Sensitive notifications"
-  else
-    echo "::warning::\"$profile_name\" lacks Time Sensitive notifications: this build's asks arrive as active notifications. Turn on USERNOTIFICATIONS_TIMESENSITIVE for $bundle_id and regenerate the profile." >&2
-    notes+=("Signed without Time Sensitive notifications: \"$profile_name\" lacks the capability.")
-  fi
-  if plutil -extract com.apple.developer.associated-domains xml1 -o /dev/null "$private/optional-ent.plist" 2>/dev/null; then
+print(int("com.apple.developer.usernotifications.time-sensitive" in have), int("com.apple.developer.associated-domains" in have))' \
+    "$private/profile.plist") || die "could not read the capabilities of \"$profile_name\""
+  [[ "$profile_time_sensitive" == 1 ]] || die "\"$profile_name\" lacks Time Sensitive notifications. Turn on USERNOTIFICATIONS_TIMESENSITIVE for $bundle_id (scripts/asc_ensure_signing.py does it for the App Store profile) and regenerate the profile."
+  if [[ "$profile_associated_domains" == 1 ]]; then
     associated_domains=YES
     echo "ok: profile carries Associated Domains; signing in cmux's universal links"
   else
     echo "::warning::\"$profile_name\" lacks Associated Domains: https cmux links open Safari, not this build. Turn on ASSOCIATED_DOMAINS for $bundle_id and regenerate the profile (verify/deep-links.md)." >&2
     notes+=("Signed without universal links: \"$profile_name\" lacks the Associated Domains capability.")
   fi
+  python3 -I - "$script_dir/../App/CmuxMobileApp-TestFlight-Links.entitlements" "$associated_domains" \
+      "$private/optional-ent.plist" <<'PY' || die "could not write the optional entitlements"
+import plistlib,sys
+out={"com.apple.developer.usernotifications.time-sensitive":True}
+if sys.argv[2]=="YES":
+    out["com.apple.developer.associated-domains"]=plistlib.load(open(sys.argv[1],"rb"))["com.apple.developer.associated-domains"]
+plistlib.dump(out,open(sys.argv[3],"wb"))
+PY
 fi
 
 if [[ -n "$from_archive" ]]; then

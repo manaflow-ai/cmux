@@ -66,7 +66,7 @@ cmux-next ships under the App Store app, so `appIDs` also lists `7WLXT3NR37.com.
 
 1. Turn on the Associated Domains capability for `dev.cmux.app.internal` and `com.cmux.app`. As of 2026-10-27 `dev.cmux.app.internal` has `IN_APP_PURCHASE`, `PUSH_NOTIFICATIONS`, `USERNOTIFICATIONS_TIMESENSITIVE` and `APPLE_ID_AUTH`. Turning on a capability invalidates the App ID's existing profiles.
 2. Regenerate their App Store profiles ("cmux Internal Distribution", its CI copy in the release environment's `IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64`, and "cmux App Store CI").
-3. Nothing else: `scripts/testflight-build.sh` reads the profile and, when it carries Associated Domains, builds with `CMUX_MOBILE_ASSOCIATED_DOMAINS=YES` and signs the domains in (the `--from-archive` signing too). Until then it signs without them and warns, so a profile without the capability never breaks a build. The INTERNAL nightly signs with the script on `rc/cnx-ios-builder`, so this takes effect there after that branch is fast-forwarded.
+3. Nothing else: `scripts/testflight-build.sh` reads the profile and, when it carries Associated Domains, builds with `CMUX_MOBILE_ASSOCIATED_DOMAINS=YES` and signs the domains in (the `--from-archive` signing too). Until then it signs without them and warns, so a profile without Associated Domains never breaks a build. (Time Sensitive notifications, by contrast, are required: the script refuses a profile without them.) The INTERNAL nightly signs with the script on `rc/cnx-ios-builder`, so this takes effect there after that branch is fast-forwarded.
 
 ## Legal and support links
 
