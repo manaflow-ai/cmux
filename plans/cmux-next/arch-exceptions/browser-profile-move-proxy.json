@@ -6,5 +6,6 @@
   "author": "stall-reconciler",
   "owner": "stall-reconciler",
   "receipt": "Review (coord-deputy-2): SHIP at 8494509a90f3976c47d6c17a29e2a37da7956dcb",
-  "expiry": "2026-12-12"
+  "expiry": "2026-12-12",
+  "applied_sha": "a85ec3631770a91c48265f27288b53ceaaec5b2d"
 }

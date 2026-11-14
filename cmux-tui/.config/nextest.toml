@@ -220,3 +220,10 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_seal_cost::/)'
 success-output = "final"
+
+# The disk section read cost test (mux/tests/disk_usage_read_cost.rs) prints the SQLite memory the
+# read took (its disk_usage_read_cost line); a fleet step shows it only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
+success-output = "final"

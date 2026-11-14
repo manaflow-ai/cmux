@@ -66,6 +66,9 @@ const PORT_BLOCK: u16 = 10;
 const PORT_BLOCKS: u16 = 1_000;
 /// The output a read returns at most.
 pub(super) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
+/// The most bytes that are read of a file that cmux keeps in a git folder
+/// (a setup's status, the repository's ports). A real one is far smaller.
+const MAX_OWN_BYTES: u64 = 1024 * 1024;
 /// Teardown output a removal reply carries.
 const MAX_TEARDOWN_OUTPUT_BYTES: u64 = 16 * 1024;
 
@@ -126,7 +129,8 @@ impl Place {
 /// Starts a new worktree's setup and answers what `git.worktree.create`
 /// reports of it. Nothing starts twice for one worktree.
 pub(super) fn start(place: Place, recipe: Recipe) -> Value {
-    let port = ports::allocate(&place.git_dir, &place.root);
+    let allocated = ports::allocate(&place.git_dir, &place.root);
+    let port = allocated.unwrap_or_default();
     if recipe.is_empty() {
         return json!({"state": "none", "port": port});
     }
@@ -149,6 +153,14 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         started_ms: now_ms(),
         ..Status::default()
     };
+    if allocated.is_err() {
+        // The ports that other worktrees have are not known: nothing runs.
+        if let Some(mut log) = open_log(&place.git_dir) {
+            let _ = writeln!(log, "Setup did not start: {PORTS_NOT_READ}");
+        }
+        finish(&mut status, &status_path, "failed", None);
+        return json!({"state": "failed", "port": port});
+    }
     if write_status(&status_path, &status).is_err() {
         return json!({"state": "none", "port": port});
     }
@@ -186,11 +198,9 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run, lock: 
     let status_path = place.git_dir.join(STATUS_FILE);
     let cancel_path = place.git_dir.join(CANCEL_FILE);
     let cancelled = || handle.is_cancelled() || cancel_path.exists();
-    let mut log =
-        match OpenOptions::new().create(true).append(true).open(place.git_dir.join(LOG_FILE)) {
-            Ok(log) => log,
-            Err(_) => return finish(status, &status_path, "failed", None),
-        };
+    let Some(mut log) = open_log(&place.git_dir) else {
+        return finish(status, &status_path, "failed", None);
+    };
     if !recipe.include.is_empty() {
         let _ = writeln!(log, "Copying files listed in {} ...", worktree_include::FILE_NAME);
         let patterns = worktree_include::parse(recipe.include.iter().map(String::as_str));
@@ -391,7 +401,7 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     stop(place);
     let script = teardown?;
     let path = place.git_dir.join(LOG_FILE);
-    let log = OpenOptions::new().create(true).read(true).append(true).open(&path).ok()?;
+    let log = open_log(&place.git_dir)?;
     let start = log.metadata().map_or(0, |metadata| metadata.len());
     let _ = writeln!(&log, "$ {script}");
     let outcome = shell(
@@ -533,7 +543,9 @@ fn stop(place: &Place) {
         // The marker goes first: a run whose status says copying may not
         // hold its lock yet, and it checks the marker once it does.
         if read_status(&place.git_dir).is_some_and(|status| live(&status)) {
-            let _ = fs::write(place.git_dir.join(CANCEL_FILE), b"");
+            let mut options = OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            drop(open_as_own(&mut options, &place.git_dir.join(CANCEL_FILE)));
         }
         if unfinished(read_status(&place.git_dir)) {
             let deadline = Instant::now() + STOP_WAIT;
@@ -593,12 +605,10 @@ fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
 #[cfg(unix)]
 fn hold(git_dir: &Path) -> Option<File> {
     use std::os::fd::AsRawFd as _;
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(git_dir.join(LOCK_FILE))
-        .ok()?;
+    // A link or a named pipe in the lock's place is nobody's lock.
+    let mut options = OpenOptions::new();
+    let file =
+        open_as_own(options.create(true).truncate(false).write(true), &git_dir.join(LOCK_FILE))?;
     // SAFETY: a live descriptor; flock(2) only locks it.
     (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
 }
@@ -655,15 +665,29 @@ fn signal_group(pid: u32, signal: Signal) {
 #[cfg(not(unix))]
 fn signal_group(_pid: u32, _signal: Signal) {}
 
+/// The setup's status. A status file above the size limit is no status.
 fn read_status(git_dir: &Path) -> Option<Status> {
-    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE))?).ok()
+    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE)).ok()??).ok()
 }
 
-/// The bytes of a file that cmux keeps in a git folder ([`open_own`]).
-fn read_own(path: &Path) -> Option<Vec<u8>> {
+/// A file that cmux keeps in a git folder is larger than [`MAX_OWN_BYTES`].
+#[derive(Clone, Copy, Debug)]
+struct TooLarge;
+
+/// What a setup's log says when the repository's ports file is not read.
+const PORTS_NOT_READ: &str =
+    "the file cmux-worktree-ports.json in the repository's git folder is larger than 1 MiB";
+
+/// The bytes of a file that cmux keeps in a git folder ([`open_own`]);
+/// `None` when there is no such file to read.
+fn read_own(path: &Path) -> Result<Option<Vec<u8>>, TooLarge> {
+    let Some(file) = open_own(path) else { return Ok(None) };
     let mut bytes = Vec::new();
-    open_own(path)?.read_to_end(&mut bytes).ok()?;
-    Some(bytes)
+    if file.take(MAX_OWN_BYTES.saturating_add(1)).read_to_end(&mut bytes).is_err() {
+        return Ok(None);
+    }
+    let small = u64::try_from(bytes.len()).is_ok_and(|length| length <= MAX_OWN_BYTES);
+    if small { Ok(Some(bytes)) } else { Err(TooLarge) }
 }
 
 /// Opens a file that cmux keeps in a git folder (a setup's status, log and
@@ -693,10 +717,30 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
     file.metadata().ok()?.is_file().then_some(file)
 }
 
-fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
+/// Opens the log of the worktree whose git folder is `git_dir`, for a read
+/// and for writes at its end, and makes it when there is none
+/// ([`open_as_own`]).
+fn open_log(git_dir: &Path) -> Option<File> {
+    let mut options = OpenOptions::new();
+    open_as_own(options.create(true).read(true).append(true), &git_dir.join(LOG_FILE))
+}
+
+/// Writes `bytes` as the whole of the JSON file `path` that cmux keeps in a
+/// git folder: to a second name beside it, which then takes its name. The
+/// second name is made new ([`open_as_own`]): what is at that name goes
+/// first, and a link that comes there after that stops the write.
+fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("json.partial");
-    fs::write(&partial, serde_json::to_vec(status)?)?;
+    let _ = fs::remove_file(&partial);
+    let mut options = OpenOptions::new();
+    let mut file = open_as_own(options.write(true).create_new(true), &partial)
+        .ok_or(std::io::ErrorKind::AlreadyExists)?;
+    file.write_all(bytes)?;
     fs::rename(partial, path)
+}
+
+fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
+    write_own(path, &serde_json::to_vec(status)?)
 }
 
 fn now_ms() -> u64 {
@@ -757,14 +801,17 @@ mod ports {
         Some(common.join("cmux-worktree-ports.json"))
     }
 
-    fn load(path: &Path) -> BTreeMap<String, u16> {
-        read_own(path).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    /// The ports of each worktree. A ports file above the size limit is not
+    /// read, and it is not a list with no worktree: a port of a list that
+    /// starts empty can be the port of another worktree.
+    fn load(path: &Path) -> Result<BTreeMap<String, u16>, TooLarge> {
+        let bytes = read_own(path)?;
+        Ok(bytes.and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
     }
 
     fn save(path: &Path, ports: &BTreeMap<String, u16>) {
-        let partial = path.with_extension("json.partial");
-        if serde_json::to_vec_pretty(ports).is_ok_and(|bytes| fs::write(&partial, bytes).is_ok()) {
-            let _ = fs::rename(partial, path);
+        if let Ok(bytes) = serde_json::to_vec_pretty(ports) {
+            let _ = write_own(path, &bytes);
         }
     }
 
@@ -795,18 +842,27 @@ mod ports {
     pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
         let path = path(git_dir)?;
         let _guard = lock(&path);
-        load(&path).get(&key(root)).copied()
+        load(&path).ok()?.get(&key(root)).copied()
     }
 
     /// The worktree's block, kept from before or the first free one: none
     /// of its ports listens, and no other worktree of the repository has
     /// it. A repository starts looking at a block its folder picks, so two
     /// repositories rarely start at the same one.
-    pub(super) fn allocate(git_dir: &Path, root: &Path) -> Option<u16> {
-        use std::hash::{Hash as _, Hasher as _};
-        let path = path(git_dir)?;
+    ///
+    /// No port is given, and the file stays, when the ports file is above
+    /// the size limit.
+    pub(super) fn allocate(git_dir: &Path, root: &Path) -> Result<Option<u16>, TooLarge> {
+        let Some(path) = path(git_dir) else { return Ok(None) };
         let _guard = lock(&path);
-        let mut ports = load(&path);
+        let mut ports = load(&path)?;
+        Ok(free_block(&path, &mut ports, root))
+    }
+
+    /// The block of `root` in `ports`, kept from before or the first free
+    /// one, which is then saved at `path`.
+    fn free_block(path: &Path, ports: &mut BTreeMap<String, u16>, root: &Path) -> Option<u16> {
+        use std::hash::{Hash as _, Hasher as _};
         if let Some(port) = ports.get(&key(root)) {
             return Some(*port);
         }
@@ -823,14 +879,14 @@ mod ports {
                         .all(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok())
             })?;
         ports.insert(key(root), port);
-        save(&path, &ports);
+        save(path, ports);
         Some(port)
     }
 
     pub(super) fn free(git_dir: &Path, root: &Path) {
         let Some(path) = path(git_dir) else { return };
         let _guard = lock(&path);
-        let mut ports = load(&path);
+        let Ok(mut ports) = load(&path) else { return };
         if ports.remove(&key(root)).is_some() {
             save(&path, &ports);
         }
@@ -838,101 +894,7 @@ mod ports {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tail_reads_from_an_offset_within_the_limit() {
-        let mut bytes = [0_u8; 6];
-        getrandom::fill(&mut bytes).unwrap();
-        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let path = std::env::temp_dir().join(format!("cmux-setup-log-{hex}"));
-        fs::write(&path, "0123456789").unwrap();
-        assert_eq!(tail(&path, 4, 100), ("456789".to_string(), 4, 10));
-        assert_eq!(tail(&path, 0, 3), ("789".to_string(), 7, 10));
-        assert_eq!(tail(&path, 99, 100), (String::new(), 10, 10));
-        fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn the_environment_has_both_names() {
-        let place = Place {
-            root: PathBuf::from("/w/fix-login"),
-            main_root: Some(PathBuf::from("/repo")),
-            git_dir: PathBuf::from("/repo/.git/worktrees/fix-login"),
-        };
-        let values = place.environment(Some(40_010));
-        assert_eq!(values["CMUX_ROOT_PATH"], "/repo");
-        assert_eq!(values["CONDUCTOR_ROOT_PATH"], "/repo");
-        assert_eq!(values["CMUX_WORKSPACE_NAME"], "fix-login");
-        assert_eq!(values["CONDUCTOR_PORT"], "40010");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_setup_stops_itself_when_another_host_removes_the_worktree() {
-        let mut bytes = [0_u8; 6];
-        getrandom::fill(&mut bytes).unwrap();
-        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let root = std::env::temp_dir().join(format!("cmux-setup-stop-{hex}"));
-        fs::create_dir_all(&root).unwrap();
-        let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
-        let log = File::create(root.join(LOG_FILE)).unwrap();
-        let cancel = root.join(CANCEL_FILE);
-        let other_host = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            fs::write(cancel, b"").unwrap();
-        });
-        let (handle, mut status) = (Run::default(), Status::default());
-        let started = Instant::now();
-        let outcome = shell(
-            &place,
-            "sleep 30",
-            None,
-            &log,
-            SETUP_DEADLINE,
-            Some((&handle, &mut status, None)),
-        );
-        other_host.join().unwrap();
-        assert!(matches!(outcome, Outcome::Exited(None)));
-        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_setup_stops_when_its_run_is_cancelled_without_a_signal() {
-        let mut bytes = [0_u8; 6];
-        getrandom::fill(&mut bytes).unwrap();
-        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let root = std::env::temp_dir().join(format!("cmux-setup-cancel-{hex}"));
-        fs::create_dir_all(&root).unwrap();
-        let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
-        let log = File::create(root.join(LOG_FILE)).unwrap();
-        let handle = Arc::new(Run::default());
-        let canceller = {
-            let handle = handle.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(300));
-                handle.cancelled.store(true, Ordering::SeqCst);
-            })
-        };
-        let mut status = Status::default();
-        let started = Instant::now();
-        let outcome = shell(
-            &place,
-            "sleep 30",
-            None,
-            &log,
-            SETUP_DEADLINE,
-            Some((&handle, &mut status, None)),
-        );
-        canceller.join().unwrap();
-        assert!(matches!(outcome, Outcome::Exited(None)));
-        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+mod tests;
 
 #[cfg(all(test, unix))]
 mod lock_probe_tests {

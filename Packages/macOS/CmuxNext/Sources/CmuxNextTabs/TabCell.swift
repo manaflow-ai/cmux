@@ -533,8 +533,10 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
-            let inset = (closeRect.width - m.closeGlyphSize) / 2
+            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
+            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
