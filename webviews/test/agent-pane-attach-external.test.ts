@@ -44,31 +44,9 @@ await requireBrowserLane("agent-pane-attach-external.test.ts", async () => {
   test("attachExternal puts the host's image into the composer, unsent, with its source", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(() => {
-      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-      const asked: { method: string; params: unknown }[] = [];
-      let held: { name: string; type: string; data: string }[] = [];
       Object.assign(window, {
-        asked,
-        // The app holds a screenshot for this chat.
-        holdScreenshot: () => {
-          held = [{ name: "Screenshot 2026-11-14.png", type: "image/png", data: png }];
-        },
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
-        cmuxAcpmuxActions: {
-          ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }),
-          // The host answers its files once.
-          "chat.attach.external": async (params: unknown) => {
-            asked.push({ method: "chat.attach.external", params });
-            const files = held;
-            held = [];
-            return { files };
-          },
-          "chat.attach.source": async (params: unknown) => {
-            asked.push({ method: "chat.attach.source", params });
-            return { sources: [{ name: "Preview", bundleId: "com.apple.Preview" }] };
-          },
-          "chat.attach.dropped": async () => ({ items: [] }),
-        },
+        cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
       });
     });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -79,11 +57,27 @@ await requireBrowserLane("agent-pane-attach-external.test.ts", async () => {
       attachments: [],
     });
 
-    // The page asked once as it loaded, and nothing was held.
-    await page.waitForFunction(() => (window as unknown as { asked: unknown[] }).asked.length >= 1);
+    // The host's answers, added to the actions the page installed once its client was up.
+    await page.waitForFunction(() => typeof window.cmuxAcpmuxActions?.["chat.send"] === "function");
     await page.evaluate(() => {
-      (window as unknown as { holdScreenshot(): void }).holdScreenshot();
-      (window as unknown as { asked: unknown[] }).asked.length = 0;
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const asked: { method: string; params: unknown }[] = [];
+      // The app holds a screenshot for this chat, and answers it once.
+      let held = [{ name: "Screenshot 2026-11-14.png", type: "image/png", data: png }];
+      Object.assign(window, { asked });
+      Object.assign(window.cmuxAcpmuxActions!, {
+        "chat.attach.external": async (params: unknown) => {
+          asked.push({ method: "chat.attach.external", params });
+          const files = held;
+          held = [];
+          return { files };
+        },
+        "chat.attach.source": async (params: unknown) => {
+          asked.push({ method: "chat.attach.source", params });
+          return { sources: [{ name: "Preview", bundleId: "com.apple.Preview" }] };
+        },
+        "chat.attach.dropped": async () => ({ items: [] }),
+      });
       window.cmuxAcpmuxBridge?.command?.("attachExternal");
     });
     // What the page did, for a failure's message.
