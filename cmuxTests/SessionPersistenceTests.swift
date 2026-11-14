@@ -6359,6 +6359,165 @@ extension SessionPersistenceTests {
         XCTAssertNil(batch.effectiveDecision)
     }
 
+    @MainActor
+    func testSurfaceResumeRunPromptBatchClaimsEachAgentCheckpointOncePerPass() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        // Outside a restore pass nothing is tracked.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-a"), .unscoped)
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-a"), .unscoped)
+
+        batch.beginRestorePass()
+        // Every distinct checkpoint has an owner, however many there are.
+        for index in 0..<20 {
+            XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-\(index)"), .owner)
+        }
+        // A second claim for the same checkpoint is always a duplicate,
+        // including whitespace around the kind.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-19"), .duplicate)
+        XCTAssertEqual(batch.claimAgentRestore(kind: " codex ", sessionID: "session-0"), .duplicate)
+        // Another agent kind with the same id is a different checkpoint.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "claude", sessionID: "session-0"), .owner)
+
+        // Releasing an owned claim lets a later panel own the checkpoint.
+        batch.releaseAgentRestore(kind: "codex", sessionID: "session-3")
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-3"), .owner)
+        batch.endRestorePass()
+
+        // Claims do not outlive the pass.
+        batch.beginRestorePass()
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-0"), .owner)
+        batch.endRestorePass()
+
+        batch.beginRestorePass()
+        let piUUID = "123e4567-e89b-12d3-a456-426614174000"
+        let piPath = "/Users/test/.pi/sessions/2026-10-27_\(piUUID).jsonl"
+        XCTAssertEqual(batch.claimAgentRestore(kind: "pi", sessionID: piPath), .owner)
+        XCTAssertEqual(batch.claimAgentRestore(kind: "pi", sessionID: piUUID), .duplicate)
+        batch.endRestorePass()
+    }
+
+    func testAgentRestoreIdentityKeysAgentsAndHookBindingsButNotMultiplexers() {
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        let hookBinding = SurfaceResumeBindingSnapshot(
+            name: "Pi",
+            kind: "pi",
+            command: "pi --session pi-session",
+            cwd: "/tmp/identity",
+            checkpointId: "pi-session",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1
+        )
+        var tmuxBinding = hookBinding
+        tmuxBinding.kind = "tmux"
+        tmuxBinding.checkpointId = "shared-tmux-session"
+        tmuxBinding.source = "process"
+
+        let fromAgent = SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: agent, agentMayAutoResume: true,
+            resumeBinding: nil, bindingWillLaunch: false
+        )
+        XCTAssertEqual(fromAgent?.kind, "codex")
+        XCTAssertEqual(fromAgent?.sessionID, "codex-session")
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: agent, agentMayAutoResume: false,
+            resumeBinding: nil, bindingWillLaunch: false
+        ))
+        let fromHook = SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: hookBinding, bindingWillLaunch: true
+        )
+        XCTAssertEqual(fromHook?.kind, "pi")
+        XCTAssertEqual(fromHook?.sessionID, "pi-session")
+        // A hook binding that won't launch, and any multiplexer binding,
+        // never takes a claim.
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: hookBinding, bindingWillLaunch: false
+        ))
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: tmuxBinding, bindingWillLaunch: true
+        ))
+        var legacyCodex = hookBinding
+        legacyCodex.kind = nil
+        legacyCodex.name = "Codex"
+        legacyCodex.command = "codex resume pi-session"
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: legacyCodex, bindingWillLaunch: true
+            )?.kind,
+            "codex"
+        )
+        let pathBasedPi = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "/Users/test/.pi/sessions/2026-10-27_123e4567-e89b-12d3-a456-426614174000.jsonl",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: pathBasedPi, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )?.kind,
+            "pi"
+        )
+        let emptyCheckpoint = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: " ",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertNil(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: emptyCheckpoint, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )
+        )
+
+        // Quoting and environment prefixes are parsed by the same parser
+        // used to replay old command-only bindings.
+        legacyCodex.command = "env ACCOUNT=work '/opt/company tools/codex' resume pi-session"
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: legacyCodex, bindingWillLaunch: true
+            )?.kind,
+            "codex"
+        )
+        let directoryCheckpoint = SessionRestorableAgentSnapshot(
+            kind: .custom("directory-agent"),
+            sessionId: "/tmp/session directory",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: directoryCheckpoint, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )?.sessionID,
+            directoryCheckpoint.sessionId
+        )
+
+        var claudeCommand = legacyCodex
+        claudeCommand.command = "cd /tmp/codex-project && claude --resume pi-session"
+        XCTAssertNil(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: claudeCommand, bindingWillLaunch: true
+            )
+        )
+    }
+
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
