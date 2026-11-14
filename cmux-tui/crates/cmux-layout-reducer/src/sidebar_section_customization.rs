@@ -321,10 +321,10 @@ fn plan(
     let mut section_order = Vec::with_capacity(input_len);
     let mut start = 0;
     while start < input_len {
-        let Some(first) = input.iter().nth(start) else { break };
+        let Some(first) = input.get(start) else { break };
         let region = first.region.as_str();
         let mut end = start + 1;
-        while end < input_len && input.iter().nth(end).is_some_and(|section| section.region == region) {
+        while end < input_len && input.get(end).is_some_and(|section| section.region == region) {
             end += 1;
         }
         let mut chunk = input.iter().skip(start).take(end - start).collect::<Vec<_>>();
