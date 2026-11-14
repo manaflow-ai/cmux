@@ -25,7 +25,12 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   once (``drainInput()``), on its own `daemon` channel on the link's input lane
 ///   (PROTOCOL.md "Lanes"), so a keystroke or ^C never waits behind the
 ///   output it should interrupt. Until that channel is open (or when it
-///   fails) input goes on the attach channel.
+///   fails) input goes on the attach channel. The composer's Send
+///   (``submit(_:)``) is one `send` with `submit: true` against a daemon
+///   that lists `send-expect-agent-v1`: its text and Return travel in one
+///   request, so a stalled channel cannot deliver the text without its
+///   Return (only a failed terminal write between the two, which the
+///   request reports, can).
 /// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid,
 ///   on the attach channel (the daemon gives geometry authority to the
 ///   attaching client), only while the terminal is on screen
@@ -102,6 +107,9 @@ public final class DaemonTerminalSession: TerminalSession {
     public let sizing = TerminalSizingLive()
     /// The daemon takes `note-size-activity` (it listed `shared-sizing-v1`).
     private var sharedSizing = false
+    /// The daemon writes Return after a `send`'s bytes in the same request
+    /// (`submit`; it listed `send-expect-agent-v1`).
+    private var submitsWithText = false
     /// The daemon takes `replay_history_rows` (it listed
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
@@ -136,7 +144,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a command typed during an outage ran 15.4 minutes later).
     /// `typed`: the person's own input; false for Ghostty's replies to
     /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
-    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool)] = []
+    /// `submit`: Return goes with these bytes in the same request
+    /// (``submit(_:)``); it ends its batch.
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool, submit: Bool)] = []
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -182,7 +192,7 @@ public final class DaemonTerminalSession: TerminalSession {
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
-    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int)] = []
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int, submit: Bool)] = []
     private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -298,8 +308,33 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { await attach() }
     }
 
+    // perf-hot: 0.1ms terminal-key (each key: one append to the queue)
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
+        enqueueTyped(bytes, submit: false)
+    }
+
+    /// The composer's Send: `payload` and Return as one `send` with
+    /// `submit: true`, so a stalled or failed channel loses both or neither (a
+    /// terminal write that fails between the text and Return is reported as an error)
+    /// (live logs, 2026-11-13: the Return of a command sent as two requests
+    /// was dropped after the text was typed, and the shell glued the text
+    /// onto the next command). The never-send-twice rule holds for it as for
+    /// any batch. Only while attached to a daemon that lists
+    /// `send-expect-agent-v1` (an older one ignores `submit`); otherwise the
+    /// text goes alone and the caller sends Return.
+    public func submit(_ payload: Data) -> Bool {
+        guard !payload.isEmpty, attached, submitsWithText else {
+            send(payload)
+            return false
+        }
+        enqueueTyped(payload, submit: true)
+        return true
+    }
+
+    /// Queues the person's bytes, or refuses them while earlier keys were dropped.
+    // perf-hot: 0.1ms terminal-key (each key: one append to the queue)
+    private func enqueueTyped(_ bytes: Data, submit: Bool) {
         // A reattach that gave up: typing tries again (the line it printed says so).
         if gaveUp { reconnect() }
         if refusingInput, !attached {
@@ -307,7 +342,7 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.inputNotSent(bytes: bytes.count))
             return
         }
-        input.append((bytes, now(), !attached, true))
+        input.append((bytes, now(), !attached, true, submit))
         if !attached, input.reduce(0, { $0 + $1.bytes.count }) > Self.inputHoldBytes {
             dropDetachedInput(reason: "more than \(Self.inputHoldBytes) bytes waited for the terminal")
             return
@@ -334,7 +369,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// "thjs chatters too often with connectivity").
     public func sendReply(_ bytes: Data) {
         guard !bytes.isEmpty, attached, !refusingInput else { return }
-        input.append((bytes, now(), false, false))
+        input.append((bytes, now(), false, false, false))
         scheduleInputDrain()
     }
 
@@ -343,7 +378,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func markInputDetached() {
         // A reply waiting to go is stale once the link drops: never sent
         // after a reattach (the screen is replayed by then).
-        input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true) }
+        input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true, $0.submit) }
         guard !input.isEmpty else { return }
         let limit = Self.inputHoldLimit
         Task { [weak self] in
@@ -669,6 +704,7 @@ public final class DaemonTerminalSession: TerminalSession {
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
+            submitsWithText = identify.map { Self.lists(Self.submitCapability, $0) } ?? false
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -1111,6 +1147,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// goes out (``inputSettled()``). A batch that was written may already
     /// have been typed on the Mac, and a doubled Return runs a command
     /// twice: it is never sent again, and neither is anything after it.
+    ///
+    /// A ``submit(_:)`` ends its batch and its request carries
+    /// `submit: true`; keys queued after it go in the next one.
+    // perf-hot: 0.1ms terminal-key (each input turn: one copy of the queued keys into the batch)
     private func drainInput() {
         guard attached, replacing == nil, !inputWriting else { return }
         expireInput()
@@ -1122,11 +1162,18 @@ public final class DaemonTerminalSession: TerminalSession {
         let number = nextInputBatch
         nextInputBatch += 1
         let typedAt = input[0].at
-        let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
+        let end = input.firstIndex(where: \.submit).map { $0 + 1 } ?? input.count
+        let endsWithSubmit = input[end - 1].submit
+        var bytes = input[..<end].reduce(into: Data()) { $0.append($1.bytes) }
         // The person's own bytes in it: a failed batch of terminal replies
-        // alone is no "keys not sent".
-        let typedBytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
-        input.removeAll()
+        // alone is no "keys not sent". A submit's Return counts.
+        let typedBytes = input[..<end].reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) } + (endsWithSubmit ? 1 : 0)
+        input.removeSubrange(..<end)
+        let withReturn = endsWithSubmit && submitsWithText
+        // Queued for a daemon that took `submit`, going to one that does not
+        // (a reattach to an older Mac): Return rides in the same bytes.
+        if endsWithSubmit, !withReturn { bytes.append(0x0D) }
+        let batch = bytes
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1135,14 +1182,18 @@ public final class DaemonTerminalSession: TerminalSession {
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()], deadline: deadline)
+                    // Each request gets its own literal (Swift 6 regions).
+                    if withReturn {
+                        return try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString(), "submit": true], deadline: deadline)
+                    }
+                    return try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()], deadline: deadline)
                 }
                 // A lane request gets written and answered within seconds or
                 // the lane is given up.
                 let id: String
                 if onLane {
                     guard let submitted = try await Self.within(.seconds(10), submit) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: true)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: withReturn, wasWriting: true)
                         return
                     }
                     id = submitted
@@ -1157,7 +1208,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: false)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: withReturn, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -1173,11 +1224,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 lastError = Self.diagnostic(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
-                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
+                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes, submit: withReturn))
                 } else {
                     // Never written: safe to send again (on the attach channel
                     // when the lane failed, or after the reattach).
-                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes))
+                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes, submit: withReturn))
                 }
                 if inputClient === target {
                     dropInputLane()
@@ -1204,11 +1255,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane gave no answer in time (`wasWriting`: the batch's
     /// write itself hung): given up, and the batch is not sent again (the
     /// Mac may already have typed it).
-    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, wasWriting: Bool) {
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, submit: Bool, wasWriting: Bool) {
         log.error("send on the input lane got no answer; using the attach channel")
         abandonedInputLane = lane
         inputRecovering = true
-        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed))
+        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed, submit: submit))
         if wasWriting { inputWriting = false }
         if inputClient === lane { dropInputLane() }
         inputSettled()
@@ -1245,7 +1296,8 @@ public final class DaemonTerminalSession: TerminalSession {
             } else if !failed.isEmpty {
                 // A batch of replies alone is stale after the outage (and a
                 // written one may have arrived): dropped.
-                input.insert(contentsOf: failed.filter { !$0.written && $0.typed > 0 }.map { ($0.bytes, $0.at, true, true) }, at: 0)
+                // A submit never written goes again as a submit (text and Return together).
+                input.insert(contentsOf: failed.filter { !$0.written && $0.typed > 0 }.map { ($0.bytes, $0.at, true, true, $0.submit) }, at: 0)
                 markInputDetached()
             }
         }
@@ -1384,6 +1436,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `replay_history_rows` on `attach-surface`: the replay holds the screen
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
+    /// `submit` on `send`: Return after the bytes, in the same request.
+    static let submitCapability = "send-expect-agent-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
 

@@ -676,6 +676,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.session.sendReply(data)
             }
         }
+        surface.onSubmit = { [weak self] payload in
+            #if DEBUG
+            self?.devProbe?.sent(payload)
+            #endif
+            guard let self else { return false }
+            // A refusal comes back as `.inputNotSent` from inside `submit`.
+            inputRefused = false
+            return model.session.submit(payload)
+        }
         // Held for a reattach (or a first attach still coming) is not sent:
         // the echo may never come, so nothing is predicted for it.
         surface.inputGoesOut = { [weak self] in

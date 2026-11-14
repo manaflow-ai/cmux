@@ -26,6 +26,11 @@ final class TerminalSurfaceView: UIView {
     /// pressed or pasted, and Ghostty's own replies (terminal queries, mouse
     /// and focus reports).
     var onInput: ((Data) -> Void)?
+    /// The composer's Send in one request: the paste as Ghostty encoded it,
+    /// to go with Return (`TerminalSession.submit`). Returns whether Return
+    /// went with it; when it did not, the paste went alone and the surface
+    /// sends Return as before. Nil: Return always goes on its own.
+    var onSubmit: ((Data) -> Bool)?
     /// Whether the write `onInput` just took goes out to the remote now (the
     /// session is attached and did not refuse it). Prediction records only
     /// input that goes: a refused or held key never echoes.
@@ -35,6 +40,9 @@ final class TerminalSurfaceView: UIView {
     /// before it returns (D6), so a write delivered while this is set is
     /// theirs; any other write is Ghostty's own, which prediction never sees.
     var isEncodingUserInput = false
+    /// While set, what the person's input encodes is collected here instead
+    /// of going out (``submitInOneRequest(_:)``).
+    private var collectedInput: Data?
     /// Set for the whole of `perform` (key releases and preedit too): a
     /// write delivered while this is clear is Ghostty's reply to a terminal
     /// query (a cursor, device, focus or mouse report), not a key.
@@ -122,19 +130,7 @@ final class TerminalSurfaceView: UIView {
         guard let app = try? CmuxMobileGhosttyApp.shared() else { return }
         self.app = app
         let box = InputBox()
-        box.deliver = { [weak self] data in
-            guard let self else { return }
-            let typed = isEncodingUserInput
-            onInput?(data)
-            // Only the person's own input, once the session took it: a
-            // terminal reply or a mouse report is no keystroke and would
-            // withdraw what is drawn, and a refused key would stand there
-            // until it timed out. Ghostty also writes a mouse report while
-            // it holds the renderer lock, so redrawing for one (which reads
-            // its grid metrics) froze the screen.
-            guard typed, inputGoesOut() else { return }
-            prediction?.sent(data)
-        }
+        box.deliver = { [weak self] data in self?.deliver(data) }
         box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
@@ -175,6 +171,26 @@ final class TerminalSurfaceView: UIView {
         onEvent?(.cellSize)
         observePresents()
         observeFontSize()
+    }
+
+    /// One write Ghostty encoded for the remote (`io_write_cb`).
+    // perf-hot: 0.1ms terminal-key (each key: one optional check before it goes out)
+    private func deliver(_ data: Data) {
+        // Inside `perform` (a key release too), never a reply that comes later.
+        if isPerformingInput, collectedInput != nil {
+            collectedInput?.append(data)
+            return
+        }
+        let typed = isEncodingUserInput
+        onInput?(data)
+        // Only the person's own input, once the session took it: a
+        // terminal reply or a mouse report is no keystroke and would
+        // withdraw what is drawn, and a refused key would stand there
+        // until it timed out. Ghostty also writes a mouse report while
+        // it holds the renderer lock, so redrawing for one (which reads
+        // its grid metrics) froze the screen.
+        guard typed, inputGoesOut() else { return }
+        prediction?.sent(data)
     }
 
     // MARK: Occlusion
@@ -804,13 +820,15 @@ final class TerminalSurfaceView: UIView {
     }
 
     /// The composer's draft as one paste (bracketed when the program asked
-    /// for it), then Return as its own keystroke a moment later
-    /// (`ComposerSubmit`, Codex QA F1).
+    /// for it), then Return: in the same request when the session takes it
+    /// (``submitInOneRequest(_:)``), else as its own keystroke a moment
+    /// later (`ComposerSubmit`, Codex QA F1).
     func sendText(_ text: String, pressReturn: Bool, fullScreenApp: Bool = false) {
         perform(ComposerSubmit(text: text, pressReturn: pressReturn, fullScreenApp: fullScreenApp))
     }
 
     func perform(_ submit: ComposerSubmit) {
+        if let draft = submit.pasteThenReturn, submitInOneRequest(draft) { return }
         for step in submit.steps {
             switch step {
             case .paste(let draft):
@@ -818,17 +836,59 @@ final class TerminalSurfaceView: UIView {
             case .type(let draft):
                 perform([.text(draft)])
             case .enter where submit.delaysEnter:
-                let wait = submit.enterWait ?? ComposerSubmit.enterDelay
-                Task { @MainActor [weak self] in
-                    try? await ContinuousClock().sleep(for: wait)
-                    guard let self else { return }
-                    self.perform(self.input.plainKey(usage: TerminalHIDUsage.enter))
-                }
+                sendReturn(after: submit.enterWait ?? ComposerSubmit.enterDelay)
             case .enter:
                 perform(input.plainKey(usage: TerminalHIDUsage.enter))
             }
         }
     }
+
+    /// Return as its own keystroke, `wait` from now.
+    private func sendReturn(after wait: Duration) {
+        Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: wait)
+            guard let self else { return }
+            self.perform(self.input.plainKey(usage: TerminalHIDUsage.enter))
+        }
+    }
+
+    /// The paste and its Return as one request (`onSubmit`), so a link that
+    /// stalls between two requests can never deliver the text without its
+    /// Return (live logs, 2026-11-13: "41 typed bytes not sent again", and
+    /// the shell glued the text onto the next command). The bytes are the
+    /// ones the two writes carried: the paste as Ghostty encodes it
+    /// (bracketed while the program asked for it), and Return, which the
+    /// daemon writes as CR right after it. False, with nothing sent, when
+    /// there is no `onSubmit` or Return does not encode as CR now (a program
+    /// asked for every key as an escape code): the caller sends both as before.
+    private func submitInOneRequest(_ draft: String) -> Bool {
+        guard let onSubmit else { return false }
+        guard collecting({ perform(input.plainKey(usage: TerminalHIDUsage.enter)) }) == Self.carriageReturn else { return false }
+        let payload = collecting { perform([.paste(draft)]) }
+        // Ghostty wrote nothing for the paste: Return alone, as before.
+        guard !payload.isEmpty else {
+            sendReturn(after: ComposerSubmit.enterDelay)
+            return true
+        }
+        let returned = onSubmit(payload)
+        if inputGoesOut() {
+            prediction?.sent(payload)
+            if returned { prediction?.sent(Self.carriageReturn) }
+        }
+        // The session sent the paste alone: Return follows as its own keystroke.
+        if !returned { sendReturn(after: ComposerSubmit.enterDelay) }
+        return true
+    }
+
+    /// What `body`'s input encodes, collected instead of sent.
+    private func collecting(_ body: () -> Void) -> Data {
+        collectedInput = Data()
+        defer { collectedInput = nil }
+        body()
+        return collectedInput ?? Data()
+    }
+
+    static let carriageReturn = Data([0x0D])
 
     // MARK: Responder
 
