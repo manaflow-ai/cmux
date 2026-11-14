@@ -118,6 +118,9 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
     # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
     "tests/test_nightly_deltas_keyless_prebuild.py",
+    # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
+    # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
+    "tests/test_nightly_deltas_yield.py",
     # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
     # checks the outputs the build and publish jobs read; run it by hand after changing that block.
     "tests/test_nightly_next_notary_full_import.py",

@@ -217,6 +217,16 @@ public final class AgentChatStore {
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
+    /// The first message this phone is sending has not shown in the transcript yet (New Task):
+    /// the chat still says it is starting. Read live: the source's note goes once the send ends.
+    public var awaitsFirstPrompt: Bool { !hasTurns && source.awaitsFirstPrompt }
+    /// The source can't reach its Mac now (``AgentSessionSource/isOffline``). Read live.
+    public var isOffline: Bool { source.isOffline }
+
+    /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
+    /// read once, so its loading state says so until the history comes, whatever the source
+    /// notes meanwhile (the hub forgets a started session when its history attaches).
+    public let isStarting: Bool
     /// The chat is new: it holds no turns and none are on their way (the empty state shows).
     public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
@@ -285,6 +295,12 @@ public final class AgentChatStore {
         public var attachments: [AgentAttachment]
         /// The prompt's acpmux id: sending the same text again reuses it, so the Mac runs it once.
         public var promptID: String?
+
+        public init(text: String, attachments: [AgentAttachment], promptID: String?) {
+            self.text = text
+            self.attachments = attachments
+            self.promptID = promptID
+        }
     }
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
@@ -353,6 +369,7 @@ public final class AgentChatStore {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
         let stream = source.events()
@@ -634,7 +651,7 @@ public final class AgentChatStore {
             } catch {
                 guard let self else { return }
                 if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
-                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                self.clientError = UserFacingError.message(error)
             }
         }
     }
@@ -881,6 +898,7 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
+        spillIfOffScreen()
         refreshDerived()
         // A record after a reattach can end `.disconnected` without a `.status` event.
         updateQuietStatus()
@@ -1249,6 +1267,58 @@ public final class AgentChatStore {
 
     private func refreshEarlierHistory() {
         assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
+    }
+
+    // MARK: Off screen
+
+    /// The lists showing this chat now (`ChatTranscriptList`), held weakly: a list that goes
+    /// stops counting. Such a list keeps the window itself, knowing where the reader is.
+    @ObservationIgnored private var viewers: [WeakViewer] = []
+    private struct WeakViewer { weak var owner: AnyObject? }
+    /// Set by the store's owner (`boundsMemoryOffScreen`): a chat kept for a tab keeps the
+    /// on-screen window while no list shows it. Off for the stores built for one page of
+    /// history (`prependEarlier`), which must hold every turn they read.
+    @ObservationIgnored private(set) var boundsOffScreen = false
+
+    /// Whether a list shows this chat.
+    public var isShown: Bool { viewers.contains { $0.owner != nil } }
+
+    /// `owner` (a transcript list) shows this chat from now on.
+    public func shown(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        viewers.append(WeakViewer(owner: owner))
+    }
+
+    /// `owner` no longer shows this chat: its window is kept from now on by the store.
+    public func hidden(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        spillIfOffScreen()
+    }
+
+    /// A chat that stays in memory while the person is elsewhere (its tab's store, made for the
+    /// chat, Home and Feed cards) spills like the one on screen: past `windowTrigger` turns the
+    /// oldest go to disk, keeping `windowKeep`, and a memory warning brings it down to
+    /// `pressureKeep`. Opening it shows the same newest turns and scrolling up reads the rest
+    /// back (`loadEarlier`), as after the on-screen spill.
+    public func boundsMemoryOffScreen() { boundsMemoryOffScreen(memoryPressure: .shared) }
+
+    func boundsMemoryOffScreen(memoryPressure: MemoryPressure) {
+        guard !boundsOffScreen else { return }
+        boundsOffScreen = true
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressureOffScreen() }
+    }
+
+    /// The on-screen window (`ChatTranscriptList.spillIfResting`), for a chat no list shows.
+    private func spillIfOffScreen() {
+        guard boundsOffScreen, turns.count > Self.windowTrigger, !isShown else { return }
+        spillOlder(keeping: Self.windowKeep)
+    }
+
+    /// A memory warning, for a chat no list shows (the list's own handler covers the one on
+    /// screen, keeping the turn the reader is on).
+    func relieveMemoryPressureOffScreen() {
+        guard !isShown else { return }
+        spillOlder(keeping: Self.pressureKeep)
     }
 
     /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from
@@ -1738,4 +1808,20 @@ private final class EarlierHistorySource: AgentSessionSource {
     init(summary: AgentSessionSummary) { self.summary = summary }
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
     func send(_ intent: AgentClientIntent) {}
+}
+
+extension AgentChatStore {
+    /// What the chat's loading state says. Connecting first: a chat whose start is over but
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    public var loadingText: String {
+        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+            return "Connecting to \(summary.macName)…"
+        }
+        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
+    public static func startingText(_ summary: AgentSessionSummary) -> String {
+        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
 }

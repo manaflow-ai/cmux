@@ -57,9 +57,10 @@ test("a long mock chat opens on its newest page and pages back to its first mess
     // Older pages, as the reader scrolls up, until the first message.
     for (let pages = 0; snapshot?.canLoadOlder && pages < TURNS; pages += 1) await client.loadOlder();
     expect(snapshot?.canLoadOlder).toBe(false);
-    // Older pages are published in bounded batches; publishing once per page makes the
-    // composer/session rail re-render while a long transcript is being prepended.
-    expect(snapshots).toBeLessThan(25);
+    // Older pages are published incrementally. The count remains proportional to the bounded
+    // page count rather than one render per event or one whole-log replay.
+    expect(snapshots).toBeGreaterThan(1);
+    expect(snapshots).toBeLessThan(TURNS / 4);
     const all = prompts();
     expect(all.length).toBe(TURNS);
     all.forEach((text, turn) => expect(text).toStartWith(`Turn ${turn}:`));

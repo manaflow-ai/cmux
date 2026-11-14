@@ -7,11 +7,19 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
   --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] \
-  [--arg=input-frame-now=1]
+  [--arg=input-frame-now=1] [--arg=netem-rtt-ms=50 --arg=netem-loss-pct=2 --arg=netem-seed=7]
 ```
 
 `input-frame-now=1` starts the rd host with `--input-frame-now 1` (an input lifts its frame-rate cap
 for 100 ms), for a before/after against a run without it at the same commit.
+
+`netem-rtt-ms`, `netem-loss-pct`, and `netem-seed` add a deterministic user-space relay to the `rd`
+target's loopback connection. The relay applies half the RTT in each direction and seeded UDP loss;
+TCP is delayed but not dropped. This measurement mode is rejected for two-Mac runs.
+The viewer explicitly registers its UDP socket with the relay and advertises the relay's
+port in Hello, so downstream media and upstream feedback both traverse shaping.
+`netem-stats.json` records cumulative received, dropped and sent counts in each direction;
+these are path diagnostics, not a matched wire-bandwidth comparison with another target.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
@@ -23,7 +31,8 @@ run (the last successful one that dispatcher started).
 A Mac that must not build (a laptop cleared for benches only) runs the harness from a copy of
 `scripts/measure` with `prebuilt=DIR`, where DIR holds tools built elsewhere for that Mac: `cmux-rd`
 (`cargo build --release` in `cmux-tui/crates/cmux-rd-host`), `screen-eval-preflight`,
-`screen-eval-scene`, `screen-eval-ocr` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
+`screen-eval-scene`, `screen-eval-ocr`, and for a third-party viewer `screen-eval-window-id` and
+`screen-eval-marker-locate` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
 (`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`), plus an optional `rev`
 file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
 with no console or grant needed:
@@ -100,6 +109,47 @@ The window targets add `extra.process_cpu_pct`, the CPU of the process that capt
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
 (hq#9837, fix 2).
 
+- `moonlight`: Sunshine as the host and Moonlight as the viewer, each at its defaults (Moonlight's
+  are 1080p60 at 20 Mbps, so a larger host display reaches the viewer scaled down, as a person
+  gets it). Two Macs only, since on one Mac the viewer would stream its own window back into itself.
+  Sunshine (`brew install lizardbyte/homebrew/sunshine`) on the host Mac and
+  `/Applications/Moonlight.app` on the viewer Mac are installed once by a person; the target installs
+  nothing and pairs by itself (a fresh PIN per host start, handed to the viewer Mac like rd's token,
+  and Sunshine's state kept in the real home's `~/.cmux-screen-eval/sunshine` so a Mac pairs once).
+
+### Third-party viewers (`gui-viewer.sh`)
+
+A viewer cmux did not write gives no frame timestamps or stats, so `gui-viewer.sh` measures it from
+outside, the same way for every contender (Moonlight here; Screen Sharing.app and Windows App
+can use the same functions):
+
+| Row | How |
+| --- | --- |
+| key, pointer | `cmux-rd observe` (cmux-rd-host `src/mac/observe.rs`), which knows no protocol: it posts each key or click to the viewer's process and times it to the ScreenCaptureKit frame of the viewer Mac's display in which the host's marker counter changed. `screen-eval-marker-locate` (`marker-locate.swift`) first finds where the viewer draws the marker, and at what cell size, in observe's pixels. This ends at the compositor, a little later than rd's and WebRTC's decoded frame, so it slightly favours them |
+| kbps | the viewer process's received bytes from `nettop`, all its sockets, so headers, FEC and resends count, as rd's datagram count does |
+| fps | null: the viewer does not expose frames. Each row's `sampled_changes` counts window captures (10 a second) that differ from the one before, which shows that the screen updated but is not a frame rate |
+| OCR | the viewer window's last capture against the host's screenshot |
+| CPU | `extra.viewer_cpu_pct`, the viewer process over the window view |
+
+`python3 -m unittest scripts/measure/screen-stream-eval/test_eval_null_counts.py` checks that a
+null count gives a null number rather than a wrong one.
+
+### OS pairs and contenders
+
+Host → viewer. Today the only viewer cmux ships is the Mac app's (Mac Screen, `MacScreenSession`).
+`cmux-rd bench` decodes on Linux but shows nothing, and Windows has no viewer. So every comparable
+pair has a Mac viewer, and `gui-viewer.sh` can time each contender in it.
+
+| Pair | cmux | Sunshine/Moonlight | Windows App (RDP) | macOS Screen Sharing | In this harness |
+| --- | --- | --- | --- | --- | --- |
+| Mac → Mac | rd/1 and WebRTC | `moonlight` | no RDP host on macOS | #42264 (`apple-*`) | yes (two Macs) |
+| Linux → Mac | rd/1 (X11, Cloud desktop) | Sunshine on Linux | xrdp or GNOME Remote Desktop | VNC only | no: the scene and marker are Mac apps |
+| Windows → Mac | headless proof only (`cmux-rd-windows.yml`) | Sunshine on Windows | the native RDP host | no | no: the same, plus no rd host in `serve` on Windows |
+| Mac → Linux, Mac → Windows, and every Linux or Windows viewer | no viewer | Moonlight runs there | Windows App runs on Windows | no | no |
+
+The Linux and Windows host rows need a scene and marker on that OS (the observer and the viewer
+side stay as they are on the Mac). The viewer columns need a cmux viewer on Linux and Windows first.
+
 Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writing
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then
 appear under `targets.petal` in the same schema.
@@ -107,7 +157,20 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. Each target also leaves its raw files under
+`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records
+per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
+Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
+of the source's captured display-frame timestamp, joined to decoder completion by the exact
+encode-request key. It requires a same-host clock and complete, non-truncated timing records;
+protocol encode-start timestamps alone do not establish capture latency. Missing evidence is null.
+These are headless decoder endpoints, not visible pane or phone presentation metrics.
+Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded access-unit bytes.
+A source PNG and last viewer image with equal dimensions do not establish frame identity.
+Five source samples at most are recorded per host session, and quality is not extrapolated to
+other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
+These observations remain under `extra.repeats[].window_netem_metrics` in the target summary.
+There is no unqualified first-repeat or partial-repeat aggregate.
+Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
 
@@ -126,6 +189,10 @@ On the fleet's minis, use the host's tailnet address (`100.x`) for `lan` and `vi
 Network privacy refuses LAN addresses to the binaries a step starts (Apple's own, such as `nc`, are
 exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
 inside WireGuard. The summary's link then says `lan via tailnet`.
+
+A third-party viewer target (its `caps` prints `viewer-grants`, as `moonlight` does) also needs
+Screen Recording and Accessibility on the viewer Mac, where `cmux-rd observe` posts input and
+captures the display: that half then takes the same grant check and launcher as the host.
 
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
 up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's

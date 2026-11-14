@@ -41,7 +41,8 @@ pub use disk_usage::{
 pub(crate) use disk_usage::{journal_bytes_by_kind, read_segments_for_test};
 pub use long_connections::LongConnectionsFull;
 pub use terminal_seats::{
-    HostSeat, HostSeating, KeptHost, KeptHostSeat, SeatedTerminal, TerminalSeat,
+    HostSeat, HostSeating, KeptHost, KeptHostSeat, KeptSeatClass, KeptSeatClassNow, SeatedTerminal,
+    TerminalSeat,
 };
 mod hook_queue;
 pub(crate) mod request_log;

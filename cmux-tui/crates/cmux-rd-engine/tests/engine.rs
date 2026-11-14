@@ -258,3 +258,86 @@ fn a_frame_lost_whole_is_resent_then_recovered_from_a_keyframe() {
         "an acknowledged stream never probes"
     );
 }
+
+#[test]
+fn repaired_shard_delay_does_not_collapse_the_media_bitrate() {
+    use cmux_rd_proto::Arrival;
+    for tail_probe in [false, true] {
+        let mut e = engine();
+        let first = e.start(0).expect("first");
+        let sent = send(&mut e, &first, true, 6_000, 0);
+        let last = sent.len() - 1;
+        let arrivals = sent[..last]
+            .iter()
+            .map(|d| Arrival {
+                transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+                arrival_us: 25_000,
+            })
+            .collect();
+        let nacks = if tail_probe {
+            vec![]
+        } else {
+            vec![Nack { frame: first.frame, indexes: vec![last as u16] }]
+        };
+        let requested = e.on_datagram(
+            &feedback(&Feedback { arrivals, nacks, ..Feedback::default() }),
+            false,
+            50_000,
+        );
+        let initial_bps = e.stats().target_bps;
+        let (resent, received) = if tail_probe {
+            (e.tick(false, 250_000).datagrams, 275_000)
+        } else {
+            (requested.datagrams, 75_000)
+        };
+        assert!(resent.iter().any(|d| d == &sent[last]));
+        let transport_seq = DatagramHeader::decode(&sent[last]).expect("header").0.transport_seq;
+        e.on_datagram(
+            &feedback(&Feedback {
+                acked_frame: first.frame,
+                arrivals: vec![Arrival { transport_seq, arrival_us: received }],
+                ..Feedback::default()
+            }),
+            false,
+            u64::from(received) + 25_000,
+        );
+        assert_eq!(
+            e.stats().target_bps,
+            initial_bps,
+            "repair keeps a 25 ms path: tail_probe={tail_probe}"
+        );
+    }
+}
+
+#[test]
+fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 100_000, 0);
+    let start = e.stats().target_bps;
+    let arrivals: Vec<_> = sent
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 2 && *i != 50)
+        .map(|(_, d)| Arrival {
+            transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+            arrival_us: 25_000,
+        })
+        .collect();
+    // This first receipt has one missing shard out of four. Across the whole
+    // frame there are only two losses; feedback batching must not change capacity.
+    e.on_datagram(
+        &feedback(&Feedback { arrivals: arrivals[..3].to_vec(), ..Feedback::default() }),
+        false,
+        50_000,
+    );
+    assert_eq!(e.stats().target_bps, start, "three arrivals cannot establish sustained heavy loss");
+    e.on_datagram(
+        &feedback(&Feedback { arrivals: arrivals[3..].to_vec(), ..Feedback::default() }),
+        false,
+        60_000,
+    );
+    e.on_datagram(&feedback(&Feedback::default()), false, 550_000);
+    assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
+}
