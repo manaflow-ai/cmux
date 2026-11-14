@@ -82,7 +82,10 @@ fn wait_health(handle: &ChatHandle, expected: crate::life::Health) {
 fn rebuild(config: ChatConfig) {
     let (_tx, rx) = sync_channel(256);
     let queued = Arc::new(Mutex::new(0));
-    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false)).unwrap().unwrap();
+    let mut subs = stream::Subscribers::default();
+    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false), &mut subs)
+        .unwrap()
+        .unwrap();
     drop(state);
 }
 

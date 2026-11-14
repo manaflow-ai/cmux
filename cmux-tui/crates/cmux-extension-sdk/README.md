@@ -22,7 +22,8 @@ npm install cmux-extension-sdk        # or: bun add cmux-extension-sdk
 ```
 
 Until the package is on npm, point at a cmux checkout:
-`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`.
+`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`. `cmux ext dev` needs neither:
+with no copy in the folder, it builds against the SDK built into the CLI.
 
 `cmux-app.json`: what the extension is, the places it fills, and the scopes it asks for.
 
@@ -89,6 +90,8 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
+| `settings.changed` | `settings:read` | a cmux setting changes (the file, a managed layer, Settings, the CLI); names no keys, carries no values |
+| `theme.changed` | `settings:read` | the theme, app theme, theme file or edits, accent, hue, saturation or highlight color changes |
 
 ## Test it
 
