@@ -76,9 +76,6 @@ class ChatFixture:
         before = unwrap(client.call("debug.agent_pane", {"action": "chat_state"}))
         if before.get("sessionId") or transcript(before) or before.get("isWorking") or before.get("queued"):
             raise RuntimeError("startup fixture refuses to replace an existing conversation")
-        trust = client.call("acp.trust.set", {"cwd": str(self.roots[tag] / "project"), "level": "trusted"})
-        (self.receipts[tag] / "trust-reply.json").write_text(json.dumps(trust, indent=2) + "\n")
-        unwrap(trust)
         reply = client.call("debug.agent_pane", {"action": "new_chat", "harness": "startup-fixture",
                                                 "cwd": str(self.roots[tag] / "project")})
         (self.receipts[tag] / "create-reply.json").write_text(json.dumps(reply, indent=2) + "\n")
@@ -89,6 +86,11 @@ class ChatFixture:
                 raise
             # The page may have created the session before its evaluation reply
             # timed out. Read back that single request; never replay the mutation.
+        # Folder trust is a user gesture surfaced by the agent page. The app CLI
+        # deliberately does not expose a direct trust mutation method.
+        trust = client.call("debug.agent_pane", {"action": "click", "selector": ".acpmux-trust-ask-action"})
+        (self.receipts[tag] / "trust-click-reply.json").write_text(json.dumps(trust, indent=2) + "\n")
+        unwrap(trust)
         try:
             self.until(client, lambda state: bool(state.get("sessionId")), timeout)
         except RuntimeError:
