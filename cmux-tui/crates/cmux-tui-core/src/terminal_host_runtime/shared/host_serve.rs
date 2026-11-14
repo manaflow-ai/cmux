@@ -522,6 +522,15 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::TERMINATE) {
                         break;
                     }
+                    // Debug builds only: a host that never acts on Terminate,
+                    // as when this thread died on a poisoned terminal lock.
+                    // Its owner must end it without the host's help.
+                    #[cfg(debug_assertions)]
+                    if std::env::var_os("CMUX_TUI_TEST_HOST_IGNORE_TERMINATE")
+                        .is_some_and(|value| value == "1")
+                    {
+                        continue;
+                    }
                     // Integration failure-injection seam: a host whose
                     // termination receipt reaches the daemon late. Only a
                     // receipted request waits; bounded so an accidental
