@@ -130,6 +130,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "3d",
+        name: "v2.pr03d.turns_page",
+        done_when: "One page of turns at the newest end of the god chat stays within 1.2x of one from the small chat, with the same reply.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "3c",
         name: "v2.pr03c.blob_range",
         done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
