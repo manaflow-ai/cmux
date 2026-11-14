@@ -1401,7 +1401,18 @@ fn apply_ops(
     Ok(())
 }
 
+/// A body whose text is its raw line's `msg.text`, as JSON. Read in pieces through `read_at`
+/// ([`queue::read_text`]), never the line whole. A source that cannot read part of a line, a
+/// line whose text does not begin in its first 16 KB, and a part refused (the source's lines
+/// changed) are read as a chunk, which says `SourceChanged` when they did.
 fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<String, ChatError> {
+    if state.source.stamp() == state.source_stamp
+        && let Ok(Some(text)) = queue::read_text(state.source.as_mut(), place)
+    {
+        // Decoded and written again: the book holds the form a chunk read gives.
+        let text: String = serde_json::from_slice(&text).map_err(|_| ChatError::Closed)?;
+        return serde_json::to_string(&text).map_err(|_| ChatError::Closed);
+    }
     let chunk = state.source.read_chunk(place)?;
     if chunk.stamp != state.source_stamp {
         return Err(ChatError::SourceChanged);
