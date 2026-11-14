@@ -26,6 +26,10 @@ run_book() {
   run cargo test --release -p acpmux-book --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
+run_client() {
+  run cargo test --release -p acpmux-client --lib "$1" -- --ignored --nocapture --test-threads=1
+}
+
 run_core() {
   run cargo test --release -p acpmux-core --lib "$1" -- --ignored --nocapture --test-threads=1
 }
@@ -57,7 +61,11 @@ book_gates() {
 }
 run_group acpmux-book book_gates
 
-# acpmux-client has no v2 gate rows on this base; there is no client gate to run.
+# acpmux-client (release)
+client_gates() {
+  run_client v2_pr06_client_chat
+}
+run_group acpmux-client client_gates
 
 # acpmux-core (release)
 core_gates() {
