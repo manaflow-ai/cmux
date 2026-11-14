@@ -32,7 +32,7 @@ for v in "${list[@]}"; do
   base="https://downloads.claude.ai/claude-code-releases/$v"
   sum="$(curl -fsSL "$base/manifest.json" | python3 -I -c "import json,sys; print(json.load(sys.stdin)['platforms']['$platform']['checksum'])")"
   curl -fsSL -o "$work/claude-$v" "$base/$platform/claude"
-  got="$(shasum -a 256 "$work/claude-$v" | cut -d' ' -f1)"
+  got="$( (command -v sha256sum >/dev/null && sha256sum "$work/claude-$v" || shasum -a 256 "$work/claude-$v") | cut -d' ' -f1)"
   if [[ "$got" != "$sum" ]]; then echo "CCWHEEL version=$v checksum mismatch"; exit 1; fi
   chmod +x "$work/claude-$v"
   echo "CCWHEEL version=$v sha256=$got platform=$platform"
