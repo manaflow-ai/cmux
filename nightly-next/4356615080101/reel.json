@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4356615080101",
+  "notes": "notes/4356615080101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42831,
+      "title": "agent chat: one parse of the pane's stylesheet per renderer, not per chat page (-7 MB a chat)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42870,
+      "title": "NEXT keeps its loose files under Application Support/cmux-next, not classic's cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41615,
+      "title": "App Store: one capability manifest in Rust (apps-capabilities, cmux ext capabilities, ext dev keeps the types live)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42798,
+      "title": "cmux-next iOS: a drag over a full-screen app is Ghostty's scroll, as on the Mac (no program list)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42556,
+      "title": "feat(acpmux): raw-driven chat actor follow-up (3a2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42893,
+      "title": "iOS bench: home_list_first_screen_under_load times small and god in turn under one load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42749,
+      "title": "cmux-next iOS: Home shows a disconnected Mac like Workspaces, not with a card",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41443,
+      "title": "Cloud start follow-ups: new machine deleted on a failed pin, Retry keeps its folder, long folder picks still send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42807,
+      "title": "cmux-next-ios: an energy bench (CPU, idle wakeups, POWER, memory) on the fleet simulator, base and head in one run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40433,
+      "title": "carrier drill S1: the event stream over the real Cloud dial, pinned to one carrier, with a per-carrier kill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42856,
+      "title": "fix(next): a tab whose close will ask stays in place until the answer",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42776,
+      "title": "cmux-git: open a folder only as a part of its own work tree",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42869,
+      "title": "cmux-next-ios: no Mac discovery, presence refreshes or minute ticks in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42877,
+      "title": "Quality report: first-user journey section (adopts #41946)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36653,
+      "title": "Subagent pane: the chat's tail rides on the pane's request, so the open never reads ahead of it (#36650)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
