@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43545807762",
+  "recorded_at": "2026-11-14T02:28:15Z",
+  "reason": "cmux-tui 84598f403602 changes the image's cmux-tui (pinned 27b2db402d36)",
+  "dry_run": false,
+  "cmux_tui": "84598f403602f78d3fcdfa2d495c435e5d5fba1d",
+  "fixes": [
+    {
+      "sha": "84598f403602f78d3fcdfa2d495c435e5d5fba1d",
+      "mergedAt": "2026-11-13T17:58:33-08:00",
+      "subject": "feat(sidebar): add Rust workspace row layout reducer (#42734)"
+    },
+    {
+      "sha": "7ff49b0c219e5a9f4d7b38036601290f7fdf3d45",
+      "mergedAt": "2026-11-13T17:53:14-08:00",
+      "subject": "test(terminal): measure first prompt through 50 shell opens (#42771)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T02:28:15Z",
+    "snapshot_id": "sh-d43f3f077eab4addb1a17b268adf6c80",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43545807762): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e179a1d58aba5c3a2798089a47925b537c77441f",
+    "image": "cloud-native-auto-84598f40-43545807762-1",
+    "revision": "ci-43545807762-1",
+    "at": "2026-11-14T02:28:15Z"
+  },
+  "rolled_back": false
+}
