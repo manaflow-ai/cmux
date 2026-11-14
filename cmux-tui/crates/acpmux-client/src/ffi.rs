@@ -164,7 +164,10 @@ fn change_json(change: Change<Value>) -> Result<Value, serde_json::Error> {
 /// A change's bytes. A chat change is written from its rows' bytes as they arrived, never through
 /// a `Value`; a blob change is its JSON, a newline, then the bytes.
 fn change_bytes(change: Change<Value>) -> Result<Vec<u8>, serde_json::Error> {
-    let Change::Chat(change) = change else { return serde_json::to_vec(&change_json(change)?) };
+    let change = match change {
+        Change::Chat(change) => change,
+        other => return serde_json::to_vec(&change_json(other)?),
+    };
     let mut out = serde_json::to_vec(&change)?;
     if let ChatChange::Blob { bytes, .. } = &change {
         out.reserve(1 + bytes.len());

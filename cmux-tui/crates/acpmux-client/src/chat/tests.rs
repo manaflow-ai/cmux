@@ -270,7 +270,7 @@ fn a_stale_edition_page_is_a_change_and_the_next_window_replaces() {
     assert!(matches!(changes.as_slice(), [ChatChange::Window { replaces: true, .. }]));
 }
 
-fn head(id: &str, start: u64, len: u64, total: u64) -> BlobHead {
+fn blob_head(id: &str, start: u64, len: u64, total: u64) -> BlobHead {
     BlobHead {
         id: id.into(),
         start,
@@ -300,7 +300,7 @@ fn a_blob_reply_ends_on_a_whole_character_and_escape() {
         json!({"method":"blob","params":{"id":id,"stream":"chat:c1","edition":1,"rowId":7,"len":16}})
     );
     let bytes = br#"{"text":"ab\u00"#;
-    let reply = blob_frame(&head(&id, 0, bytes.len() as u64, 100), bytes).unwrap();
+    let reply = blob_frame(&blob_head(&id, 0, bytes.len() as u64, 100), bytes).unwrap();
     let changes = chat_changes(feed(&mut client, &reply));
     let [ChatChange::Blob { next_start, bytes: given, sid, .. }] = changes.as_slice() else {
         panic!("{changes:?}")
@@ -319,7 +319,7 @@ fn a_blob_reply_ends_on_a_whole_character_and_escape() {
             ..Default::default()
         })
         .unwrap();
-    let mut open = head(&id, 12, 4, 16);
+    let mut open = blob_head(&id, 12, 4, 16);
     open.open = true;
     open.generation = Some("0123456789abcdef".into());
     open.fixed = Some(14);
@@ -343,7 +343,7 @@ fn a_blob_reply_ends_on_a_whole_character_and_escape() {
     let cut = text.get(..text.len() - 1).unwrap();
     let changes = chat_changes(feed(
         &mut client,
-        &blob_frame(&head(&id, 0, cut.len() as u64, 50), cut).unwrap(),
+        &blob_frame(&blob_head(&id, 0, cut.len() as u64, 50), cut).unwrap(),
     ));
     let [ChatChange::Blob { bytes, next_start: 2, .. }] = changes.as_slice() else {
         panic!("{changes:?}")
@@ -514,8 +514,8 @@ fn bounds_skip_and_count_and_never_panic() {
     assert_eq!(client.received(&bytes), 0);
     assert!(client.next_change().is_some());
     // A frame over the frame bound ends the connection with an error, not a panic.
-    let mut header = vec![0_u8; 8];
-    header.splice(..4, ((wire::MAX_FRAME_BYTES + 1) as u32).to_be_bytes());
+    let mut header = ((wire::MAX_FRAME_BYTES + 1) as u32).to_be_bytes().to_vec();
+    header.extend_from_slice(&[0; 4]);
     client.received(&header);
     assert!(client.is_closed());
 }
@@ -551,7 +551,7 @@ fn chat_changes_are_json_with_their_rows_as_they_arrived() {
     assert_eq!(value["window"]["cursor"], 1);
     let blob = ChatChange::Blob {
         sid: "c".into(),
-        head: head("b1", 0, 1, 1),
+        head: blob_head("b1", 0, 1, 1),
         next_start: 1,
         bytes: b"x".to_vec(),
     };
