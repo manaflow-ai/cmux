@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""cmux-api production Workers Logs for one UTC window, published default-deny.
+"""cmux-api production Workers Logs for one UTC window, stored only in private HQ.
 
 An agent asking why production refused something (prod 2026-11-11: `cmux auth token` refused the app's own
 team as "not a member") reads the Worker's own diagnostic lines here instead of asking a person for a dashboard.
 
-The run log is PUBLIC (the repo is public), so nothing is printed unless it is known safe:
+The run log is PUBLIC: stdout contains only row_count and a private HQ issue pointer.
+The private payload still uses default-deny projection:
 - A Worker console line is printed only when its `msg` is, exactly, one of PUBLIC_MSGS: constant diagnostic
   ids the Worker itself writes. Any other msg is dropped and only counted. That drops every tenant-written line
   (automation `ctx.log`, automation tail logs and exceptions, which carry `source`/`run`/`automation`) and every
@@ -39,6 +40,8 @@ ACCOUNT = "0c1675e0def6de1ab3a50a4e17dc5656"
 SERVICE = "cmux-api"
 PAGES = 20
 MAX_ROWS = 2000
+HQ_REPO = "manaflow-ai/cmuxterm-hq"
+PRIVATE_PART_CHARS = 50_000
 NEEDLE_OK = re.compile(r"^[A-Za-z0-9_./ :-]{3,80}$")
 
 # Exact msg ids, constant strings the cmux-api Worker writes in backend/apps/api/src. Add one only when it is a
@@ -471,6 +474,63 @@ def event_needles(path):
     return event_input(path, "needles")
 
 
+def hq_request(token, method, suffix="", data=None):
+    """Private destination only; never expose an HTTP response/error body in the public log."""
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{HQ_REPO}{suffix}",
+        data=json.dumps(data).encode() if data is not None else None, method=method,
+        headers={"authorization": f"Bearer {token}", "accept": "application/vnd.github+json",
+                 "content-type": "application/json", "user-agent": "cmux-private-worker-logs"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        sys.exit(f"private log store refused: HTTP {error.code}")
+    except (OSError, ValueError):
+        sys.exit("private log store unavailable or returned invalid JSON")
+
+
+def private_destination():
+    """Verify the existing HQ-only token and private repository before querying Workers Logs."""
+    token = os.environ.get("HQ_GH_TOKEN", "").strip()
+    if not token:
+        sys.exit("private log store credential unavailable; nothing queried")
+    repo = hq_request(token, "GET")
+    if not isinstance(repo, dict) or repo.get("private") is not True or repo.get("full_name") != HQ_REPO:
+        sys.exit("private log store is not the expected private repository; nothing queried")
+    return token
+
+
+def private_upload(token, header, rows):
+    """Keep bounded JSON parts in one private issue; return a pointer only after every write succeeds."""
+    lines = [json.dumps({"header": header}, separators=(",", ":"))]
+    lines.extend(json.dumps(row, separators=(",", ":")) for row in rows)
+    parts, current = [], ""
+    for line in lines:
+        if len(line) > PRIVATE_PART_CHARS:
+            sys.exit("private log row exceeds storage limit")
+        if len(current) + len(line) + 1 > PRIVATE_PART_CHARS:
+            parts.append(current)
+            current = ""
+        current += line + "\n"
+    if current:
+        parts.append(current)
+    run = os.environ.get("GITHUB_RUN_ID", "manual")
+    run = run if re.fullmatch(r"[0-9]{1,20}", run) else "manual"
+
+    def body(index):
+        return f"Private diagnostic rows, part {index + 1}/{len(parts)}.\n\n```jsonl\n{parts[index]}```"
+
+    created = hq_request(token, "POST", "/issues", {
+        "title": f"Worker diagnostic rows: run {run}", "body": body(0)})
+    number = created.get("number") if isinstance(created, dict) else None
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        sys.exit("private log store did not return an issue receipt")
+    for index in range(1, len(parts)):
+        hq_request(token, "POST", f"/issues/{number}/comments", {"body": body(index)})
+    return f"https://github.com/{HQ_REPO}/issues/{number}"
+
+
 def main():
     if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
         sys.exit("logs: only workflow_dispatch may query")
@@ -494,6 +554,7 @@ def main():
     minutes = max(1, min(60, args.minutes))
     frm = int(start.timestamp() * 1000)
     to = frm + minutes * 60_000
+    private_token = private_destination()
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
@@ -508,10 +569,10 @@ def main():
             complete = True
             break
     head, rows = publish(events, needles, account=account)
-    print(json.dumps({"service": SERVICE, "account": tag(account), "window_utc": [args.frm, minutes], "truncated": not complete, **head},
-                     indent=1))
-    for r in rows:
-        print(json.dumps(r, separators=(",", ":")))
+    pointer = private_upload(private_token, {
+        "service": SERVICE, "account": tag(account), "window_utc": [args.frm, minutes],
+        "truncated": not complete, **head}, rows)
+    print(json.dumps({"row_count": len(rows), "pointer": pointer}))
     return 0
 
 
