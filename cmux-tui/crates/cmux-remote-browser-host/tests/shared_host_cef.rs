@@ -271,6 +271,16 @@ fn three_remote_tabs_share_one_host_keep_their_own_cookies_and_survive_its_sigki
         }
     }
     assert_eq!(*sup.hosts.borrow(), vec![pid], "two tabs, one host pid");
+    // Each tab's profile is on disk in its own directory. CEF falls back to
+    // an in-memory profile when a tab's cache path is not under the root it
+    // resolved (/tmp is /private/tmp on macOS), which loses the cookies a
+    // restart keeps.
+    let on_disk = std::fs::read_dir(dir.join("cache").join("tabs"))
+        .expect("tabs dir")
+        .filter_map(Result::ok)
+        .filter(|e| std::fs::read_dir(e.path()).is_ok_and(|mut d| d.next().is_some()))
+        .count();
+    assert!(on_disk >= 3, "{on_disk} of 3 tab profiles are on disk");
     // A viewer's token picks its tab; a wrong token is refused.
     assert!(matches!(first_reply(port, &tokens["b"]), RdControl::Welcome { .. }));
     assert!(matches!(first_reply(port, &"0".repeat(64)), RdControl::Refused { .. }));
