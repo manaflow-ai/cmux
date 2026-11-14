@@ -49,6 +49,9 @@ if tool == "notifyutil":
     assert args[0] == "-1", args
     while not (notices / args[1]).exists():
         time.sleep(0.05)
+elif tool == "xcodebuild" and args[0] == "build-for-testing":
+    print("fake build")
+    sys.exit(int(os.environ.get("BUILD_STATUS", "0")))
 elif tool == "xcodebuild":
     pathlib.Path(args[args.index("-resultBundlePath") + 1]).mkdir()
     # Long enough for a recorder started just before to set its SIGINT handler.
@@ -61,29 +64,46 @@ elif tool == "ditto":
         for path in src.rglob("*"):
             z.write(path, path.relative_to(src.parent))
 elif tool == "xcrun" and args[:2] == ["xctrace", "record"]:
-    if "--device" in args and os.environ.get("DEVICE_FAILS") == "1":
-        print("Cannot find device", file=sys.stderr)
-        sys.exit(1)
-    if os.environ.get("HOST_FAILS") == "1" and "--device" not in args:
+    # XCTRACE: ok, exits (fails at once), never-starts (as `--device SIMULATOR` on the fleet:
+    # no notice, no started line, deaf to SIGINT), line-only (prints the started line, posts no
+    # notice), stuck-save (the template's os_log stop: saves only RunIssues.storedata).
+    mode = os.environ.get("XCTRACE", "ok")
+    print("Starting recording with the Time Profiler template. Targeting All Processes.", flush=True)
+    if mode == "exits":
+        print("Cannot start", file=sys.stderr)
         sys.exit(1)
     trace = pathlib.Path(args[args.index("--output") + 1])
+    if mode == "never-starts":
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        while True:
+            time.sleep(0.05)
     def stop(*_):
-        trace.mkdir()
-        (trace / "fixture").write_text("trace")
+        (trace / "Trace1.run").mkdir(parents=True)
+        (trace / "Trace1.run/RunIssues.storedata").write_text("issues")
+        if mode != "stuck-save":
+            (trace / "fixture").write_text("trace")
         print("Output file saved as: " + str(trace))
+        print("Timeline modification failed -- dylibs overlap by 0x10:")
+        print("    0x1-0x2 [0x1] (1-2) /Library/Developer/CoreSimulator/UIKitCore")
         sys.exit(0)
     signal.signal(signal.SIGINT, stop)
-    (notices / args[args.index("--notify-tracing-started") + 1]).write_text("")
-    print("Starting recording. Ctrl-C to stop the recording", flush=True)
+    if mode != "line-only":
+        (notices / args[args.index("--notify-tracing-started") + 1]).write_text("")
+    print("Ctrl-C to stop the recording", flush=True)
     while True:
         time.sleep(0.05)
 elif tool == "xcrun" and args[:2] == ["xctrace", "export"]:
+    trace = pathlib.Path(args[args.index("--input") + 1])
     output = pathlib.Path(args[args.index("--output") + 1])
+    if not (trace / "fixture").exists():
+        print("Export failed: Document Missing Template Error", file=sys.stderr)
+        sys.exit(10)
     if "--toc" in args:
-        output.write_text("<trace-toc/>")
+        schema = os.environ.get("TOC_SCHEMA", "time-profile")
+        output.write_text(f'<trace-toc><run number="1"><data><table schema="{schema}"/></data></run></trace-toc>')
     else:
         assert args[args.index("--xpath") + 1] == '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', args
-        output.write_text(os.environ["TABLE"])
+        output.write_text(os.environ.get("TABLE_TEXT") or os.environ["TABLE"])
 elif tool == "xcrun" and args[0] == "simctl":
     if args[1] == "create":
         print("ui-profile-test-simulator")
@@ -141,7 +161,7 @@ class SummarizerTests(unittest.TestCase):
 
 
 class ProfileRouteTests(unittest.TestCase):
-    def run_route(self, *args, **env):
+    def run_route(self, *args, timeout=60, **env):
         temporary = tempfile.TemporaryDirectory(prefix="cmux-ui-profile-route-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -166,10 +186,12 @@ class ProfileRouteTests(unittest.TestCase):
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
             'keep_test_logs() { :; }\n'
             + parse + script[start:end]
+            + 'if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi\n'
+            + script[script.index('if [[ "${profile_status:-0}"'):].split("\n", 1)[0] + "\n"
         )
         calls = root / "calls.jsonl"
         process = subprocess.run(
-            ["bash", str(harness), "test", *args], cwd=root, text=True, capture_output=True, timeout=60,
+            ["bash", str(harness), "test", *args], cwd=root, text=True, capture_output=True, timeout=timeout,
             env={**os.environ, "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}", "CALLS": str(calls),
                  "NOTICES": str(notices), "TABLE": TABLE, "WORK": str(work), "OUT": str(out),
                  "CMUX_CI_STEP_KEY": "route-test", **env},
@@ -180,30 +202,40 @@ class ProfileRouteTests(unittest.TestCase):
     def records(self, calls):
         return [c["args"] for c in calls if c["tool"] == "xcrun" and c["args"][:2] == ["xctrace", "record"]]
 
-    def test_profile_records_the_ui_run_on_its_simulator_and_keeps_the_summary(self):
+    def test_profile_records_the_ui_run_on_the_host_and_keeps_the_summary(self):
         process, calls, out, work = self.run_route("ui=PairingFlowUITests", "profile")
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         tools = [(c["tool"], c["args"][:2]) for c in calls]
         boot = tools.index(("xcrun", ["simctl", "boot"]))
         record = tools.index(("xcrun", ["xctrace", "record"]))
-        build = next(i for i, c in enumerate(calls) if c["tool"] == "xcodebuild")
+        builds = [(i, c["args"][0]) for i, c in enumerate(calls) if c["tool"] == "xcodebuild"]
+        # Built before the recording starts, so the profile holds the tests and not the compiler.
+        self.assertEqual([action for _, action in builds], ["build-for-testing", "test-without-building"])
         self.assertLess(boot, record)
-        self.assertLess(record, build)
+        self.assertLess(builds[0][0], record)
+        self.assertLess(record, builds[1][0])
         [args] = self.records(calls)
-        self.assertEqual(args[args.index("--device") + 1], SIMULATOR)
-        self.assertEqual(args[args.index("--template") + 1], "Time Profiler")
+        # The instrument alone, on the host: the template's os_log stop and --device both hang.
+        self.assertNotIn("--device", args)
+        self.assertNotIn("--template", args)
+        self.assertEqual(args[args.index("--instrument") + 1], "Time Profiler")
         self.assertIn("--all-processes", args)
         summary = json.loads((out / "ui-profile-summary.json").read_text())
         self.assertEqual(summary["processes"][0]["process"], "CmuxMobileApp")
         self.assertTrue((out / "ui-profile-summary.md").is_file())
-        self.assertTrue((out / "ui-time-profile.xml.gz").is_file())
-        self.assertTrue((out / "ui-profile-toc.xml").is_file())
+        self.assertIn('schema="time-profile"', (out / "ui-profile-toc.xml").read_text())
+        log = (out / "ui-profile.log").read_text()
+        self.assertIn("Output file saved as", log)
+        self.assertNotIn("dylibs overlap", log)
+        self.assertNotIn("0x1-0x2", log)
         with zipfile.ZipFile(out / "ui-profile.trace.zip") as z:
             self.assertIn("ui-profile.trace/fixture", z.namelist())
         text = (out / "SUMMARY.md").read_text()
-        self.assertIn("all processes on the device", text)
+        self.assertIn("recording (Time Profiler, all host processes)", text)
+        self.assertIn("5 samples", text)
         self.assertIn("CmuxMobileApp: main thread 4.0 ms", text)
         self.assertIn("ui-profile.trace.zip", text)
+        self.assertNotIn("FAILED", text)
         self.assertFalse((work / "ui-profile.trace").exists())
         self.assertIn(["simctl", "delete", SIMULATOR], [c["args"] for c in calls if c["tool"] == "xcrun"])
 
@@ -214,24 +246,63 @@ class ProfileRouteTests(unittest.TestCase):
         self.assertTrue((out / "ui-video.mp4").is_file())
         self.assertTrue((out / "ui-profile-summary.json").is_file())
 
-    def test_a_device_recording_that_fails_falls_back_to_the_host(self):
-        process, calls, out, _ = self.run_route("ui=A", "profile", DEVICE_FAILS="1")
+    def test_the_started_line_counts_when_no_notice_comes(self):
+        process, _, out, _ = self.run_route("ui=A", "profile", XCTRACE="line-only")
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        first, second = self.records(calls)
-        self.assertIn("--device", first)
-        self.assertNotIn("--device", second)
-        self.assertIn("all processes on the host", (out / "SUMMARY.md").read_text())
+        self.assertTrue((out / "ui-profile-summary.json").is_file())
 
-    def test_no_recording_still_runs_the_tests_and_says_so(self):
-        process, calls, out, _ = self.run_route("ui=A", "profile", DEVICE_FAILS="1", HOST_FAILS="1")
-        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+    def test_a_recording_that_never_starts_is_stopped_and_fails_the_step(self):
+        # The real bounds: 120 s for the start, then 30 s from SIGINT to TERM.
+        process, calls, out, _ = self.run_route("ui=A", "profile", XCTRACE="never-starts", timeout=240)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
         self.assertTrue(any(c["tool"] == "xcodebuild" for c in calls))
-        self.assertIn("xctrace did not start", (out / "SUMMARY.md").read_text())
+        text = (out / "SUMMARY.md").read_text()
+        self.assertIn("UI test profile: FAILED, xctrace did not start recording", text)
+        self.assertIn("UI tests", text)
         self.assertFalse((out / "ui-profile-summary.json").exists())
+
+    def test_an_xctrace_that_exits_fails_the_step(self):
+        process, _, out, _ = self.run_route("ui=A", "profile", XCTRACE="exits")
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertIn("FAILED, xctrace exited before it started recording", (out / "SUMMARY.md").read_text())
+        self.assertIn("Cannot start", (out / "ui-profile.log").read_text())
+
+    def test_a_trace_without_samples_fails_loudly_and_keeps_the_evidence(self):
+        # As c80f7e85 and 0b372df5 (2026-11-14): the bundle held only RunIssues.storedata.
+        process, _, out, _ = self.run_route("ui=A", "profile", XCTRACE="stuck-save")
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        text = (out / "SUMMARY.md").read_text()
+        self.assertIn("UI test profile: FAILED, the trace has no time-profile table", text)
+        self.assertIn("Document Missing Template Error", (out / "ui-profile.log").read_text())
+        self.assertTrue((out / "ui-profile.trace.zip").is_file())
+
+    def test_a_toc_without_the_table_fails(self):
+        process, _, out, _ = self.run_route("ui=A", "profile", TOC_SCHEMA="kdebug")
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertIn("no time-profile table", (out / "SUMMARY.md").read_text())
+        self.assertTrue((out / "ui-profile-toc.xml").is_file())
+
+    def test_a_table_with_no_rows_fails(self):
+        process, _, out, _ = self.run_route("ui=A", "profile",
+                                            TABLE_TEXT="<trace-query-result><node/></trace-query-result>")
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        self.assertIn("FAILED, the time-profile table has no samples", (out / "SUMMARY.md").read_text())
+
+    def test_a_ui_build_failure_records_nothing_and_fails(self):
+        process, calls, out, _ = self.run_route("ui=A", "profile", BUILD_STATUS="65")
+        self.assertEqual(process.returncode, 65, process.stdout + process.stderr)
+        self.assertEqual(self.records(calls), [])
+        self.assertEqual([c["args"][0] for c in calls if c["tool"] == "xcodebuild"], ["build-for-testing"])
+        self.assertIn("FAILED, the UI tests did not build", (out / "SUMMARY.md").read_text())
+
+    def test_without_profile_the_ui_run_is_one_xcodebuild_test(self):
+        process, calls, _, _ = self.run_route("ui=A")
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual([c["args"][0] for c in calls if c["tool"] == "xcodebuild"], ["test"])
 
     def test_a_failing_ui_run_still_keeps_the_profile(self):
         process, _, out, _ = self.run_route("ui=A", "profile", UI_STATUS="65")
-        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(process.returncode, 65, process.stdout + process.stderr)
         self.assertIn("exit 65", (out / "SUMMARY.md").read_text())
         self.assertTrue((out / "ui-profile-summary.json").is_file())
 
