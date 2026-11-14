@@ -30,6 +30,37 @@ pub(super) enum Invocation {
     Token { team: Option<String> },
 }
 
+/// One `auth.token` answer for a process of this cmux (the link's Cloud tunnel,
+/// `carrier/tunnel_keeper.rs`): the token, the team it acts in and the cmux API that issued it.
+pub(crate) struct AppToken {
+    pub token: zeroize::Zeroizing<String>,
+    pub team: String,
+    pub api_origin: String,
+}
+
+/// Asks the signed-in app this cmux belongs to (the app socket `cmux auth token` reaches) for a
+/// token for `team`. `Err` names why there is none: no app answers, `not_signed_in`, or another
+/// refusal. Blocks up to the app's own mint limit; nothing here logs the token.
+pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
+    let global = GlobalArgs::default();
+    let mut stream = super::app::connect_command(&global).map_err(|error| {
+        error.get("code").and_then(Value::as_str).unwrap_or("app.unreachable").to_owned()
+    })?;
+    let answer =
+        super::app::request(&mut stream, "auth.token", json!({"team": team}), AUTH_TOKEN_TIMEOUT)?;
+    let value = answer.map_err(|error| {
+        error.get("code").and_then(Value::as_str).unwrap_or("refused").to_owned()
+    })?;
+    let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
+    let token = text("access_token").filter(|token| !token.trim().is_empty());
+    match (token, text("team"), text("api_origin")) {
+        (Some(token), Some(team), Some(api_origin)) => {
+            Ok(AppToken { token: zeroize::Zeroizing::new(token), team, api_origin })
+        }
+        _ => Err("the app's auth.token answer is incomplete".to_owned()),
+    }
+}
+
 /// `cmux auth …`. `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;

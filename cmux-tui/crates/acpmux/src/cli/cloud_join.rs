@@ -438,6 +438,44 @@ pub(crate) fn node_key_copied_at(home: &std::path::Path) -> bool {
         || crate::cli::mesh_node_key::serves_copied_key(home)
 }
 
+/// What the cmux link's Cloud tunnel (cmux `carrier/tunnel_keeper.rs`) needs of this box's join:
+/// the machine, its team, its name and the platform origin it joined through. Never the `cmm_`
+/// credential: the tunnel attaches with the signed-in person's token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinedDevice {
+    pub machine_id: String,
+    pub team_id: String,
+    pub name: String,
+    pub hub_origin: String,
+}
+
+/// This box's join in acpmux home `home`, when it is one the tunnel may run for: a live record
+/// (not revoked, not a copy of another box's, its node key not a copied one) of a `machine_` id,
+/// with no sign-out leave or queued revoke pending. None otherwise: the tunnel stops then.
+pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
+    let record = load_at(home).ok().flatten()?;
+    let current = host_fingerprint::current();
+    let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
+        || to_revoke::any_queued(home);
+    if record.revoked
+        || record.cloned
+        || left
+        || !record.machine_id.starts_with("machine_")
+        || record.team_id.is_empty()
+        || copied_here(home, &record, current.as_deref())
+        || node_key_copied_at(home)
+    {
+        return None;
+    }
+    let hub_origin = origin(Some(record.hub_origin.clone())).ok()?;
+    Some(JoinedDevice {
+        machine_id: record.machine_id,
+        team_id: record.team_id,
+        name: record.name,
+        hub_origin,
+    })
+}
+
 /// Whether `home`'s machine record provably belongs to this box: live, made (or settled) on a
 /// box with a fingerprint, that box this one, and no evidence of a copy
 /// (`home_copy_state`). A box that names no machine proves nothing.
@@ -1056,6 +1094,41 @@ mod tests {
         super::save_at(home, &record).unwrap();
         crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
         std::fs::read(home.join("node.wg.key")).unwrap()
+    }
+
+    /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
+    /// mark, a queued revoke, a revoked record or no record at all stop it.
+    #[test]
+    #[cfg(unix)]
+    fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "not joined");
+        let current = super::host_fingerprint::current();
+        joined_on(home.path(), current.as_deref());
+        // `joined_on` names no `machine_` id: the tunnel attaches only one.
+        assert_eq!(super::joined_device_at(home.path()), None);
+        let mut record = super::load_at(home.path()).unwrap().unwrap();
+        record.machine_id = "machine_1".into();
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(
+            super::joined_device_at(home.path()),
+            Some(super::JoinedDevice {
+                machine_id: "machine_1".into(),
+                team_id: "team".into(),
+                name: "original".into(),
+                hub_origin: "https://example.com".into(),
+            })
+        );
+
+        let leave = home.path().join(super::enroll::LEAVE_FILE);
+        std::fs::write(&leave, b"{}").unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "a sign-out's leave is pending");
+        std::fs::remove_file(&leave).unwrap();
+        assert!(super::joined_device_at(home.path()).is_some());
+
+        record.revoked = true;
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "revoked");
     }
 
     /// Review F2 at 9e91bcea: the clone check the cmux link shares, by the home it names.

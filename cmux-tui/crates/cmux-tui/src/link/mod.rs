@@ -5,6 +5,7 @@
 mod access_cli;
 mod acpmux;
 mod agent_cli;
+mod carrier_tunnel;
 mod cloud_fs;
 mod control;
 mod daemon_entry;
@@ -473,6 +474,8 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     }
     let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
+    // Shared with the Cloud tunnel (`carrier_tunnel.rs`), which keeps only a weak handle.
+    let key = Arc::new(key);
     tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))
 }
 
@@ -537,7 +540,7 @@ fn owner_session(
 
 async fn serve(
     state: LinkState,
-    key: &cmux_link::key_holder::KeyHolder,
+    key: &Arc<cmux_link::key_holder::KeyHolder>,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
@@ -603,6 +606,9 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // The Cloud tunnel hub for the ssh backup carrier, on the key this link holds.
+    let tunnel =
+        carrier_tunnel::keep(state.dir().to_path_buf(), Arc::downgrade(key), acpmux_home.clone());
     // A paired peer's `acpmux` stream goes to this user's acpmux listener.
     let acpmux = AcpmuxTarget::for_home(acpmux_home);
     let result = tokio::select! {
@@ -610,6 +616,7 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         () = reload_on_rekey(&peers, &overlay) => Ok(()),
         () = finish_then_wait(still_retiring, &state, &overlay, &peers, &public_key) => Ok(()),
+        () = tunnel => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };

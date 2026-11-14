@@ -66,7 +66,7 @@ fn valid_machine_id(id: &str) -> bool {
 }
 
 /// The device name the VM API accepts (`MeshDeviceEnrollment.name`).
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= 63
@@ -134,7 +134,7 @@ pub(crate) fn parse_keys(line: &[u8]) -> Result<(Zeroizing<[u8; 32]>, InstallKey
 }
 
 /// The VM API of the deployment whose platform origin is `platform`.
-fn vm_api_of(platform: &str) -> Option<&'static str> {
+pub(crate) fn vm_api_of(platform: &str) -> Option<&'static str> {
     use cmux_cloud_environment as env;
     let platform = platform.trim_end_matches('/');
     [env::PRODUCTION_DEPLOYMENT, env::STAGING_DEPLOYMENT, env::DEVELOPMENT_DEPLOYMENT]
