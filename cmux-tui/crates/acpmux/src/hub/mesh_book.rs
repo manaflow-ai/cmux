@@ -22,6 +22,40 @@ pub(crate) struct MeshBook {
     hosts: BTreeMap<String, u64>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
+    /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
+    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`).
+    machines: BTreeMap<String, String>,
+}
+
+/// Whether `book` lists daemon `d` as one of this person's other machines (`mine`).
+fn is_mine(
+    d: &crate::mesh::BookDaemon,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> bool {
+    !(own_user.is_empty()
+        || d.user != own_user
+        || d.host.is_empty()
+        || own_daemon == Some(d.daemon_id.as_str())
+        || super::mesh_rows::is_own_host(&d.host)
+        || skip(&d.host))
+}
+
+/// The machines of `book` [`mine`] lists, by hub `daemonId`, to their host. A machine with no
+/// `daemonId` is left out: nothing can dial it.
+pub(crate) fn mine_by_key(
+    book: &AddressBook,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> BTreeMap<String, String> {
+    book.daemons
+        .iter()
+        .filter(|d| !d.daemon_id.is_empty() && is_mine(d, own_user, own_daemon, skip))
+        .take(MAX_BOOK_ROWS)
+        .map(|d| (d.daemon_id.clone(), d.host.clone()))
+        .collect()
 }
 
 /// The fields a hub row is built from beside its key (`row_of`), and the last read that listed
@@ -58,13 +92,7 @@ pub(crate) fn mine(
     let mut hosts = BTreeMap::new();
     let mut daemons = std::collections::HashSet::new();
     for d in book.daemons {
-        if own_user.is_empty()
-            || d.user != own_user
-            || d.host.is_empty()
-            || own_daemon == Some(d.daemon_id.as_str())
-            || super::mesh_rows::is_own_host(&d.host)
-            || skip(&d.host)
-        {
+        if !is_mine(&d, own_user, own_daemon, skip) {
             continue;
         }
         let seen = hosts.entry(d.host.clone()).or_insert(0);
@@ -107,8 +135,29 @@ impl Hub {
     ) {
         let ssh: std::collections::HashSet<String> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-        let (hosts, sessions) = mine(book, own_user, own_daemon, &|host| ssh.contains(host));
+        let skip = |host: &str| ssh.contains(host);
+        let machines = mine_by_key(&book, own_user, own_daemon, &skip);
+        let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
+        self.set_mesh_book_machines(machines);
         self.set_mesh_book(hosts, sessions);
+    }
+
+    /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
+    /// stops.
+    pub(crate) fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
+    }
+
+    /// The host of the machine whose hub `daemonId` is `key`, when the book lists it as one of
+    /// this person's other machines.
+    pub(crate) fn mesh_book_machine(&self, key: &str) -> Option<String> {
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines.get(key).cloned()
+    }
+
+    /// Each of this person's other machines the book lists: `(daemonId, host)`.
+    pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
     }
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and

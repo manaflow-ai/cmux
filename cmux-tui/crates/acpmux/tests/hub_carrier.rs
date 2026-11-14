@@ -1159,3 +1159,221 @@ async fn hub_carrier_pipe_numbers() {
         total >> 20,
     );
 }
+
+/// What machine B lets a session circuit reach: its consent, decided as a daemon decides it
+/// (`session_service::decide`), and its own cmux-tui session socket. Counts the asks it records.
+struct TestSessionGate {
+    consent: std::sync::Mutex<Value>,
+    socket: std::path::PathBuf,
+    asks: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::SessionGate for TestSessionGate {
+    async fn admit(
+        &self,
+        from: &str,
+    ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
+        use acpmux::session_service::{Decision, decide, session_socket};
+        let consent = self.consent.lock().unwrap().clone();
+        match decide(&consent, Some("user-1")) {
+            Decision::Admit => session_socket(Some(&self.socket)),
+            Decision::Refuse { refusal, ask } => {
+                if ask {
+                    self.asks.lock().unwrap().push(from.to_owned());
+                }
+                Err(refusal)
+            }
+        }
+    }
+}
+
+fn session_consent(signed_in: &str, answered: bool) -> Value {
+    let mut consent = json!({"screen": "none", "control": "none", "signedInMachines": signed_in});
+    if answered {
+        consent["signedInMachinesAnsweredAt"] = json!("1");
+        consent["signedInMachinesUser"] = json!("user-1");
+    }
+    json!({"consentRequired": true, "consent": consent})
+}
+
+/// New Workspace on a joined Mac, at the carrier: A dials B naming the cmux-tui session service.
+/// With nothing granted B refuses with the reason and records its one ask (naming A's key); after
+/// Not now it refuses with no new ask; after the one-click grant A's bytes reach B's own
+/// cmux-tui session socket and its answers come back. An acpmux circuit to B is not changed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_cmux_tui_session_circuit_needs_the_signed_in_machines_grant() {
+    use acpmux::hub_carrier::CircuitService;
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // B's own cmux-tui session socket: it answers each line with "tui: LINE".
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("tui.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("tui: {line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let gate = Arc::new(TestSessionGate {
+        consent: std::sync::Mutex::new(session_consent("none", false)),
+        socket: socket.clone(),
+        asks: Default::default(),
+    });
+    carrier_b.set_session_gate(gate.clone());
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+
+    // Nothing granted: refused with the reason, and the one ask names A. B's registration may
+    // still be on its way, so the first dial goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let refused = loop {
+        match carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await {
+            Ok(_) => panic!("a session circuit was admitted with nothing granted"),
+            Err(e) if e.contains("consent_required") => break e,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "B never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    assert!(refused.contains("allow workspaces"), "{refused}");
+    assert_eq!(*gate.asks.lock().unwrap(), vec![public(&key_a)], "one ask, naming A");
+
+    // Not now: refused, and no new ask.
+    *gate.consent.lock().unwrap() = session_consent("none", true);
+    let refused = carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await.unwrap_err();
+    assert!(refused.contains("consent_declined"), "{refused}");
+    assert_eq!(gate.asks.lock().unwrap().len(), 1, "asked once");
+
+    // Control from elsewhere alone admits no workspace.
+    *gate.consent.lock().unwrap() =
+        json!({"consentRequired": true, "consent": {"control": "granted"}});
+    assert!(carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await.is_err());
+
+    // The one-click grant: A reaches B's session socket.
+    *gate.consent.lock().unwrap() = session_consent("granted", true);
+    let mut circuit = carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await.unwrap();
+    circuit.write_all(b"workspace.create\n").await.unwrap();
+    let mut answer = vec![0u8; "tui: workspace.create\n".len()];
+    tokio::time::timeout(Duration::from_secs(10), circuit.read_exact(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer, b"tui: workspace.create\n");
+
+    // Revoked on B: the next circuit is refused again.
+    *gate.consent.lock().unwrap() = session_consent("none", true);
+    assert!(carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await.is_err());
+
+    // B with its socket gone: refused by name, never a hang.
+    *gate.consent.lock().unwrap() = session_consent("granted", true);
+    drop(dir);
+    let refused = carrier_a.dial_service(&b, CircuitService::CmuxTuiSession).await.unwrap_err();
+    assert!(refused.contains("service.unreachable"), "{refused}");
+}
+
+/// A carrier with no session gate (an older daemon's, or a machine that serves none) refuses a
+/// session circuit by name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_session_circuit_to_a_machine_with_no_session_gate_is_refused() {
+    use acpmux::hub_carrier::CircuitService;
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_a.dial_service(&public(&key_b), CircuitService::CmuxTuiSession).await {
+            Ok(_) => panic!("admitted with no gate"),
+            Err(e) if e.contains("service.off") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "B never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}

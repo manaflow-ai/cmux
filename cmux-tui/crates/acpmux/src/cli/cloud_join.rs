@@ -181,8 +181,36 @@ impl MachineIdentity {
 pub struct Consent {
     pub screen: ConsentState,
     pub control: ConsentState,
+    /// Control for this person's other machines signed in to the same account: they open
+    /// workspaces and terminals here through the hub carrier (`hub_carrier.rs`,
+    /// [`SIGNED_IN_MACHINES`]). Off by default; signing in never grants it. A file an older
+    /// build wrote has none (off), and an older build that rewrites the file drops it (off).
+    #[serde(rename = "signedInMachines", default)]
+    pub signed_in_machines: ConsentState,
+    /// When the person last answered the ask for [`Self::signed_in_machines`] (Allow, Not now,
+    /// or a later Off): it is asked once, so a later refusal records no new ask.
+    #[serde(
+        rename = "signedInMachinesAnsweredAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub signed_in_machines_answered_at: Option<String>,
+    /// The account (hub user id) [`Self::signed_in_machines`] was answered for: the grant and the
+    /// answer hold only while this machine is joined as that account, so a switch to another
+    /// account asks again and lets none of its machines in.
+    #[serde(rename = "signedInMachinesUser", default, skip_serializing_if = "Option::is_none")]
+    pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
+}
+
+/// The consent surface "control for my other machines signed in to this account" (Leo,
+/// 2026-11-14: "ok then do that", to one click on the new Mac).
+pub const SIGNED_IN_MACHINES: &str = "signedInMachines";
+
+/// Every consent surface the person can grant on this machine.
+pub(crate) fn is_consent_surface(surface: &str) -> bool {
+    matches!(surface, "screen" | "control" | SIGNED_IN_MACHINES)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1023,6 +1051,11 @@ pub fn require_joined_consent(surface: &str) -> Result<()> {
 
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
+}
+
+/// [`record_consent_refusal`], naming the machine that asked (a host the hub lists).
+pub(crate) fn record_consent_refusal_from(surface: &str, from: Option<&str>) -> Result<()> {
+    authority()?.refused_from(surface, from)
 }
 
 /// The hub's generated client (cmux-cloud-client), as `bearer` when given,

@@ -30,6 +30,10 @@
 //!   machine's owner named that daemon and granted control ([`CmuxTuiGate`],
 //!   `cmux_tui_service.rs`). The remote protocol's own Noise handshake and device enrollment run
 //!   inside the circuit: the carrier proves which machine dialed, never who may run commands.
+//!   [`CircuitService::CmuxTuiSession`] reaches the machine's own cmux-tui session daemon (its
+//!   app's, a unix socket), so another of the person's machines opens a workspace there; only
+//!   while the person on that machine granted "control for my other machines signed in to this
+//!   account" ([`SessionGate`], `session_service.rs`), refused by default.
 //!
 //! The node key in two protocols. `node.wg.key` is WireGuard's static key and this carrier's
 //! Noise XX static key. The acpmux owner allows that reuse on these conditions, and they bind
@@ -121,7 +125,16 @@ pub enum CircuitService {
     Acpmux,
     /// The machine's cmux-tui remote daemon, its WebSocket listener on loopback `port`.
     CmuxTui { port: u16 },
+    /// The machine's own cmux-tui session daemon, the one its app shows (`CMUX_TUI_SOCKET`): a
+    /// workspace and its terminals opened from another of the person's machines. Hello
+    /// `{"service":"cmux-tui","target":"session"}`. Reached only while the person granted
+    /// "control for my other machines signed in to this account" on that machine
+    /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
+    CmuxTuiSession,
 }
+
+/// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
+pub const SESSION_TARGET: &str = "session";
 
 /// The first bytes of a record that names a circuit's service. A WebSocket upgrade (the acpmux
 /// service's first bytes) never starts with NUL.
@@ -158,13 +171,28 @@ pub trait CmuxTuiGate: Send + Sync + 'static {
     async fn admit(&self, port: u16) -> Result<SocketAddr, ServiceRefusal>;
 }
 
+/// Whether this machine lets a circuit reach its own cmux-tui session daemon
+/// ([`CircuitService::CmuxTuiSession`]), and the unix socket it listens on.
+#[async_trait]
+pub trait SessionGate: Send + Sync + 'static {
+    /// The socket a circuit from the machine whose hub `daemonId` is `from` reaches, or why it
+    /// may not. `from` is the dialer's key as the Noise handshake proved it.
+    async fn admit(&self, from: &str) -> Result<std::path::PathBuf, ServiceRefusal>;
+}
+
 /// The hello record of `service`; None for the acpmux listener, whose circuits send none.
 fn service_hello(service: CircuitService) -> Option<Bytes> {
-    let CircuitService::CmuxTui { port } = service else { return None };
+    let body = match service {
+        CircuitService::Acpmux => return None,
+        CircuitService::CmuxTui { port } => {
+            serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port})
+        }
+        CircuitService::CmuxTuiSession => {
+            serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
+        }
+    };
     let mut record = SERVICE_HELLO.to_vec();
-    record.extend_from_slice(
-        serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port}).to_string().as_bytes(),
-    );
+    record.extend_from_slice(body.to_string().as_bytes());
     Some(Bytes::from(record))
 }
 
@@ -183,8 +211,14 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
     };
     let port =
         hello.get("port").and_then(serde_json::Value::as_u64).and_then(|p| u16::try_from(p).ok());
-    Some(match (hello.get("service").and_then(serde_json::Value::as_str), port) {
-        (Some(CMUX_TUI_SERVICE), Some(port)) if port != 0 => Ok(CircuitService::CmuxTui { port }),
+    let target = hello.get("target").and_then(serde_json::Value::as_str);
+    Some(match (hello.get("service").and_then(serde_json::Value::as_str), port, target) {
+        (Some(CMUX_TUI_SERVICE), Some(port), None) if port != 0 => {
+            Ok(CircuitService::CmuxTui { port })
+        }
+        (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
+            Ok(CircuitService::CmuxTuiSession)
+        }
         _ => Err(unknown()),
     })
 }
@@ -279,6 +313,8 @@ pub struct HubCarrier {
     key_check: Option<KeyCheck>,
     /// Whether a circuit may reach this machine's cmux-tui remote daemon; none refuses it.
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
+    /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
+    session: RwLock<Option<Arc<dyn SessionGate>>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -304,6 +340,7 @@ impl HubCarrier {
             stats: Arc::default(),
             key_check: None,
             cmux_tui: RwLock::new(None),
+            session: RwLock::new(None),
         })
     }
 
@@ -327,6 +364,7 @@ impl HubCarrier {
             stats: Arc::default(),
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
+            session: RwLock::new(None),
         })
     }
 
@@ -397,6 +435,15 @@ impl HubCarrier {
 
     fn cmux_tui_gate(&self) -> Option<Arc<dyn CmuxTuiGate>> {
         self.cmux_tui.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Let circuits reach this machine's own cmux-tui session daemon as `gate` decides.
+    pub fn set_session_gate(&self, gate: Arc<dyn SessionGate>) {
+        *self.session.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn session_gate(&self) -> Option<Arc<dyn SessionGate>> {
+        self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
@@ -742,6 +789,12 @@ impl RelayIncoming for Incoming {
             }
             Err(_) => return,
         };
+        // The dialer's key as the handshake proved it (its grant names the key's fingerprint).
+        let from = keys
+            .0
+            .iter()
+            .find(|key| public_key_fingerprint(key) == accepted.grant.device_id)
+            .map(|key| base64::engine::general_purpose::STANDARD.encode(key));
         let link = accepted.link;
         // The first record says which service the circuit is for: a hello names one, anything
         // else is the acpmux listener's own first bytes (a WebSocket upgrade).
@@ -753,10 +806,52 @@ impl RelayIncoming for Incoming {
                 return;
             }
         };
+        if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
+            let admitted = match (self.carrier.session_gate(), from) {
+                (Some(gate), Some(from)) => gate.admit(&from).await,
+                (None, _) => Err(ServiceRefusal::new(
+                    "service.off",
+                    "this machine does not open workspaces for its other machines",
+                )),
+                (Some(_), None) => Err(ServiceRefusal::new(
+                    "service.unknown_machine",
+                    "the circuit's machine key is not one this machine admitted",
+                )),
+            };
+            let local = match admitted {
+                Ok(socket) => connect_session(&socket).await.map_err(|e| {
+                    ServiceRefusal::new(
+                        "service.unreachable",
+                        format!("this machine's cmux-tui session is not running: {e}"),
+                    )
+                }),
+                Err(refusal) => Err(refusal),
+            };
+            let local = match local {
+                Ok(local) => local,
+                Err(refusal) => {
+                    tracing::info!("hub carrier: a session circuit was refused: {refusal}");
+                    let _ = link.send(service_answer(&Err(refusal))).await;
+                    let _ = link.close().await;
+                    return;
+                }
+            };
+            if link.send(service_answer(&Ok(()))).await.is_err() {
+                let _ = link.close().await;
+                return;
+            }
+            self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
+            pump(Box::new(link), local, &self.carrier.stats).await;
+            return;
+        }
         let target = match named_service(&first) {
             None => Ok(self.websocket),
             Some(Err(refusal)) => Err(refusal),
             Some(Ok(CircuitService::Acpmux)) => Ok(self.websocket),
+            // Served above; never reaches a TCP target.
+            Some(Ok(CircuitService::CmuxTuiSession)) => {
+                Err(ServiceRefusal::new("service.unknown", "no such service"))
+            }
             Some(Ok(CircuitService::CmuxTui { port })) => match self.carrier.cmux_tui_gate() {
                 Some(gate) => gate.admit(port).await,
                 None => Err(ServiceRefusal::new(
@@ -802,6 +897,16 @@ impl RelayIncoming for Incoming {
         self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
         pump(Box::new(link), local, &self.carrier.stats).await;
     }
+}
+
+/// A connection to this machine's own cmux-tui session socket (unix only; elsewhere none).
+#[cfg(unix)]
+async fn connect_session(path: &std::path::Path) -> std::io::Result<tokio::net::UnixStream> {
+    tokio::net::UnixStream::connect(path).await
+}
+#[cfg(not(unix))]
+async fn connect_session(_path: &std::path::Path) -> std::io::Result<tokio::io::DuplexStream> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
 }
 
 /// Carry bytes between `io` and the Noise link until either side ends, then close both.
@@ -973,6 +1078,8 @@ pub async fn start_configured(
     );
     // Off unless the owner names the daemon (`remoteDaemon`) and grants control.
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
+    // Off unless the person on this machine allowed its other signed-in machines in.
+    carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))
 }

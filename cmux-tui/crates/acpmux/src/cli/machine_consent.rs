@@ -171,6 +171,22 @@ impl Authority {
     }
 
     pub(super) fn set(&self, surface: &str, granted: bool) -> Result<Consent> {
+        let user = if surface == super::cloud_join::SIGNED_IN_MACHINES {
+            super::cloud_join::machine_user_id()
+        } else {
+            None
+        };
+        self.set_as(surface, granted, user)
+    }
+
+    /// [`Self::set`], with the account (hub user id) this machine is joined as: what a
+    /// `signedInMachines` answer is for.
+    pub(super) fn set_as(
+        &self,
+        surface: &str,
+        granted: bool,
+        user: Option<String>,
+    ) -> Result<Consent> {
         self.prepare()?;
         // Serialize read/modify/write across app tags; disjoint grant changes
         // must never resurrect a concurrently revoked surface.
@@ -180,6 +196,17 @@ impl Authority {
         match surface {
             "screen" => consent.screen = state,
             "control" => consent.control = state,
+            super::cloud_join::SIGNED_IN_MACHINES => {
+                anyhow::ensure!(
+                    !granted || user.is_some(),
+                    "this machine is not joined to an account"
+                );
+                consent.signed_in_machines = state;
+                // Any answer (Allow, Not now, a later Off) is the one ask this machine gets, for
+                // the account it is joined as.
+                consent.signed_in_machines_answered_at = Some(crate::store::now_ms().to_string());
+                consent.signed_in_machines_user = user;
+            }
             _ => anyhow::bail!("unknown consent surface"),
         }
         if granted {
@@ -193,14 +220,20 @@ impl Authority {
     }
 
     pub(super) fn refused(&self, surface: &str) -> Result<()> {
-        anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
+        self.refused_from(surface, None)
+    }
+
+    /// [`Self::refused`], naming the machine that asked (`from`, a host the hub lists) when one
+    /// is known, so the app's ask says which of the person's machines wants in.
+    pub(super) fn refused_from(&self, surface: &str, from: Option<&str>) -> Result<()> {
+        anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
         self.prepare()?;
-        crate::config::write_atomic(
-            &self.root.join("refusal.json"),
-            &serde_json::to_vec(
-                &json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()}),
-            )?,
-        )
+        let mut record = json!({"event":"consent_refused","code":"consent_required","surface":surface,"at":crate::store::now_ms()});
+        if let Some(from) = from.filter(|from| !from.is_empty()) {
+            // A host name from the hub's book, bounded so the record stays small.
+            record["from"] = json!(from.chars().take(128).collect::<String>());
+        }
+        crate::config::write_atomic(&self.root.join("refusal.json"), &serde_json::to_vec(&record)?)
     }
 
     #[cfg(unix)]
