@@ -169,15 +169,20 @@ extension LiveCoordinator {
         guard session.isCloud, session.link.target != nil, sessions[macID] === session else { return }
         // A carrier that drops soon after it came up, again and again (a daemon that ends every
         // session), waits longer each time: the read alone would dial it again at once, forever.
+        let now = cloudNow()
         var wait = Duration.zero
         if readNow {
-            let now = cloudNow()
             let quick = session.linkUpAt.map { now - $0 < Self.cloudQuickDropWindow } ?? false
             let drops = quick ? (cloudQuickDrops[macID] ?? 0) + 1 : 0
             cloudQuickDrops[macID] = drops
             wait = Self.cloudQuickDropWait(drops)
-            if wait > .zero { cloudHoldNotBefore[macID] = now + wait } else { cloudHoldNotBefore[macID] = nil }
+        } else {
+            // A failed dial: the same growing wait, counted until a link comes up.
+            let failures = (cloudDialFailures[macID] ?? 0) + 1
+            cloudDialFailures[macID] = failures
+            wait = Self.cloudQuickDropWait(failures)
         }
+        if wait > .zero { cloudHoldNotBefore[macID] = now + wait } else { cloudHoldNotBefore[macID] = nil }
         session.linkUpAt = nil
         holdCloudDial(macID)
         if readNow, wait == .zero { onCloudLinkDropped?(macID) } else { onCloudDialHeld?() }
@@ -228,6 +233,7 @@ extension LiveCoordinator {
             return
         }
         session.linkUpAt = cloudNow()
+        cloudDialFailures[macID] = nil
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
             // The dial already opened `auth` and `daemon`: serve now, in this turn.
             ConnectTimeline.shared.mark("link_served")
@@ -716,8 +722,9 @@ extension LiveCoordinator {
         lastShown[macID] = ContinuousClock.now
         if isCloud(macID: macID) {
             touchedCloud = macID
-            // The person opened it: no quick-drop wait (a read still decides it runs).
+            // The person opened it: no quick-drop or failed-dial wait (a read still decides it runs).
             cloudHoldNotBefore[macID] = nil
+            cloudDialFailures[macID] = nil
         }
         // A held machine opened: read the list now (its hold lifts only on a read).
         if cloudDropHolds[macID] != nil || cloudStaleHolds[macID] != nil { onCloudHoldsWaiting?(false) }

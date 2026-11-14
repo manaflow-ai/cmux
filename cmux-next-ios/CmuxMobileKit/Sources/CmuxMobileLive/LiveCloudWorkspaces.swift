@@ -186,8 +186,12 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
 
     /// A read is out that began after every hold now placed, so its answer will lift them.
     private var readWillLiftHolds: Bool {
-        guard let stamp = readStampInFlight, let coordinator, !coordinator.cloudHoldWaitsOnTime else { return false }
-        return coordinator.cloudDropHolds.values.allSatisfy { $0 <= stamp }
+        guard let stamp = readStampInFlight, let coordinator else { return false }
+        // A hold still inside its quick-drop wait lifts on no read before the wait ends (the busy
+        // poll reads after it): it never makes the read in flight look useless, or every ask would
+        // cancel it and no read would finish.
+        let waiting = coordinator.cloudHoldsWaitingOnTime
+        return coordinator.cloudDropHolds.allSatisfy { $0.value <= stamp || waiting.contains($0.key) }
             && coordinator.cloudStaleHolds.values.allSatisfy { $0 <= stamp }
     }
 

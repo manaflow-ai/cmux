@@ -140,6 +140,7 @@ extension LiveCoordinator {
         // The person asked: no quick-drop wait from before (a read still decides it runs).
         cloudHoldNotBefore[machineID] = nil
         cloudQuickDrops[machineID] = nil
+        cloudDialFailures[machineID] = nil
         closeSession(machineID)
         publishCloudMachines()
         touch(machineID)

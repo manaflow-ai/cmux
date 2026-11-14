@@ -149,11 +149,15 @@ public final class LiveCoordinator {
         return .seconds(seconds[min(max(drops, 0), seconds.count - 1)])
     }
 
-    /// A quick-drop wait is still running for some held machine.
-    var cloudHoldWaitsOnTime: Bool {
+    /// Held machines whose quick-drop or failed-dial wait is still running.
+    var cloudHoldsWaitingOnTime: Set<String> {
         let now = cloudNow()
-        return cloudHoldNotBefore.values.contains { $0 > now }
+        return Set(cloudHoldNotBefore.filter { $0.value > now }.keys)
     }
+
+    /// Failed dials in a row, by machine: each waits longer before a read may dial it again
+    /// (as quick drops do), so an unreachable machine is not dialed at every read.
+    @ObservationIgnored var cloudDialFailures: [String: Int] = [:]
 
     /// Where the holds stand when a list read begins (pass it back with that read's answer).
     public var cloudReadStamp: Int { cloudHoldSerial }
