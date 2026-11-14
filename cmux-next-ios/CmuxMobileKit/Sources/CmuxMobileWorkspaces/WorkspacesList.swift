@@ -211,8 +211,10 @@ public struct WorkspacesList: View {
                 composingTask = true
             }
             #endif
-            .sheet(isPresented: $composingTask) {
-                TaskComposerSheet(creator: creator, sameNames: sameNames) { made in startedTask(made) }
+            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
+            .fullScreenCover(isPresented: $composingTask) {
+                TaskComposerScreen(creator: creator, sameNames: sameNames,
+                                   started: { made in startedTask(made) }, close: { composingTask = false })
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)

@@ -214,7 +214,9 @@ final class ShellModel {
         #else
         offlineCreation = UnavailableWorkspaceCreationBackend()
         #endif
-        creator = WorkspaceCreator(store: store, backend: offlineCreation)
+        // New Task's drafts: on disk for a signed-in account, in memory on sample data.
+        creator = WorkspaceCreator(store: store, backend: offlineCreation,
+                                   taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
         terminalTabs.mockDataEnabled = mockMode
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
@@ -251,6 +253,16 @@ final class ShellModel {
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
+    }
+
+    /// Where New Task keeps an account's saved drafts (Application Support, one folder per
+    /// account, so another account signed in on this phone never sees them). Nil with no account.
+    static func taskDraftsFolder(account: String?) -> URL? {
+        guard let account, !account.isEmpty, account.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            return nil
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux-mobile/task-drafts/\(account)", isDirectory: true)
     }
 
     #if DEBUG
@@ -495,8 +507,12 @@ final class ShellModel {
             workspacesPath.removeSubrange(index...)
         }
         let mac = store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name ?? "the Mac"
-        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: creator.wasRefusedTask(placeholder.id)
-            ? "Couldn't start the task on \(mac). It's back in New Task." : "Couldn't create a workspace on \(mac)")
+        let text = switch creator.refusedTaskPlace(placeholder.id) {
+        case .composer: "Couldn't start the task on \(mac). It's back in New Task."
+        case .drafts: "Couldn't start the task on \(mac). It's saved in Drafts."
+        case nil: "Couldn't create a workspace on \(mac)"
+        }
+        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
         theme.haptics.error()
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
     }

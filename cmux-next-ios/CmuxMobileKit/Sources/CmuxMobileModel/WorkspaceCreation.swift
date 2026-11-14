@@ -583,15 +583,17 @@ public final class WorkspaceCreator {
     }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
-    /// New Task's unsent composer: kept while the sheet is closed, cleared by Start, and given
-    /// back when every workspace it started was refused (TaskComposer.swift).
+    /// The task the New Task composer holds: saved to the drafts list when the composer is left
+    /// with something in it, cleared by Start, and given back when its start was refused.
     public var taskDraft = TaskDraft()
     /// The draft each New Task placeholder came from, by placeholder id, until the Mac answers.
     @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
     /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
     public var taskRefusal: String?
-    /// Placeholders of refused tasks (the failure toast says the draft is back).
-    @ObservationIgnored var refusedTaskIDs: Set<String> = []
+    /// Placeholders of refused tasks and where their task went (the failure toast says so).
+    @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
+    /// The saved New Task drafts (the drafts list).
+    public let taskDrafts: TaskDraftStore
     /// The task (without its agents) whose draft the composer was given back, while it holds it.
     @ObservationIgnored var restoredTask: TaskDraft?
     /// The last group request of each Mac: group requests go to a Mac one
@@ -599,7 +601,9 @@ public final class WorkspaceCreator {
     @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
     private static let preferredMacKey = "cmuxMobile.workspaces.newMac"
 
-    public init(store: AppStore, backend: any WorkspaceCreationBackend, defaults: UserDefaults = .standard) {
+    public init(store: AppStore, backend: any WorkspaceCreationBackend, defaults: UserDefaults = .standard,
+                taskDrafts: TaskDraftStore = TaskDraftStore(directory: nil)) {
+        self.taskDrafts = taskDrafts
         self.store = store
         self.backend = backend
         self.defaults = defaults

@@ -37,7 +37,7 @@ public struct TaskImage: Hashable, Sendable, Identifiable {
 }
 
 /// One agent New Task starts: a harness of the Mac's catalog and its model (nil: its default).
-public struct TaskAgentPick: Hashable, Sendable, Identifiable {
+public struct TaskAgentPick: Hashable, Sendable, Identifiable, Codable {
     public var harness: String
     public var model: String?
     /// The agent's name as the Mac lists it ("Claude Code Router"), for the workspace title.
@@ -54,6 +54,8 @@ public struct TaskAgentPick: Hashable, Sendable, Identifiable {
 /// New Task's composer: what to do, which agents do it (one workspace each), where, and the
 /// workspace's name. Kept by `WorkspaceCreator.taskDraft` while the sheet is closed.
 public struct TaskDraft: Hashable, Sendable {
+    /// The draft's identity in the drafts list: every save of this composer session updates it.
+    public var id: UUID
     public var prompt: String
     public var images: [TaskImage]
     /// The chosen agents, in the order they were chosen. Empty: the Mac's default agent.
@@ -65,8 +67,9 @@ public struct TaskDraft: Hashable, Sendable {
     /// The workspace name; empty names it after the prompt.
     public var name: String
 
-    public init(prompt: String = "", images: [TaskImage] = [], picks: [TaskAgentPick] = [], macID: String? = nil,
-                directory: String? = nil, name: String = "") {
+    public init(id: UUID = UUID(), prompt: String = "", images: [TaskImage] = [], picks: [TaskAgentPick] = [],
+                macID: String? = nil, directory: String? = nil, name: String = "") {
+        self.id = id
         self.prompt = prompt
         self.images = images
         self.picks = picks
@@ -237,6 +240,8 @@ extension WorkspaceCreator {
             begin(request, placeholder: placeholder, focus: picks.count == 1)
             made.append(placeholder)
         }
+        // Sent: it leaves the drafts list. The next task starts with the same agents and place.
+        taskDrafts.delete([draft.id])
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory)
         taskRefusal = nil
         restoredTask = nil
@@ -256,25 +261,36 @@ extension WorkspaceCreator {
         }
     }
 
-    /// A refused task workspace gives its draft back, once, when the composer is empty
-    /// (the person did not start writing another task meanwhile).
-    /// `reason`: the Mac's refusal when it is written for the person, shown in New Task.
+    /// A refused task workspace gives its task back: in the composer when it is empty (or
+    /// holds the same task, refused by another of its agents), else in the drafts list, so it
+    /// is never lost. `reason`: the Mac's refusal, shown in New Task.
     func restoreTaskDraft(after placeholderID: String, reason: String?) {
         guard let origin = taskOrigins.removeValue(forKey: placeholderID) else { return }
         var task = origin
         task.picks = []
+        let why = reason?.isEmpty == false ? reason
+            : "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
         if taskDraft.isEmpty {
             // Only this agent comes back: the task's other agents may have started it already.
             taskDraft = origin
             restoredTask = task
+            refusedTasks[placeholderID] = .composer
+            taskRefusal = why
         } else if restoredTask == task, taskDraftMatches(origin) {
             // Another agent of the same task failed too: it joins the draft given back.
             taskDraft.picks += origin.picks.filter { !taskDraft.picks.contains($0) }
+            refusedTasks[placeholderID] = .composer
+            taskRefusal = why
+        } else if let saved = taskDrafts.entry(origin.id), saved.prompt == origin.prompt {
+            // Another agent of a task already saved to the drafts list: it joins that draft.
+            var merged = origin
+            merged.picks = saved.picks + origin.picks.filter { !saved.picks.contains($0) }
+            taskDrafts.save(merged)
+            refusedTasks[placeholderID] = .drafts
         } else {
-            return
+            taskDrafts.save(origin)
+            refusedTasks[placeholderID] = .drafts
         }
-        refusedTaskIDs.insert(placeholderID)
-        taskRefusal = reason?.isEmpty == false ? reason : "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
     }
 
     /// Whether the composer holds `origin`'s task (its prompt, photos, name and place).
@@ -283,8 +299,60 @@ extension WorkspaceCreator {
             && taskDraft.macID == origin.macID && taskDraft.directory == origin.directory
     }
 
-    /// Whether `placeholderID` was a New Task workspace the Mac refused (its draft is back).
-    public func wasRefusedTask(_ placeholderID: String) -> Bool { refusedTaskIDs.contains(placeholderID) }
+    /// Whether `placeholderID` was a New Task workspace the Mac refused (its task is back in the
+    /// composer or in the drafts list).
+    public func wasRefusedTask(_ placeholderID: String) -> Bool { refusedTasks[placeholderID] != nil }
+
+    /// Where a refused New Task went: back in the composer, or into the drafts list.
+    public enum RefusedTaskPlace: Hashable, Sendable { case composer, drafts }
+
+    /// Where `placeholderID`'s refused task went; nil when it was not a refused New Task.
+    public func refusedTaskPlace(_ placeholderID: String) -> RefusedTaskPlace? { refusedTasks[placeholderID] }
+
+    // MARK: Drafts
+
+    /// The draft the composer holds, saved to the drafts list (an empty one is not kept).
+    public func saveTaskDraft() {
+        taskDrafts.save(taskDraft)
+    }
+
+    /// Whether leaving the composer now would lose something: it holds a task that the drafts
+    /// list doesn't have as it is (a resumed draft left as it was asks nothing).
+    public var taskDraftNeedsSaving: Bool {
+        guard !taskDraft.isEmpty else { return false }
+        guard let saved = taskDrafts.entry(taskDraft.id) else { return true }
+        return !saved.sameContent(as: SavedTaskDraft(taskDraft, updatedAt: saved.updatedAt))
+    }
+
+    /// Leaves the composer: `keep` saves its draft to the drafts list, else deletes it there.
+    /// The composer's next task starts empty, with the same agents and place.
+    public func leaveTaskComposer(keep: Bool) {
+        if keep { saveTaskDraft() } else { taskDrafts.delete([taskDraft.id]) }
+        taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory)
+        taskRefusal = nil
+        restoredTask = nil
+    }
+
+    /// New Draft: the one held is saved, and an empty one with the same agents and place starts.
+    public func newTaskDraft() {
+        leaveTaskComposer(keep: true)
+    }
+
+    /// Opens a saved draft in the composer, after saving the one it held. False when the draft
+    /// is gone (deleted meanwhile).
+    @discardableResult
+    public func resumeTaskDraft(_ id: UUID) async -> Bool {
+        guard id != taskDraft.id else { return true }
+        guard let draft = await taskDrafts.draft(id) else { return false }
+        saveTaskDraft()
+        taskDraft = draft
+        taskRefusal = nil
+        restoredTask = nil
+        return true
+    }
+
+    /// The drafts list's rows: the saved drafts but the one the composer holds.
+    public var otherTaskDrafts: [SavedTaskDraft] { taskDrafts.drafts.filter { $0.id != taskDraft.id } }
 
     /// "Claude", "Codex", else the harness capitalized; "Agent" for the Mac's default.
     public static func agentTitle(_ harness: String) -> String {

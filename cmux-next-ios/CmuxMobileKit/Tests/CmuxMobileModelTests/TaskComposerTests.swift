@@ -116,13 +116,18 @@ import Testing
         #expect(creator.taskRefusal == "Trust web on the Mac first.")
         #expect(made.allSatisfy { creator.wasRefusedTask($0.id) })
 
-        // A draft written meanwhile is never replaced.
-        creator.startTask(draft)
+        // A draft written meanwhile is never replaced: the refused task goes to Drafts, both
+        // of its agents in one draft.
+        let again = creator.startTask(TaskDraft(prompt: "Try again", picks: draft.picks))
         #expect(creator.taskRefusal == nil)
         creator.taskDraft.prompt = "Something else"
         await creator.settle()
         #expect(creator.taskDraft.prompt == "Something else")
         #expect(creator.taskRefusal == nil)
+        #expect(again.allSatisfy { creator.refusedTaskPlace($0.id) == .drafts })
+        let saved = try #require(creator.taskDrafts.drafts.first)
+        #expect(creator.taskDrafts.drafts.count == 1 && saved.prompt == "Try again")
+        #expect(saved.picks.map(\.harness) == ["claude", "claude-cr"])
     }
 
     /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
@@ -152,8 +157,9 @@ import Testing
         #expect(creator.taskRefusal == "The Mac said: Authentication required")
     }
 
-    /// The toast promises a draft only when one came back (not over a new task being written).
-    @Test func aRefusalOverANewDraftPromisesNothing() async throws {
+    /// A refusal over a new task being written leaves that task alone and saves the refused one
+    /// in Drafts (the toast says so).
+    @Test func aRefusalOverANewDraftGoesToDrafts() async throws {
         let (_, creator, backend) = make()
         backend.result = { _ in .failure(WorkspaceCreationError("No")) }
         // The Mac answers only at `settle`: the person starts writing the next task first.
@@ -161,8 +167,9 @@ import Testing
         creator.taskDraft.prompt = "Second"
         await creator.settle()
         #expect(creator.taskDraft.prompt == "Second")
-        #expect(!creator.wasRefusedTask(made[0].id))
+        #expect(creator.refusedTaskPlace(made[0].id) == .drafts)
         #expect(creator.taskRefusal == nil)
+        #expect(creator.taskDrafts.drafts.map(\.prompt) == ["First"])
     }
 
     /// Review 2026-11-12: the task goes to the chat once the workspace exists, and a failure
@@ -239,5 +246,140 @@ import Testing
     @Test func theOpeningTabIsTheWorkspaceIDAndT1() {
         let ws = WorkspaceCreator.placeholder(for: NewWorkspaceRequest(macID: "m", start: .agent("")), existing: [])
         #expect(ws.tabs.first?.id == "\(ws.id)-t1")
+    }
+}
+
+
+/// Drafts (classic's): leaving New Task with a task saves it, the list resumes or deletes it,
+/// and Start takes it off the list.
+@MainActor @Suite struct TaskDraftsTests {
+    let defaults: UserDefaults
+    init() throws { defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.drafts.\(UUID().uuidString)")) }
+
+    func make(store drafts: TaskDraftStore = TaskDraftStore(directory: nil)) -> WorkspaceCreator {
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        return WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults, taskDrafts: drafts)
+    }
+
+    static func png(_ byte: UInt8) -> TaskImage {
+        TaskImage(data: Data([0x89, 0x50, 0x4E, 0x47] + Array(repeating: byte, count: 12)))
+    }
+
+    @Test func leavingWithATaskAsksAndSaveDraftKeepsIt() {
+        let creator = make()
+        #expect(!creator.taskDraftNeedsSaving)
+        creator.taskDraft.prompt = "Fix the login bug"
+        creator.taskDraft.picks = [TaskAgentPick(harness: "claude")]
+        #expect(creator.taskDraftNeedsSaving)
+        let id = creator.taskDraft.id
+        creator.leaveTaskComposer(keep: true)
+        #expect(creator.taskDrafts.drafts.map(\.id) == [id])
+        // The next task starts empty, with the same agents.
+        #expect(creator.taskDraft.prompt.isEmpty && creator.taskDraft.id != id)
+        #expect(creator.taskDraft.picks == [TaskAgentPick(harness: "claude")])
+    }
+
+    @Test func deleteDraftLeavesNothing() {
+        let creator = make()
+        creator.taskDraft.prompt = "Throwaway"
+        creator.saveTaskDraft()
+        creator.leaveTaskComposer(keep: false)
+        #expect(creator.taskDrafts.drafts.isEmpty)
+    }
+
+    @Test func aResumedDraftLeftAsItWasAsksNothingAndAChangedOneAsks() async throws {
+        let creator = make()
+        creator.taskDraft.prompt = "Saved one"
+        let id = creator.taskDraft.id
+        creator.leaveTaskComposer(keep: true)
+        #expect(await creator.resumeTaskDraft(id))
+        #expect(creator.taskDraft.prompt == "Saved one" && creator.taskDraft.id == id)
+        #expect(!creator.taskDraftNeedsSaving)
+        creator.taskDraft.prompt = "Saved one, edited"
+        #expect(creator.taskDraftNeedsSaving)
+    }
+
+    @Test func resumingSavesTheDraftHeldFirstAndTheListLeavesItOut() async throws {
+        let creator = make()
+        creator.taskDraft.prompt = "A"
+        let a = creator.taskDraft.id
+        creator.newTaskDraft()
+        creator.taskDraft.prompt = "B"
+        let b = creator.taskDraft.id
+        #expect(creator.otherTaskDrafts.map(\.id) == [a])
+        #expect(await creator.resumeTaskDraft(a))
+        #expect(creator.taskDraft.prompt == "A")
+        #expect(Set(creator.taskDrafts.drafts.map(\.id)) == [a, b])
+        #expect(creator.otherTaskDrafts.map(\.id) == [b])
+    }
+
+    @Test func startTakesTheDraftOffTheList() async throws {
+        let creator = make()
+        creator.taskDraft.prompt = "Ship it"
+        creator.saveTaskDraft()
+        #expect(creator.taskDrafts.drafts.count == 1)
+        creator.startTask(creator.taskDraft)
+        #expect(creator.taskDrafts.drafts.isEmpty)
+        await creator.settle()
+    }
+
+    @Test func aDraftWithPhotosResumesWithThem() async throws {
+        let creator = make()
+        creator.taskDraft.prompt = "Match this"
+        let photos = [Self.png(1), Self.png(2)]
+        creator.taskDraft.images = photos
+        let id = creator.taskDraft.id
+        creator.leaveTaskComposer(keep: true)
+        #expect(creator.taskDrafts.drafts.first?.imageIDs == photos.map(\.id))
+        #expect(await creator.resumeTaskDraft(id))
+        #expect(creator.taskDraft.images == photos)
+    }
+
+    /// On disk: a store read again (the next launch) has the drafts, photos included, newest
+    /// first; a deleted draft's photos are removed.
+    @Test func draftsOnDiskSurviveARelaunch() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("task-drafts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = TaskDraftStore(directory: folder)
+        await first.load()
+        var older = TaskDraft(prompt: "Older", images: [Self.png(7)])
+        older.picks = [TaskAgentPick(harness: "claude", model: "sonnet", name: "Claude Code")]
+        first.save(older, now: Date(timeIntervalSince1970: 100))
+        let newer = TaskDraft(prompt: "Newer", directory: "~/Development/web")
+        first.save(newer, now: Date(timeIntervalSince1970: 200))
+        await first.flush()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("images").path).count == 1)
+
+        let second = TaskDraftStore(directory: folder)
+        await second.load()
+        #expect(second.drafts.map(\.prompt) == ["Newer", "Older"])
+        let read = try #require(await second.draft(older.id))
+        #expect(read.images.map(\.data) == [Self.png(7).data])
+        #expect(read.picks == older.picks && read.prompt == "Older")
+
+        second.delete([older.id])
+        await second.flush()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("images").path).isEmpty)
+        let third = TaskDraftStore(directory: folder)
+        await third.load()
+        #expect(third.drafts.map(\.prompt) == ["Newer"])
+    }
+
+    @Test func theListKeepsTheNewestUpToItsLimit() {
+        let drafts = TaskDraftStore(directory: nil)
+        for index in 0..<(TaskDraftStore.limit + 3) {
+            drafts.save(TaskDraft(prompt: "Task \(index)"), now: Date(timeIntervalSince1970: Double(index)))
+        }
+        #expect(drafts.drafts.count == TaskDraftStore.limit)
+        #expect(drafts.drafts.first?.prompt == "Task \(TaskDraftStore.limit + 2)")
+    }
+
+    @Test func aPhotoIDIsNeverAPath() {
+        #expect(TaskDraftDisk.isSafeName(UUID().uuidString))
+        #expect(!TaskDraftDisk.isSafeName("../index.json"))
+        #expect(!TaskDraftDisk.isSafeName("a/b"))
+        #expect(!TaskDraftDisk.isSafeName(""))
     }
 }
