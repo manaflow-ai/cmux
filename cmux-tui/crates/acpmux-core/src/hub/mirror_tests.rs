@@ -421,6 +421,7 @@ fn a_takeover_between_two_units_refuses_the_second() {
     assert_eq!(hub.mirror_counts().out_of_order, 1);
     assert_eq!(titles(&hub), ["a at 1"]);
     assert_eq!(hub.mirror_mark(ORIGIN), None);
+    assert_eq!(writer.log_errors(), 0, "a refusal is not a storage error");
 
     let directory = tempfile::tempdir().unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
