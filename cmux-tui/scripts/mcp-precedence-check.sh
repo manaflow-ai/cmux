@@ -167,12 +167,12 @@ if [ -n "$CMUX" ]; then
   (cd "$P/sub" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   (cd "$P/sub" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
-import json, sys
+import json, os, sys
 servers = {s["name"]: s for s in json.load(sys.stdin)}
 own = servers.get("cmux_terminal")
 assert own and own["enabled"] and own["transport"]["cwd"] is None, servers
 assert "USER_ONLY" not in (own["transport"]["env"] or {}), own
-assert own["transport"]["command"] == sys.argv[1], own
+assert os.path.realpath(own["transport"]["command"]) == os.path.realpath(sys.argv[1]), own
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
   check "codex shim: from a trusted project with a .codex layer, the agent's cmux server is this build's, with none of the layer's settings" $?
@@ -183,10 +183,10 @@ assert not servers["cmux"]["enabled"], servers["cmux"]
   env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper --profile work >/dev/null 2>&1
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   "$CODEX" --profile work "${overrides[@]}" mcp list --json 2>/dev/null | python3 -c '
-import json, sys
+import json, os, sys
 servers = {s["name"]: s for s in json.load(sys.stdin)}
 own = servers.get("cmux_terminal")
-assert own and own["transport"]["cwd"] is None and own["transport"]["command"] == sys.argv[1], servers
+assert own and own["transport"]["cwd"] is None and os.path.realpath(own["transport"]["command"]) == os.path.realpath(sys.argv[1]), servers
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
   check "codex shim: with --profile, the agent's cmux server has none of the profile file's settings" $?
