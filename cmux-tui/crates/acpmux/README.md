@@ -99,9 +99,11 @@ acpmux ls                            # live named lanes, one short line each; --
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
 ```
 
-The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in the foreground.
-`acpmux ls` is the one command that never starts it: with no daemon it fails with
-`no_daemon` at once, so a census reads "no daemon here", never an empty host (hq#4897).
+The daemon starts on demand, like the tmux server: every command that needs it (`new`, `send`,
+`defaults`, `daemon harnesses`, ...) starts it. `acpmux daemon` runs it in the foreground, and
+`acpmux daemon start` starts it in the background. `acpmux ls` and `acpmux daemon status` never
+start it: with no daemon they say so at once, so a census reads "no daemon here", never an
+empty host (hq#4897).
 
 `acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
 some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a

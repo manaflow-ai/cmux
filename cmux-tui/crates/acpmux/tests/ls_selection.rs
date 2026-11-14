@@ -253,6 +253,34 @@ fn ls_with_no_daemon_starts_none() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// Bench round 5 (row 11): the guide said `daemon status` starts the daemon; it never does. With
+/// no daemon it starts none, leaves no socket, and names the command that starts one, in text
+/// and in `--json` (`start`).
+#[test]
+fn w5s_daemon_status_with_no_daemon_starts_none_and_names_the_start() {
+    let root = scratch("status-none");
+    for args in [&["daemon", "status"][..], &["--json", "daemon", "status"]] {
+        let (out, elapsed) = run(&root, args);
+        let started = root.join("acpmux.sock").exists();
+        if started {
+            let _ = run(&root, &["daemon", "shutdown"]);
+        }
+        assert!(!started, "{args:?} started a daemon: {out:?}");
+        let said = String::from_utf8_lossy(&out.stdout).to_string();
+        if args.contains(&"--json") {
+            let v: serde_json::Value = serde_json::from_str(said.trim())
+                .unwrap_or_else(|e| panic!("{args:?} printed no JSON ({e}): {said}"));
+            assert_eq!(v["running"], false, "{v}");
+            assert_eq!(v["start"], "acpmux daemon start", "{v}");
+        } else {
+            assert!(said.contains("daemon not running"), "{args:?}: {said}");
+            assert!(said.contains("start it: acpmux daemon start"), "{args:?}: {said}");
+        }
+        assert!(elapsed < Duration::from_secs(5), "{args:?} took {elapsed:?}");
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// The default text list is the live named lanes; the rest (here a closed session and one with
 /// only its harness's generated name) are counted on its last line and come back with `--all`; `--json`
 /// keeps every row.
