@@ -458,10 +458,14 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
                 return;
             }
         };
-        drop(mux);
+        // REVIEW2 MUTANT B, NOT FOR MERGE: the worker sleeps WITH the registry lock in its hand.
         if !pause.is_zero() {
+            let registry =
+                mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             std::thread::sleep(pause);
+            drop(registry);
             parts.tally.pause = parts.tally.pause.saturating_add(pause);
         }
+        drop(mux);
     }
 }
