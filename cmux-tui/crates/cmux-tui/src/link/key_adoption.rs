@@ -392,10 +392,10 @@ fn keep_copied_evidence(state: &LinkState, home: &Path) -> anyhow::Result<()> {
     }
     #[cfg(test)]
     hooks::run(&hooks::BEFORE_REFUSAL);
-    let mut record = serde_json::json!({ "acpmux_home": home });
-    if let Some(key) = &key {
-        record["public_key"] = serde_json::json!(STANDARD.encode(key));
-    }
+    let record = match &key {
+        Some(key) => serde_json::json!({ "acpmux_home": home, "public_key": STANDARD.encode(key) }),
+        None => serde_json::json!({ "acpmux_home": home }),
+    };
     state::write_private_synced(&state.dir().join(LINK_COPIED), record.to_string().as_bytes())
         .context("keep the copied-home refusal")
 }
