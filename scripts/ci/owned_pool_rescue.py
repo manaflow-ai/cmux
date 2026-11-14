@@ -419,6 +419,7 @@ OWNED_EVERY_ATTEMPT_PATHS = frozenset({
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+OWNED_RERUN_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH, *sorted(OWNED_EVERY_ATTEMPT_PATHS))
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -966,7 +967,7 @@ class GitHub:
         (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+        for workflow in OWNED_RERUN_WORKFLOW_PATHS:
             name = workflow.rsplit("/", 1)[-1]
             for status in ("queued", "in_progress"):
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")

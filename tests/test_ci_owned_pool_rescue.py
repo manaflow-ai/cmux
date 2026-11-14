@@ -1769,14 +1769,17 @@ class Nightly(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         workflows = {"ci.yml": [], "cmux-next.yml": [
             {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
+             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}],
+                     "cmux-next-car-guards.yml": [
+            {"id": RUN_ID + 1, "path": ".github/workflows/cmux-next-car-guards.yml", "event": "push", "run_attempt": 2,
              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
 
         def request(method, path, **_):
             name = path.split("/actions/workflows/")[1].split("/")[0]
-            return {"workflow_runs": workflows[name] if "status=queued" in path else []}
+            return {"workflow_runs": workflows.get(name, []) if "status=queued" in path else []}
 
         api.request = request
-        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2)])
+        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2), (RUN_ID + 1, 2)])
 
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
