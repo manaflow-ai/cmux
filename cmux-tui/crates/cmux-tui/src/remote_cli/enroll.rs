@@ -275,8 +275,7 @@ pub(super) fn parse_device_key_args(args: &[String]) -> anyhow::Result<DeviceKey
     let mut parsed = DeviceKeyArgs { state_dir: None, json: false };
     let mut seen = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         match argument.as_str() {
             "--state-dir" => {
