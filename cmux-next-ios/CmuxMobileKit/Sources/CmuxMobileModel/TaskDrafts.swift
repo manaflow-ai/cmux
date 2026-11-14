@@ -86,8 +86,8 @@ public final class TaskDraftStore {
     /// The index was read (a list opened before shows its rows once it is).
     public private(set) var isLoaded = false
 
-    /// The most drafts kept: saving past it drops the oldest.
-    public static let limit = 40
+    // No limit: a saved draft is only ever removed by the person (or by starting it), never
+    // dropped to make room (review 2026-11-14).
 
     @ObservationIgnored private let disk: TaskDraftDisk?
     /// Photo bytes by id, for a store with no folder (and as written, until read back).
@@ -141,10 +141,9 @@ public final class TaskDraftStore {
         drafts.removeAll { $0.id == draft.id }
         // Newest first, by when each was saved.
         drafts.insert(entry, at: drafts.firstIndex { $0.updatedAt <= entry.updatedAt } ?? drafts.endIndex)
-        if drafts.count > Self.limit { drafts.removeLast(drafts.count - Self.limit) }
         let blobs = draft.images.map { TaskImage(id: $0.id, data: $0.data) } + draft.files.map { TaskImage(id: $0.id, data: $0.data) }
         for blob in blobs where memoryImages[blob.id] == nil { memoryImages[blob.id] = blob.data }
-        persist(newImages: blobs)
+        persist()
     }
 
     /// Adds `picks` to the saved draft `id` (another agent of its task was refused), changing
@@ -155,16 +154,17 @@ public final class TaskDraftStore {
         entry.picks += picks.filter { !entry.picks.contains($0) }
         entry.updatedAt = now
         drafts.insert(entry, at: drafts.firstIndex { $0.updatedAt <= now } ?? drafts.endIndex)
-        persist(newImages: [])
+        persist()
     }
 
     /// The last write of the index failed (the drafts on disk are older than these).
     public private(set) var lastWriteFailed = false
 
     public func delete(_ ids: Set<UUID>) {
-        guard drafts.contains(where: { ids.contains($0.id) }) else { return }
+        // With nothing to delete, still written when the last write failed (Start waits on it).
+        guard drafts.contains(where: { ids.contains($0.id) }) || lastWriteFailed else { return }
         drafts.removeAll { ids.contains($0.id) }
-        persist(newImages: [])
+        persist()
     }
 
     /// The draft with its photos, to put back in the composer; nil when it is gone.
@@ -192,15 +192,16 @@ public final class TaskDraftStore {
 
     /// Writes the index and the photos not yet on disk, then removes the photo files no draft
     /// names. In memory: drops the bytes no draft names.
-    private func persist(newImages: [TaskImage]) {
+    private func persist() {
         let kept = Set(drafts.flatMap(\.blobIDs))
         guard let disk, !isReadOnly else {
             memoryImages = memoryImages.filter { kept.contains($0.key) }
             return
         }
-        let writes = newImages.filter { kept.contains($0.id) }
-        // Only the bytes still waiting for their write stay in memory.
+        // Only the bytes still waiting for their write stay in memory; every one of them is
+        // written again (a failed write left some, which the new index names too).
         memoryImages = memoryImages.filter { kept.contains($0.key) }
+        let writes = memoryImages.map { TaskImage(id: $0.key, data: $0.value) }
         let previous = writeTail
         writeTail = Task { [weak self] in
             await previous?.value
@@ -212,7 +213,9 @@ public final class TaskDraftStore {
             let keep = Set(index.flatMap(\.blobIDs))
             let written = await disk.write(index: index, images: writes.filter { keep.contains($0.id) }, keeping: keep)
             self.lastWriteFailed = !written
-            for image in writes { self.memoryImages[image.id] = nil }
+            // The bytes leave memory only once they are on disk (a failed write keeps them, and
+            // the next write tries them again).
+            if written { for image in writes { self.memoryImages[image.id] = nil } }
         }
     }
 
@@ -272,7 +275,11 @@ actor TaskDraftDisk {
         for image in new where Self.isSafeName(image.id) {
             let file = images.appendingPathComponent(image.id)
             if files.fileExists(atPath: file.path) { continue }
-            try? image.data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            // An index never names bytes that aren't on disk: a failed photo or file write
+            // leaves the old index (and the bytes in memory) for the next write.
+            guard (try? image.data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else {
+                return false
+            }
         }
         guard let data = try? JSONEncoder().encode(drafts),
               (try? data.write(to: index, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else {

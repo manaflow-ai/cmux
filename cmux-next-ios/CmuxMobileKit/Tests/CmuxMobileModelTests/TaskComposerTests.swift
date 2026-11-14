@@ -439,13 +439,14 @@ import Testing
         #expect(third.drafts.map(\.prompt) == ["Newer"])
     }
 
-    @Test func theListKeepsTheNewestUpToItsLimit() {
+    /// Fourth review 2026-11-14: saving never drops an older draft to make room.
+    @Test func theListNeverDropsASavedDraft() {
         let drafts = TaskDraftStore(directory: nil)
-        for index in 0..<(TaskDraftStore.limit + 3) {
+        for index in 0..<60 {
             drafts.save(TaskDraft(prompt: "Task \(index)"), now: Date(timeIntervalSince1970: Double(index)))
         }
-        #expect(drafts.drafts.count == TaskDraftStore.limit)
-        #expect(drafts.drafts.first?.prompt == "Task \(TaskDraftStore.limit + 2)")
+        #expect(drafts.drafts.count == 60)
+        #expect(drafts.drafts.first?.prompt == "Task 59" && drafts.drafts.last?.prompt == "Task 0")
     }
 
     /// Captures 2026-11-13: drafts saved with older times listed oldest first.
@@ -558,6 +559,26 @@ import Testing
         #expect(backend.requests.isEmpty)
         #expect(failures.count == 1)
         #expect(creator.taskDraft.prompt == "Ship it")
+    }
+
+    /// Fourth review 2026-11-14: a photo whose file can't be written is never dropped: the
+    /// index isn't written over, the bytes stay in memory, and the draft resumes with it.
+    @Test func aPhotoThatCantBeWrittenStaysWithItsDraft() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A file where the photos folder should be: every photo write fails.
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: folder.appendingPathComponent("images"))
+        let store = TaskDraftStore(directory: folder)
+        await store.load()
+        let photo = TaskImage(data: Data([0x89, 0x50, 0x4E, 0x47] + Array(repeating: 3, count: 12)))
+        let draft = TaskDraft(prompt: "Match this", images: [photo])
+        store.save(draft)
+        await store.flush()
+        #expect(store.lastWriteFailed)
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("index.json").path))
+        let back = try #require(await store.draft(draft.id))
+        #expect(back.images == [photo])
     }
 
     @Test func aDraftWithFilesAndATerminalLaunchResumesWithThem() async throws {
