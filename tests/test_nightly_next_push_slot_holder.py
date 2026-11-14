@@ -196,6 +196,74 @@ for name, reader, want_go in cases:
     elif not go and "could not read" not in reason:
         failures.append(f"{name}: the wait must say which read failed and why it waits: {reason}")
 
+# The next run's set-up overlaps the holder's notarization (feat-cmux-next's nightly-next-one asks this tick when it
+# reaches "Ask main's nightly-next tick at notarization", just before "Notarize app ticket through final DMG").
+# Push runs 43634178843, 43642011551 and 43644053566 waited 19.6-26.8 min from landing to run created behind the
+# previous nightly-next-one, then 4.7 min more for wake, tick, promote, preflight, decide and resolve (21:38:45 to
+# 21:43:25). From that step on, the holder is finishing: the tick may promote ONE run, whose nightly-next-one then
+# waits pending on nightly-next-one-push until the slot frees. Never a second: with any other loop run open (its
+# nightly-next-one pending, or still in decide or resolve), GitHub would replace the pending job (a cancelled
+# nightly), so a finishing holder holds again.
+FINISH = list(getattr(rolling, "FINISH_STEPS", ()))
+for want in ("Ask main's nightly-next tick at notarization", "Notarize app ticket through final DMG"):
+    if want not in FINISH:
+        failures.append(f"FINISH_STEPS must name nightly-next-one's step {want!r} (feat-cmux-next's names)")
+
+
+def one_at(steps: list[tuple[str, str, str | None]], status: str = "in_progress") -> list[dict]:
+    one = job("nightly-next-one", status, 20, "cmux15")
+    one["steps"] = [{"name": LEAVE_ONE, "status": "completed", "conclusion": "success"},
+                    {"name": "Start the signed-app checks (they run during notarization)", "status": "completed",
+                     "conclusion": "success"}]
+    one["steps"] += [{"name": n, "status": s, "conclusion": c} for n, s, c in steps]
+    return [*PRE, one]
+
+
+ASK, NOTARIZE = "Ask main's nightly-next tick at notarization", "Notarize app ticket through final DMG"
+signing = one_at([(ASK, "queued", None), (NOTARIZE, "queued", None)])
+asking = one_at([(ASK, "in_progress", None), (NOTARIZE, "queued", None)])
+notarizing = one_at([(ASK, "completed", "success"), (NOTARIZE, "in_progress", None)])
+publishing = one_at([(ASK, "completed", "success"), (NOTARIZE, "completed", "success"),
+                     ("Final publication gate", "in_progress", None)])
+uploading = one_at([(ASK, "completed", "success"), (NOTARIZE, "completed", "success"),
+                    ("Upload nightly variant artifacts", "in_progress", None)])
+left = one_at([(ASK, "completed", "skipped"), (NOTARIZE, "completed", "skipped")])
+finishing = getattr(rolling, "finishing", lambda jobs: False)
+for name, jobs, want in (("signing, before the ask", signing, False), ("in the ask step", asking, True),
+                         ("notarizing", notarizing, True), ("publishing", publishing, True),
+                         ("in the post-feed uploads", uploading, True), ("left the slot (steps skipped)", left, False)):
+    if finishing(jobs) != want:
+        failures.append(f"finishing() for a nightly-next-one {name} must be {want}")
+holder = run(43634178843, 25, head_sha=HEAD)
+for name, jobs, want_go in (("signing, before notarization", signing, False), ("notarizing", notarizing, True),
+                            ("publishing", publishing, True)):
+    go, reason = rolling.decide(NOW, head=HEAD, head_runs=[holder], jobs_of=lambda r, j=jobs: j, promotions=[],
+                                oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)), starts=[holder])
+    if go != want_go:
+        failures.append(f"the holder's nightly-next-one {name}, nothing else open: the tick must "
+                        f"{'promote one run' if want_go else 'wait'}: {reason}")
+# One run promoted past the finishing holder: whatever it does, nothing more is promoted (GitHub would replace
+# its pending nightly-next-one, or the one it is about to queue).
+for name, next_jobs, next_status in (
+        ("pending at the slot", [*PRE, job("nightly-next-one", "pending", 4, "")], "in_progress"),
+        ("in decide", [job("runner-preflight", "completed", 2), job("decide", "in_progress", 1)], "in_progress"),
+        ("pending with no jobs yet", [], "pending"),
+        ("waiting in resolve's leave step",
+         [job("runner-preflight", "completed", 9), job("decide", "completed", 8),
+          {**job("resolve-nightly-cmux-tui-client", "in_progress", 7),
+           "steps": [{"name": rolling.LEAVE_SLOT_STEP, "status": "in_progress"}]}], "in_progress")):
+    nxt = run(43642011551, 6, next_status, head_sha=WAITING)
+    go, reason = rolling.decide(NOW, head=WAITING, head_runs=[nxt],
+                                jobs_of=lambda r, n=next_jobs: notarizing if r["id"] == holder["id"] else n,
+                                promotions=[], oldest_waiting=("c" * 40, NOW - dt.timedelta(minutes=3)),
+                                starts=[nxt, holder])
+    if go:
+        failures.append(f"a finishing holder with one promoted run {name}: no second promotion: {reason}")
+# The feed watch's starvation guard keeps counting a finishing holder (run_holds_group is unchanged): its dispatch
+# for one commit skips the rolling rule, so only the rule above may promote past a holder.
+if not watch.run_holds_group(holder, notarizing, NOW):
+    failures.append("run_holds_group must still count a notarizing nightly-next-one (the feed watch reads it)")
+
 if failures:
     print("FAIL: the push slot ends at nightly-next-one\n  " + "\n  ".join(failures))
     sys.exit(1)
