@@ -58,6 +58,13 @@ const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2)
 const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+/// The retained size of the largest output event one read can publish (one
+/// `PROCESS_READ_CHUNK`, base64).
+const MAX_OUTPUT_EVENT_BYTES: usize = PROCESS_READ_CHUNK.div_ceil(3) * 4;
+/// Events a held reader may lag by before output reading waits for it. The
+/// rest of `PROCESS_EVENT_CAPACITY` leaves room for the truncation and exit
+/// events, which never wait.
+const HELD_EVENT_WINDOW: usize = PROCESS_EVENT_CAPACITY - 8;
 const MAX_OPERATION_ID_BYTES: usize = 256;
 const MAX_PROCESS_CATALOG_ARGUMENTS: usize = 32;
 const MAX_PROCESS_CATALOG_ARGUMENT_BYTES: usize = 512;
@@ -253,6 +260,11 @@ struct ProcessEventLogInner {
     history: StdMutex<EventHistory>,
     live: broadcast::Sender<RpcEvent>,
     retained_bytes_limit: AtomicUsize,
+    /// Wakes output readers waiting for a held subscriber to catch up.
+    room: Notify,
+    /// How many output readers are waiting for room. The output drain pauses
+    /// its deadlines while one waits: the output exists, the reader is slow.
+    stalled: watch::Sender<usize>,
 }
 
 #[derive(Default)]
@@ -261,6 +273,50 @@ struct EventHistory {
     retained_bytes: usize,
     exit: Option<ExitOutcome>,
     terminal: Option<ProcessTerminalModel>,
+    /// Cursors of the subscribers that hold output: the last sequence each
+    /// has taken. Output reading waits rather than evict an event one of them
+    /// has not taken, so a held subscriber never sees a replay gap. The
+    /// process stream a client reserves before spawning holds; any later
+    /// viewer does not, and keeps the lossy, bounded retention.
+    holds: BTreeMap<u64, u64>,
+    next_hold: u64,
+}
+
+impl EventHistory {
+    /// Whether one more output event fits without evicting an event a held
+    /// subscriber has not taken.
+    fn has_room(&self, retained_bytes_limit: usize) -> bool {
+        let Some(oldest) = self.holds.values().min().copied() else { return true };
+        let mut pending = 0_usize;
+        let mut pending_bytes = 0_usize;
+        for event in self.events.iter().rev() {
+            if event.sequence <= oldest {
+                break;
+            }
+            pending += 1;
+            pending_bytes = pending_bytes.saturating_add(event_size(event));
+        }
+        pending == 0
+            || (pending < HELD_EVENT_WINDOW
+                && pending_bytes.saturating_add(MAX_OUTPUT_EVENT_BYTES) <= retained_bytes_limit)
+    }
+}
+
+/// Counts one output reader as stalled until dropped (also when its task is
+/// aborted mid-wait).
+struct StallGuard<'a>(&'a watch::Sender<usize>);
+
+impl<'a> StallGuard<'a> {
+    fn new(stalled: &'a watch::Sender<usize>) -> Self {
+        stalled.send_modify(|count| *count += 1);
+        Self(stalled)
+    }
+}
+
+impl Drop for StallGuard<'_> {
+    fn drop(&mut self) {
+        self.0.send_modify(|count| *count = count.saturating_sub(1));
+    }
 }
 
 struct ProcessTerminalModel {
@@ -278,8 +334,38 @@ impl ProcessEventLog {
                 history: StdMutex::new(EventHistory::default()),
                 live,
                 retained_bytes_limit: AtomicUsize::new(retained_bytes_limit),
+                room: Notify::new(),
+                stalled: watch::channel(0).0,
             }),
         }
+    }
+
+    /// Waits until a held subscriber can take one more output event without
+    /// losing one. Output readers call it before each read, so a slow held
+    /// reader slows the child (its pipe fills) instead of dropping output.
+    async fn wait_for_room(&self) {
+        let mut stall = None;
+        loop {
+            let notified = self.inner.room.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
+            if self
+                .inner
+                .history
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .has_room(limit)
+            {
+                return;
+            }
+            stall.get_or_insert_with(|| StallGuard::new(&self.inner.stalled));
+            notified.await;
+        }
+    }
+
+    fn stalled(&self) -> watch::Receiver<usize> {
+        self.inner.stalled.subscribe()
     }
 
     fn publish_output(&self, process: ProcessId, stderr: bool, bytes: &[u8]) {
@@ -431,7 +517,22 @@ impl ProcessEventLog {
         after_sequence: u64,
         exited: bool,
     ) -> Result<ProcessSubscription, RpcError> {
-        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.subscribe_inner(after_sequence, exited, false)
+    }
+
+    /// A subscription whose unread output the log keeps (see `holds`).
+    fn subscribe_holding(&self, after_sequence: u64) -> Result<ProcessSubscription, RpcError> {
+        self.subscribe_inner(after_sequence, false, true)
+    }
+
+    fn subscribe_inner(
+        &self,
+        after_sequence: u64,
+        exited: bool,
+        hold: bool,
+    ) -> Result<ProcessSubscription, RpcError> {
+        let mut history =
+            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
         if after_sequence >= next_sequence {
             return Err(RpcError::new(
@@ -465,12 +566,19 @@ impl ProcessEventLog {
             .cloned()
             .collect();
         let live = self.inner.live.subscribe();
+        let hold = hold.then(|| {
+            let id = history.next_hold;
+            history.next_hold += 1;
+            history.holds.insert(id, after_sequence);
+            id
+        });
         Ok(ProcessSubscription {
             replay,
             live,
             events: self.clone(),
             last_delivered: after_sequence,
             terminal: exited,
+            hold,
         })
     }
 
@@ -537,6 +645,23 @@ pub struct ProcessSubscription {
     events: ProcessEventLog,
     last_delivered: u64,
     terminal: bool,
+    /// This subscription's entry in the log's `holds`, when it holds output.
+    hold: Option<u64>,
+}
+
+impl Drop for ProcessSubscription {
+    fn drop(&mut self) {
+        if let Some(hold) = self.hold {
+            self.events
+                .inner
+                .history
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .holds
+                .remove(&hold);
+            self.events.inner.room.notify_waiters();
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -564,8 +689,7 @@ impl ProcessSubscription {
     pub async fn recv(&mut self) -> Result<RpcEvent, ProcessSubscriptionError> {
         loop {
             if let Some(event) = self.replay.pop_front() {
-                self.last_delivered = event.sequence;
-                self.terminal |= event.event.is_terminal();
+                self.deliver(&event);
                 return Ok(event);
             }
             if self.terminal {
@@ -574,8 +698,7 @@ impl ProcessSubscription {
             match self.live.recv().await {
                 Ok(event) if event.sequence <= self.last_delivered => continue,
                 Ok(event) => {
-                    self.last_delivered = event.sequence;
-                    self.terminal |= event.event.is_terminal();
+                    self.deliver(&event);
                     return Ok(event);
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -610,6 +733,25 @@ impl ProcessSubscription {
                     return Err(ProcessSubscriptionError::Closed);
                 }
             }
+        }
+    }
+
+    fn deliver(&mut self, event: &RpcEvent) {
+        self.last_delivered = event.sequence;
+        self.terminal |= event.event.is_terminal();
+        if let Some(hold) = self.hold {
+            if let Some(cursor) = self
+                .events
+                .inner
+                .history
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .holds
+                .get_mut(&hold)
+            {
+                *cursor = event.sequence;
+            }
+            self.events.inner.room.notify_waiters();
         }
     }
 
@@ -1289,6 +1431,7 @@ impl ProcessManager {
             for reason in drain_output_tasks(
                 output_tasks,
                 output_activity_rx,
+                events.stalled(),
                 output_drain_idle_timeout,
                 output_drain_total_timeout,
             )
@@ -1462,6 +1605,7 @@ impl ProcessManager {
                 for reason in drain_output_tasks(
                     output_tasks,
                     output_activity_rx,
+                    events.stalled(),
                     output_drain_idle_timeout,
                     output_drain_total_timeout,
                 )
@@ -1777,7 +1921,9 @@ impl ProcessManager {
             ));
         }
         let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        let subscription = events.subscribe(after_sequence, false)?;
+        // The stream reserved before the spawn is its owner's own output: it
+        // holds, so the child waits for this reader rather than lose output.
+        let subscription = events.subscribe_holding(after_sequence)?;
         reservations.insert(process, ProcessReservation { owner: owner.clone(), events });
         Ok(subscription)
     }
@@ -2074,6 +2220,7 @@ async fn read_pipe(
     let stream = if stderr { ProcessOutputStream::Stderr } else { ProcessOutputStream::Stdout };
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
+        events.wait_for_room().await;
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
@@ -2099,6 +2246,7 @@ async fn read_pty(
 ) -> Result<(), ProcessOutputTruncationReason> {
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
+        events.wait_for_room().await;
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
@@ -2119,11 +2267,17 @@ async fn read_pty(
 async fn drain_output_tasks(
     mut tasks: JoinSet<Result<(), ProcessOutputTruncationReason>>,
     mut activity: watch::Receiver<u64>,
+    mut stalled: watch::Receiver<usize>,
     idle_timeout: std::time::Duration,
     total_timeout: std::time::Duration,
 ) -> Vec<ProcessOutputTruncationReason> {
     let mut reasons = Vec::new();
     let mut activity_open = true;
+    let mut stalled_open = true;
+    // While a reader waits for a held subscriber, output is pending, not
+    // missing: both deadlines pause, and the total one resumes later by the
+    // time the wait took.
+    let mut stalled_since = (*stalled.borrow_and_update() > 0).then(tokio::time::Instant::now);
     let idle_deadline = tokio::time::sleep(idle_timeout);
     let total_deadline = tokio::time::sleep(total_timeout);
     tokio::pin!(idle_deadline);
@@ -2134,7 +2288,25 @@ async fn drain_output_tasks(
         }
         tokio::select! {
             biased;
-            _ = &mut total_deadline => {
+            changed = stalled.changed(), if stalled_open => {
+                match changed {
+                    Ok(()) => {
+                        let now = tokio::time::Instant::now();
+                        match (*stalled.borrow_and_update() > 0, stalled_since) {
+                            (true, None) => stalled_since = Some(now),
+                            (false, Some(since)) => {
+                                let resumed = total_deadline.deadline() + (now - since);
+                                total_deadline.as_mut().reset(resumed);
+                                idle_deadline.as_mut().reset(now + idle_timeout);
+                                stalled_since = None;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(_) => stalled_open = false,
+                }
+            }
+            _ = &mut total_deadline, if stalled_since.is_none() => {
                 reasons.push(ProcessOutputTruncationReason::DrainTotalTimeout {
                     total_timeout_ms: duration_millis(total_timeout),
                 });
@@ -2162,7 +2334,7 @@ async fn drain_output_tasks(
                     None => return reasons,
                 }
             }
-            _ = &mut idle_deadline => {
+            _ = &mut idle_deadline, if stalled_since.is_none() => {
                 reasons.push(ProcessOutputTruncationReason::DrainIdleTimeout {
                     idle_timeout_ms: duration_millis(idle_timeout),
                 });
