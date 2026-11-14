@@ -287,10 +287,6 @@ fn relative<'a>(path: &'a str, cwd: Option<&str>) -> &'a str {
         .unwrap_or(path)
 }
 
-fn plural(n: usize, word: &str) -> String {
-    if n == 1 { format!("{n} {word}") } else { format!("{n} {word}s") }
-}
-
 fn result_prefix(l: &mut Line) {
     l.push("  ", Style::PLAIN).push("⎿", Style::fg(GRAY)).push(" \u{a0}", Style::PLAIN);
 }
@@ -587,7 +583,7 @@ mod tests {
         assert_eq!(text.get(4).map(String::as_str), Some("  ⎿ \u{a0}a.txt"));
         assert_eq!(text.get(6).map(String::as_str), Some("● Done a.txt."));
         assert!(text.get(8).is_some_and(|t| t.starts_with("✻ Worked for 2s")));
-        assert!(text.iter().any(|t| t.starts_with("❯\u{a0}")));
+        assert!(text.iter().any(|t| t == "❯"));
         let code = grid.cells.get(6).and_then(|r| r.get(7)).map(|c| c.style.fg);
         assert_eq!(code, Some(crate::Color::Palette(CODE)));
     }

@@ -150,17 +150,22 @@ impl Grid {
             .iter()
             .map(|row| {
                 let mut runs: Vec<Run> = Vec::new();
+                let mut after_wide = false;
                 for cell in row {
                     let (fg, bg) = (resolve(cell.style.fg), resolve(cell.style.bg));
-                    let text = if cell.text.is_empty() { " " } else { cell.text.as_str() };
+                    // The trailing half of a wide grapheme adds a column, not a glyph.
+                    let spacer = after_wide && cell.text.is_empty();
+                    after_wide = !spacer && str_width(&cell.text) == 2;
+                    let text = match (spacer, cell.text.is_empty()) {
+                        (true, _) => "",
+                        (false, true) => " ",
+                        (false, false) => cell.text.as_str(),
+                    };
                     match runs.last_mut() {
                         Some(run)
                             if run.fg == fg && run.bg == bg && run.attrs == cell.style.attrs =>
                         {
-                            // The trailing half of a wide grapheme adds a column, not a glyph.
-                            if !cell.text.is_empty() || run.text.is_empty() {
-                                run.text.push_str(text);
-                            }
+                            run.text.push_str(text);
                         }
                         _ => runs.push(Run {
                             text: text.to_owned(),
