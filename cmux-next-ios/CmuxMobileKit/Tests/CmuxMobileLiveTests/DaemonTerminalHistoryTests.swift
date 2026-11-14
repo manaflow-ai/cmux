@@ -187,11 +187,12 @@ import Testing
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0, "the attach is the screen alone")
+        events.removeAll()
 
         var fetches = 0
         while session.historyRowsOmitted > 0, fetches < 200 {
             // Each fetch waits for the one before it (one at a time).
-            try await waitUntil { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
             fetches += 1
         }
         try await waitUntil { session.historyRowsOmitted == 0 }
@@ -253,7 +254,7 @@ import Testing
         try await waitUntil { session.isAttached }
         var fetches = 0
         while session.historyWindowRows == nil, fetches < 20 {
-            try await waitUntil { session.historyWindowRows != nil || session.loadOlderHistory() }
+            try await ask { session.historyWindowRows != nil || session.loadOlderHistory() }
             fetches += 1
         }
         try await waitUntil { session.historyWindowRows != nil }
@@ -261,16 +262,27 @@ import Testing
         let start = try #require(attaches(daemon).last?["replay_history_start"] as? Int)
 
         // Down a step: the window moves toward the screen.
-        try await waitUntil { session.loadNewerHistory(toTheScreen: false) }
+        try await ask { session.loadNewerHistory(toTheScreen: false) }
         try await waitUntil { session.historyRowsOmitted == start + DaemonTerminalSession.historyWindowStep }
         #expect(session.historyWindowRows != nil)
 
         // Up from the screen to the window: the newest rows, contiguous again.
-        try await waitUntil { session.loadNewerHistory(toTheScreen: true) }
+        try await ask { session.loadNewerHistory(toTheScreen: true) }
         try await waitUntil { session.historyWindowRows == nil && session.historyRowsOmitted == 90_000 }
         #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.maxTailHistoryRows)
         #expect(attaches(daemon).last?["replay_history_start"] == nil)
         #expect(session.historyRowsSkipped == 0)
+    }
+
+    /// Calls `request` until it answers true (a fetch started, or none is
+    /// needed), and never again after: unlike ``waitUntil(attempts:_:)``,
+    /// whose last check would start a second fetch.
+    private func ask(attempts: Int = 300, _ request: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts {
+            if request() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("the request never started")
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
