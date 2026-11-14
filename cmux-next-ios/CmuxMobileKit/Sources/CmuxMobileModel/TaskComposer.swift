@@ -1,16 +1,94 @@
 import Foundation
 
-/// New Task's first message to an agent: the prompt, the images that go with it, and the model.
+/// Where a New Task runs: an agent chat, or the agent's own CLI in a terminal (classic's tasks).
+public enum TaskLaunch: String, Hashable, Sendable, Codable, CaseIterable {
+    case chat, terminal
+
+    public var title: String {
+        switch self {
+        case .chat: "Chat"
+        case .terminal: "Terminal"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .chat: "bubble.left.and.text.bubble.right"
+        case .terminal: "apple.terminal"
+        }
+    }
+}
+
+/// New Task's first message to an agent: the prompt, the photos and files that go with it, the
+/// model, and where it runs.
 public struct AgentTask: Hashable, Sendable {
     public var prompt: String
     public var images: [TaskImage]
+    public var files: [TaskFile]
     /// The model id, or nil for the agent's default (the Mac's last pick for it).
     public var model: String?
+    public var launch: TaskLaunch
+    /// The agent's family (`claude`, `codex`): its CLI, for a terminal launch.
+    public var family: String?
 
-    public init(prompt: String, images: [TaskImage] = [], model: String? = nil) {
+    public init(prompt: String, images: [TaskImage] = [], files: [TaskFile] = [], model: String? = nil,
+                launch: TaskLaunch = .chat, family: String? = nil) {
         self.prompt = prompt
         self.images = images
+        self.files = files
         self.model = model
+        self.launch = launch
+        self.family = family
+    }
+
+    /// The command a terminal launch types into the new workspace's shell: the agent's CLI with
+    /// its model and the prompt, the uploaded attachments' paths after it. Nil for an agent with
+    /// no known CLI. The prompt is one ANSI-C quoted word (`$'…'`, zsh and bash), so nothing in
+    /// it runs: quotes and backslashes are escaped, line breaks are `\n`, other control
+    /// characters are dropped.
+    public func terminalLine(attachmentPaths: [String] = []) -> String? {
+        var text = prompt
+        if !attachmentPaths.isEmpty {
+            text += "\n\nAttached files (read them):\n" + attachmentPaths.joined(separator: "\n")
+        }
+        let quoted = Self.ansiQuoted(text)
+        let model = model.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }.map(Self.ansiQuoted)
+        switch family {
+        case "claude": return "claude" + (model.map { " --model \($0)" } ?? "") + " " + quoted + "\n"
+        case "codex": return "codex" + (model.map { " -m \($0)" } ?? "") + " " + quoted + "\n"
+        default: return nil
+        }
+    }
+
+    /// `$'…'` with `\\`, `\'`, `\n` and `\t` escaped and every other control character dropped.
+    static func ansiQuoted(_ text: String) -> String {
+        var out = "$'"
+        for scalar in text.unicodeScalars {
+            switch scalar {
+            case "\\": out += "\\\\"
+            case "'": out += "\\'"
+            case "\n": out += "\\n"
+            case "\t": out += "\\t"
+            default:
+                if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format { continue }
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out + "'"
+    }
+}
+
+/// A file attached in New Task (any kind): uploaded to the task's folder on the Mac and named
+/// in the first message.
+public struct TaskFile: Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var data: Data
+
+    public init(id: String = UUID().uuidString, name: String, data: Data) {
+        self.id = id
+        self.name = name
+        self.data = data
     }
 }
 
@@ -42,12 +120,15 @@ public struct TaskAgentPick: Hashable, Sendable, Identifiable, Codable {
     public var model: String?
     /// The agent's name as the Mac lists it ("Claude Code Router"), for the workspace title.
     public var name: String?
+    /// The agent's family (`claude`, `codex`): its CLI when the task opens in a terminal.
+    public var family: String?
     public var id: String { harness }
 
-    public init(harness: String, model: String? = nil, name: String? = nil) {
+    public init(harness: String, model: String? = nil, name: String? = nil, family: String? = nil) {
         self.harness = harness
         self.model = model
         self.name = name
+        self.family = family
     }
 }
 
@@ -58,6 +139,7 @@ public struct TaskDraft: Hashable, Sendable {
     public var id: UUID
     public var prompt: String
     public var images: [TaskImage]
+    public var files: [TaskFile]
     /// The chosen agents, in the order they were chosen. Empty: the Mac's default agent.
     public var picks: [TaskAgentPick]
     /// The Mac, or nil for the creator's target Mac.
@@ -66,26 +148,36 @@ public struct TaskDraft: Hashable, Sendable {
     public var directory: String?
     /// The workspace name; empty names it after the prompt.
     public var name: String
+    /// Where the task runs: an agent chat or the agent's CLI in a terminal.
+    public var launch: TaskLaunch
 
-    public init(id: UUID = UUID(), prompt: String = "", images: [TaskImage] = [], picks: [TaskAgentPick] = [],
-                macID: String? = nil, directory: String? = nil, name: String = "") {
+    public init(id: UUID = UUID(), prompt: String = "", images: [TaskImage] = [], files: [TaskFile] = [],
+                picks: [TaskAgentPick] = [], macID: String? = nil, directory: String? = nil, name: String = "",
+                launch: TaskLaunch = .terminal) {
         self.id = id
         self.prompt = prompt
         self.images = images
+        self.files = files
         self.picks = picks
         self.macID = macID
         self.directory = directory
         self.name = name
+        self.launch = launch
     }
 
     /// The prompt as sent: surrounding blank lines and spaces removed.
     public var trimmedPrompt: String { prompt.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// Nothing typed, attached or named: Cancel loses nothing worth keeping.
-    public var isEmpty: Bool { trimmedPrompt.isEmpty && images.isEmpty && name.trimmingCharacters(in: .whitespaces).isEmpty }
+    public var isEmpty: Bool {
+        trimmedPrompt.isEmpty && images.isEmpty && files.isEmpty && name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     /// The most images one task sends (each goes inline in the first message).
     public static let imageLimit = 6
+    /// The most files one task attaches, and the most bytes each may have (held in memory).
+    public static let fileLimit = 6
+    public static let maxFileBytes = 25 << 20
     /// The most agents one task starts at once (one workspace each).
     public static let agentLimit = 4
     /// A title from the prompt is cut to this many characters.
@@ -107,14 +199,14 @@ public struct TaskDraft: Hashable, Sendable {
     @discardableResult
     public mutating func toggle(_ harness: AgentHarnessChoice, fallback: AgentHarnessChoice?) -> PickChange {
         guard harness.canStart else { return .unavailable }
-        if picks.isEmpty, let fallback { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name)] }
+        if picks.isEmpty, let fallback { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name, family: fallback.family)] }
         if let index = picks.firstIndex(where: { $0.harness == harness.id }) {
             guard picks.count > 1 else { return .keptLast }
             picks.remove(at: index)
             return .removed
         }
         guard picks.count < Self.agentLimit else { return .atLimit }
-        picks.append(TaskAgentPick(harness: harness.id, name: harness.name))
+        picks.append(TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family))
         return .added
     }
 
@@ -227,11 +319,16 @@ extension WorkspaceCreator {
         var titles = store.workspaces.filter { $0.macID == mac.id }.map(\.title)
         var made: [Workspace] = []
         for pick in picks {
-            let request = NewWorkspaceRequest(macID: mac.id, directory: folder, start: .agent(pick.harness),
-                                              task: AgentTask(prompt: draft.trimmedPrompt, images: draft.images, model: pick.model))
+            // A chat: the agent's chat tab, the task its first message. A terminal: a terminal tab
+            // whose shell runs the agent's CLI with the task.
+            let start: NewWorkspaceStart = draft.launch == .terminal ? .terminal : .agent(pick.harness)
+            let request = NewWorkspaceRequest(macID: mac.id, directory: folder, start: start,
+                                              task: AgentTask(prompt: draft.trimmedPrompt, images: draft.images, files: draft.files,
+                                                              model: pick.model, launch: draft.launch, family: pick.family))
             // The agent first: a long task title truncates, and rows of one task differ only by agent.
             let base = picks.count > 1 ? "\(pick.name ?? Self.agentTitle(pick.harness)) · \(draft.title)" : draft.title
-            let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title)
+            let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title,
+                                                   agent: pick.name ?? Self.agentTitle(pick.harness))
             titles.append(placeholder.title)
             var origin = draft
             // A pick of "" (the Mac's default agent) comes back as no pick.
@@ -242,7 +339,8 @@ extension WorkspaceCreator {
         }
         // Sent: it leaves the drafts list. The next task starts with the same agents and place.
         taskDrafts.delete([draft.id])
-        taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory)
+        rememberTaskLaunch(draft.launch)
+        taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory, launch: draft.launch)
         taskRefusal = nil
         restoredTask = nil
         return made
@@ -341,7 +439,8 @@ extension WorkspaceCreator {
     /// The composer's next task starts empty, with the same agents and place.
     public func leaveTaskComposer(keep: Bool) {
         if keep { saveTaskDraft() } else { taskDrafts.delete([taskDraft.id]) }
-        taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory)
+        rememberTaskLaunch(taskDraft.launch)
+        taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory, launch: taskDraft.launch)
         taskRefusal = nil
         restoredTask = nil
     }
@@ -364,6 +463,13 @@ extension WorkspaceCreator {
         return true
     }
 
+    static let taskLaunchKey = "cmuxMobile.newTask.launch"
+
+    /// Keeps where New Task opens for the next launch of the app.
+    func rememberTaskLaunch(_ launch: TaskLaunch) {
+        defaults.set(launch.rawValue, forKey: Self.taskLaunchKey)
+    }
+
     /// The drafts list's rows: the saved drafts but the one the composer holds.
     public var otherTaskDrafts: [SavedTaskDraft] { taskDrafts.drafts.filter { $0.id != taskDraft.id } }
 
@@ -377,10 +483,15 @@ extension WorkspaceCreator {
         }
     }
 
-    /// The optimistic task workspace: titled `title`, its one tab the agent working on `task`.
-    static func taskPlaceholder(for request: NewWorkspaceRequest, title: String, task: String, now: Date = Date()) -> Workspace {
+    /// The optimistic task workspace: titled `title`, its one tab the agent working on `task` (a
+    /// chat tab, or for a terminal launch a terminal tab named for the agent).
+    static func taskPlaceholder(for request: NewWorkspaceRequest, title: String, task: String, agent: String = "Agent",
+                                now: Date = Date()) -> Workspace {
         var workspace = placeholder(for: request, existing: [], now: now)
         workspace.title = title
+        if request.start == .terminal, !workspace.tabs.isEmpty {
+            workspace.tabs[0].title = agent
+        }
         if case .agent(let harness) = request.start, !workspace.tabs.isEmpty {
             // The tab is the agent, as the Mac's tab for the chat reads once listed (its pill
             // then shows the agent's name, with no flip); the workspace's title is the task.

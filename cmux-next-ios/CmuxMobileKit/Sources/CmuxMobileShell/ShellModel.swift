@@ -176,8 +176,9 @@ final class ShellModel {
                   let tab = ws.tabs.first(where: \.isAgent) else { return }
             let mac = store.teams.flatMap(\.macs).first { $0.id == ws.macID }?.name ?? "Mac"
             let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: mac)
-            let images = task.images.map { AgentAttachment(kind: .image, name: "Photo.jpg", data: $0.data) }
-            chat.send(prompt: task.prompt, attachments: images)
+            let attachments = task.images.map { AgentAttachment(kind: .image, name: "Photo.jpg", data: $0.data) }
+                + task.files.map { AgentAttachment(kind: .file, name: $0.name, data: $0.data) }
+            chat.send(prompt: task.prompt, attachments: attachments)
         } }
         // `-cmux-mobile-refuse-next-tab`: the next tab request is refused like the live report's
         // (the Mac's cwd policy), for the new-tab captures.
@@ -235,6 +236,12 @@ final class ShellModel {
         // the system photo picker runs out of the app's process).
         if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_IMAGES"].flatMap(Int.init), count > 0 {
             creator.taskDraft.images = (0..<min(count, TaskDraft.imageLimit)).map { Self.demoTaskImage($0) }
+        }
+        // `CMUX_MOBILE_TASK_DRAFT_FILES=N`: New Task opens with N files attached (the system file
+        // picker runs outside the app's process).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_FILES"].flatMap(Int.init), count > 0 {
+            let names = ["design-spec.pdf", "crash-log.txt", "schema.sql", "notes.md", "trace.json", "build.log"]
+            creator.taskDraft.files = names.prefix(min(count, TaskDraft.fileLimit)).map { TaskFile(name: $0, data: Data("sample \($0)".utf8)) }
         }
         // `CMUX_MOBILE_TASK_DRAFTS=N`: N saved New Task drafts (Drafts' captures).
         if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFTS"].flatMap(Int.init), count > 0 {
@@ -544,8 +551,9 @@ final class ShellModel {
             if let tab = workspace.tabs.first(where: \.isAgent) {
                 let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
                 let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
-                let photos = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo.jpg", data: $0.data) }
-                chat.returnedDraft = AgentChatStore.ReturnedDraft(text: task.prompt, attachments: photos, promptID: nil)
+                let attachments = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo.jpg", data: $0.data) }
+                    + task.files.map { AgentAttachment(id: $0.id, kind: .file, name: $0.name, data: $0.data) }
+                chat.returnedDraft = AgentChatStore.ReturnedDraft(text: task.prompt, attachments: attachments, promptID: nil)
             }
             text = "Your task didn't reach \(agent). It's in the chat, ready to send."
         case .uncertain:

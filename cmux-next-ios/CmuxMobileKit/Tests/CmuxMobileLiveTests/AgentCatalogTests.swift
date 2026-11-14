@@ -262,16 +262,18 @@ import Testing
     }
 }
 
-/// New Task's first message: the prompt as one text block, then each image a model takes.
+/// New Task's first message: its photos inline and its files as links to their uploaded copies,
+/// built by the chat's own prompt builder.
 @Suite struct TaskPromptBlockTests {
-    @Test func textThenSupportedImagesOnly() {
+    @Test func photosGoInlineAndFilesAsTheirUploadedCopies() {
         let png = TaskImage(id: "a", data: Data([0x89, 0x50, 0x4E, 0x47] + Array(repeating: 0, count: 12)))
-        let heic = TaskImage(id: "b", data: Data(Array("ftypheic0000".utf8)))
-        let blocks = LiveWorkspaceCreationBackend.taskPromptBlocks(AgentTask(prompt: "Match this", images: [png, heic]))
-        #expect(blocks.count == 2)
-        #expect(blocks[0]["type"]?.stringValue == "text" && blocks[0]["text"]?.stringValue == "Match this")
-        #expect(blocks[1]["type"]?.stringValue == "image" && blocks[1]["mimeType"]?.stringValue == "image/png")
-        #expect(blocks[1]["data"]?.stringValue == png.data.base64EncodedString())
+        let file = TaskFile(id: "f", name: "trace.bin", data: Data(repeating: 0, count: 300 << 10))
+        let attachments = LiveWorkspaceCreationBackend.taskAttachments(AgentTask(prompt: "Match this", images: [png], files: [file]))
+        #expect(attachments.map(\.kind) == [.image, .file])
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "Match this", attachments: attachments,
+                                                      uploaded: ["f": "/Users/me/p/.cmux/attachments/trace.bin"])
+        #expect(blocks.map { $0["type"]?.stringValue } == ["text", "image", "resource_link"])
+        #expect(blocks[2]["uri"]?.stringValue == "file:///Users/me/p/.cmux/attachments/trace.bin")
     }
 }
 

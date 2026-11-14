@@ -23,7 +23,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
     var reads = StickyRead()
     /// New Task's chats by the workspace `create` made, until `sendTask` sends the task.
-    var taskSessions: [String: String] = [:]
+    var taskSessions: [String: (session: String, cwd: String)] = [:]
     /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
     var readMarks: [String: Int] = [:]
 
@@ -89,7 +89,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 _ = try? await client.request("close-workspace", params: ["key": key])
                 throw error
             }
-            if request.task != nil { taskSessions[key] = session }
+            if request.task != nil { taskSessions[key] = (session, cwd) }
             // `create-workspace` answered with the key, so the Mac has it: a fresh list that
             // leaves it out twice is a broken state, and a task start that the phone reports as
             // failed (its draft comes back) closes it, so no unprompted chat is left to start
@@ -121,15 +121,28 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// for. A failure is reported through `failed`, said by what the phone knows of it.
     public func sendTask(_ task: AgentTask, in workspace: Workspace,
                          failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
-        guard let session = taskSessions.removeValue(forKey: workspace.id) else {
+        guard let (session, cwd) = taskSessions.removeValue(forKey: workspace.id) else {
             throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
         }
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         }
         acpmux.beginFirstPrompt(session)
+        // The chat's own prompt builder: photos inline, files uploaded to the session's folder
+        // and linked (a small text file inline), as the chat's Send does.
+        let source = acpmux.source(sessionID: session, summary: AgentSessionSummary(
+            id: session, name: workspace.title, harness: "", agentName: "", cwd: cwd, workspaceTitle: workspace.title,
+            macName: link.target?.name ?? "the Mac", macID: workspace.macID))
         Task {
-            let blocks = await Task.detached(priority: .userInitiated) { Self.taskPromptBlocks(task) }.value
+            let blocks: [JSONValue]
+            do {
+                blocks = try await source.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task), hub: acpmux)
+            } catch {
+                // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.
+                acpmux.endFirstPrompt(session)
+                failed(.notSent(AcpmuxSessionSource.message(error)))
+                return
+            }
             do {
                 _ = try await acpmux.request("session/prompt", .object([
                     "sessionId": .string(session), "prompt": .array(blocks),
@@ -156,11 +169,35 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return .uncertain(reason)
     }
 
-    /// ACP content for a task, as the chat's own Send builds it (``AcpmuxSessionSource/promptBlocks``):
-    /// the text, then each photo an agent takes as an `image` block.
-    nonisolated static func taskPromptBlocks(_ task: AgentTask) -> [JSONValue] {
-        let photos = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo", data: $0.data) }
-        return AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: photos)
+    /// A task's photos and files as the chat's attachments (its prompt builder sends them).
+    nonisolated static func taskAttachments(_ task: AgentTask) -> [AgentAttachment] {
+        task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo", data: $0.data) }
+            + task.files.map { AgentAttachment(id: $0.id, kind: .file, name: $0.name, data: $0.data) }
+    }
+
+    /// A terminal launch: uploads the task's photos and files to `cwd` (the workspace's folder),
+    /// then types the agent's command into the new terminal (`send`, as the folder's `cd` line).
+    /// Throws, closing nothing, when the agent has no CLI here or an upload fails; the caller
+    /// closes the workspace it made.
+    func launchInTerminal(_ task: AgentTask, surface: Int, cwd: String, client: DaemonClient) async throws {
+        guard task.terminalLine() != nil else {
+            throw WorkspaceCreationError("This agent can't open in a terminal from here. Open it as a chat.", isForPerson: true)
+        }
+        var paths: [String] = []
+        let attachments = Self.taskAttachments(task)
+        if !attachments.isEmpty {
+            guard let macLink = acpmux?.macLink else {
+                throw WorkspaceCreationError("Connect to the Mac to send the task's attachments.", isForPerson: true)
+            }
+            let macName = link.target?.name ?? "the Mac"
+            for attachment in attachments {
+                guard let data = attachment.data else { continue }
+                let name = attachment.kind == .image ? "photo-\(attachment.id.prefix(8)).jpg" : attachment.name
+                paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
+            }
+        }
+        guard let line = task.terminalLine(attachmentPaths: paths) else { return }
+        try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -208,6 +245,21 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             var opening = DaemonTree.tabID(surface: surface)
             if let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
                 _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
+            if let task = request.task, task.launch == .terminal {
+                // New Task in a terminal: the agent's CLI, in the folder the `cd` line went to.
+                let folders = Set((sync.tree?.directories ?? [:]).values)
+                let cwd = Self.chatFolder(request.directory, known: folders) ?? request.directory ?? "~"
+                do {
+                    try await launchInTerminal(task, surface: surface, cwd: cwd, client: client)
+                } catch {
+                    // The phone reports this start as failed (its draft comes back): the
+                    // workspace goes too, with nothing running in it.
+                    if let made = try? await sync.listNow().workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) {
+                        _ = try? await client.request("close-workspace", params: ["key": made.id])
+                    }
+                    throw error
+                }
             }
             if request.start == .browser {
                 // No pane: the active pane, which is the new workspace's. If

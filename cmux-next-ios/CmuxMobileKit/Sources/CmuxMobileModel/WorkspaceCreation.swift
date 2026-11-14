@@ -581,7 +581,7 @@ public final class WorkspaceCreator {
         seenCache = (macID, revision, pending, directories)
         return directories
     }
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     /// The task the New Task composer holds: saved to the drafts list when the composer is left
     /// with something in it, cleared by Start, and given back when its start was refused.
@@ -609,6 +609,8 @@ public final class WorkspaceCreator {
         self.defaults = defaults
         recents = RecentDirectories(defaults: defaults)
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
+        // Where New Task opens, as last chosen (a terminal until a chat is chosen).
+        if let raw = defaults.string(forKey: Self.taskLaunchKey), let launch = TaskLaunch(rawValue: raw) { taskDraft.launch = launch }
     }
 
     /// The active team's Macs this backend can create on, in team order.
@@ -802,7 +804,8 @@ public final class WorkspaceCreator {
             taskOrigins[placeholder.id] = nil
             // The workspace stands from here: a task that doesn't reach its chat is reported,
             // never handed back as a draft (that would start a second agent on it).
-            if let task = request.task { deliver(task, to: real) }
+            // A terminal launch typed its command when the workspace was made: nothing to send.
+            if let task = request.task, task.launch == .chat { deliver(task, to: real) }
             if let placement = request.placement { await place(real, placement) }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
@@ -905,8 +908,16 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
         try await settle()
         var created = placeholder
-        // A task's chat is a new session, as the Mac's is (mock chats named so start empty).
-        if request.task != nil, !created.tabs.isEmpty { created.tabs[0].subtitle = "New session" }
+        if let task = request.task, task.launch == .terminal {
+            // What the Mac's shell would run (Mock mode records it; nothing runs).
+            guard let line = task.terminalLine() else {
+                throw WorkspaceCreationError("This agent can't open in a terminal from here. Open it as a chat.", isForPerson: true)
+            }
+            typedLines.append(line)
+        } else if request.task != nil, !created.tabs.isEmpty {
+            // A task's chat is a new session, as the Mac's is (mock chats named so start empty).
+            created.tabs[0].subtitle = "New session"
+        }
         onCreated?(created)
         return created
     }
@@ -920,6 +931,8 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// The tasks sent (Mock mode only: no agent reads them). `taskFailure` fails the next one.
     public var sentTasks: [AgentTask] = []
     public var taskFailure: TaskDeliveryFailure?
+    /// The command lines terminal launches typed (Mock mode only: nothing runs).
+    public var typedLines: [String] = []
     /// Mock mode: the shell sends a delivered task to the workspace's mock chat.
     public var onTaskSent: (@MainActor (AgentTask, Workspace) -> Void)?
     /// Mock mode: a workspace was made (the shell rebuilds its chats, which were starting).

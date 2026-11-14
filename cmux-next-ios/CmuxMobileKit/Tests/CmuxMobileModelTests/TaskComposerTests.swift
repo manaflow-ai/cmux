@@ -11,6 +11,13 @@ import Testing
         defaults = try #require(UserDefaults(suiteName: suite))
     }
 
+    /// These cases are about chat launches (the first message's delivery, the chat's tab).
+    static func chat(_ draft: TaskDraft) -> TaskDraft {
+        var draft = draft
+        draft.launch = .chat
+        return draft
+    }
+
     func make() -> (AppStore, WorkspaceCreator, ScriptedBackend) {
         let store = AppStore.mock(tabMemory: .inMemory())
         let backend = ScriptedBackend()
@@ -57,7 +64,7 @@ import Testing
                               picks: [TaskAgentPick(harness: "claude", model: "sonnet")],
                               directory: "~/Development/web")
         creator.taskDraft = draft
-        let made = creator.startTask(draft)
+        let made = creator.startTask(Self.chat(draft))
         #expect(made.count == 1)
         let placeholder = try #require(made.first)
         // Instant: the row is in the list, titled for the task, and opens ready to type.
@@ -82,7 +89,7 @@ import Testing
 
     @Test func noPickStartsTheMacsDefaultAgent() async throws {
         let (_, creator, backend) = make()
-        creator.startTask(TaskDraft(prompt: "go"))
+        creator.startTask(Self.chat(TaskDraft(prompt: "go")))
         await creator.settle()
         #expect(backend.requests.map(\.start) == [.agent("")])
     }
@@ -91,7 +98,7 @@ import Testing
         let (store, creator, backend) = make()
         let draft = TaskDraft(prompt: "Write the release notes",
                               picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr", model: "kimi-k2", name: "Claude Code Router")])
-        let made = creator.startTask(draft)
+        let made = creator.startTask(Self.chat(draft))
         // The agent first: rows of one task differ only by it, and a long task title truncates.
         #expect(made.map(\.title) == ["Claude · Write the release notes", "Claude Code Router · Write the release notes"])
         #expect(made.allSatisfy { !store.takeFocusOnOpen($0.id) })
@@ -107,7 +114,7 @@ import Testing
         var failures: [String] = []
         creator.onFailure = { _, message in failures.append(message) }
         let draft = TaskDraft(prompt: "Try this", picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr")])
-        let made = creator.startTask(draft)
+        let made = creator.startTask(Self.chat(draft))
         await creator.settle()
         #expect(made.allSatisfy { store.workspace(id: $0.id) == nil })
         #expect(failures == ["Trust web on the Mac first.", "Trust web on the Mac first."])
@@ -118,7 +125,7 @@ import Testing
 
         // A draft written meanwhile is never replaced: the refused task goes to Drafts, both
         // of its agents in one draft.
-        let again = creator.startTask(TaskDraft(prompt: "Try again", picks: draft.picks))
+        let again = creator.startTask(Self.chat(TaskDraft(prompt: "Try again", picks: draft.picks)))
         #expect(creator.taskRefusal == nil)
         creator.taskDraft.prompt = "Something else"
         await creator.settle()
@@ -139,7 +146,7 @@ import Testing
         }
         let claude = TaskAgentPick(harness: "claude", name: "Claude Code")
         let router = TaskAgentPick(harness: "claude-cr", name: "Claude Code Router")
-        let made = creator.startTask(TaskDraft(prompt: "Ship it", picks: [claude, router]))
+        let made = creator.startTask(Self.chat(TaskDraft(prompt: "Ship it", picks: [claude, router])))
         await creator.settle()
         #expect(creator.taskDraft.prompt == "Ship it")
         #expect(creator.taskDraft.picks == [router])
@@ -152,7 +159,7 @@ import Testing
     @Test func aRefusalNotWrittenForThePersonIsQuotedAsTheMacs() async throws {
         let (_, creator, backend) = make()
         backend.result = { _ in .failure(WorkspaceCreationError("Authentication required")) }
-        creator.startTask(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude")]))
+        creator.startTask(Self.chat(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude")])))
         await creator.settle()
         #expect(creator.taskRefusal == "The Mac said: Authentication required")
     }
@@ -163,7 +170,7 @@ import Testing
         let (_, creator, backend) = make()
         backend.result = { _ in .failure(WorkspaceCreationError("No")) }
         // The Mac answers only at `settle`: the person starts writing the next task first.
-        let made = creator.startTask(TaskDraft(prompt: "First"))
+        let made = creator.startTask(Self.chat(TaskDraft(prompt: "First")))
         creator.taskDraft.prompt = "Second"
         await creator.settle()
         #expect(creator.taskDraft.prompt == "Second")
@@ -181,14 +188,14 @@ import Testing
         let creator = WorkspaceCreator(store: store, backend: mock, defaults: defaults)
         var reports: [TaskDeliveryFailure] = []
         creator.onTaskNotDelivered = { _, _, failure in reports.append(failure) }
-        let made = creator.startTask(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude", model: "opus")]))
+        let made = creator.startTask(Self.chat(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude", model: "opus")])))
         #expect(mock.sentTasks.isEmpty)
         await creator.settle()
         #expect(mock.sentTasks == [AgentTask(prompt: "Go", model: "opus")])
         #expect(reports.isEmpty)
 
         mock.taskFailure = .uncertain("The connection dropped")
-        creator.startTask(TaskDraft(prompt: "Again"))
+        creator.startTask(Self.chat(TaskDraft(prompt: "Again")))
         await creator.settle()
         #expect(reports == [.uncertain("The connection dropped")])
         #expect(creator.taskDraft.prompt.isEmpty)
@@ -228,7 +235,7 @@ import Testing
         let (_, creator, _) = make()
         let draft = TaskDraft(prompt: "go", picks: [TaskAgentPick(harness: "claude")], directory: "~/Development/web", name: "web fix")
         creator.taskDraft = draft
-        creator.startTask(draft)
+        creator.startTask(Self.chat(draft))
         #expect(creator.taskDraft.name.isEmpty && creator.taskDraft.prompt.isEmpty)
         #expect(creator.taskDraft.directory == "~/Development/web" && creator.taskDraft.picks == draft.picks)
         await creator.settle()
@@ -390,5 +397,84 @@ import Testing
         #expect(!TaskDraftDisk.isSafeName("../index.json"))
         #expect(!TaskDraftDisk.isSafeName("a/b"))
         #expect(!TaskDraftDisk.isSafeName(""))
+    }
+}
+
+
+/// A terminal launch (classic's tasks): the agent's CLI with its model and the task, typed into
+/// the new workspace's shell. Nothing in the prompt can run.
+@MainActor @Suite struct TerminalLaunchTests {
+    @Test func claudeAndCodexGetTheirCommands() {
+        #expect(AgentTask(prompt: "Fix it", model: "sonnet", launch: .terminal, family: "claude").terminalLine()
+            == "claude --model $'sonnet' $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex").terminalLine() == "codex $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", model: "default", launch: .terminal, family: "claude").terminalLine() == "claude $'Fix it'\n")
+        #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "opencode").terminalLine() == nil)
+    }
+
+    @Test func thePromptIsOneQuotedWordWhateverItHolds() {
+        let line = AgentTask(prompt: "it's `rm -rf ~` $(whoami)\\\nnext\u{1B}[2J\u{7F}line", launch: .terminal, family: "claude").terminalLine()
+        #expect(line == "claude $'it\\'s `rm -rf ~` $(whoami)\\\\\\nnext[2Jline'\n")
+        // One line: the only Return is the one that runs it.
+        #expect(line?.filter { $0 == "\n" }.count == 1)
+    }
+
+    @Test func attachedFilesAreNamedAfterThePrompt() {
+        let line = AgentTask(prompt: "Match this", launch: .terminal, family: "claude").terminalLine(attachmentPaths: ["/p/a.png"])
+        #expect(line == "claude $'Match this\\n\\nAttached files (read them):\\n/p/a.png'\n")
+    }
+
+    @Test func aTerminalTaskOpensATerminalWorkspaceAndTypesItsCommand() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let mock = MockWorkspaceCreationBackend(latency: .zero)
+        let creator = WorkspaceCreator(store: store, backend: mock,
+                                       defaults: try #require(UserDefaults(suiteName: "tl.\(UUID().uuidString)")))
+        let made = creator.startTask(TaskDraft(prompt: "Fix it", picks: [TaskAgentPick(harness: "claude", model: "opus", name: "Claude Code",
+                                                                                       family: "claude")], launch: .terminal))
+        #expect(made.first?.tabs.first?.kind == .terminal)
+        #expect(made.first?.tabs.first?.title == "Claude Code")
+        await creator.settle()
+        #expect(mock.typedLines == ["claude --model $'opus' $'Fix it'\n"])
+        #expect(mock.sentTasks.isEmpty)
+    }
+
+    @Test func aChatTaskStillSendsItsFirstMessage() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let mock = MockWorkspaceCreationBackend(latency: .zero)
+        let creator = WorkspaceCreator(store: store, backend: mock,
+                                       defaults: try #require(UserDefaults(suiteName: "tl.\(UUID().uuidString)")))
+        let file = TaskFile(name: "notes.md", data: Data("hi".utf8))
+        creator.startTask(TaskDraft(prompt: "Go", files: [file], picks: [TaskAgentPick(harness: "claude")], launch: .chat))
+        await creator.settle()
+        #expect(mock.sentTasks.first?.files == [file])
+        #expect(mock.typedLines.isEmpty)
+    }
+}
+
+/// Drafts keep files and where the task runs; a draft saved before those were kept still reads.
+@MainActor @Suite struct TaskDraftFilesTests {
+    @Test func aDraftWithFilesAndATerminalLaunchResumesWithThem() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = TaskDraftStore(directory: folder)
+        await store.load()
+        let file = TaskFile(name: "spec.pdf", data: Data(repeating: 7, count: 2048))
+        let draft = TaskDraft(prompt: "Read the spec", files: [file], launch: .terminal)
+        store.save(draft)
+        await store.flush()
+        let again = TaskDraftStore(directory: folder)
+        await again.load()
+        let read = try #require(await again.draft(draft.id))
+        #expect(read.files == [file] && read.launch == .terminal)
+    }
+
+    @Test func aDraftSavedBeforeFilesWereKeptReadsWithNoneAsAChat() throws {
+        let json = #"[{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","updatedAt":0,"prompt":"Old","imageIDs":[],"picks":[],"name":""}]"#
+        let drafts = try JSONDecoder().decode([SavedTaskDraft].self, from: Data(json.utf8))
+        #expect(drafts.first?.files.isEmpty == true && drafts.first?.launch == .chat)
+    }
+
+    @Test func filesCountAsSomethingToSave() {
+        #expect(!TaskDraft(files: [TaskFile(name: "a", data: Data([1]))]).isEmpty)
     }
 }

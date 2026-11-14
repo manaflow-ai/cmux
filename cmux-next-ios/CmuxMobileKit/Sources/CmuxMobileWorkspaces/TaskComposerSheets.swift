@@ -28,7 +28,6 @@ struct TaskComposerOptionsSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     nameCard
                     routeCard
-                    if draft.picks.count > 1 { titles }
                     if let blocker, blocker == .noFolder || blocker == .noMac {
                         Text(blocker.message)
                             .font(theme.type.meta)
@@ -159,26 +158,6 @@ struct TaskComposerOptionsSheet: View {
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .contentShape(.rect)
-    }
-
-    /// With several agents, one workspace each: what each is called.
-    private var titles: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Workspaces")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(theme.colors.label2.color)
-            ForEach(draft.picks) { pick in
-                Text("\(pick.name ?? WorkspaceCreator.agentTitle(pick.harness)) · \(draft.title)")
-                    .font(.subheadline)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(card, in: cardShape)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("taskComposer.titles")
     }
 
     private var card: Color { Color(uiColor: .secondarySystemGroupedBackground) }

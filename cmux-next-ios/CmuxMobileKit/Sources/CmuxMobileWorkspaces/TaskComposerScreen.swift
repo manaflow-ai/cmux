@@ -6,6 +6,7 @@ import CmuxSpinner
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 private let theme = CmuxMobileTheme.standard
 
@@ -29,6 +30,9 @@ struct TaskComposerScreen: View {
     @State private var phase: TaskComposerPhase = .loading
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
+    @State private var choosingFiles = false
+    /// Why the last picked file wasn't added (too large, unreadable), shown under the strip.
+    @State private var fileRefusal: String?
     @State private var loadingPhotos = 0
     @State private var showsOptions = false
     @State private var showsDrafts = false
@@ -92,6 +96,9 @@ struct TaskComposerScreen: View {
                 }
                 .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                               maxSelectionCount: max(1, TaskDraft.imageLimit - draft.images.count), matching: .images)
+                .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                    if case .success(let urls) = result { Task { await addFiles(urls) } }
+                }
         }
         .task(id: mac?.id) { await reload() }
         .task { await creator.taskDrafts.load() }
@@ -162,7 +169,7 @@ struct TaskComposerScreen: View {
                                    tint: theme.colors.warning.color)
                     .accessibilityIdentifier("taskComposer.blocker")
             }
-            if !draft.images.isEmpty || loadingPhotos > 0 {
+            if !draft.images.isEmpty || !draft.files.isEmpty || loadingPhotos > 0 || fileRefusal != nil {
                 attachments
             }
             HStack(spacing: 0) {
@@ -172,6 +179,7 @@ struct TaskComposerScreen: View {
                     HStack(spacing: 8) {
                         agentsPill
                         modelPill
+                        launchPill
                     }
                     .padding(.horizontal, 6)
                 }
@@ -194,6 +202,9 @@ struct TaskComposerScreen: View {
                     ForEach(draft.images) { image in
                         TaskImageThumb(image: image) { creator.taskDraft.images.removeAll { $0.id == image.id } }
                     }
+                    ForEach(draft.files) { file in
+                        TaskFileChip(file: file) { creator.taskDraft.files.removeAll { $0.id == file.id } }
+                    }
                     ForEach(0..<loadingPhotos, id: \.self) { _ in
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(Color.cmuxMobileFill)
@@ -205,6 +216,13 @@ struct TaskComposerScreen: View {
                 .padding(.horizontal, 16)
             }
             .accessibilityIdentifier("taskComposer.attachments")
+            if let fileRefusal {
+                Text(fileRefusal)
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.dangerText.color)
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("taskComposer.fileRefusal")
+            }
             if draft.images.count >= TaskDraft.imageLimit {
                 Text("\(TaskDraft.imageLimit) of \(TaskDraft.imageLimit) photos. A task takes up to \(TaskDraft.imageLimit).")
                     .font(theme.type.meta)
@@ -223,7 +241,7 @@ struct TaskComposerScreen: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.colors.label.color)
                 .frame(width: 38, height: 38)
-                .background(Color.cmuxMobileFill, in: .circle)
+                .glassEffect(.regular.interactive(), in: .circle)
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
@@ -242,6 +260,9 @@ struct TaskComposerScreen: View {
             Button("Paste", systemImage: "doc.on.clipboard") { pastePhotos() }
                 .disabled(full || !UIPasteboard.general.hasImages)
                 .accessibilityIdentifier("taskComposer.pastePhoto")
+            Button("Choose Files", systemImage: "folder") { choosingFiles = true }
+                .disabled(draft.files.count >= TaskDraft.fileLimit)
+                .accessibilityIdentifier("taskComposer.addFiles")
             Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
                 .disabled(full)
                 .accessibilityIdentifier("taskComposer.addPhotos")
@@ -250,14 +271,14 @@ struct TaskComposerScreen: View {
                 .font(.system(size: 17))
                 .foregroundStyle(theme.colors.label.color)
                 .frame(width: 38, height: 38)
-                .background(Color.cmuxMobileFill, in: .circle)
+                .glassEffect(.regular.interactive(), in: .circle)
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
         // Source order (Paste first, as classic), not the reversed order of a menu near the bottom.
         .menuOrder(.fixed)
         .disabled(sent != nil)
-        .accessibilityLabel(full ? "Add Photos, \(TaskDraft.imageLimit) of \(TaskDraft.imageLimit) added" : "Add Photos")
+        .accessibilityLabel("Attach")
         .accessibilityIdentifier("taskComposer.attach")
     }
 
@@ -271,9 +292,10 @@ struct TaskComposerScreen: View {
             HStack(spacing: 7) {
                 switch phase {
                 case .loading:
-                    Text("Loading agents")
+                    // The spinner where the agent's mark goes, then the pill's name: one short pill.
                     CmuxSpinner()
-                        .frame(width: 11, height: 11)
+                        .frame(width: 14, height: 14)
+                    Text("Agents")
                 case .failed:
                     Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
                     Text("Couldn't load agents")
@@ -338,7 +360,7 @@ struct TaskComposerScreen: View {
             }
             let picked = shownAgents(catalog).filter { !$0.models.isEmpty }
             if picked.count > 1 {
-                Section("Models") {
+                Section("Each agent's model") {
                     ForEach(picked) { harness in
                         TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .submenu)
                     }
@@ -403,6 +425,33 @@ struct TaskComposerScreen: View {
         }
     }
 
+    /// Where the task runs: an agent chat, or the agent's CLI in a terminal (classic's tasks).
+    /// The choice carries to the next task.
+    private var launchPill: some View {
+        Menu {
+            Picker("Open in", selection: Binding(get: { draft.launch }, set: { if sent == nil { creator.taskDraft.launch = $0 } })) {
+                ForEach(TaskLaunch.allCases, id: \.self) { launch in
+                    Label(launch.title, systemImage: launch.systemImage).tag(launch)
+                }
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: draft.launch.systemImage).accessibilityHidden(true)
+                Text(draft.launch.title)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
+            }
+            .modifier(TaskComposerPillLabel(isError: false))
+        }
+        .menuOrder(.fixed)
+        .disabled(sent != nil)
+        .accessibilityLabel("Open in")
+        .accessibilityValue(draft.launch.title)
+        .accessibilityIdentifier("taskComposer.launch")
+    }
+
     private var startButton: some View {
         let count = max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && sent == nil
@@ -411,7 +460,7 @@ struct TaskComposerScreen: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(enabled ? theme.colors.onAccent.color : theme.colors.label3.color)
                 .frame(width: 38, height: 38)
-                .background(enabled ? theme.colors.accent.color : Color.cmuxMobileFill, in: .circle)
+                .glassEffect(enabled ? .regular.tint(theme.colors.accent.color).interactive() : .regular, in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if count > 1 {
                         Text("\(count)")
@@ -460,13 +509,15 @@ struct TaskComposerScreen: View {
         guard blocker == nil, let catalog else { return }
         var task = draft
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
-            task.picks = [TaskAgentPick(harness: harness.id, name: harness.name)]
+            task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
         }
         // Each agent's model by name: the one its menu shows, so the Mac runs what the phone said.
         task.picks = task.picks.map { pick in
             var pick = pick
-            if pick.model == nil, let harness = catalog.harness(pick.harness) {
-                pick.model = TaskComposerPhase.defaultModel(harness, catalog)
+            if let harness = catalog.harness(pick.harness) {
+                if pick.model == nil { pick.model = TaskComposerPhase.defaultModel(harness, catalog) }
+                // Its CLI for a terminal launch (a pick saved before families were kept has none).
+                if pick.family == nil { pick.family = harness.family }
             }
             return pick
         }
@@ -512,6 +563,24 @@ struct TaskComposerScreen: View {
             guard creator.taskDraft.images.count < TaskDraft.imageLimit else { continue }
             creator.taskDraft.images.append(image)
         }
+    }
+
+    /// Choose Files: each picked file read (inside its security scope, off the main actor), up
+    /// to the file limit and size; one too large or unreadable is said under the strip.
+    private func addFiles(_ urls: [URL]) async {
+        fileRefusal = nil
+        let room = TaskDraft.fileLimit - draft.files.count
+        for url in urls.prefix(max(0, room)) {
+            let read = await TaskFileReader.read(url)
+            switch read {
+            case .success(let file):
+                guard creator.taskDraft.files.count < TaskDraft.fileLimit else { continue }
+                creator.taskDraft.files.append(file)
+            case .failure(let reason):
+                fileRefusal = reason.message
+            }
+        }
+        if urls.count > room { fileRefusal = "A task takes up to \(TaskDraft.fileLimit) files." }
     }
 
     /// Paste Photo: the pasteboard's images, encoded as picked photos are.
@@ -561,9 +630,68 @@ struct TaskComposerPillLabel: ViewModifier {
             .lineLimit(1)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
-            .background(Color.cmuxMobileFill, in: .capsule)
+            .glassEffect(.regular.interactive(), in: .capsule)
             .frame(minHeight: 44)
             .contentShape(.rect)
+    }
+}
+
+/// Reads a picked file for New Task: off the main actor, inside its security scope, refusing
+/// one past `TaskDraft.maxFileBytes`.
+struct TaskFileReader {
+    struct Refusal: Error { let message: String }
+
+    @concurrent
+    static func read(_ url: URL) async -> Result<TaskFile, Refusal> {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let name = url.lastPathComponent
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= TaskDraft.maxFileBytes else {
+            return .failure(Refusal(message: "\(name) is larger than \(TaskDraft.maxFileBytes >> 20) MB."))
+        }
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), data.count <= TaskDraft.maxFileBytes else {
+            return .failure(Refusal(message: "Couldn't read \(name)."))
+        }
+        return .success(TaskFile(name: name, data: data))
+    }
+}
+
+/// One attached file: its kind's symbol and name, with its remove button.
+struct TaskFileChip: View {
+    let file: TaskFile
+    let remove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc")
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
+                Text(file.name)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 140, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 56)
+            .background(Color.cmuxMobileFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.top, 6)
+            .padding(.trailing, 6)
+            Button(action: remove) {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.65))
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 44, height: 44, alignment: .topTrailing)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 6, y: -6)
+            .accessibilityLabel("Remove \(file.name)")
+        }
+        .accessibilityIdentifier("taskComposer.file")
     }
 }
 
@@ -647,7 +775,7 @@ struct TaskComposerModelMenu: View {
 
     private func setModel(_ model: String?) {
         var picks = creator.taskDraft.picks
-        if picks.isEmpty { picks = [TaskAgentPick(harness: harness.id, name: harness.name)] }
+        if picks.isEmpty { picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)] }
         guard let index = picks.firstIndex(where: { $0.harness == harness.id }) else { return }
         picks[index].model = model
         creator.taskDraft.picks = picks

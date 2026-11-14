@@ -8,21 +8,53 @@ public struct SavedTaskDraft: Codable, Hashable, Sendable, Identifiable {
     public var updatedAt: Date
     public var prompt: String
     public var imageIDs: [String]
+    /// The files by id and name (their bytes live in their own files, as the photos').
+    public var files: [SavedTaskFile]
     public var picks: [TaskAgentPick]
     public var macID: String?
     public var directory: String?
     public var name: String
+    public var launch: TaskLaunch
+
+    public struct SavedTaskFile: Codable, Hashable, Sendable {
+        public var id: String
+        public var name: String
+    }
 
     public init(_ draft: TaskDraft, updatedAt: Date) {
         id = draft.id
         self.updatedAt = updatedAt
         prompt = draft.prompt
         imageIDs = draft.images.map(\.id)
+        files = draft.files.map { SavedTaskFile(id: $0.id, name: $0.name) }
         picks = draft.picks
         macID = draft.macID
         directory = draft.directory
         name = draft.name
+        launch = draft.launch
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, updatedAt, prompt, imageIDs, files, picks, macID, directory, name, launch
+    }
+
+    /// A draft written before files and the launch choice were kept reads with none and a chat.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        prompt = try c.decode(String.self, forKey: .prompt)
+        imageIDs = try c.decodeIfPresent([String].self, forKey: .imageIDs) ?? []
+        files = try c.decodeIfPresent([SavedTaskFile].self, forKey: .files) ?? []
+        picks = try c.decodeIfPresent([TaskAgentPick].self, forKey: .picks) ?? []
+        macID = try c.decodeIfPresent(String.self, forKey: .macID)
+        directory = try c.decodeIfPresent(String.self, forKey: .directory)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        launch = try c.decodeIfPresent(TaskLaunch.self, forKey: .launch) ?? .chat
+    }
+
+    /// Every bytes file this draft names: its photos and its files.
+    var blobIDs: [String] { imageIDs + files.map(\.id) }
 
     /// The list's first line: the prompt's first line, else the name, else "No prompt yet".
     public var title: String {
@@ -94,8 +126,9 @@ public final class TaskDraftStore {
         // Newest first, by when each was saved.
         drafts.insert(entry, at: drafts.firstIndex { $0.updatedAt <= entry.updatedAt } ?? drafts.endIndex)
         if drafts.count > Self.limit { drafts.removeLast(drafts.count - Self.limit) }
-        for image in draft.images where memoryImages[image.id] == nil { memoryImages[image.id] = image.data }
-        persist(newImages: draft.images)
+        let blobs = draft.images.map { TaskImage(id: $0.id, data: $0.data) } + draft.files.map { TaskImage(id: $0.id, data: $0.data) }
+        for blob in blobs where memoryImages[blob.id] == nil { memoryImages[blob.id] = blob.data }
+        persist(newImages: blobs)
     }
 
     public func delete(_ ids: Set<UUID>) {
@@ -115,14 +148,22 @@ public final class TaskDraftStore {
                 images.append(TaskImage(id: imageID, data: data))
             }
         }
-        return TaskDraft(id: entry.id, prompt: entry.prompt, images: images, picks: entry.picks, macID: entry.macID,
-                         directory: entry.directory, name: entry.name)
+        var files: [TaskFile] = []
+        for file in entry.files {
+            if let data = memoryImages[file.id] {
+                files.append(TaskFile(id: file.id, name: file.name, data: data))
+            } else if let data = await disk?.readImage(file.id) {
+                files.append(TaskFile(id: file.id, name: file.name, data: data))
+            }
+        }
+        return TaskDraft(id: entry.id, prompt: entry.prompt, images: images, files: files, picks: entry.picks, macID: entry.macID,
+                         directory: entry.directory, name: entry.name, launch: entry.launch)
     }
 
     /// Writes the index and the photos not yet on disk, then removes the photo files no draft
     /// names. In memory: drops the bytes no draft names.
     private func persist(newImages: [TaskImage]) {
-        let kept = Set(drafts.flatMap(\.imageIDs))
+        let kept = Set(drafts.flatMap(\.blobIDs))
         guard let disk else {
             memoryImages = memoryImages.filter { kept.contains($0.key) }
             return

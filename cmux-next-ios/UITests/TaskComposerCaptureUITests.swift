@@ -94,6 +94,16 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// Open in: picks Chat or Terminal from its pill.
+    @MainActor
+    private static func openIn(_ app: XCUIApplication, _ title: String) -> String? {
+        steps([
+            { tap(any(app, "taskComposer.launch"), "Open in pill") },
+            { tap(app.buttons[title].firstMatch, title) }, { pause(0.6); return nil },
+            { check((any(app, "taskComposer.launch").value as? String) == title, "did not switch to \(title)") },
+        ])
+    }
+
     /// Back, then Save Draft in the dialog that asks.
     @MainActor
     private static func leaveSavingDraft(_ app: XCUIApplication) -> String? {
@@ -277,15 +287,32 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             // After Start (A6, A7).
             Scene(group: g, id: "started-one-starting", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                C.steps([{ Self.openComposer(app) }, { Self.openIn(app, "Chat") }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }])
             },
             Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                C.steps([{ Self.openComposer(app) }, { Self.openIn(app, "Chat") }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])
             },
             Scene(group: g, id: "started-two-rows", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.start"), "Start 2") }])
+            },
+            // Open in: a chat, or the agent's CLI in a terminal (A13).
+            Scene(group: g, id: "launch-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.launch"), "Open in pill") }])
+            },
+            Scene(group: g, id: "composer-chat-chosen", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openIn(app, "Chat") }])
+            },
+            Scene(group: g, id: "started-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openIn(app, "Terminal") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(4); return nil }])
+            },
+            // Files (A5).
+            Scene(group: g, id: "composer-files", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_FILES": "2", "CMUX_MOBILE_TASK_DRAFT_IMAGES": "1"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Read the spec and fix the crash") },
+                         { Self.check(C.any(app, "taskComposer.file").exists, "no file chip") }])
             },
             // Drafts (A8).
             Scene(group: g, id: "leave-asks-to-save", args: Self.list) { app in
@@ -340,16 +367,16 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.check(C.any(app, "taskComposer.refusal").exists, "no refusal banner") }])
             },
             Scene(group: g, id: "delivery-not-sent", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "not-sent"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                C.steps([{ Self.openComposer(app) }, { Self.openIn(app, "Chat") }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil },
                          { Self.check(C.label(app, contains: "ready to send").exists, "no not-sent toast") }])
             },
             Scene(group: g, id: "delivery-uncertain", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "uncertain"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                C.steps([{ Self.openComposer(app) }, { Self.openIn(app, "Chat") }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
             },
             Scene(group: g, id: "delivery-refused", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "refused"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                C.steps([{ Self.openComposer(app) }, { Self.openIn(app, "Chat") }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
             },
             // Accessibility Large (A11).
