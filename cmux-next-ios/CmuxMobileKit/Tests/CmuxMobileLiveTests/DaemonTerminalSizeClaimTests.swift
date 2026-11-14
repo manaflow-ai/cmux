@@ -40,6 +40,27 @@ import Testing
         try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
     }
 
+    /// Review round 13: after the release before a link closes, a resize (rotation, keyboard)
+    /// sent `resize-surface` again on the closing link, and the machine kept the phone's grid
+    /// for the dropped-link grace. It waits for the kept link or the next attach.
+    @Test func aResizeAfterAReleaseForALinkCloseWaitsForTheLinkToBeKept() async throws {
+        let daemon = FakeTerminalDaemon()
+        let session = session(daemon)
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { commands(daemon, "resize-surface").count == 1 }
+        await session.releaseBeforeLinkCloses()
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+
+        session.resize(columns: 60, rows: 40)
+        try await settle()
+        #expect(commands(daemon, "resize-surface").count == 1, "a resize claimed the grid on the closing link")
+
+        session.reclaimSizeAfterKeptLink()
+        try await waitUntil { commands(daemon, "resize-surface").count == 2 }
+        #expect(commands(daemon, "resize-surface").last?["cols"] as? Int == 60)
+    }
+
     @Test func aHiddenTerminalReleasesItsSize() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)

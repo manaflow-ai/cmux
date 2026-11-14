@@ -287,6 +287,10 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.running)])
         await settle { live.isCloudRefused(vm) }
         #expect(refusals == ["carrier.handshake"])
+        // Review round 13: the failure started the link's silent retry before the refusal
+        // stopped the dialing, so the service was asked for a second grant.
+        await drain()
+        #expect(cloud.dials(vm) == 1, "a permanent refusal dials once, with no silent retry")
         #expect(store.cloudMachines.first?.cloud?.status == .failed)
         #expect(store.cloudMachines.first?.cloud?.note?.contains("Build box") == true)
         let dials = cloud.dials(vm)
