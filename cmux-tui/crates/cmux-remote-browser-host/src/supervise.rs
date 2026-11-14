@@ -450,6 +450,16 @@ pub mod run {
             eprintln!("supervise: cache root {}: {e}", opts.root.display());
             return 1;
         }
+        // CEF resolves its root cache path (/tmp is /private/tmp on macOS) and
+        // refuses a tab's cache path that is not under the resolved one: that
+        // tab gets an in-memory profile. Every path starts from the resolved root.
+        let opts = match std::fs::canonicalize(&opts.root) {
+            Ok(root) => Options { root, ..opts },
+            Err(e) => {
+                eprintln!("supervise: cache root {}: {e}", opts.root.display());
+                return 1;
+            }
+        };
         emit(&crate::launch::listening_line(bound));
         let mut core = Supervisor::new(&opts.root, opts.policy);
         let mut host: Option<Host> = None;
