@@ -369,7 +369,6 @@
 .cv-user__video-play svg {
   transform: translateX(1px);
 }
-.cv-user__video-length,
 .cv-user__video-unplayable {
   position: absolute;
   right: 6px;
@@ -8002,12 +8001,12 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text-muted);
 }
 
-/* Every time, duration and length label in the chat is one line: a reply's or a prompt's time, a
-   Worked for or a command's time, a subagent's or a background task's, a video's length on its
-   thumbnail (Leo, 2026-11-14: "these times are still bad and going to next lines!", of a sent
-   video's "0:01" broken into "0:0" over "1"). Each is a short run of tabular digits that never
-   breaks; test/time-labels-one-line.test.ts finds every such class in the chat's CSS and fails on
-   one without this. */
+/* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for
+   or a command's time, a subagent's or a background task's (Leo, 2026-11-14: "these times are still
+   bad and going to next lines!", of a sent video's "0:01" broken into "0:0" over "1"; the video
+   lengths themselves are composer/videoLengthFit.ts's, #41494). Each is a short run of tabular
+   digits that never breaks; test/time-labels-one-line.test.ts finds every such class in the chat's
+   CSS and fails on one no rule keeps on one line. */
 .cv-turn-time,
 .cv-user__time,
 .cv-time-hover,
@@ -8021,10 +8020,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-subagents__time,
 .cv-subagent-done__time,
 .cv-shimmer__lit-time,
-.cv-media__duration,
-.cv-video-frames__time,
-.cv-user__video-length,
-.acpmux-attachment-video-length,
 .acpmux-running-tray__time,
 .acpmux-agent-line__time,
 .acpmux-done-mark__time,

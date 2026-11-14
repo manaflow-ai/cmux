@@ -3,7 +3,13 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { gridLength, MARK_MESSAGE, MARK_STATUS, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
+import {
+  gridLength,
+  MARK_FOOTER_ROW,
+  MARK_STATUS,
+  TRANSCRIPT_FOOTER_CONTROL,
+  transcriptGap,
+} from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -48,13 +54,18 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       const box = (id: string) => node(id).getBoundingClientRect();
       const actions = (id: string) => node(id).querySelector(".cv-turn-actions")!.getBoundingClientRect();
       return {
-        // Reply to reply: the footer between them draws nothing at rest and takes no room.
-        same: box("b").top - box("a").bottom,
-        emptyFooters: ["footer-a", "footer-b"].map((id) => ({
-          actions: Boolean(node(id).querySelector(".cv-turn-actions")),
+        // Reply to reply: each finished reply keeps its action row under it, the footer gap below
+        // it, and the same agent's next reply comes the block gap after that row (Leo, 2026-11-14:
+        // "the copy sometimes disappears entirely? which causes big shifts. it happens often when
+        // scrolling up and stuff loads": these replies come before any prompt, as a history page
+        // that starts mid-chat draws them, and their rows were missing until the prompt paged in).
+        same: box("b").top - box("footer-a").bottom,
+        rowUnderReply: box("footer-a").top - box("a").bottom,
+        replyFooters: ["footer-a", "footer-b"].map((id) => ({
+          actions: Boolean(node(id).querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")),
           height: box(id).height,
         })),
-        peer: box("peer").top - box("b").bottom,
+        peer: box("peer").top - box("footer-b").bottom,
         footerUnderReply: box("footer-c").top - box("c").bottom,
         user: box("user").top - actions("footer-c").bottom,
         paddings: ["footer-a", "footer-b", "footer-c", "footer-d"].map((id) =>
@@ -75,11 +86,12 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     );
     const actual = await measure(page);
     expect(actual.same).toBeCloseTo(gridLength("gap-block"), 1);
-    expect(actual.emptyFooters).toEqual([
-      { actions: false, height: 0 },
-      { actions: false, height: 0 },
+    expect(actual.rowUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
+    expect(actual.replyFooters).toEqual([
+      { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
+      { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
     ]);
-    expect(actual.peer).toBeCloseTo(transcriptGap(MARK_MESSAGE, MARK_STATUS), 1);
+    expect(actual.peer).toBeCloseTo(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS), 1);
     expect(actual.footerUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
     expect(actual.user).toBeCloseTo(gridLength("gap-turn"), 1);
     expect(actual.paddings).toEqual([0, 0, 0, 0]);
