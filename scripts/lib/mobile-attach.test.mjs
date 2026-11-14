@@ -972,3 +972,55 @@ for (const entrypoint of [
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /xcodebuild|launching|building/i);
   });
 }
+
+// dev-setup.sh with fake reload scripts and launcher: the Mac pairing host is
+// gone, so dev-setup must not write its default, and the iOS launch must use
+// the app-receipt gate (a physical device exposes no Info.plist, so `auto`
+// without CMUX_INSTALLED_APP_PATH would exit 2).
+function runDevSetupWithFakes(args) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-dev-setup-test-"));
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  const calls = path.join(root, "calls.log");
+  fs.mkdirSync(path.join(root, "scripts/lib"), { recursive: true });
+  fs.mkdirSync(path.join(root, "ios/scripts"), { recursive: true });
+  fs.mkdirSync(path.join(home, ".secrets"), { recursive: true });
+  fs.mkdirSync(bin);
+  for (const file of ["scripts/dev-setup.sh", "scripts/lib/mobile-attach.sh", "scripts/lib/dev-secrets.sh"]) {
+    fs.copyFileSync(path.join(repoRoot, file), path.join(root, file));
+  }
+  const recorder = (name) => `#!/bin/bash\nprintf '%s %s\\n' "${name}" "$*" >> "$CMUX_TEST_CALLS"\nexit 0\n`;
+  fs.writeFileSync(path.join(root, "scripts/reload.sh"), recorder("mac-reload"), { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "ios/scripts/reload.sh"), recorder("ios-reload"), { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "scripts/mobile-dev-launch.sh"), recorder("mobile-dev-launch"), { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, "defaults"), recorder("defaults"), { mode: 0o755 });
+  fs.writeFileSync(
+    path.join(home, ".secrets/cmuxterm-dev.env"),
+    "CMUX_DOGFOOD_STACK_EMAIL=person@example.com\nCMUX_DOGFOOD_STACK_PASSWORD=test-password\n",
+    { mode: 0o600 },
+  );
+  try {
+    const result = spawnSync("bash", [path.join(root, "scripts/dev-setup.sh"), ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, CMUX_TEST_CALLS: calls },
+    });
+    return { ...result, calls: fs.existsSync(calls) ? fs.readFileSync(calls, "utf8") : "" };
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+for (const target of [["--device"], ["--simulator", "iPhone 17"]]) {
+  test(`dev-setup ${target[0]} launches with the app-receipt gate and no Mac pairing host`, () => {
+    const result = runDevSetupWithFakes(["--tag", "devsetuptest", ...target]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.calls, /^mac-reload --tag devsetuptest --launch/m);
+    assert.doesNotMatch(result.calls, /^defaults /m, "the removed pairing host's default must not be written");
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /pairing host|auto-pair/i);
+    const launch = result.calls.split("\n").find((line) => line.startsWith("mobile-dev-launch "));
+    assert.ok(launch, result.calls);
+    assert.match(launch, / --readiness app-receipt( |$)/);
+    assert.doesNotMatch(launch, / --attach( |$)| --ensure-mac( |$)/);
+  });
+}
