@@ -122,7 +122,7 @@ function check(name: string): Result {
       .map((spec) => relative(root, resolve(appDir, spec.slice("file:".length))))
       .filter((path) => path !== sdkPackage)
     for (const pub of [...sdkPaths(), ...local]) {
-      if (pub.startsWith("..") || pub.startsWith("first-party-apps/")) throw new Error(`${name} pins ${pub}, outside the repository's packages`)
+      if (pub === "" || pub.startsWith("..") || pub.startsWith("first-party-apps/")) throw new Error(`${name} pins ${pub}, outside the repository's packages`)
       mkdirSync(dirname(join(tree, pub)), { recursive: true })
       cpSync(join(root, pub), join(tree, pub), { recursive: true, filter: (src) => !src.includes("/node_modules") })
     }

@@ -1,5 +1,5 @@
 {
-  "$comment": "The cmux-app-host files this package reads, relative to `root`. Nothing is copied in the repository: src/ imports them where they live. Publishing copies them into the package at the same relative paths, and first-party-apps/fork-check.ts gives every fork exactly these, so a fork that passes there passes against the published package.",
+  "$comment": "The cmux-app-host files this package reads, relative to `root`. Nothing is copied in the repository: src/ imports them where they live. Publishing copies them into the package (and points src/ at the copies), and first-party-apps/fork-check.ts gives every fork exactly these, so a fork that passes there passes against the published package.",
   "root": "../../cmux-app-host",
   "files": [
     "generated",
