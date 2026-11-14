@@ -185,6 +185,7 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, t
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { composerReadback, takeExternalInto, type ComposerReadback } from "./composer/externalAttach";
 import { StuckBanner } from "./StuckBanner";
 import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
@@ -661,12 +662,12 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
-  jitteredDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
   hostSelfRetrying,
   lostRetryDelay,
+  jitteredDelay,
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -724,6 +725,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { runResume } from "./resumeCommand";
+import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -860,6 +862,8 @@ declare global {
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
+      /// What the composer holds (`chat.composer.get`, composer/externalAttach.ts): its text and chips.
+      composerState?(): ComposerReadback | null;
       /// Copy Conversation as Markdown: read recorded history on this page's connection; the native
       /// palette action writes the role-headed, tool-folded text to the pasteboard.
       conversationMarkdown?(): Promise<string | null>;
@@ -4839,6 +4843,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
+  // The host sent `attachExternal` before a composer was there to take the files (composer/externalAttach.ts).
+  const externalWaiting = useRef(false);
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -6848,6 +6854,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingWake.current = undefined;
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
+    // Files another app sent before this composer was there (composer/externalAttach.ts).
+    if (handle && externalWaiting.current)
+      externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
   }, []);
   const composerUnplacedQuotes = useCallback(
     (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
@@ -7293,6 +7302,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
+  const extensionCommands = useExtensionCommands();
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7314,7 +7325,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: mergedCommands(snapshot.commands, enabledCmuxActions),
+      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7348,6 +7359,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     keptStopping,
     cloudPicked,
     cloudModePick,
+    extensionCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -7650,6 +7662,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       toggleInspector,
       perfCapture: (options) => chatPerfCapture.capture(options),
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
+      composerState: () => {
+        const draft = composerHandle.current?.draft();
+        return draft ? composerReadback(draft) : null;
+      },
       conversationMarkdown: async () => {
         const client = directClient.current;
         const sessionId = client?.selectedSession;
@@ -7732,6 +7748,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
         // keyboard, so the next words go to the fork.
         if (name === "focusComposer") composerHandle.current?.focus();
+        // Files another app sent to this chat (Send to cmux Chat, an image opened with cmux): the
+        // composer takes them as a drop's, an unsent draft, with the keyboard (composer/externalAttach.ts).
+        if (name === "attachExternal")
+          externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -9558,8 +9578,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
             return {
               ...composer,
-              // An edit only this page holds (a queued message being edited): a release by
-              // agents.hiddenChats.discard keeps the page for it, as for a draft.
+              // An edit only this page holds (a queued message being edited, a send or draft not yet
+              // saved): every hidden-chat release keeps the page for it, so nothing typed is lost.
+              // The composer's draft itself is settled into acpmux above and comes back on reopen.
               ...(quitting !== true && pageEditHold() ? { holdsEdits: true } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(subagentDrafts ? { subagentDrafts } : {}),
@@ -13382,7 +13403,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={
+                    commandSession
+                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      : newTabSnapshot
+                  }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
