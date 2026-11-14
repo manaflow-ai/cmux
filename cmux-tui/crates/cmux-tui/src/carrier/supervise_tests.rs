@@ -64,9 +64,11 @@ impl Harness {
         Self { app: Some(app), lines, done, socket }
     }
 
+    /// Sends one app line; a supervisor that already exited (a stop with no
+    /// child left) drops it, as the app's pipe would.
     fn send(&self, line: Value) {
         if let Some(app) = &self.app {
-            app.send(line.to_string()).expect("supervisor reads");
+            let _ = app.send(line.to_string());
         }
     }
 
@@ -78,14 +80,19 @@ impl Harness {
         self.send(json!({"token": read, "env": {"CMUX_CLOUD_ACCESS_TOKEN": token}}));
     }
 
+    /// The next line, whatever it holds.
+    async fn next(&mut self, key: &str) -> Value {
+        let line = tokio::time::timeout(LINE_WAIT, self.lines.recv())
+            .await
+            .unwrap_or_else(|_| panic!("no {key} line"))
+            .unwrap_or_else(|| panic!("the supervisor ended before a {key} line"));
+        serde_json::from_str(&line).expect("a JSON line")
+    }
+
     /// The next line that has `key`, skipping others.
     async fn expect(&mut self, key: &str) -> Value {
         loop {
-            let line = tokio::time::timeout(LINE_WAIT, self.lines.recv())
-                .await
-                .unwrap_or_else(|_| panic!("no {key} line"))
-                .unwrap_or_else(|| panic!("the supervisor ended before a {key} line"));
-            let value: Value = serde_json::from_str(&line).expect("a JSON line");
+            let value = self.next(key).await;
             if value.get(key).is_some() {
                 return value;
             }
@@ -203,14 +210,20 @@ async fn the_grants_vmk_is_published_and_is_the_answer() {
     serve.connect(1);
     let read = serve.read().await;
     serve.token(read, "t-1");
-    assert_eq!(serve.expect("publish").await, json!({"publish": "owner"}));
-    let state = loop {
-        let state = serve.expect("state").await;
-        if state["state"]["answer"] != Value::Null {
-            break state;
+    // A step's state line comes before its effects, so the app has the
+    // answer by the time the publish line reaches it.
+    let mut answer = Value::Null;
+    loop {
+        let line = serve.next("publish").await;
+        if let Some(state) = line.get("state") {
+            answer = state["answer"].clone();
         }
-    };
-    assert_eq!(state["state"]["answer"], "owner");
+        if line.get("publish").is_some() {
+            assert_eq!(line, json!({"publish": "owner"}));
+            break;
+        }
+    }
+    assert_eq!(answer, "owner", "the state line before the publish names the answer");
     assert_eq!(serve.end().await, 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -268,13 +281,11 @@ async fn a_stop_during_the_pending_token_spawns_nothing() {
     serve.send(json!({"stop": true}));
     let resumed = serve.expect("resume").await;
     assert_eq!(resumed["error"], json!({"kind": "disconnected", "reason": "closed"}));
+    // A stopped serve with no child exits; the late token and a later
+    // connect start nothing (the app fails later connects itself).
     serve.token(read, "old-account");
     serve.connect(2);
-    let later = serve.expect("resume").await;
-    assert_eq!(
-        later,
-        json!({"resume": [2], "error": {"kind": "disconnected", "reason": "closed"}})
-    );
+    serve.none("resume", Duration::from_millis(300)).await;
     assert_eq!(serve.end().await, 0);
     assert_eq!(launches(&dir), 0, "no child spawned after the stop");
     let _ = std::fs::remove_dir_all(&dir);
