@@ -25,6 +25,9 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserImportReadError = { kind: string; message: string }
+  type BrowserImportReadResult = { ok?: Cmux.JsonValue | null; error?: Cmux.BrowserImportReadError }
+  type BrowserImportSearchEngine = { name: string; keyword?: string; search: string; suggest?: string }
   type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number; proxy?: Cmux.BrowserProfileProxy }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
@@ -52,7 +55,7 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
-  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; classic_running: boolean; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
   type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }

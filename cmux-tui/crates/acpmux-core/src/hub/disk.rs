@@ -1,7 +1,7 @@
 //! Blocking storage work owned by the one writer, and bounded background load.
 use super::*;
 use acpmux_book::index::IndexRecord;
-use acpmux_book::index::SnapshotRows;
+use acpmux_book::index::{SnapshotRows, is_corrupt_snapshot_row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Attribution only; the release gate still measures the complete turn.
@@ -30,6 +30,56 @@ pub(super) struct Hydration {
 }
 
 impl HubWriter {
+    /// Quarantines the damaged derived files and leaves the hot in-memory
+    /// rows as the sole published view. The next compaction writes a clean
+    /// snapshot, while the rebuild counter tells each source to walk again.
+    pub(super) fn rebuild_if_requested(&mut self) {
+        if !self.rebuild_requested.load(Ordering::Acquire) {
+            return;
+        }
+        // Let an already-running compaction finish its owned snapshot before
+        // moving files aside. The flag remains set and this method owns the
+        // next writer turn, so no second rebuild task can race the first.
+        if self.compaction.is_some() || self.retirement.is_some() {
+            return;
+        }
+        self.rebuild_requested.store(false, Ordering::Release);
+        let Some(directory) = self.directory.clone() else {
+            // In-memory hubs have no derived files to quarantine. Still fence
+            // subscribers through the same source-walk epoch.
+            self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+            self.mark_rebuild_ready();
+            return;
+        };
+        let current = self.published.load_full();
+        self.hydration = None;
+        self.maintenance = None;
+        self.log = None;
+        if quarantine_index(&directory).is_err() {
+            // Keep the hub alive even if the quarantine itself hits a
+            // transient storage error; the old files are still ignored once
+            // the new writer is opened from an empty derived state.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
+        }
+        match IndexLog::open_with_snapshot(directory.join("index.log"), None) {
+            Ok(log) => self.log = Some(log),
+            Err(_) => {
+                self.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        let next = current.empty_for_rebuild();
+        self.published.store(Arc::new(next));
+        drop(current);
+        self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+        self.next_compaction = Some(std::time::Instant::now());
+        self.storage_retry = None;
+        self.mark_rebuild_ready();
+    }
+
+    fn mark_rebuild_ready(&self) {
+        self.hydrated.send_replace(HydrationState::Ready);
+    }
+
     pub(super) fn persist_origin(&mut self, record: &OriginRecord) -> Result<(), HubError> {
         if let Some(log) = self.log.as_mut() {
             if let Err(error) = log.append_origin(record) {
@@ -46,6 +96,7 @@ impl HubWriter {
 
     pub(super) fn start_hydration(&mut self) {
         let Some(snapshot) = self.published.load().disk().cloned() else { return };
+        self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
         self.hydration = Some(Hydration { rows: snapshot.rows(), snapshot });
     }
 
@@ -68,6 +119,11 @@ impl HubWriter {
         for _ in 0..256 {
             match load.rows.next() {
                 Some(Ok(row)) => next = next.hydrate(row, now),
+                Some(Err(error)) if is_corrupt_snapshot_row(&error) => {
+                    self.compaction_counters
+                        .damaged_snapshot_frames
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                     failed = true;
@@ -170,6 +226,7 @@ impl HubWriter {
         {
             self.turn_measure = TurnMeasure::default();
         }
+        self.rebuild_if_requested();
         // Installation and releasing the old maps stay off runtime workers.
         self.install_compaction();
         self.maintain_compaction();

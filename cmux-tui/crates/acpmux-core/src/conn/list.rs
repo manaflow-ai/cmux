@@ -22,6 +22,8 @@ impl Held {
     }
 }
 struct Task {
+    view: Option<crate::wire::ListView>,
+    window_out: Arc<AtomicBool>,
     held: Arc<Held>,
     resume: watch::Sender<Cursor>,
     join: tokio::task::JoinHandle<()>,
@@ -71,39 +73,63 @@ impl Source for HubSource {
         _person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
     ) -> Result<(), ConnError> {
-        let delivery = open(&self.hub, sub)?;
+        if sub.view == Some(crate::wire::ListView::Folders) {
+            self.hub.validate_folder_sub(sub)?;
+        }
         if let Ok(mut metrics) = self.metrics.lock() {
             *metrics = Some(sink.metrics());
         }
-        let (resume, rx) = watch::channel(delivery.cursor);
-        // The window (or first replay frame) is queued before a task can offer live data.
-        if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
-            return Ok(());
-        }
-        delivery.receiver.reposition(delivery.cursor.0);
+        let (resume, rx) = watch::channel(Cursor(0));
+        let held = Arc::new(Held::default());
+        let window_out = Arc::new(AtomicBool::new(false));
+        let folders = sub.view == Some(crate::wire::ListView::Folders);
+        let join = if folders {
+            let hub = self.hub.clone();
+            let sub = sub.clone();
+            let sink = sink.clone();
+            let held = held.clone();
+            let window_out = window_out.clone();
+            self.scope.spawn(folder_task(hub, sub, sink, rx, held, window_out))
+        } else {
+            let delivery = open(&self.hub, sub)?;
+            // The window (or first replay frame) is queued before a task can offer live data.
+            if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
+                return Ok(());
+            }
+            delivery.receiver.reposition(delivery.cursor.0);
+            let mut resumed = sub.clone();
+            resumed.anchor = None;
+            self.scope.spawn(pump(
+                self.hub.clone(),
+                resumed,
+                sink,
+                delivery.receiver,
+                delivery.mode,
+                rx,
+                held.clone(),
+            ))
+        };
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
-        let held = Arc::new(Held::default());
-        // The anchor selects only the initial viewport. Every later resume
-        // has no anchor; if retained history is insufficient it opens the head.
-        let mut resumed = sub.clone();
-        resumed.anchor = None;
-        let join = self.scope.spawn(pump(
-            self.hub.clone(),
-            resumed,
-            sink,
-            delivery.receiver,
-            delivery.mode,
-            rx,
-            held.clone(),
-        ));
-        tasks.insert(sub.sid.clone(), Task { resume, join, held });
+        tasks.insert(sub.sid.clone(), Task { view: sub.view, window_out, resume, join, held });
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
-        Ok(self.hub.page(page)?)
+        let tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
+        let task =
+            tasks.get(&page.sid).ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        if task.view == Some(crate::wire::ListView::Folders)
+            && !task.window_out.load(Ordering::Acquire)
+        {
+            return Err(crate::hub::HubError::InvalidPage.into());
+        }
+        let held_view = task.view;
+        Ok(self.hub.page_for_view(page, held_view)?)
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {
@@ -141,8 +167,47 @@ struct Delivery {
     mode: Mode,
 }
 
+async fn folder_task(
+    hub: Arc<Hub>,
+    mut sub: Sub,
+    sink: Arc<dyn OfferSink>,
+    mut resume: watch::Receiver<Cursor>,
+    held: Arc<Held>,
+    window_out: Arc<AtomicBool>,
+) {
+    if hub.wait_hydrated().await.is_err() {
+        sink.fail(&sub.sid);
+        return;
+    }
+    loop {
+        let Ok(delivery) = open(&hub, &sub) else {
+            sink.fail(&sub.sid);
+            return;
+        };
+        match held.offer(sink.as_ref(), &sub.sid, delivery.first, delivery.cursor) {
+            Offer::Taken => {
+                window_out.store(true, Ordering::Release);
+                delivery.receiver.reposition(delivery.cursor.0);
+                sub.anchor = None;
+                pump(hub, sub, sink, delivery.receiver, delivery.mode, resume, held).await;
+                return;
+            }
+            Offer::NotFed => {
+                held.paused.store(true, Ordering::Release);
+                if resume.changed().await.is_err() {
+                    return;
+                }
+                sub.cursor = Some(*resume.borrow_and_update());
+                sub.edition = Some(0);
+            }
+            Offer::Dropped { .. } | Offer::UnknownSubscription => return,
+        }
+    }
+}
+
 fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
-    if sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
+    if sub.view != Some(crate::wire::ListView::Folders)
+        && sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
         && let Some(target) = hub.resume_target(cursor.0)?
     {
@@ -233,6 +298,14 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow_and_update());
             sub.edition = Some(0);
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
                 return;
@@ -258,6 +331,14 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow());
             sub.edition = Some(0);
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
                 return;
@@ -310,6 +391,9 @@ async fn pump(
                 }
             }
             RawRead::Span(span) => {
+                if span.bytes.is_empty() && matches!(mode, Mode::Live) {
+                    continue;
+                }
                 let final_frame = matches!(mode, Mode::Replay(target) if span.last_seq >= target);
                 let replay = match mode {
                     Mode::Replay(_) => {

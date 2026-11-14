@@ -63,6 +63,17 @@ XCUITest cannot judge (live provider sheets, a live Chief reply, a confirmed
 deletion, a fold, iPad multitasking) is printed as a `GATE-NOTE` and listed as
 a warning.
 
+On iPad the iPhone app runs in a compatibility window that does not start at
+the screen's corner, while the `XCUIApplication` element keeps the app's own
+phone-sized frame at (0, 0). A gate test therefore swipes, taps coordinates
+and takes screenshots through the app's window (`surface(_:)`) or the screen,
+never through `app` itself, judges only controls in the app's window (the
+system keyboard spans the whole screen), and tells iPad from iPhone by the
+simulator's model, since `UIDevice` says phone in compatibility mode.
+Each launch closes Safari first: after a link hands off to it, Safari stays in
+front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
+content, not a fixed number of swipes, since rows per swipe depend on the screen.
+
 It runs on every feat-cmux-next push and pull request that touches the app
 (one macOS job, about 45 minutes). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.

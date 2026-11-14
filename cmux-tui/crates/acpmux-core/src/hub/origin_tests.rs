@@ -1,6 +1,8 @@
 use super::*;
 use acpmux_book::index::{ChangedRows, SortedSnapshot};
 use std::collections::BTreeSet;
+use std::fs;
+use std::path::Path;
 
 fn remote(id: impl Into<String>, activity: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -282,6 +284,25 @@ fn a_removed_record_and_takeover_never_replace_each_others_queue_slot() {
 }
 
 #[test]
+fn queued_origin_removal_survives_later_state_replacements() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.origin("peer", OriginState::Connected, 1).unwrap();
+    let old = remote("old", 1);
+    writer.apply(old.clone()).unwrap();
+    writer.process_batch();
+
+    hub.submit(old).unwrap();
+    hub.origin("peer", OriginState::Removed, 2).unwrap();
+    hub.origin("peer", OriginState::Connected, 3).unwrap();
+    hub.origin("peer", OriginState::Down, 4).unwrap();
+    writer.process_batch();
+    writer.process_batch();
+
+    assert!(hub.snapshot().get_row(&RowKey::new("peer", "old")).is_none());
+    assert_eq!(hub.snapshot().origin("peer").unwrap().state, OriginState::Down);
+}
+
+#[test]
 fn a_row_named_like_origin_metadata_has_a_separate_queue_slot() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 500);
@@ -309,7 +330,7 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
     const CHILD: &str = "V2_ORIGIN_APPEND_FAILURE_FIXTURE";
     const MODE: &str = "V2_ORIGIN_APPEND_FAILURE_MODE";
     if let Some(directory) = std::env::var_os(CHILD) {
-        let (hub, mut writer) = Hub::open(std::path::Path::new(&directory), 101, || 7).unwrap();
+        let (hub, mut writer) = Hub::open(Path::new(&directory), 101, || 7).unwrap();
         writer.takeover("peer", Source::Mirror).unwrap();
         let subscription = hub.subscribe(&Sub::new("failed-append", "list")).unwrap();
         let seq = hub.snapshot().seq();
@@ -379,7 +400,7 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
         let expected = ids(&hub);
         let expected_seq = hub.snapshot().seq();
         drop((subscription, hub, writer));
-        let (hub, _) = Hub::open(std::path::Path::new(&directory), 101, || 7).unwrap();
+        let (hub, _) = Hub::open(Path::new(&directory), 101, || 7).unwrap();
         assert_eq!(hub.snapshot().seq(), expected_seq);
         assert_eq!(ids(&hub), expected);
         return;
@@ -433,6 +454,31 @@ fn a_returning_origin_keeps_all_new_rows_including_identical_old_keys() {
         .collect();
     assert_eq!(summaries.len(), 50);
     assert_eq!(summaries.into_iter().collect::<BTreeSet<_>>(), returned_ids(50));
+}
+
+#[test]
+fn a_second_removed_while_leaving_discards_the_intermediate_life() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    seed(&mut writer, 500);
+
+    // The first removal is published, but its bounded cleanup still has work left.
+    hub.origin("peer", OriginState::Removed, 2).unwrap();
+    writer.process_batch();
+    assert!(hub.snapshot().is_origin_leaving("peer"));
+
+    // A reconnect and rows accepted during that cleanup belong to a short-lived life.
+    hub.origin("peer", OriginState::Connected, 3).unwrap();
+    for n in 0..50 {
+        hub.submit(returned(n)).unwrap();
+    }
+
+    // A second removal is a lifecycle cut: it must clear the held reconnect and rows,
+    // rather than releasing them after the first life finishes.
+    hub.origin("peer", OriginState::Removed, 4).unwrap();
+    drive(&mut writer, 12);
+
+    assert!(ids(&hub).is_empty(), "rows from the intermediate life were resurrected");
+    assert_eq!(hub.snapshot().origin("peer").unwrap().state, OriginState::Removed);
 }
 
 #[test]
@@ -902,7 +948,7 @@ async fn failed_hydration_does_not_release_the_remote_mark_drain() {
     let path = directory.path().join("index.snap");
     SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-    std::fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
+    fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
     writer.process_batch();
     assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
 }

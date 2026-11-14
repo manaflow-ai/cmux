@@ -11,6 +11,8 @@ use acpmux_book::index::{
 };
 use arc_swap::ArcSwap;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,7 +22,15 @@ use tokio::sync::Notify;
 use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
+#[cfg(test)]
+mod folder_budget_tests;
+#[cfg(test)]
+mod folder_tail_gates;
+#[cfg(test)]
+mod folder_tests;
+mod folders;
 mod history;
+mod keyed_page;
 mod origins;
 pub use compaction::CompactionStats;
 use history::History;
@@ -56,6 +66,7 @@ pub enum ListItem {
     Summary(SummaryEvent),
     Gone { seq: u64, chat_id: String, origin: String },
     Origin { seq: u64, origin: Origin },
+    Folders { seq: u64, ops: Vec<acpmux_book::index::folders::FolderOp> },
     Lagged { cursor: u64 },
 }
 
@@ -76,7 +87,7 @@ enum UpdateKey {
 #[derive(Default)]
 struct Pending {
     rows: HashMap<(RowKey, Source), PendingUpdate>,
-    controls: std::collections::BTreeMap<UpdateKey, PendingUpdate>,
+    controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
 }
 
 impl Pending {
@@ -133,7 +144,27 @@ impl UpdateQueue {
                     REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
                     return Err(HubError::OriginLimit);
                 }
-                pending.controls.insert(key, update);
+                if let UpdateKey::Origin(origin) = &key
+                    && matches!(&update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)
+                {
+                    pending.rows.retain(|(row, _), _| row.origin.as_ref() != origin.as_ref());
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                } else if let UpdateKey::Origin(_) = &key {
+                    let slot = pending.controls.entry(key).or_default();
+                    if slot.front().is_some_and(|update| matches!(update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)) {
+                        slot.truncate(1);
+                        slot.push_back(update);
+                    } else {
+                        slot.clear();
+                        slot.push_back(update);
+                    }
+                } else {
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                }
             }
         }
         self.notify.notify_one();
@@ -155,8 +186,12 @@ impl UpdateQueue {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
         while batch.len() < limit {
-            let Some(control) = pending.controls.pop_first() else { break };
-            batch.push(control);
+            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            let Some(update) = updates.pop_front() else { continue };
+            if !updates.is_empty() {
+                pending.controls.insert(key.clone(), updates);
+            }
+            batch.push((key, update));
         }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
@@ -169,6 +204,7 @@ impl UpdateQueue {
 struct SubscriberState {
     ended: bool,
     cursor: u64,
+    window_pending: bool,
 }
 
 struct Subscriber {
@@ -178,7 +214,10 @@ struct Subscriber {
 
 impl Subscriber {
     fn new(cursor: u64) -> Self {
-        Self { state: Mutex::new(SubscriberState { ended: false, cursor }), notify: Notify::new() }
+        Self {
+            state: Mutex::new(SubscriberState { ended: false, cursor, window_pending: false }),
+            notify: Notify::new(),
+        }
     }
 }
 
@@ -186,6 +225,8 @@ pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folders: bool,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     published: Arc<ArcSwap<SummaryIndex>>,
 }
 
@@ -217,6 +258,14 @@ impl ListReceiver {
     }
 
     pub fn try_next(&self) -> Option<ListItem> {
+        if self.folders {
+            return match self.try_next_raw(None, crate::wire::MAX_PAGE_BYTES)? {
+                RawRead::Span(span) => folders::decode_item(span.bytes, span.last_seq),
+                RawRead::Lagged => {
+                    Some(ListItem::Lagged { cursor: self.subscriber.state.lock().ok()?.cursor })
+                }
+            };
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -247,7 +296,8 @@ impl ListReceiver {
                 }
             }
         };
-        let item = match history::decode(bytes).ok().and_then(|items| items.into_iter().next()) {
+        let decoded = history::decode(bytes).ok().and_then(|items| items.into_iter().next());
+        let item = match decoded {
             Some(item) => item,
             None => {
                 if let Ok(mut state) = self.subscriber.state.lock() {
@@ -259,7 +309,7 @@ impl ListReceiver {
         let seq = match &item {
             ListItem::Summary(event) => event.seq,
             ListItem::Gone { seq, .. } => *seq,
-            ListItem::Origin { seq, .. } => *seq,
+            ListItem::Origin { seq, .. } | ListItem::Folders { seq, .. } => *seq,
             ListItem::Lagged { cursor } => *cursor,
         };
         if let Ok(mut state) = self.subscriber.state.lock() {
@@ -273,6 +323,24 @@ impl ListReceiver {
     /// follows the live tail. A malformed or expired span is reported as a
     /// lag so the connection can open one fresh window.
     pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        let window_pending = {
+            let mut state = self.subscriber.state.lock().ok()?;
+            if state.ended {
+                return None;
+            }
+            if state.window_pending {
+                state.window_pending = false;
+                true
+            } else {
+                false
+            }
+        };
+        if window_pending {
+            return Some(RawRead::Lagged);
+        }
+        if self.folders {
+            return self.next_folders(max_bytes);
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -348,8 +416,11 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
+    rebuild_requested: Arc<AtomicBool>,
+    rebuild_count: Arc<AtomicU64>,
 }
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
@@ -378,6 +449,7 @@ pub struct HubWriter {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     log: Option<IndexLog>,
     log_dirty: bool,
     log_errors: Arc<AtomicU64>,
@@ -385,6 +457,9 @@ pub struct HubWriter {
     hydration: Option<disk::Hydration>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     origins: origins::WriterOrigins,
+    directory: Option<PathBuf>,
+    rebuild_requested: Arc<AtomicBool>,
+    rebuild_count: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Error)]
@@ -441,13 +516,47 @@ impl Hub {
     /// One disk start order. Call from a blocking worker; the first window
     /// needs only the fixed head, the bounded log tail, and one snapshot page.
     pub fn open(
-        directory: &std::path::Path,
+        directory: &Path,
         boot: u64,
         random: impl FnOnce() -> u32,
     ) -> Result<(Self, HubWriter), HubError> {
-        std::fs::create_dir_all(directory)?;
-        let disk = DiskSnapshot::open(directory.join("index.snap"))?;
-        let log = IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref())?;
+        fs::create_dir_all(directory)?;
+        let snapshot_path = directory.join("index.snap");
+        let mut rebuild = false;
+        let disk = match DiskSnapshot::open(&snapshot_path) {
+            Ok(Some(disk)) => match disk.validate_checkpoints() {
+                Ok(()) => Some(disk),
+                Err(error) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
+                    rebuild = true;
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            },
+            Ok(None) => None,
+            Err(error) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
+                rebuild = true;
+                None
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if rebuild {
+            quarantine_index(directory)?;
+            let edition = IndexEdition::open_rebuild(directory, boot, random)?;
+            let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+            let index = SummaryIndex::empty_with_edition(edition.edition);
+            return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+        }
+        let log = match IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref()) {
+            Ok(log) => log,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                quarantine_index(directory)?;
+                let edition = IndexEdition::open_rebuild(directory, boot, random)?;
+                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let index = SummaryIndex::empty_with_edition(edition.edition);
+                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+            }
+            Err(error) => return Err(error.into()),
+        };
         let edition = IndexEdition::open(
             directory,
             boot,
@@ -455,12 +564,23 @@ impl Hub {
             random,
         )?;
         let covered = disk.as_ref().map_or(0, |disk| disk.covered_generation());
-        let index = replay_generation_logs(
+        let index = match replay_generation_logs(
             directory,
             covered,
             SummaryIndex::from_disk(disk, edition.edition),
-        )?;
-        Ok(Self::with_log(index, Some(log)))
+        ) {
+            Ok(index) => index,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                drop(log);
+                quarantine_index(directory)?;
+                let edition = IndexEdition::open_rebuild(directory, boot, || 2)?;
+                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let index = SummaryIndex::empty_with_edition(edition.edition);
+                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(Self::with_log_state(index, Some(log), Some(directory), 0))
     }
 
     /// Creates a hub and its one writer. No task is spawned implicitly, so the
@@ -470,6 +590,17 @@ impl Hub {
     }
 
     pub fn with_log(index: SummaryIndex, log: Option<IndexLog>) -> (Self, HubWriter) {
+        let directory =
+            log.as_ref().and_then(|log| log.active_path().parent().map(Path::to_path_buf));
+        Self::with_log_state(index, log, directory.as_deref(), 0)
+    }
+
+    fn with_log_state(
+        index: SummaryIndex,
+        log: Option<IndexLog>,
+        directory: Option<&Path>,
+        rebuilds: u64,
+    ) -> (Self, HubWriter) {
         let state = if index.disk().is_none() {
             disk::HydrationState::Ready
         } else {
@@ -477,10 +608,14 @@ impl Hub {
         };
         let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
         let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        let rebuild_requested = Arc::new(AtomicBool::new(false));
+        let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
+        let has_disk = index.disk().is_some();
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
         let history = Arc::new(Mutex::new(History::new()));
+        let folder_state = Arc::new(Mutex::new(folders::FolderState::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
         compaction_counters
@@ -493,8 +628,11 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
             sources: sources.clone(),
+            rebuild_requested: rebuild_requested.clone(),
+            rebuild_count: rebuild_count.clone(),
         };
         let mut writer = HubWriter {
             hydrated: hydrated_tx,
@@ -516,6 +654,7 @@ impl Hub {
             updates,
             subscribers,
             history,
+            folder_state,
             log,
             log_dirty: false,
             log_errors,
@@ -523,8 +662,15 @@ impl Hub {
             hydration: None,
             sources,
             origins: origins::WriterOrigins::default(),
+            directory: directory.map(Path::to_path_buf),
+            rebuild_requested,
+            rebuild_count,
         };
-        writer.start_hydration();
+        if has_disk {
+            writer.start_hydration();
+        } else {
+            writer.hydrated.send_replace(disk::HydrationState::Ready);
+        }
         (hub, writer)
     }
 
@@ -541,6 +687,38 @@ impl Hub {
             disk::HydrationState::Failed => Err(HubError::HydrationFailed),
             disk::HydrationState::Loading => Err(HubError::WriterGone),
         }
+    }
+
+    /// Number of index rebuilds observed by this hub instance. Sources can
+    /// retain this value and walk again when it changes.
+    pub fn rebuild_count(&self) -> u64 {
+        self.rebuild_count.load(Ordering::Acquire)
+    }
+
+    /// Ends a source's rebuild walk. An incomplete walk leaves existing list
+    /// subscribers untouched; only a whole local walk fences each sid to one
+    /// fresh window through the connection's existing lagged-resume path.
+    pub fn source_walk_finished(&self, source: Source, complete: bool) {
+        if source != Source::Local || !complete {
+            return;
+        }
+        let Ok(subscribers) = self.subscribers.lock() else { return };
+        for subscriber in subscribers.iter() {
+            if let Ok(mut state) = subscriber.state.lock()
+                && !state.window_pending
+            {
+                state.window_pending = true;
+                subscriber.notify.notify_one();
+            }
+        }
+    }
+
+    fn request_rebuild(&self) {
+        self.rebuild_requested.store(true, Ordering::Release);
+        // A page reader can be the only activity after the writer has gone
+        // idle. Wake the one writer so it owns the quarantine and compaction
+        // turn instead of waiting for a later summary submission.
+        self.updates.notify.notify_one();
     }
 
     /// A non-blocking enqueue: actor work never waits on list size. The
@@ -609,6 +787,18 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.encoded_ops())
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_history_raw_copies(&self) {
+        if let Ok(history) = self.history.lock() {
+            history.reset_raw_copies();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_raw_copies(&self) -> usize {
+        self.history.lock().map_or(0, |history| history.raw_copies())
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -645,22 +835,32 @@ impl Hub {
         let index = self.snapshot();
         let edition_matches =
             sub.edition.is_none_or(|edition| edition == 0 || edition == index.edition());
-        let resume_cursor =
-            if edition_matches && sub.cursor.is_some() && self.resume_target(cursor)?.is_some() {
-                cursor
-            } else {
-                index.seq()
-            };
+        let resume_cursor = if !folders::is_folders(sub.view)
+            && edition_matches
+            && sub.cursor.is_some()
+            && self.resume_target(cursor)?.is_some()
+        {
+            cursor
+        } else {
+            index.seq()
+        };
         let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let resume_cursor = if folders::is_folders(sub.view) {
+            frame.decode_json::<crate::wire::FolderWindow>()?.cursor
+        } else {
+            resume_cursor
+        };
         let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
-            cursor: index.seq(),
+            cursor: if folders::is_folders(sub.view) { resume_cursor } else { index.seq() },
             receiver: ListReceiver {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                folder_state: self.folder_state.clone(),
+                folders: folders::is_folders(sub.view),
                 published: self.published.clone(),
             },
         })
@@ -674,12 +874,17 @@ impl Hub {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
         validate_window(sub)?;
+        if folders::is_folders(sub.view) {
+            return Err(HubError::InvalidParams("folders always starts with a window".into()));
+        }
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
             history: self.history.clone(),
+            folder_state: self.folder_state.clone(),
+            folders: folders::is_folders(sub.view),
             published: self.published.clone(),
         })
     }
@@ -702,6 +907,9 @@ impl Hub {
         cursor: u64,
     ) -> Result<Frame, HubError> {
         let requested = validate_window(sub)?;
+        if folders::is_folders(sub.view) {
+            return self.folder_window(sub);
+        }
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
                 Some(book_key(key)),
@@ -723,7 +931,7 @@ impl Hub {
                     crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
                     sub.filter.as_ref(),
                 )
-                .map_err(HubError::page_error)?
+                .map_err(|error| self.page_error(error))?
         } else {
             index
                 .read_page(
@@ -734,7 +942,7 @@ impl Hub {
                     crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
                     sub.filter.as_ref(),
                 )
-                .map_err(HubError::page_error)?
+                .map_err(|error| self.page_error(error))?
         };
         let window = Window {
             sid: sub.sid.clone(),
@@ -765,13 +973,39 @@ impl Hub {
         Ok(frame)
     }
 
+    /// The connection supplies the view held by this sid. Row types cannot
+    /// change during a subscription; a caller opens another sid for chat rows.
+    pub fn page_for_view(
+        &self,
+        request: &crate::wire::Page,
+        held_view: Option<crate::wire::ListView>,
+    ) -> Result<Frame, HubError> {
+        if folders::is_folders(held_view) != folders::is_folders(request.view) {
+            return Err(HubError::InvalidPage);
+        }
+        self.page(request)
+    }
+
     pub fn page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
+        if matches!(request.view, Some(crate::wire::ListView::Live))
+            && request.filter.as_ref().is_some_and(|filter| {
+                filter.family.is_some()
+                    || filter.forks.is_some()
+                    || filter.folder.is_some()
+                    || filter.cold
+            })
+        {
+            return Err(HubError::InvalidParams("table filters require the all view".into()));
+        }
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
+        }
+        if folders::is_folders(request.view) {
+            return self.folder_page(request);
         }
         if let Some(keys) = request.keys.as_ref() {
             if keys.is_empty()
@@ -781,41 +1015,7 @@ impl Hub {
             {
                 return Err(HubError::InvalidPage);
             }
-            let index = self.snapshot();
-            let mut rows = Vec::with_capacity(keys.len());
-            let mut missing = Vec::new();
-            let mut unknown = Vec::new();
-            let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
-            for key in keys {
-                let row_key = book_key(key).row;
-                if let Some(row) = index.get_row(&row_key) {
-                    rows.push(row);
-                } else if let Some(row) =
-                    provider.as_ref().map(|provider| provider.row(&row_key)).transpose()?.flatten()
-                {
-                    rows.push(row);
-                } else if key.origin == "local" {
-                    missing.push(key.clone());
-                } else {
-                    unknown.push(key.clone());
-                }
-            }
-            let reply = crate::wire::PageResult {
-                sid: request.sid.clone(),
-                rows: rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
-                has_before: false,
-                has_after: false,
-                cold_unread: false,
-                before_key: None,
-                after_key: None,
-                missing,
-                unknown,
-            };
-            let frame = Frame::json(FrameKind::Page, &reply)?;
-            if frame.encoded_len() > max {
-                return Err(HubError::InvalidPage);
-            }
-            return Ok(frame);
+            return self.keyed_page(request, keys);
         }
         let (key, side) = match request.side() {
             Some((side, crate::wire::Position::List(key))) => (
@@ -825,14 +1025,9 @@ impl Hub {
                     crate::wire::PageSide::After => ReadSide::After,
                 },
             ),
-            None if request.before.is_none()
-                && request.after.is_none()
-                && request.filter.as_ref().is_some_and(|filter| {
-                    filter.family.is_some() || filter.folder.is_some() || filter.forks.is_some()
-                }) =>
-            {
-                (None, ReadSide::After)
-            }
+            // A bounded page without an anchor starts a mirror walk at the
+            // head. Filters may narrow it, but they are not required.
+            None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
         let index = self.snapshot();
@@ -846,7 +1041,7 @@ impl Hub {
                     max - 8192 - request.sid.len(),
                     request.filter.as_ref(),
                 )
-                .map_err(HubError::page_error)?
+                .map_err(|error| self.page_error(error))?
         } else {
             index
                 .read_page(
@@ -857,7 +1052,7 @@ impl Hub {
                     max - 8192 - request.sid.len(),
                     request.filter.as_ref(),
                 )
-                .map_err(HubError::page_error)?
+                .map_err(|error| self.page_error(error))?
         };
         let reply = crate::wire::PageResult {
             sid: request.sid.clone(),
@@ -865,16 +1060,25 @@ impl Hub {
             has_before: page.has_before,
             has_after: page.has_after,
             cold_unread: page.cold_unread,
+            deeper: page.deeper.into_iter().map(wire_key).collect(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
             unknown: Vec::new(),
+            rest: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {
             return Err(HubError::InvalidPage);
         }
         Ok(frame)
+    }
+
+    fn page_error(&self, error: std::io::Error) -> HubError {
+        if acpmux_book::index::is_fatal_snapshot_read(&error) {
+            self.request_rebuild();
+        }
+        HubError::page_error(error)
     }
 }
 
@@ -894,6 +1098,11 @@ fn wire_key(key: SortKey) -> crate::wire::ListKey {
 }
 
 fn validate_window(sub: &Sub) -> Result<usize, HubError> {
+    if folders::is_folders(sub.view)
+        && (sub.filter.is_some() || !matches!(sub.anchor, None | Some(crate::wire::Anchor::End)))
+    {
+        return Err(HubError::InvalidWindow);
+    }
     if sub.filter.as_ref().is_some_and(|filter| {
         filter.family.is_some() || filter.forks.is_some() || filter.folder.is_some() || filter.cold
     }) {
@@ -939,8 +1148,17 @@ impl HubWriter {
             )?;
             return Ok(event);
         }
-        self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
+        self.check_source(source, &summary.origin)?;
+        if summary.origin != "local"
+            && !self.origins.releasing
+            && self.origins.ended.contains_key(summary.origin.as_str())
+            && current
+                .origin(&summary.origin)
+                .is_some_and(|origin| origin.state == OriginState::Removed)
+        {
+            return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
+        }
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         if summary.origin != "local" && !summary.is_live() && current.get_row(&key).is_none() {
@@ -995,9 +1213,14 @@ impl HubWriter {
         }
         self.persist(source, &record, &key)?;
         let next = self.published.load_full().apply_summary(record.seq, record.summary.clone());
+        let folder_ops = next.folder_changes(
+            &current,
+            current.get_row(&key).as_deref(),
+            next.get_row(&key).as_deref(),
+        );
         let summary = Arc::new(record.summary.clone());
         let event = SummaryEvent { seq: record.seq, summary };
-        self.published.store(Arc::new(next));
+        self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
         Ok(event)
@@ -1030,6 +1253,16 @@ impl HubWriter {
             return Ok(false);
         }
         self.check_source(source, origin)?;
+        if !self.origins.releasing
+            && self.origins.ended.contains_key(origin)
+            && self
+                .published
+                .load()
+                .origin(origin)
+                .is_some_and(|record| record.state == OriginState::Removed)
+        {
+            return Ok(false);
+        }
         self.apply_remove(source, &key)
     }
 
@@ -1059,7 +1292,8 @@ impl HubWriter {
         let Some(next) = current.remove_row(seq, key) else {
             return Ok(false);
         };
-        self.published.store(Arc::new(next));
+        let folder_ops = next.folder_changes(&current, current.get_row(key).as_deref(), None);
+        self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Gone {
             seq,
             chat_id: key.chat_id.to_string(),
@@ -1093,8 +1327,6 @@ impl HubWriter {
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {
-            // The durable index is still valid; no cursor may cross a gap
-            // in the optional resume cache.
             self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -1183,6 +1415,41 @@ impl HubWriter {
     }
 }
 
+fn quarantine_index(directory: &Path) -> std::io::Result<()> {
+    let bad = directory.join("index.bad");
+    fs::create_dir_all(&bad)?;
+    // Keep exactly one recoverable set. The directory is owned by this index
+    // recovery path, so old entries are safe to remove before the next move.
+    for entry in fs::read_dir(&bad)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        if name == std::ffi::OsStr::new("index.edition") {
+            continue;
+        }
+        let Some(name_str) = name.to_str() else { continue };
+        if !name_str.starts_with("index.") {
+            continue;
+        }
+        let target = bad.join(&name);
+        if target.exists() {
+            fs::remove_file(&target)?;
+        }
+        fs::rename(entry.path(), target)?;
+    }
+    fs::File::open(directory)?.sync_all()?;
+    fs::File::open(&bad)?.sync_all()?;
+    Ok(())
+}
+
 /// A wire delta frame helper shared by the list and chat lanes.
 pub fn delta_frame(delta: &DeltaFrame<Summary>) -> Result<Frame, FrameError> {
     crate::wire::delta_frame(delta)
@@ -1195,11 +1462,15 @@ mod compaction_tests;
 #[cfg(test)]
 mod disk_gates;
 #[cfg(test)]
+mod folder_gates;
+#[cfg(test)]
 mod kin_tests;
 #[cfg(test)]
 mod origin_gates;
 #[cfg(test)]
 mod origin_tests;
+#[cfg(test)]
+mod rebuild_tests;
 #[cfg(test)]
 mod storage_tests;
 #[cfg(test)]

@@ -21,3 +21,26 @@ tests in the same file read the gate names from the sources of the `acpmux*` cra
 `every_gate_name_in_a_source_has_a_registry_row`, `a_pr_that_writes_a_row_has_no_placeholder_left`
 and `a_format_built_name_fits_only_its_own_rows`. A name with no row, or a placeholder left in a
 PR whose other rows are written, fails CI in the PR that adds it.
+
+A gate that lives in `acpmux`'s own tests is run with the `gate` cargo profile
+(`cmux-tui/Cargo.toml`), from `cmux-tui/`:
+`cargo test --profile gate -p acpmux --lib NAME -- --ignored --nocapture` (the gates are
+ignored tests, and the measured line is printed before the bound is checked). It is the
+release profile with link-time optimization off and 16 codegen units. A plain `--release`
+test build of `acpmux` does not end on the CI runner, so no lane starts one. The gates of
+`acpmux-book` and `acpmux-core` build in `--release` as before. `acpmux-client` has no v2 gate on
+this base, so the nightly list omits its test build. A row stays `measured: false` until its run
+with one of these two commands is in the PR that sets it.
+
+## Nightly rollout (v2 PR 0b)
+
+The rows whose gates are on the base and read `ok` are marked `measured: true` and run nightly as of this PR.
+Rows whose emitted numbers read `red` stay `measured: false` in this PR; their gates still run, and the home
+shows their line and red verdict in the nightly report. The home reports a marked row as `not_run` when the
+spec check omits `--measures`; the nightly passes `--measures`, so a missing line is reported by row name as
+`failed` and the workflow fails after the report is written.
+
+A lane's PR still appends its rows as `measured: false` and edits no workflow. The next 0b pass
+marks those rows and adds their run. The complete list of nightly commands lives in
+`scripts/cmux-next/run-v2-gates.sh`; edit that list in the next pass rather than spreading gate
+commands through workflow YAML.

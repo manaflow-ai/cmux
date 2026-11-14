@@ -21,6 +21,7 @@ members = [
     "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
@@ -115,6 +116,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -140,6 +142,7 @@ default-members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
@@ -220,6 +223,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -287,6 +291,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
@@ -372,7 +377,12 @@ portable-pty = "0.9"
 crossterm = "0.29"
 crossbeam-channel = "0.5"
 ratatui = "0.30"
-unicode-width = "0.2"
+# ratatui-core 0.1 adds one cell for each halfwidth katakana sound mark
+# (U+FF9E, U+FF9F) because unicode-width gave them 0; unicode-width 0.2.3
+# gives them 1 itself, so with 0.2.3 each mark takes 2 cells in every layout
+# and table. Lift this bound together with a ratatui-core that drops its
+# own adjustment.
+unicode-width = ">=0.2.2, <0.2.3"
 unicode-segmentation = "1"
 unicode-normalization = "0.1"
 base64 = "0.22"
@@ -504,6 +514,23 @@ codegen-units = 1
 
 [profile.release.package.acpmux]
 codegen-units = 1
+
+# The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
+# build here: `cargo test --profile gate -p acpmux --lib NAME -- --ignored`. It is release's
+# code generation without its link-time cost. A release test build of `acpmux`
+# does not end on an 8-vCPU CI runner: with one codegen unit rustc for the test
+# library was killed (signal 9) after 16 minutes under fat LTO, and with LTO off
+# by environment it still ran past 40 minutes, because the package override
+# above keeps `acpmux` at one unit. A gate is a ratio of two sides measured in
+# one build, so it does not need the shipped binary's size settings. Nothing
+# ships from this profile.
+[profile.gate]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+
+[profile.gate.package.acpmux]
+codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

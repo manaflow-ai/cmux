@@ -2,13 +2,34 @@
 //! appends to `startup-timings.jsonl` (see `crate::startup_timings`).
 
 use super::*;
-use crate::startup_timings::{StartupTimings, append_startup_timings, unix_now_ms};
+use crate::startup_timings::{
+    StartupTimings, add_after_ready, append_startup_timings, unix_now_ms,
+};
+
+/// The owner's laps for `startup-timings.jsonl`. Two leaf locks.
+#[derive(Default)]
+pub(super) struct StartupLaps {
+    /// The laps of the open (registry, restore, adoption), until the owner's start takes them.
+    pub(super) open: Mutex<Option<StartupTimings>>,
+    /// Held over the write of the file.
+    after_ready: Mutex<AfterReady>,
+}
+
+/// The start line of this owner in `startup-timings.jsonl`, and the laps of the work that ends
+/// after ready (the restatement in parts). Either can come first: the one that comes second
+/// writes the laps into the line.
+#[derive(Debug, Default)]
+struct AfterReady {
+    /// The session directory and the `pid` and `at_ms` of the line, once it is in the file.
+    line: Option<(std::path::PathBuf, u32, u64)>,
+    laps: Option<Value>,
+}
 
 impl Mux {
     /// The laps of this owner's open (registry, restore, terminal adoption),
     /// once; nil for a mux that was not opened from a registry or was taken.
     pub fn take_startup_timings(&self) -> Option<StartupTimings> {
-        self.startup_timings.lock().unwrap_or_else(PoisonError::into_inner).take()
+        self.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     /// Appends `timings` to the session's `startup-timings.jsonl` (a
@@ -22,11 +43,45 @@ impl Mux {
             .session_journal_database_path();
         let Some(session_dir) = database.as_deref().and_then(Path::parent) else { return };
         self.open_slow_request_log(session_dir, database.as_deref());
-        let line = timings.to_line(std::process::id(), unix_now_ms());
-        if let Err(error) = append_startup_timings(session_dir, &line) {
-            eprintln!("cmux-tui: could not record startup timings: {error}");
+        let (pid, at_ms) = (std::process::id(), unix_now_ms());
+        let mut line = timings.to_line(pid, at_ms);
+        let mut after_ready =
+            self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(laps) = after_ready.laps.clone()
+            && let Some(fields) = line.as_object_mut()
+        {
+            fields.insert("after_ready".into(), laps);
         }
+        match append_startup_timings(session_dir, &line) {
+            Ok(()) => after_ready.line = Some((session_dir.to_path_buf(), pid, at_ms)),
+            Err(error) => eprintln!("cmux-tui: could not record startup timings: {error}"),
+        }
+        drop(after_ready);
         eprintln!("cmux-tui: {}", timings.summary());
+    }
+
+    /// The laps of the restatement in parts, which ends after ready: a list `after_ready` on
+    /// the line of this start (`total_ms` and `steps` do not change). When the line is not in
+    /// the file yet, [`Self::record_startup_timings`] writes them with it.
+    pub(super) fn record_session_restate(
+        &self,
+        tally: &startup_restore::restate_parts::RestateTally,
+    ) {
+        let mut after_ready =
+            self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner);
+        let laps = tally.laps();
+        if let Some((session_dir, pid, at_ms)) = after_ready.line.as_ref()
+            && let Err(error) = add_after_ready(session_dir, *pid, *at_ms, &laps)
+        {
+            eprintln!("cmux-tui: could not record the laps after ready: {error}");
+        }
+        after_ready.laps = Some(laps);
+    }
+
+    /// The laps that [`Self::record_session_restate`] took, for tests.
+    #[cfg(test)]
+    pub(crate) fn session_restate_laps_for_test(&self) -> Option<Value> {
+        self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner).laps.clone()
     }
 
     /// Opens the session's slow request log (`diagnostics/request_log.rs`) in `session_dir`,

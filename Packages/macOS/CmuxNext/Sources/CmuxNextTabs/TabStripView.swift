@@ -110,6 +110,16 @@ public final class TabStripView: NSView {
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
     /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
     var inCardToneDrawn: InCardToneKey?
+    /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
+    /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
+    /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
+    public var meetsToolbar = false {
+        didSet {
+            guard meetsToolbar != oldValue else { return }
+            reportedCornerFlush = false // the next report reaches the chrome, which redraws the divider
+            reportCornerLead()
+        }
+    }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the

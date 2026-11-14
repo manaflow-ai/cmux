@@ -14,6 +14,8 @@ use super::test_pty::{self, TestPty, shell_path};
 use super::*;
 use std::time::{Duration, Instant};
 
+mod startup;
+
 /// Line 1 of every prompt: padded close to the 40-column start width, so a
 /// narrower grid reflows the copy already on the screen onto two rows.
 const LINE_ONE: &str = "LINE-ONE-OF-THE-PROMPT..............EOL";
