@@ -76,7 +76,7 @@ asset="CCmuxAppFFI.xcframework.zip"
 # missed on 2026-10-07), then the toolchain and the build script. Derived
 # from the Cargo.toml files at HEAD, so a new path dependency is never missed.
 # Normal and build dependencies reach the archive; dev-dependencies do not.
-crates="$(python3 "$code/scripts/ci/app_ffi_pin.py" library-crates "$root")" || exit 2
+crates="$(python3 -I "$code/scripts/ci/app_ffi_pin.py" library-crates "$root")" || exit 2
 paths=()
 while IFS= read -r crate; do paths+=("$crate"); done <<<"$crates"
 # Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
