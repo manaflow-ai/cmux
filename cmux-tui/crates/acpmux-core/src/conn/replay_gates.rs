@@ -268,13 +268,17 @@ async fn replay_open_round(verbose: bool) -> Vec<u128> {
         let open_task = tokio::task::spawn_blocking(move || {
             open_hub.subscribe_replay(&Sub::new("open", "list"), 0).unwrap()
         });
-        timeout(Duration::from_secs(20), async {
+        let ready = timeout(Duration::from_secs(20), async {
             while !waiting.load(Ordering::Acquire) {
                 tokio::task::yield_now().await;
             }
         })
-        .await
-        .expect("replay open did not enter the snapshot copy");
+        .await;
+        if ready.is_err() {
+            permit.store(true, Ordering::Release);
+            drop(open_task.await.unwrap());
+            panic!("replay open did not enter the snapshot copy");
+        }
         let started = Instant::now();
         permit.store(true, Ordering::Release);
         writer
