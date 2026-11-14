@@ -129,6 +129,13 @@ fn fixture_with(hub: &Hub, peer_closed: bool) -> usize {
     for n in 0..5 {
         add(meta(&format!("c-old-{n}"), &format!("old-{n}"), "closed", at(30 + n), json!({"area": "acpmux"})));
     }
+    // A running chat that is stuck: its summary's `state` reads `stuck`, its row's `status`
+    // `running`, and `--status running` lists it as v1 does.
+    let mut stuck = meta("c-stuck", "stuck-run", "running", at(20), json!({}));
+    stuck.harness_failures = serde_json::from_value(json!({"throughSeq": 9, "attempts": 3,
+        "since": at(19), "reason": "auth", "error": "401 unauthorized"}))
+    .unwrap();
+    add(stuck);
     let mut peer_rows = vec![json!({"sessionId": "p-live", "qualifiedSessionId": "far/p-live",
         "name": "far/lane", "status": "idle", "updatedAt": at(40),
         "tags": {"area": {"value": "acpmux"}}})];
@@ -194,8 +201,8 @@ async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
 }
 
 async fn every_form_on(daemon: Daemon, peer_closed: bool) {
-    // The live rows: nine here and the peer's one.
-    let live_text = 10.to_string();
+    // The live rows: ten here and the peer's one.
+    let live_text = 11.to_string();
     let now = crate::store::now_ms();
     let forms: Vec<Vec<&str>> = vec![
         vec![],
@@ -205,6 +212,7 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         vec!["--leads"],
         vec!["--pending"],
         vec!["--status", "idle"],
+        vec!["--status", "running"],
         vec!["--status", "closed"],
         vec!["--status", "stuck"],
         vec!["--status", "waiting"],
@@ -248,6 +256,9 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         all["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == id).cloned().unwrap()
     };
     assert_eq!(row("c-under-closed")["spawnedBy"], "c-closed-parent");
+    assert_eq!((row("c-stuck")["state"].clone(), row("c-stuck")["status"].clone()), (json!("stuck"), json!("running")));
+    let running = ls(&daemon, &["--json", "--status", "running"], true, now).await;
+    assert!(running.contains("c-stuck"), "--status running lists the stuck running chat: {running}");
     if peer_closed {
         // v1's own row: v1 marks no closed row stale while its peer is down
         // (`RemoteRows::mark_peer_stale`), so neither does this.

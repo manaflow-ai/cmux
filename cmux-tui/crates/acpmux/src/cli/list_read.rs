@@ -43,9 +43,11 @@ pub(crate) enum Via {
     /// The v2 list on the socket the caller's client is connected to, or the caller's v1 path
     /// when its daemon has no list surface or rows by key.
     Daemon,
-    /// The same, on the socket at this path.
+    /// The same, on the socket at this path (the tests' daemons).
+    #[cfg(test)]
     List(std::path::PathBuf),
-    /// The caller's v1 path.
+    /// The caller's v1 path (the tests' other side).
+    #[cfg(test)]
     V1,
 }
 
@@ -68,8 +70,10 @@ impl Via {
         peers: Option<&[Value]>,
     ) -> Result<Option<Source>> {
         match self {
-            Self::Daemon => open_at(&client.socket().to_path_buf(), client, peers).await,
+            Self::Daemon => open_at(client.socket(), client, peers).await,
+            #[cfg(test)]
             Self::List(path) => open_at(&path, client, peers).await,
+            #[cfg(test)]
             Self::V1 => Ok(None),
         }
     }
@@ -430,6 +434,7 @@ impl Source {
     }
 
     /// The pages the walk asked for and the most it held not handed out, for the gates.
+    #[cfg(test)]
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }
