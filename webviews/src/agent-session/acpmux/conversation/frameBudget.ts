@@ -15,8 +15,11 @@
 // hysteresis keeps a frame's motion from turning the mode back on and off.
 //
 // Cost: one frame callback while the chat is busy, none while it is idle (IDLE_FRAMES after the last
-// poke the loop stops), and O(frames in a second) per frame at most. Stop condition: `dispose` ends
-// the loop and the observer and takes the mark away; a hidden page counts no gap (it draws none).
+// poke the loop stops, minimal or not), and O(frames in a second) per frame at most. A chat that
+// goes idle in its minimal motion reads no frames to prove it healthy: with no work for HEALTHY_FOR
+// it is (one timer, not up to 600 frames of a chat at rest), and the mark goes. Stop condition:
+// `dispose` ends the loop, the timer and the observer and takes the mark away; a hidden page counts
+// no gap (it draws none).
 
 /// The mark on the chat (or on any element over it, as the gallery's variants and a test page set it).
 export const CHAT_MOTION_ATTR = "data-chat-motion";
@@ -41,8 +44,6 @@ export const HEALTHY_FOR = 2000;
 /// With no poke for this many frames (1.5 s at 60 Hz) the loop stops: an idle chat runs no frame
 /// callback. Counted in frames, not time, so a page whose clock stands still (a test's) ends it too.
 export const IDLE_FRAMES = 90;
-/// Still minimal with no poke: at most this many frames more, healthy or not.
-const MINIMAL_FRAMES = 600;
 /// A gap past this is the page coming back from hidden or a machine asleep, not a busy frame (ms).
 const AWAY_GAP = 5000;
 
@@ -59,6 +60,9 @@ type Clock = {
   now(): number;
   frame(callback: (time: number) => void): number;
   cancel(handle: number): void;
+  /// One callback `ms` from now (the idle chat's way back from minimal); the page's timer by default.
+  later?(callback: () => void, ms: number): number;
+  cancelLater?(handle: number): void;
 };
 
 /// The gaps' budget over the window: the decision, separate from the clock so it can be tested.
@@ -81,6 +85,15 @@ export class FrameBudgetState {
   busy(ms: number, now: number): boolean {
     if (ms > 0) this.miss(ms, now);
     return this.decide(now);
+  }
+
+  /// The chat did no work for HEALTHY_FOR: nothing of it missed a frame. Returns whether the mode changed.
+  rested(): boolean {
+    if (!this.minimal) return false;
+    this.minimal = false;
+    this.missed = [];
+    this.healthySince = undefined;
+    return true;
   }
 
   private miss(ms: number, now: number): void {
@@ -169,8 +182,18 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
       if (handle >= 0 && typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
     },
   };
+  const later =
+    clock?.later ??
+    ((callback: () => void, ms: number) =>
+      typeof view?.setTimeout === "function" ? view.setTimeout(callback, ms) : -1);
+  const cancelLater =
+    clock?.cancelLater ??
+    ((handle: number) => {
+      if (handle >= 0 && typeof view?.clearTimeout === "function") view.clearTimeout(handle);
+    });
   const state = new FrameBudgetState();
   let handle: number | undefined;
+  let rest: number | undefined;
   let last: number | undefined;
   let left = 0;
   let disposed = false;
@@ -192,10 +215,19 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     if (doc.visibilityState === "hidden") last = undefined;
     else if (last !== undefined && state.frame(at - last, now)) apply();
     last = doc.visibilityState === "hidden" ? undefined : at;
-    // Idle and moving: stop reading. Still minimal: read on until the frames are healthy again.
+    // Idle: stop reading. Still minimal: the chat is healthy once it has done no work for HEALTHY_FOR.
     left -= 1;
-    if (left > 0 || (state.minimal && left > IDLE_FRAMES - MINIMAL_FRAMES)) handle = time.frame(tick);
-    else last = undefined;
+    if (left > 0) handle = time.frame(tick);
+    else {
+      last = undefined;
+      if (state.minimal && rest === undefined) {
+        const next = later(() => {
+          rest = undefined;
+          if (!disposed && left <= 0 && state.rested()) apply();
+        }, HEALTHY_FOR);
+        if (next >= 0) rest = next;
+      }
+    }
   };
   // Long tasks where the engine reports them (Chromium); WebKit has none, and the frames tell.
   let observer: PerformanceObserver | undefined;
@@ -220,6 +252,8 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     poke() {
       if (disposed) return;
       left = IDLE_FRAMES;
+      if (rest !== undefined) cancelLater(rest);
+      rest = undefined;
       if (handle === undefined) {
         const next = time.frame(tick);
         if (next >= 0) handle = next;
@@ -229,6 +263,8 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
       disposed = true;
       if (handle !== undefined) time.cancel(handle);
       handle = undefined;
+      if (rest !== undefined) cancelLater(rest);
+      rest = undefined;
       observer?.disconnect();
       state.minimal = false;
       apply();
