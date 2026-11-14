@@ -426,11 +426,11 @@ impl Daemon {
         let mut command =
             daemon_env::command_at(&binary, scratch, daemon_env::Agents::StandIn, &[]);
         command
-            .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+            .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::inherit());
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
@@ -451,17 +451,7 @@ impl Daemon {
             std::thread::sleep(Duration::from_millis(1));
         }
         let socket_connect_us = micros(spawned);
-        let stdout = child.stdout.take().unwrap();
-        for line in BufReader::new(stdout).lines() {
-            if let Ok(v) = serde_json::from_str::<Value>(&line.unwrap())
-                && v["ready"] == true
-            {
-                return Self { child, socket, spawned, socket_connect_us };
-            }
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("the daemon exited without a readiness line");
+        Self { child, socket, spawned, socket_connect_us }
     }
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
@@ -480,10 +470,43 @@ impl Daemon {
     }
 
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
-    fn stop(mut self) {
+    fn stop(&mut self) {
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
+    }
+
+    /// The daemon's one-stop handoff through a cache-first attach (not an app render). The new
+    /// daemon is allowed to bind and answer the local chat while peer links and bulk log loading
+    /// continue in the background.
+    fn restart_to_chat_attach(
+        &mut self,
+        scratch: &Path,
+        home: &Path,
+        profile: Option<&Path>,
+        session: &str,
+    ) -> (u64, u64) {
+        let started = Instant::now();
+        self.stop();
+        let shutdown_ms = ms(started);
+        *self = Self::start(scratch, home, profile);
+        let mut rpc = Rpc::connect(&self.socket);
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "restart-bench"}}),
+        )
+        .unwrap();
+        let attached = rpc.call(
+            "_acpmux/attach",
+            json!({"sessionId": session, "waitLogs": false, "limit": PAGE_LIMIT,
+                   "maxBytes": PAGE_BYTES}),
+        );
+        let attached = attached.expect("selected chat attached after restart");
+        assert!(
+            attached["events"].as_array().is_some_and(|events| !events.is_empty()),
+            "attach must return a usable transcript page: {attached}"
+        );
+        (ms(started), shutdown_ms)
     }
 }
 
@@ -542,7 +565,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let god = made.god.clone();
     let cutter = proxies.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let daemon = Daemon::start(&scratch, &home, profile.as_deref());
+        let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
         let ready_ms = ms(daemon.spawned);
         let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
@@ -764,6 +787,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
         let (startup_phases_ms, marks_ms) = startup_axes(&status["gauges"]);
         let (rss, peak_rss) = daemon.rss();
+        let (restart_chat_attach_ms, shutdown_ms) =
+            daemon.restart_to_chat_attach(&scratch, &home, profile.as_deref(), &god);
         drop(rpc);
         daemon.stop();
         let home_files = home_files(&home);
@@ -796,6 +821,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "settledSendBytes": spread(&settled_send_bytes),
             "settledSendLongestLine": settled_send_longest,
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
+            "restartChatAttachMs": restart_chat_attach_ms, "shutdownMs": shutdown_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
             "daemonAddedBytes": daemon_added, "daemonRemovedBytes": daemon_removed,
@@ -943,6 +969,15 @@ async fn god_and_small_homes_in_one_harness() {
         };
         let result = run(shape, dhat).await;
         println!("GOD-BASELINE {result}");
+        let restart_ms = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
+        assert!(
+            restart_ms <= 2_000,
+            "Daemon restart -> chat attach exceeded 2 s: {restart_ms} ms; result={result}"
+        );
+        assert!(
+            result["shutdownMs"].as_u64().unwrap_or(u64::MAX) <= 1_000,
+            "daemon shutdown exceeded 1 s: {result}"
+        );
         results.push(result);
     }
     // The comparison the bar reads: god over small, for each number both have.
@@ -1005,4 +1040,15 @@ async fn god_and_small_homes_in_one_harness() {
             r["settledSendError"],
         );
     }
+}
+
+/// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
+/// ignored while detecting a daemon restart regression. Rendering is measured by the app driver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_to_chat_attach_is_under_two_seconds() {
+    let result = run(Shape::small(), false).await;
+    let elapsed = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
+    let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
 }

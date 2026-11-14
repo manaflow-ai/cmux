@@ -8,13 +8,12 @@
 // compared to our claude code version", then "we already have a good version"); Codex's keeps its
 // folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
 // (gallery-only CSS over the shipped one), the replaced in-box row among them.
-import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
+import { minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
-import type { TaskGoal } from "./goal";
 
 /// A started Claude Code chat in a project: the transcript over the composer. It reports its modes,
 /// as a running Claude Code session does, so the mode chip (the permission capsule) draws in both looks.
@@ -69,17 +68,6 @@ const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "
         tokensUsed: 12400,
       },
     },
-  };
-};
-
-/// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
-/// `claude_stdio/loops.rs`): the goal strip says when it checks back, or its schedule; its prompt
-/// only on demand.
-const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
-  const snapshot = startedChat();
-  return {
-    ...snapshot,
-    summary: { ...snapshot.summary!, goal: { kind: "loop" as const, status: "active" as const, ...goal } },
   };
 };
 
@@ -413,42 +401,6 @@ export default agentPaneEntry({
         await look(ctx, "claude");
         await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
-    },
-    "loop-wakeup": {
-      composerLook: "claude",
-      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
-      snapshot: loopChat({
-        objective:
-          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
-        reason: "watching the fleet build",
-        nextRunAt: GALLERY_NOW + 15 * 60_000,
-      }),
-      play: (ctx) => look(ctx, "claude"),
-    },
-    "loop-wakeup-open": {
-      composerLook: "claude",
-      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
-      snapshot: loopChat({
-        objective:
-          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
-        reason: "watching the fleet build",
-        nextRunAt: GALLERY_NOW + 15 * 60_000,
-      }),
-      play: async (ctx) => {
-        await look(ctx, "claude");
-        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
-      },
-    },
-    "loop-cron": {
-      composerLook: "claude",
-      note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
-      snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
-      play: (ctx) => look(ctx, "claude"),
-    },
-    "loop-autonomous": {
-      note: "An autonomous /loop (no prompt of the person's), in Codex's look.",
-      snapshot: loopChat({ objective: "", autonomous: true, nextRunAt: GALLERY_NOW + 25_000 }),
-      play: (ctx) => look(ctx, "codex"),
     },
     "newtab-codex-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",

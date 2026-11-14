@@ -9,7 +9,9 @@ import os
 /// connection whose `_acpmux/session_changed` pushes keep it current, so
 /// nothing polls. It starts with the app's Chats feed (`ChatsFeed.started`).
 /// When the socket is absent it waits for a directory change on the socket's
-/// path; a lost connection clears the states and reconnects with `Backoff`.
+/// path; a lost connection clears the states and reconnects with `Backoff`. An acpmux that
+/// follows a cursor (`session-list-follow-v1`, ``AgentListFollow``) is then asked only the rows
+/// changed since, laid over the list the feed held.
 @MainActor
 public final class AgentTurnStateFeed {
     /// The app's one feed (nil until `ChatsFeed.started` makes it).
@@ -50,7 +52,14 @@ public final class AgentTurnStateFeed {
     /// A watch result whose later pages are still being read (``AgentWatchPage``): the pages so far,
     /// what a push changed meanwhile (newer than the pages, so kept: this Mac's sessions by id, a
     /// peer's rows by session id and peer) and the cursors asked.
-    private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>)?
+    /// `notices`: those pushes, laid over the list the feed holds (`held`) once it is whole.
+    private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>,
+                         notices: [Message])?
+    /// The list position applied and whether acpmux follows one: kept across reconnects.
+    private var listFollow = AgentListFollow()
+    /// The whole list as last applied (a page or a follow, and every push since), kept across
+    /// reconnects while a cursor is: a follow's rows are laid over it.
+    private var held: AgentWatchPage?
     /// The cursor of the later page asked last (nil: the watch's first page): a refused one is
     /// asked again from there (``retryPage()``), never the whole list from its start.
     private var pageAsked: String?
@@ -126,14 +135,22 @@ public final class AgentTurnStateFeed {
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
         // line (MainActorLineBatch), and a chat's pushes while one waits are its newest alone
         // (`Message.key`). The main actor only sets the states that changed.
-        connection.start(send: Self.watchRequest, key: Message.key, decode: Message.init(line:)) { [weak self, weak connection] drain in
+        // A reconnect with a cursor follows it: the rows changed while the watch was down.
+        resyncing = listFollow.canFollow
+        connection.start(send: Self.watchRequest(listFollow.watchParams), key: Message.key, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
             let started = ContinuousClock.now
             defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
+            // The lines dropped came after the ones here, but a chat's newest push moves to the
+            // batch's end (`Message.key`), maybe past them: a follow starts from before the batch.
+            let before = listFollow.cursor
             for message in drain.values { handle(message) }
             if drain.closed { return lost(connection) }
             // Dropped lines leave the states incomplete: the list again on this connection, once.
-            if drain.overflowed { resync() }
+            if drain.overflowed {
+                listFollow.rewind(to: before)
+                resync()
+            }
         }
     }
 
@@ -149,7 +166,7 @@ public final class AgentTurnStateFeed {
         pageRetry?.cancel()
         pageRetry = nil
         logger.info("agent turn states: lines dropped; reading the list again")
-        subscription.send(Self.watchOnlyRequest)
+        subscription.send(Self.watchOnlyRequest(listFollow.watchParams))
     }
 
     /// A page acpmux refused (it paces list reads): asked again after a wait, from where the list
@@ -165,33 +182,9 @@ public final class AgentTurnStateFeed {
             guard let self, subscription === connection else { return }
             pageBackoff = backoff
             pageRetry = nil
-            connection.send(cursor.map(Self.pageRequest(cursor:)) ?? Self.watchOnlyRequest)
+            connection.send(cursor.map(Self.pageRequest(cursor:)) ?? Self.watchOnlyRequest(listFollow.watchParams))
         }
     }
-
-    /// `initialize`, then `_acpmux/watch` (id 2), then the usage read (id 3,
-    /// ``usageRequest(cursor:)``), one JSON object per line.
-    static let watchRequest: Data = {
-        let initialize: [String: Any] = [
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-turn-states", "version": "1"], "clientCapabilities": [:]],
-        ]
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
-        var payload = Data()
-        for request in [initialize, watch] {
-            payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
-            payload.append(0x0A)
-        }
-        return payload + usageRequest(cursor: nil)
-    }()
-
-    /// `_acpmux/watch` alone (id 2): the list read again on an open connection.
-    static let watchOnlyRequest: Data = {
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
-        var line = (try? JSONSerialization.data(withJSONObject: watch)) ?? Data()
-        line.append(0x0A)
-        return line
-    }()
 
     /// The most pages one usage read follows (`SESSION_PAGE`-sized byte pages: far past any real list).
     static let usagePages = 50
@@ -221,10 +214,11 @@ public final class AgentTurnStateFeed {
         /// acpmux deleted it (``deletesSession(_:)``), and for a session of an acpmux peer, that
         /// peer and whether its row went stale (the peer dropped); nil for a purged one. `peerRow` is
         /// that peer's row of the session, nil when the peer purged it.
+        /// `listSeq`: the list position it took (nil from an acpmux that stamps none).
         case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                     generatedTitle: String?, detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy: String?,
                     deleted: Bool = false, peer: (name: String, stale: Bool)? = nil, sessionName: String? = nil,
-                    peerRow: (name: String, row: AgentPeerRow?)? = nil)
+                    peerRow: (name: String, row: AgentPeerRow?)? = nil, listSeq: UInt64? = nil)
         /// A page of the usage read (id 3): each listed chat's usage numbers that acpmux read, and
         /// the cursor of the next page (nil: the last).
         case usage([String: AgentChatDetail], next: String?)
@@ -233,11 +227,17 @@ public final class AgentTurnStateFeed {
         case peerState(peer: String, state: String)
         /// acpmux refused a list page (id 2 or 4): it paces list reads (`list.paced`).
         case pageRefused
+        /// The `initialize` result (id 1): whether acpmux follows a list cursor.
+        case initialized(follows: Bool)
+        /// A follow's reply (id 2, ``AgentWatchFollow``).
+        case follow(AgentWatchFollow)
+        /// `_acpmux/lagged {watch: true}`: acpmux dropped pushes of the watch.
+        case lagged
 
         /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
         /// same: each carries the chat's whole row. A purge is never replaced, nor anything else.
         @Sendable static func key(_ message: Message) -> String? {
-            guard case .change(let session, _, _, _, _, _, _, _, _, let deleted, _, _, let peerRow) = message, !deleted else {
+            guard case .change(let session, _, _, _, _, _, _, _, _, let deleted, _, _, let peerRow, _) = message, !deleted else {
                 return nil
             }
             return session + "\u{0}" + (peerRow?.name ?? "")
@@ -246,7 +246,11 @@ public final class AgentTurnStateFeed {
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             let id = (message["id"] as? NSNumber)?.intValue
-            if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
+            if id == 1, let result = message["result"] as? [String: Any] {
+                self = .initialized(follows: AgentListFollow.follows(result))
+            } else if id == 2, let result = message["result"] as? [String: Any], let follow = AgentWatchFollow(result: result) {
+                self = .follow(follow)
+            } else if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
                 self = .page(AgentWatchPage(result: result), continued: id == 4)
             } else if id == 2 || id == 4, message["error"] != nil {
                 self = .pageRefused
@@ -271,10 +275,13 @@ public final class AgentTurnStateFeed {
                                peerRow: (params["peer"] as? String).flatMap { name -> (name: String, row: AgentPeerRow?)? in
                                    purged ? (name: name, row: nil)
                                        : summary.map { (name: name, row: AgentPeerRow.of(summary: $0, peer: name)) }
-                               })
+                               }, listSeq: AgentWatchPage.listSeq(params["listSeq"]))
             } else if message["method"] as? String == "_acpmux/peer_state_changed", let params = message["params"] as? [String: Any],
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)
+            } else if message["method"] as? String == "_acpmux/lagged",
+                      (message["params"] as? [String: Any])?["watch"] as? Bool == true {
+                self = .lagged
             } else {
                 return nil
             }
@@ -313,7 +320,7 @@ public final class AgentTurnStateFeed {
                 guard paging != nil else { return }
                 paging?.page.merge(page)
             } else {
-                paging = (page, [], [:], [])
+                paging = (page, [], [:], [], [])
             }
             guard var held = paging else { return }
             // The rest of a list too large for one message: ask for its next page (a cursor
@@ -326,17 +333,56 @@ public final class AgentTurnStateFeed {
             }
             paging = nil
             pageAsked = nil
-            resyncing = false
             pageBackoff.reset()
+            // A whole list (a first, a reset, or an older acpmux's): the cursor starts at its
+            // position, and the list held for a follow is it with the pushes since laid over it.
+            listFollow.listed(seq: held.page.listSeq, epoch: held.page.listEpoch)
+            if listFollow.cursor != nil {
+                var whole = held.page
+                for notice in held.notices { Self.hold(notice, in: &whole) }
+                whole.addUsage(usageRead.numbers)
+                self.held = whole
+            } else {
+                self.held = nil
+            }
             applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
-            if !self.lanes.live { self.lanes.live = true }
-            // A fresh page (the first, or after a reconnect): the peer list is read again.
-            if !isMirror { peerStateChanged?(nil, nil) }
-            // A usage read that answered first: its numbers are newer than the page's.
-            usageRead.paged = true
-            if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
+            listRead()
+        case .follow(let reply):
+            // Only a watch with a cursor is answered so, and the list it follows is held; without
+            // it, the whole list again.
+            guard var whole = held else {
+                listFollow.listed(seq: nil, epoch: nil)
+                resyncing = false
+                return resync()
+            }
+            held = nil // one copy while it changes
+            whole.lay(reply)
+            held = whole
+            listFollow.followed(reply)
+            applyPage(whole, keeping: [], keepingPeers: [:])
+            if reply.more {
+                // Cut at a page's size: the rest from where it stopped.
+                subscription?.send(Self.watchOnlyRequest(listFollow.watchParams))
+                return
+            }
+            listRead()
+        case .initialized(let follows):
+            listFollow.follows = follows
+        case .lagged:
+            // acpmux dropped pushes of the watch: an acpmux that follows a cursor answers the rows
+            // changed since the last applied. An older one's lag is left as before.
+            if listFollow.canFollow { resync() }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
-                     let startedBy, let deleted, let peer, let sessionName, let peerRow):
+                     let startedBy, let deleted, let peer, let sessionName, let peerRow, let listSeq):
+            // A push older than the row held (a reply built after it) changes nothing.
+            guard listFollow.admits(AgentListRow(session: session, peer: peerRow?.name), listSeq: listSeq) else { return }
+            if paging != nil {
+                paging?.notices.append(message)
+            } else if var whole = held {
+                held = nil // one copy while it changes
+                Self.hold(message, in: &whole)
+                held = whole
+            }
             if let peerRow { paging?.changedPeers[session, default: []].insert(peerRow.name) } else { paging?.changed.insert(session) }
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
@@ -350,13 +396,37 @@ public final class AgentTurnStateFeed {
         case .usage(let numbers, let next):
             usageRead.numbers.merge(numbers) { $1 }
             usageRead.pages += 1
-            if usageRead.paged { turns.applyUsage(numbers, source: source) }
+            if usageRead.paged {
+                turns.applyUsage(numbers, source: source)
+                held?.addUsage(numbers)
+            }
             if let next, usageRead.pages < Self.usagePages { subscription?.send(Self.usageRequest(cursor: next)) }
         case .peerState(let peer, let state):
             if !isMirror { peerStateChanged?(peer, state) }
         case .pageRefused:
             retryPage()
         }
+    }
+
+    /// The list is whole on this connection (a page's last, or a follow's): the lanes are live, the
+    /// peer list is read again, and a usage read that answered first lays its numbers over it.
+    private func listRead() {
+        resyncing = false
+        if !self.lanes.live { self.lanes.live = true }
+        // A fresh page (the first, or after a reconnect): the peer list is read again.
+        if !isMirror { peerStateChanged?(nil, nil) }
+        // A usage read that answered first: its numbers are newer than the page's.
+        usageRead.paged = true
+        if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
+    }
+
+    /// Lays push `message` over `page`, the list held for a follow, as the store takes it.
+    static func hold(_ message: Message, in page: inout AgentWatchPage) {
+        guard case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane,
+                           let startedBy, _, _, let sessionName, let peerRow, _) = message else { return }
+        page.setSession(session, state: state, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle,
+                        sessionName: sessionName, detail: detail, lane: lane, startedBy: startedBy)
+        if let peerRow { page.setPeerRow(session, peer: peerRow.name, row: peerRow.row) }
     }
 
     private func lost(_ connection: AgentActivityLineConnection) {
@@ -367,7 +437,8 @@ public final class AgentTurnStateFeed {
         resyncing = false
         pageRetry?.cancel()
         pageRetry = nil
-        // A closed watch knows nothing: no stale working dots until it reconnects.
+        // A closed watch knows nothing: no stale working dots until it reconnects. The cursor and
+        // the list held stay (`listFollow`, `held`): the reconnect follows them.
         if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)

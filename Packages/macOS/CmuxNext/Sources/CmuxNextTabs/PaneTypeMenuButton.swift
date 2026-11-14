@@ -95,7 +95,7 @@ final class PaneTypeMenuButton: NSView {
             fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         } else {
             fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-            fillLayer.cornerRadius = side / 2
+            fillLayer.cornerRadius = side / 2 // radius-allow: the opt-in circle hover look (ChromeHoverStyle.circle)
             fillLayer.maskedCorners = NewTabButtonView.allCorners
         }
         // The split look's ⌄ leans half a step toward its + (NewTabButtonView leans the + back).

@@ -253,15 +253,14 @@ test("the runs arm groups adjacent work after hiding its short note and draft ca
   expect(after(opened)).toEqual(["run:2", "note", "run:3"]);
 });
 
-test("by default a closed fold keeps only the final answer in sight, as Codex does", () => {
-  // Lawrence, 2026-11-11 standup: the closed "Worked for" "does not hide enough stuff".
+test("by default a closed fold keeps substantive answers in sight", () => {
   delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
   for (const family of FAMILIES) {
     const view = closed(family);
     const worked = view.find((shown) => shown.kind === WORKED);
     expect(worked?.foldOpen).toBe(false);
-    expect(outline(view)).toEqual(["a-final"]);
-    // Opened, every earlier reply reads in order among the work, each still marked as a reply.
+    expect(outline(view)).toEqual(REPLY_IDS);
+    // Opened, every substantive reply remains in order among the work.
     const opened = turnView(turn, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 200_000 });
     const order = outline(opened).filter((entry) => REPLY_IDS.includes(entry));
     expect(order).toEqual(REPLY_IDS);

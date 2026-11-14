@@ -1,22 +1,12 @@
 // l10n-allow-file: browser fixture labels and diagnostics, not shipped UI.
 // cmux-web-test-timeout: 240
-// A hover control's opacity follows how long the pointer stays, never a fixed fade (Leo, 2026-11-07:
-// "it should be, like, having its limit based off of how long you've had your cursor actually on
-// it. So it doesn't necessarily act, like, oh, okay, you had it for a brief instant. It's going to
-// play its full animation and go to full brightness and then just disappear"). In Chromium, on the
-// gallery's chat (agent-pane.hover-dwell), with the real pointer:
-// - a brush of 80 ms starts the ramp at once and peaks faint (under 0.4), then reverses to 0 with no
-//   flash to full; a brush of 200 ms still stops short of full;
-// - a pointer that stays brings the controls to full;
-// - Tab into a row's controls shows them at full in the same frame;
-// - Reduce Motion shows them at once;
-// - nothing reveals them with a keyframe animation: each is an opacity transition, which reverses
-//   from where it is.
-// The page's animations run at a fiftieth of real time (DevTools' Animation.setPlaybackRate), so the
-// pointer's timing, not the harness's latency, sets the dwell: 80 ms of animation is 4 s of wall
+// User-message actions show and hide instantly (Lucas, 2026-11-13), including brief pointer
+// passes, keyboard focus, and Reduce Motion. Other transcript controls retain their dwell ramp.
+// The page's animations run at a fiftieth of real time (DevTools' Animation.setPlaybackRate).
+// Any accidental fade remains visible in the trace: 80 ms of animation is 4 s of wall
 // time, and the pointer leaves once the row's own pointerenter is that long ago. Each case reports
 // the dwell it measured from the row's pointerenter and pointerleave.
-// Locally: CMUX_BROWSER_TESTS=1 bun test test/hover-reveal-dwell.test.ts
+// Browser execution runs in CI or on a cloud VM.
 // CMUX_HOVER_DWELL_CAPTURE_DIR=DIR also writes the brush-past as a strip of frames.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -73,7 +63,7 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     await cdp.send("Animation.setPlaybackRate", { playbackRate: RATE });
   };
 
-  type Trace = { peak: number; last: number; samples: number[]; dwellMs: number; peakAt: number };
+  type Trace = { peak: number; last: number; samples: number[]; dwellMs: number };
 
   /** Samples `control`'s opacity each frame while the pointer stays on `row` for `dwellMs` of animation time. */
   const brush = async (page: Page, row: string, control: string, index: number, dwellMs: number, strip?: string) => {
@@ -143,7 +133,6 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
       const peak = Math.max(...state.samples);
       return {
         peak,
-        peakAt: state.samples.indexOf(peak),
         last: state.samples.at(-1)!,
         samples: state.samples,
         dwellMs: (state.leave - state.enter) * rate,
@@ -166,12 +155,11 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     return trace;
   };
 
-  // A reply's footer has no hover control left: its time is gone (the Codex app shows none; Lawrence,
-  // 2026-11-11 standup) and its buttons show at rest. The prompt's row is the case.
+  // A reply's buttons show at rest. The prompt's row has the immediate hover reveal.
   const ROWS = [{ name: "a prompt's time and Copy", row: ".cv-user", control: ".cv-user__actions" }];
 
   for (const { name, row, control } of ROWS) {
-    test(`${name}: an 80 ms brush peaks faint and reverses, with no flash to full`, async () => {
+    test(`${name}: an 80 ms brush shows and hides the controls without a fade`, async () => {
       const page = await open();
       try {
         await slowAnimations(page);
@@ -180,13 +168,8 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
         console.log(`${name}: ${label}`);
         expect(trace.dwellMs, label).toBeGreaterThan(50);
         expect(trace.dwellMs, label).toBeLessThan(130);
-        // The ramp starts with the pointer (no delay that hides a pass entirely)…
-        expect(trace.peak, label).toBeGreaterThan(0.05);
-        // …and a pass reaches only a faint level.
-        expect(trace.peak, label).toBeLessThan(0.4);
-        // It reverses from its peak back to rest: after the peak, it only falls.
-        const after = trace.samples.slice(trace.peakAt);
-        for (let i = 1; i < after.length; i++) expect(after[i]!, label).toBeLessThanOrEqual(after[i - 1]! + 0.001);
+        expect(trace.peak, label).toBe(1);
+        expect(trace.samples.filter((opacity) => opacity !== 0 && opacity !== 1)).toEqual([]);
         expect(trace.last, label).toBe(0);
       } finally {
         await page.close();
@@ -194,7 +177,7 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     });
   }
 
-  test("a 200 ms brush still stops short of full", async () => {
+  test("a 200 ms brush also shows the controls at full immediately", async () => {
     const page = await open();
     try {
       await slowAnimations(page);
@@ -209,8 +192,8 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
       const label = `dwell ${trace.dwellMs.toFixed(0)} ms, peak ${trace.peak.toFixed(3)}`;
       console.log(`200 ms brush: ${label}`);
       expect(trace.dwellMs, label).toBeLessThan(260);
-      expect(trace.peak, label).toBeGreaterThan(0.4);
-      expect(trace.peak, label).toBeLessThan(0.95);
+      expect(trace.peak, label).toBe(1);
+      expect(trace.samples.filter((opacity) => opacity !== 0 && opacity !== 1)).toEqual([]);
       expect(trace.last, label).toBe(0);
     } finally {
       await page.close();
@@ -222,12 +205,7 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     try {
       const box = (await page.locator(".cv-user").nth(1).boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
-      // The ramp is 400 ms; it settles on exactly 1.
-      await page.waitForFunction(
-        () => Number(getComputedStyle(document.querySelectorAll(".cv-user__actions")[1]!).opacity) === 1,
-        undefined,
-        { timeout: 5_000 },
-      );
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
       expect(
         await page.evaluate(() => Number(getComputedStyle(document.querySelectorAll(".cv-user__actions")[1]!).opacity)),
       ).toBe(1);
@@ -281,20 +259,15 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     }
   });
 
-  test("no hover control is revealed by a keyframe animation; each is an opacity transition", async () => {
+  test("user-message actions have no reveal animation or transition", async () => {
     const page = await open();
     try {
       await slowAnimations(page);
       const box = (await page.locator(".cv-user").nth(1).boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
-      await page.waitForFunction(() =>
-        document.getAnimations().some((animation) => {
-          const target = (animation.effect as KeyframeEffect | null)?.target;
-          return target instanceof Element && Boolean(target.closest(".cv-user__actions"));
-        }),
-      );
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
       const found = await page.evaluate(() => {
-        const reveals = ".cv-user__actions, .cv-reply-actions, .cv-turn-actions, .cv-turn-time";
+        const reveals = ".cv-user__actions";
         return document.getAnimations().flatMap((animation) => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
           if (!(target instanceof Element) || !target.closest(reveals)) return [];
@@ -307,8 +280,7 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
           return [kind];
         });
       });
-      expect(found.length).toBeGreaterThan(0);
-      expect(found.filter((kind) => kind !== "transition:opacity")).toEqual([]);
+      expect(found).toEqual([]);
     } finally {
       await page.close();
     }

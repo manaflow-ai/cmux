@@ -89,7 +89,7 @@ for (const [name, seam] of Object.entries(SEAMS)) {
 }
 
 test("a short note still joins two runs as a quiet line, and a takeaway still splits them", () => {
-  const note = row("assistant", { id: "note", text: "Now the status." });
+  const note = row("assistant", { id: "note", text: "Checking the status." });
   const joined = mergeShortNotes([activity([run("ls")], "a"), note, activity([run("pwd")], "b")]);
   expect(joined).toHaveLength(1);
   expect(joined[0]!.items?.some((item) => item.kind === "note")).toBe(true);

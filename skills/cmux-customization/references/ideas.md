@@ -24,7 +24,8 @@ use somebody else's thing for that as well."
 | A scratch checklist | pane + sidebar row | `cmux.pane/1`, `cmux.storage` | Template `pane` |
 | A focus timer with a slider | sidebar section | `Slider`, `cmux.timer`, `cmux.toast` | [Recipe](local-app-views.md#matching-the-app) |
 | Quote, word or photo of the day | sidebar section | `cmux.net.fetch` | Buildable now |
-| The same widgets on the new tab page | new tab page | a new-tab widget interface | Missing: see [Gaps](#gaps) |
+| A radio player: the song on now, play, previous, next, favorites | sidebar section | `cmux.net.fetch` (SomaFM, no key), `openBrowser` | Template `media-player` |
+| The same widgets on the new tab page | new tab page | a new-tab widget interface | Missing: see [Gaps](#gaps); a start page as a pane is Template `start-page` |
 
 ## Everyday: follows my work, live
 
@@ -37,7 +38,7 @@ use somebody else's thing for that as well."
 | CI status of my branch, deploy status, on-call | sidebar section | `cmux.net.fetch` with `net:<host>`, `cmux.timer.every` | Buildable now |
 | Calendar: next meeting and a Join button | sidebar section | `cmux.net.fetch`, `openBrowser` | Buildable now (needs the person's own token) |
 | Linear or Jira issues assigned to me | sidebar section | `cmux.net.fetch` | Buildable now |
-| A card in a Home chat (PR, deploy, poll) | chat bubble | `cmux.chat.widget/1` | Sample `samples/apps/pr-card` |
+| A card under an agent's tool call (PR, deploy, poll) | agent chat, under the call | `cmux.chat.widget/1` (`options.tools` names the tools it answers) | Example `examples/extensions/pr-card`; the transcript drawing lands separately |
 
 ## Hardcore: a pane of my own, a tool other people install
 
@@ -45,7 +46,7 @@ use somebody else's thing for that as well."
 |---|---|---|---|
 | Figma, Excalidraw or a dashboard as a real pane, not a browser tab | pane | `cmux.pane/1` with `render: web` | Missing: web panes are designed, not built |
 | A PR board I drag rows around in | sidebar section | `Reorderable` with drag | Missing: `Reorderable` draws, drag is not wired in either renderer (Move up/down menu entries today) |
-| A whole new tab page of my own (widgets, launchers, a search) | new tab page | a new-tab widget interface | Missing |
+| A whole new tab page of my own (widgets, launchers, a search) | pane | `cmux.pane/1`, `cmux.watch` | Template `start-page` (opens as a tab; Cmd-T still opens cmux's own New Tab page) |
 | A sidebar that replaces the workspace list | sidebar | `cmux.sidebar/1` | Designed (`plans/cmux-next/extensibility-DESIGN.md`) |
 | A palette scope: search my notes, my bookmarks, my servers | Command Palette | `cmux.palette.scope/1` | Sample `samples/apps/palette-notes` |
 | A terminal backend (SSH, a container, a cloud box) | terminals | `cmux.terminal.backend/1` | Sample `samples/apps/ssh-terminal` |

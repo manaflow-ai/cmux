@@ -361,6 +361,9 @@ jobs:
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
+          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
+          # verdict (its reds counted as the change's) instead of a cancelled job that merge_hold waits on.
+          step_started=$(date +%s)
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
@@ -379,8 +382,12 @@ jobs:
           done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
           if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
             echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
-              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
+            budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
+            if [ "$budget" -lt 60 ]; then budget=60; fi
+            timeout --kill-after=10 "$budget" \
+              scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
+              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
+              || echo "::warning::the base re-run ended early (exit $?, budget ${budget}s); a red with no base result counts as this change's"
             tail -1 "$RUNNER_TEMP/guards-base.log"
           elif [ -d .guard-base ]; then
             echo "no red step on the head; the base is not re-run"

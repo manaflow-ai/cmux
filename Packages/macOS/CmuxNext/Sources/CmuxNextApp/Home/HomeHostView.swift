@@ -27,7 +27,7 @@ import ImageIO
 @MainActor
 final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
-    private let message = ChromeLabel(labelWithString: "")
+    private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which
     /// toggles it (Chief conversation only).
@@ -326,7 +326,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
@@ -357,7 +357,7 @@ final class HomeHostView: NSView {
         let reveal = services.launchReveal
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
-            await binding.opened()
+            await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
             // A Home released before its page came (deinit cancels this) must not
             // reveal the Home that replaced it, which waits for its own page.
             guard let self, !Task.isCancelled else { return }
@@ -367,14 +367,6 @@ final class HomeHostView: NSView {
         }
         wantsLayer = true
         clipsToBounds = true
-        message.alignment = .center
-        // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
-        message.maximumNumberOfLines = 0
-        message.lineBreakMode = .byWordWrapping
-        message.wraps = true
-        message.stringValue = HomeStrings.unavailable
-        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
-        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
@@ -436,11 +428,7 @@ final class HomeHostView: NSView {
     override func layout() {
         super.layout()
         transcript.frame = bounds
-        let inset: CGFloat = 24
-        let width = max(0, bounds.width - 2 * inset)
-        message.preferredMaxLayoutWidth = width
-        let height = ceil(message.size(forWidth: width).height)
-        message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        message.place(in: bounds)
     }
 
     /// The name pill's click (or `home.toggleChiefSettings`): the Chief's settings open under the pill, or

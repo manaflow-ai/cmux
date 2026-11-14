@@ -6,7 +6,7 @@ import CmuxNextTestSupport
 import Testing
 
 /// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
-/// 28 pt strip with 24 pt tabs, the icon 8 pt in and 6 pt from the title. The tighter strip of
+/// 28 pt strip with 24 pt tabs, the icon as far in as from the pill's top and 6 pt from the title. The tighter strip of
 /// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
 /// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
 /// and still take a click.
@@ -17,7 +17,10 @@ import Testing
         let cell = try #require(strip.cells[TabID("tab1")])
         #expect(strip.bounds.height == 28, "the strip is \(strip.bounds.height) pt")
         #expect(cell.frame.height == 24, "a tab is \(cell.frame.height) pt")
-        #expect(strip.metrics.contentLeadingInset == 8, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
+        // As far in as the icon sits from the pill's top, plus the glyphs' optical room (TabIconEvenInsetTests).
+        let iconTop = (cell.frame.height - strip.metrics.iconSize) / 2
+        #expect(strip.metrics.contentLeadingInset > iconTop && strip.metrics.contentLeadingInset <= iconTop + Metrics.space1,
+                "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in, \(iconTop) pt from the top")
         #expect(strip.metrics.iconTitleSpacing == 6, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
     }
 

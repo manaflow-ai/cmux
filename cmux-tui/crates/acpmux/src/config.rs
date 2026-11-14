@@ -2,11 +2,51 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub const V2_SURFACES: [&str; 5] = ["books", "list", "chat", "peers", "start"];
+
+/// The opt-in v2 surfaces. Unknown names are intentionally ignored so a newer
+/// config remains readable by an older daemon.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(transparent)]
+pub struct V2Surfaces(pub Vec<String>);
+
+impl V2Surfaces {
+    pub fn enabled(&self) -> BTreeSet<&str> {
+        let mut known = BTreeSet::new();
+        for name in &self.0 {
+            if V2_SURFACES.contains(&name.as_str()) {
+                known.insert(name.as_str());
+            } else {
+                log_unknown_surface(name);
+            }
+        }
+        if known.contains("chat") || known.contains("start") {
+            known.insert("books");
+        }
+        known
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+fn log_unknown_surface(name: &str) {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    if let Ok(mut names) = seen.lock()
+        && names.insert(name.to_owned())
+    {
+        tracing::warn!(surface = name, "ignoring unknown acpmux.v2 surface");
+    }
+}
 
 /// Set the state directory for this process, below `ACPMUX_HOME` in
 /// precedence. A host binary uses it to keep a tagged build's daemon apart
@@ -1379,6 +1419,9 @@ impl ContextOverrides {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
+    /// Opt-in agent service v2 surfaces (`books`, `list`, `chat`, `peers`, `start`).
+    #[serde(rename = "acpmux.v2", default, skip_serializing_if = "V2Surfaces::is_empty")]
+    pub acpmux_v2: V2Surfaces,
     #[serde(default)]
     #[serde(alias = "agents")]
     pub harnesses: BTreeMap<String, HarnessProfile>,

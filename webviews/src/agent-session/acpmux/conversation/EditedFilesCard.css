@@ -83,11 +83,13 @@ div.acpmux-edited {
 .acpmux-edited-summary-link > svg {
   flex: none;
 }
-.acpmux-edited-summary:hover .acpmux-edited-summary-counts,
+.acpmux-edited-head:hover .acpmux-edited-summary-counts,
+.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-counts,
 .acpmux-edited-summary:focus-visible .acpmux-edited-summary-counts {
   opacity: 0;
 }
-.acpmux-edited-summary:hover .acpmux-edited-summary-link,
+.acpmux-edited-head:hover .acpmux-edited-summary-link,
+.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-link,
 .acpmux-edited-summary:focus-visible .acpmux-edited-summary-link {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);

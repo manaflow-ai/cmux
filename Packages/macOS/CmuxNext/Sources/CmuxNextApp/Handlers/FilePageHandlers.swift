@@ -36,7 +36,7 @@ enum FilePageHandlers {
                 pages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
                 // The file changed after the draft: say so; the draft stays unsaved changes.
                 if restore.conflict, let window = services.windowController(showing: pane)?.window ?? pane.view.window {
-                    _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)",
+                    _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)", kind: "file-recovery-conflict",
                                                               message: FilePageStrings.restoreConflict(restore.url.lastPathComponent),
                                                               duration: .seconds(12)), in: window)
                 }

@@ -91,6 +91,11 @@ path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_tui_fat_warm_target.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones) and wrap their builds in machine-channel-warm-target.sh restore/record, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_cmux_tui_latest_acpmux.py"
 lane = "linux-guard"
 
@@ -483,6 +488,10 @@ path = "tests/test_ci_r2_storage_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_recovery_runs_after_a_timeout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_relay_deploy_plan.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/relay_deploy_plan.py (the carrier relay deploy's ordering and migration-approval rules) on a throwaway git history; run python3 tests/test_ci_relay_deploy_plan.py yourself after changing it or cloudflare-relay.yml's plan (about 1 s, no build)."
@@ -638,6 +647,10 @@ path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_step_table.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_swift_packages_linux_cache.py"
 lane = "linux-guard"
 
@@ -744,6 +757,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflows_pin_no_fleet_pool.py"
 lane = "linux-guard"
 
 [[test]]

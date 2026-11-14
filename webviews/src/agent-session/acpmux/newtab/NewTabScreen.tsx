@@ -28,7 +28,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -40,7 +40,7 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -85,12 +85,12 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
   type CreateKind,
   type ScreenRow,
-  searchWords,
   arrowStep,
   stripStep,
 } from "./screenModel";
@@ -108,7 +108,7 @@ import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerP
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
-import { PromptFocus } from "../promptFocus";
+import { PromptFocusProvider } from "../promptFocus";
 import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
@@ -127,6 +127,7 @@ import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
+  insertsText,
   returnPicks,
   shownName,
   slashMatches,
@@ -397,7 +398,7 @@ export function NewTabScreen(props: Props) {
   // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
   // the person typed; until then it is the prompt's (projectNameFrom).
   const [newProject, setNewProject] = useState<{ name?: string }>();
-  const [newProjectError, setNewProjectError] = useState<string>();
+  const [newProjectError, setNewProjectError] = useState<{ reason?: string }>();
   const newProjectPending = useRef(false);
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
@@ -956,7 +957,7 @@ export function NewTabScreen(props: Props) {
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       requestAnimationFrame(() => field.current?.focus());
       return;
     }
@@ -1805,7 +1806,9 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
-  const [worktreeError, setWorktreeError] = useState<string>();
+  /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
+  /// environment's send goes again from the field, where its prompt stays).
+  const [worktreeError, setWorktreeError] = useState<{ retry?: () => void }>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
@@ -1840,7 +1843,8 @@ export function NewTabScreen(props: Props) {
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Worktree failed", error);
+        setWorktreeError({});
       },
     );
   }
@@ -1873,13 +1877,15 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         newProjectPending.current = false;
         created.current = false;
-        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Project failed", error);
+        const reason = error instanceof NewProjectUnsupported ? error.message : knownRefusalText(error);
+        if (current()) setNewProjectError(reason ? { reason } : {});
       },
     );
   }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
-      ? (cwd: string) => {
+      ? function newWorktreeHere(cwd: string) {
           setWorktreeError(undefined);
           const choice = ++projectChoice.current;
           void props.onNewWorktree!(cwd).then(
@@ -1887,8 +1893,8 @@ export function NewTabScreen(props: Props) {
               if (folder && choice === projectChoice.current) pickProject(folder);
             },
             (error: unknown) => {
-              if (choice === projectChoice.current)
-                setWorktreeError((error instanceof Error && error.message) || String(error));
+              console.warn("agent pane: New Worktree failed", error);
+              if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
             },
           );
         }
@@ -2187,7 +2193,7 @@ export function NewTabScreen(props: Props) {
   const focusField = () => field.current?.focus();
   const placed = new Set(field.current?.inlineIds() ?? inlineTokenIds(text));
   const composerCard = (
-    <PromptFocus value={focusField}>
+    <PromptFocusProvider focus={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -2229,9 +2235,17 @@ export function NewTabScreen(props: Props) {
             onDismiss={() => setStartError(undefined)}
           />
         )}
-        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {worktreeError && (
+          <WorktreeFailure
+            {...(worktreeError.retry ? { onRetry: worktreeError.retry } : {})}
+            onDismiss={() => setWorktreeError(undefined)}
+          />
+        )}
         {newProjectError && (
-          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+          <NewProjectFailure
+            {...(newProjectError.reason ? { reason: newProjectError.reason } : {})}
+            onDismiss={() => setNewProjectError(undefined)}
+          />
         )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
@@ -2439,7 +2453,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </PromptFocus>
+    </PromptFocusProvider>
   );
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.

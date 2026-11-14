@@ -308,6 +308,6 @@ public nonisolated enum SidebarTunables {
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
-        ] + SidebarSectionTunables.all
+        ] + SidebarSectionTunables.all + SidebarRowTuning.all
     }
 }

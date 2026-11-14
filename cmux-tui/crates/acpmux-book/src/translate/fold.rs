@@ -91,6 +91,7 @@ pub(super) struct Fold {
     since_work: Vec<Run>,
     last_reply: Vec<Run>,
     steers: Vec<Vec<Run>>,
+    extras: Vec<Run>,
     pub dropped_steers: u64,
 }
 impl Fold {
@@ -118,6 +119,21 @@ impl Fold {
         self.takeaway.clear();
         self.since_work.clear();
     }
+    pub fn extra(&mut self, id: u64) {
+        if let Some(last) = self.extras.last_mut()
+            && last.1.saturating_add(1) == id
+        {
+            last.1 = id;
+            return;
+        }
+        if self.extras.len() == 64 {
+            if let Some(last) = self.extras.last_mut() {
+                last.1 = id;
+            }
+            return;
+        }
+        self.extras.push(Run(id, id));
+    }
     pub fn forget(&mut self, runs: &[Run]) {
         let contains = |id: u64| runs.iter().any(|r| r.0 <= id && id <= r.1);
         for list in [&mut self.takeaway, &mut self.since_work, &mut self.last_reply] {
@@ -127,6 +143,7 @@ impl Fold {
     }
     pub fn out(&self) -> Vec<Run> {
         let mut out: Vec<_> = self.steers.iter().flatten().copied().collect();
+        out.extend(self.extras.iter().copied());
         out.extend(if self.since_work.is_empty() { &self.takeaway } else { &self.since_work });
         out.sort_by_key(|r| r.0);
         let mut merged: Vec<Run> = Vec::new();

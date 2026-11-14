@@ -41,13 +41,17 @@ let fallback: ComposerLook = DEFAULT_COMPOSER_LOOK;
 let shown: ComposerLook | undefined;
 const listeners = new Set<() => void>();
 
-function current(): ComposerLook {
-  if (shown) return shown;
+/// The look the viewer chose (storage's, else the page's copy), under any gallery stage's shown one.
+export function savedComposerLook(): ComposerLook {
   try {
     return globalThis.localStorage ? parse(globalThis.localStorage.getItem(KEY)) : fallback;
   } catch {
     return fallback;
   }
+}
+
+function current(): ComposerLook {
+  return shown ?? savedComposerLook();
 }
 
 function subscribe(listener: () => void) {

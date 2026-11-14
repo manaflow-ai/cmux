@@ -70,6 +70,7 @@ final class SettingsPageProvider: PageProvider {
     /// Open Ghostty Config: the file of the first override in cmux's editor at its line; false when
     /// it did not open (Finder then shows the file).
     var openThemeOverride: (@MainActor (GhosttyColorOverride) -> Bool)?
+    var openThemeFile: SettingsThemeFileOpener? // Open Theme File; nil in tests without an app.
     /// The backgrounds folder and its image picker (`cmux.settings.backdrop.choose_image`).
     var backdropImages: SettingsBackdropImages?
     /// Browse more art: the museum search's results for this page.
@@ -125,7 +126,7 @@ final class SettingsPageProvider: PageProvider {
     /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
     func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
                _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
-        let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        let refusal = Self.personOnly
         if on {
             guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
                   personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw refusal }
@@ -195,14 +196,12 @@ final class SettingsPageProvider: PageProvider {
             // Off only narrows, so it needs no gesture and takes any input.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else {
-                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-                }
+                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly }
             }
             let write = try Self.host(setJoinConsent, "devices")
             return try await wideningGate.setWithoutConfirmation(
                 "joinConsent \(surface)", on: on,
-                refusal: PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+                refusal: Self.personOnly
             ) { value in await write(surface, value) }.map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
@@ -239,9 +238,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.theme.overrides.release":
             // Let Themes Set Colors: comments out the lines in the person's Ghostty files. The host
             // names the lines from the applied config; the page names no file.
-            guard Self.writer(context) == .user else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
+            guard Self.writer(context) == .user else { throw Self.personOnly }
             let current = try Self.host(themeOverrides, "theme overrides")
             // An earlier file (an include) can set the same color: after a reload it is the one in
             // effect, so turn that off too, a bounded number of rounds.
@@ -254,18 +251,19 @@ final class SettingsPageProvider: PageProvider {
                     guard !files.isEmpty else { break }
                     changed.formUnion(files)
                 } catch {
-                    throw PageError(code: "cmux.settings.theme.overrides_failed", message: error.localizedDescription)
+                    throw PageError.failed(error, code: "cmux.settings.theme.overrides_failed")
                 }
                 reloadGhosttyConfig()
             }
             return ["files": .number(Double(changed.count))]
         case "cmux.settings.theme.overrides.open":
-            guard Self.writer(context) == .user else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
+            guard Self.writer(context) == .user else { throw Self.personOnly }
             guard let first = try Self.host(themeOverrides, "theme overrides")().first else { return .object([:]) }
             if openThemeOverride?(first) != true { NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: first.file)]) }
             return .object([:])
+        case "cmux.settings.theme.file.open":
+            guard Self.writer(context) == .user else { throw Self.personOnly }
+            return try await Self.host(openThemeFile, "theme file").open()
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
@@ -470,6 +468,7 @@ final class SettingsPageProvider: PageProvider {
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
         PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
     }
+    static var personOnly: PageError { PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) } // an agent's person-only op
 
     func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
         do {

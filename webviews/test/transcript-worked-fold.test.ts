@@ -6,7 +6,7 @@
 // notes (or that stopped mid-tool) has no answer.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { toggleTurnFold, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, turnViewFrom, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
 import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 
@@ -20,7 +20,8 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const tool = (id: string, kind = "read") =>
   row(id, "activity", { items: [{ kind: "tool", text: "", tool: { id, title: id, kind, status: "completed" } }] });
-const text = (id: string) => row(id, "assistant", { text: id });
+// Progress fixtures contain actual narration, rather than an id that could be a short answer.
+const text = (id: string) => row(id, "assistant", { text: id.startsWith("interim") ? "Let me check the files." : id });
 /// A reply longer than a short interim note (turns.ts SHORT_NOTE_CHARS).
 const reply = (id: string) =>
   row(id, "assistant", {

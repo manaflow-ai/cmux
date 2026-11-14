@@ -150,7 +150,7 @@
   height: var(--find-pill-button);
   padding: 0;
   border: 0;
-  border-radius: calc(var(--find-pill-button) / 2);
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
 }

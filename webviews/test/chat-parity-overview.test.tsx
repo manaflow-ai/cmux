@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Overview, OVERVIEW_PREVIEW_LIMIT, scenarioHref } from "../src/gallery/parity/Overview";
 import { SCENARIOS, scenarioFrame } from "../src/gallery/parity/scenarios";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -87,6 +88,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);
@@ -134,7 +136,11 @@ test("overview links open the requested interactive scenario in the fixed dark v
   expect(links).toHaveLength(SCENARIOS.length);
   for (let index = 0; index < links.length; index += 1) {
     const url = new URL(links[index]!.href);
-    expect(url.searchParams.get("scenario")).toBe(SCENARIOS[index]!.id);
+    const id = links[index]!.closest("article")!
+      .querySelector<HTMLElement>("[data-parity-preview]")!
+      .getAttribute("data-parity-preview");
+    expect(SCENARIOS.some((scenario) => scenario.id === id)).toBe(true);
+    expect(url.searchParams.get("scenario")).toBe(id);
     expect(url.searchParams.get("view")).toBeNull();
     expect(url.searchParams.get("appearance")).toBe("dark");
     expect(url.searchParams.get("width")).toBe("760");

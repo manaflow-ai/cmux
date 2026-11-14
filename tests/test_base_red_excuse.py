@@ -1027,6 +1027,67 @@ class PortableGhLog(unittest.TestCase):
         self.assertTrue(text.endswith("tail\n"))
 
 
+class AgentApiUnavailable(unittest.TestCase):
+    """The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one
+    `agent.api-unavailable {json}` marker when the CLI's result showed the API never served it. That red is the shared
+    account's, not the PR's, but only for the marker with zero recorded API usage, on the agent pass step alone. Gate
+    run 43637095919 (job 132576237860): the weekly limit, duration_api_ms 0, no tokens, on every PR."""
+
+    NAME, STEP = "Reviewer path (appstore, ipad)", "Agent reviewer pass"
+    EVIDENCE = {"message": "agent pass: API unavailable (rate limited)", "duration_api_ms": 0, "input_tokens": 0,
+                "api_error_status": 429, "api_error_type": "rate_limit_error", "api_error": "usage_limit_reached",
+                "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1}
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
+        self.gh.logs[2] = log(self.NAME, self.STEP, "##[error]agent reviewer pass: the agent wrote a verdict without "
+                              "one screenshot of the app", "##[error]Process completed with exit code 1.")
+
+    def head(self, *errors):
+        self.gh.logs[1] = log(self.NAME, self.STEP, "agent pass: retrying", *errors,
+                              "##[error]Process completed with exit code 1.")
+
+    def marker(self, **changes):
+        return "##[error]agent.api-unavailable " + json.dumps(dict(self.EVIDENCE, **changes), separators=(",", ":"))
+
+    def judged(self) -> str:
+        try:
+            return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+        except excuse.Refused as why:
+            return f"refused: {why}"
+
+    def test_a_zero_usage_marker_is_not_this_prs_red(self):
+        self.head(self.marker())
+        text = self.judged()
+        self.assertIn(f"excused '{self.NAME}': not this PR (agent API unavailable)", text)
+        self.assertIn("duration_api_ms=0", text)
+        self.assertIn("resets Nov 18 at 3am (UTC)", text)
+
+    def test_a_marker_with_api_usage_stays_the_prs(self):
+        for changes in ({"input_tokens": 5200}, {"duration_api_ms": 41000}, {"input_tokens": None},
+                        {"duration_api_ms": False}):
+            self.head(self.marker(**changes))
+            self.assertNotIn("agent API unavailable", self.judged(), changes)
+
+    def test_failure_text_without_the_marker_stays_the_prs(self):
+        for line in ("##[error]agent reviewer pass: You've hit your weekly limit · resets Nov 18 at 3am (UTC)",
+                     "##[error]agent reviewer pass: agent pass: API unavailable (rate limited): duration_api_ms=0",
+                     "##[error]rate limit: agent.api-unavailable " + json.dumps(self.EVIDENCE)):
+            self.head(line)
+            self.assertNotIn("agent API unavailable", self.judged(), line)
+
+    def test_the_marker_beside_another_red_stays_the_prs(self):
+        self.head(self.marker(), "##[error]agent reviewer pass: the agent wrote a verdict without one screenshot")
+        self.assertNotIn("agent API unavailable", self.judged())
+        # Or another step of the job failed too: the walk itself is judged, not set aside.
+        self.gh.jobs[1]["steps"].insert(2, {"name": "Walk the reviewer path on ipad", "status": "completed",
+                                            "conclusion": "failure"})
+        self.head(self.marker())
+        self.assertNotIn("agent API unavailable", self.judged())
+
+
 class Excusing(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
@@ -1057,6 +1118,22 @@ class Excusing(unittest.TestCase):
         self.gh.base_runs.append({"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
                                   "conclusion": "success", "head_sha": "c" * 40, "created_at": "2026-11-04T11:00:00Z"})
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 22"):
+            self.judge()
+
+    def test_a_red_job_in_a_base_run_that_reads_green_is_still_red(self):
+        # hq#10319 row 4 (cmux#42047): a fallback job can turn a base run's conclusion green while the job the head
+        # failed is red in it. The verdict is that job's conclusion, never the run's.
+        self.gh.base_runs[1]["conclusion"] = "success"
+        text = "\n".join(self.judge())
+        self.assertIn("excused", text)
+        self.assertIn("run 20", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
+
+    def test_a_green_job_in_a_base_run_that_reads_red_is_still_green(self):
+        # The other way round: a base run red for another job's sake is no red for this one.
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
             self.judge()
 
     def test_a_failure_not_on_the_base_blocks(self):
@@ -2685,6 +2762,15 @@ class BaseRedWindow(unittest.TestCase):
         self.assertNotIn(28, self.reads)
         self.assertNotIn(29, self.reads)
 
+    def test_a_red_job_in_a_run_that_reads_green_stays_in_the_window(self):
+        # hq#10319 row 4 (cmux#42047): run 29's conclusion is green (a fallback job), its job red: the job is a red
+        # verdict in the window, not a pass that ends it.
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        self.gh.base_runs[-1]["conclusion"] = "success"
+        text = self.judge()
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
+
     def test_a_test_red_only_outside_the_window_is_the_heads(self):
         for offset in range(excuse.BASE_WINDOW):
             self.base(30 - offset, 12 - offset)
@@ -3158,6 +3244,26 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         gh = WebReplayGitHub()
         del gh.jobs[3]
         with self.assertRaisesRegex(excuse.Refused, "no head shard 'web / react-apps-check \\(4\\)'"):
+            self.judge(gh)
+
+    def test_the_one_job_replay_reads_its_tests_errors_from_every_head_shard(self):
+        # cmux#42540: react-apps-base-check is one job for all head shards, named with no (N).
+        gh = WebReplayGitHub()
+        one = "web / react-apps-base-check"
+        gh.jobs[1] = web_job(1, 10, HEAD, one)
+        gh.jobs[2] = web_job(2, 10, HEAD, "web / react-apps-check (1)", "success")
+        gh.logs[2] = web_log((FOOTER, [("rests flat", CAPSULE_ERROR, 9)]))
+        read, log = [], gh.log
+
+        def reading(repo, job):
+            read.append(job["id"])
+            return log(repo, job)
+
+        gh.log = reading
+        self.assertIn(f"excused '{one}'", self.judge(gh))
+        self.assertLessEqual({2, 3}, set(read))
+        del gh.jobs[2], gh.jobs[3]
+        with self.assertRaisesRegex(excuse.Refused, "no head shard 'web / react-apps-check \\(N\\)'"):
             self.judge(gh)
 
     def test_an_unreadable_base_log_is_its_own(self):
@@ -7037,6 +7143,91 @@ class WsCheckSquashTree(unittest.TestCase):
             excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
+class WsCheckMirrorRefresh(unittest.TestCase):
+    """A head neither this host's mirror nor the cache has is fetched into the mirror before it is refused: through
+    `lane-gh fetch` (by branch name) on a host with lane-gh and no GitHub token, else git's own fetch. Only when that
+    fails too is it refused, and the refusal names the exact fetch to run. Before, it refused "git cannot read ...
+    commit (not in this host's mirror or cache, and its fetch failed)" until someone ran that fetch by hand."""
+    REPO = WsCheckSquashTree.REPO
+    IDENTITY = WsCheckSquashTree.IDENTITY
+    git = WsCheckSquashTree.git
+    commit = WsCheckSquashTree.commit
+    squashed = WsCheckSquashTree.squashed
+
+    # A stand-in for lane-gh: records its argv, then fills --dir from the fixture origin by branch, as the broker does.
+    FAKE_LANE_GH = """#!/usr/bin/env python3
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_LANE_GH_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\\n")
+if os.environ.get("FAKE_LANE_GH_FAIL"):
+    sys.exit("lane-gh: fetch refused: the broker is down")
+where, branches = args[args.index("--dir") + 1], [args[i + 1] for i, a in enumerate(args) if a == "--branch"]
+subprocess.run(["git", "--git-dir", where, "fetch", "-q", os.environ["FAKE_LANE_GH_ORIGIN"],
+                *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in branches)], check=True)
+"""
+
+    def setUp(self):
+        WsCheckSquashTree.setUp(self)
+        self.git("checkout", "-q", "-b", "late", self.old)
+        self.late = self.commit({"tools/a.py": "late\n"}, "pushed after the mirror's last fetch")
+        self.mirror = self.top / "mirrors" / "teamleaderleo" / "leo-workspace.git"
+        git_fixture_env.init_repo(self.mirror, "--bare")
+        self.git("remote", "add", "origin", str(self.work), cwd=self.mirror)
+        self.git("push", "-q", str(self.mirror), "main")
+        bin_dir = self.top / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "lane-gh").write_text(self.FAKE_LANE_GH, encoding="utf-8")
+        (bin_dir / "lane-gh").chmod(0o755)
+        self.log = self.top / "lane-gh.log"
+        missing = str(self.top / "missing.git")
+        for patch in (unittest.mock.patch.dict(os.environ, {
+                          "GH_MIRROR_ROOT": str(self.top / "mirrors"), "FAKE_LANE_GH_LOG": str(self.log),
+                          "FAKE_LANE_GH_ORIGIN": str(self.work),
+                          "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}),
+                      unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing),
+                      unittest.mock.patch.object(excuse, "github_token", lambda: None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def fetched(self):
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] \
+            if self.log.exists() else []
+
+    def lane_gh_fetch(self):
+        return ["fetch", self.REPO, "--dir", str(self.mirror), "--branch", "late", "--branch", "main"]
+
+    def test_a_head_the_mirror_lacks_is_read_after_the_lane_broker_fetch(self):
+        self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.late, self.tip, lambda: ["late", "main"]),
+                         self.squashed(self.late, self.tip))
+        self.assertEqual(self.fetched(), [self.lane_gh_fetch()])
+
+    def test_a_failed_refresh_is_refused_naming_the_exact_fetch(self):
+        # No branch named (no pull request found): lane-gh fetches the repo's bases.
+        with unittest.mock.patch.dict(os.environ, {"FAKE_LANE_GH_FAIL": "1"}), \
+                self.assertRaises(excuse.Refused) as caught:
+            excuse.ws_check_squash_tree(self.REPO, self.late, self.tip)
+        said = str(caught.exception)
+        self.assertIn(f"`lane-gh fetch {self.REPO} --dir {self.mirror}` did not bring it", said)
+        self.assertIn("the broker is down", said)
+        self.assertIn("run that fetch, then judge again", said)
+        self.assertEqual(self.fetched(), [["fetch", self.REPO, "--dir", str(self.mirror)]])
+
+    def test_with_a_token_git_fetches_the_branch_into_the_mirror(self):
+        with unittest.mock.patch.object(excuse, "github_token", lambda: "token"):
+            self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.late, self.tip),
+                             self.squashed(self.late, self.tip))
+        self.assertEqual(self.fetched(), [])  # git's own fetch of the mirror's branches, not the broker
+        self.assertEqual(self.git("rev-parse", "refs/remotes/origin/late", cwd=self.mirror), self.late)
+
+    def test_the_tested_tree_check_fetches_the_pull_request_branch_github_names(self):
+        github = unittest.mock.Mock()
+        github.json.return_value = [{"head": {"sha": self.late, "ref": "late", "repo": {"full_name": self.REPO}}}]
+        excuse.ws_check_tested_tree(self.REPO, "main", self.late,
+                                    {"run": "7", "tree": self.squashed(self.late, self.tip)}, self.tip, github)
+        self.assertEqual(self.fetched(), [self.lane_gh_fetch()])
+
+
 class WsCheckFixedOnBase(unittest.TestCase):
     """2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
     green on main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red,
@@ -7214,6 +7405,99 @@ class SweepGitHub(FakeGitHub):
                                 checks=[self.STATUS])
         except excuse.Refused as why:
             return f"refused: {why}"
+
+
+class TreeReuseGitHub(FakeGitHub):
+    """cmux#42047 at 69e5e634 (2026-11-13): its red 'build / build x86_64-apple-darwin' (head run 10) and base run 20,
+    whose same job failed the same way, behind more than BASE_JOB_READS newer base runs of the workflow that reuse a
+    published tree and run no Mac build at all. NODES: whether GraphQL answers a `nodes` root field (a token host) or
+    refuses it as an agent host's GitHub broker does, so the suites are read by commit."""
+
+    MAC = "build / build x86_64-apple-darwin"
+    NEWER = excuse.BASE_JOB_READS + 11  # 51 such runs landed between run 20 and the refusal
+
+    def __init__(self, *, nodes: bool, base_conclusion: str = "failure"):
+        super().__init__()
+        self.nodes, self.graphql = nodes, []
+        for job in self.jobs.values():
+            job["name"] = self.MAC
+        self.jobs[2]["conclusion"] = base_conclusion
+        if base_conclusion == "success":
+            self.jobs[2]["steps"][2]["conclusion"] = "success"
+        self.logs = {1: log(self.MAC, TEST_STEP, ISSUE), 2: log(self.MAC, TEST_STEP, ISSUE)}
+        newer = []
+        for n in range(self.NEWER):
+            run, sha = 100 + n, f"{n:040x}"
+            newer.append({"id": run, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                          "conclusion": "success", "head_sha": sha, "check_suite_node_id": f"CS_{run}",
+                          "created_at": f"2026-11-12T23:{59 - n:02d}:00Z"})
+            self.jobs[1000 + n] = dict(failed_job(1000 + n, run, sha, name="cmux-tui tree preflight"),
+                                       conclusion="success")
+        self.base_runs = newer + [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                   "conclusion": "success", "head_sha": BASE_SHA, "check_suite_node_id": "CS_20",
+                                   "created_at": "2026-11-12T22:08:04Z"}]
+
+    def checks(self, run: int, name: str) -> dict:
+        return {"pageInfo": {"hasNextPage": False}, "nodes": [
+            {"conclusion": job["conclusion"].upper()} for job in self.jobs.values()
+            if job["run_id"] == run and job["name"] == name]}
+
+    def run(self, args):
+        assert args[:2] == ["api", "graphql"], args
+        query = next(arg for arg in args if arg.startswith("query="))
+        self.graphql.append(query)
+        if "nodes(ids:" in query:
+            if not self.nodes:
+                raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
+                                     "refused: graphql: root field nodes is refused")
+            name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+            return json.dumps({"data": {"nodes": [{"id": f"CS_{run}", "checkRuns": self.checks(int(run), name)}
+                                                  for run in re.findall(r'"CS_(\d+)"', query)]}})
+        assert "owner=manaflow-ai" in args and "name=cmux" in args, args
+        name = next(arg for arg in args if arg.startswith("check="))[len("check="):]
+        commits = {}
+        for alias, sha in re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query):
+            commits[alias] = {"checkSuites": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"id": run["check_suite_node_id"], "checkRuns": self.checks(run["id"], name)}
+                for run in self.base_runs if run["head_sha"] == sha]}}
+        return json.dumps({"data": {"repository": commits}})
+
+    def job_reads(self) -> list[int]:
+        return sorted(int(route.split("/actions/runs/", 1)[1].split("/", 1)[0]) for route in self.routes
+                      if route.endswith("/jobs?filter=latest&per_page=100"))
+
+
+class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
+    """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
+    BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
+
+    def judge(self, gh):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+
+    def test_the_base_run_behind_the_tree_reuse_runs_excuses_the_red(self):
+        for nodes in (True, False):
+            with self.subTest(nodes=nodes):
+                gh = TreeReuseGitHub(nodes=nodes)
+                said = "\n".join(self.judge(gh))
+                print(f"\nseeded (nodes={'answered' if nodes else 'refused'}): {said}")
+                self.assertIn(f"excused '{TreeReuseGitHub.MAC}'", said)
+                self.assertIn("run 20", said)
+                self.assertEqual([run for run in gh.job_reads() if run != 10], [20])  # one base job list read
+                self.assertLessEqual(len(gh.graphql), 4)  # 52 suites, 25 a request (plus a refused `nodes` once)
+
+    def test_a_green_base_job_there_stays_not_excused(self):
+        for nodes in (True, False):
+            with self.subTest(nodes=nodes):
+                with self.assertRaisesRegex(excuse.Refused, f"'{re.escape(TreeReuseGitHub.MAC)}'.*not red on "
+                                                            "feat-cmux-next run 20"):
+                    self.judge(TreeReuseGitHub(nodes=nodes, base_conclusion="success"))
+
+    def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
+        gh = TreeReuseGitHub(nodes=True)
+        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(gh)
+        self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
 
 class SweepLimit(unittest.TestCase):
@@ -10054,7 +10338,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed", "compile_errors_verdict"})
+    "owned_unnamed", "cited_red", "compile_errors_verdict"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -10073,6 +10357,8 @@ RAW_LOG_READERS = {
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
+    "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
+                             "nothing",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
     "gallery_crash_verdict": "compares gallery health artifacts, per state, never log lines",
@@ -12745,6 +13031,341 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         self.assertNotIn("does not map one to one", str(said.exception))
 
 
+class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
+    """Two shapes lanes hit on 2026-11-11, from the real jobs (trimmed to their step headers, groups, runner lines and
+    failure lines, stamps as served; the workflows' steps at the jobs' commits, each script cut to its first line).
+
+    1. step_owners left a base log unplaced, so every red of its job was refused with "feat-cmux-next run 43082766736's
+       log does not map one to one onto its steps (step_owners), so no base line can be told to a failed step; nothing
+       is compared": base's tip "cmux-next swift test" (job 130740086032, at b4b61d66), red on the ~26 macOS app tests
+       iOS-only cmux#41243 and #41209 fail too. Its step "Restore the web bundles from R2" uses a local composite that
+       uses an action "Set up job" never downloaded, so the runner prints `Prepare all required actions`, `Getting action
+       download info` and `Download action repository 'WarpBuilds/cache@...'` at 19:01:08-10, in that step's times,
+       before its `##[group]Run ./.github/actions/cache-restore` header at 19:01:10, and _aligned_starts read them as
+       the step before's, which ended at 19:01:08 (RUNNER_PREAMBLE).
+    2. The checks job of cmux#40455 at a199e5e0 (job 130738392124, run 43082472988) was refused citing its first
+       `##[error]`, './scripts/lint-ios-package-conventions.sh', from the warn-only Package conventions lint (a
+       continue-on-error step: ERRORED), where the job was red for 'red check: Check the app FFI pin' (cited_red)."""
+
+    PATHS = {**WorkflowHeadersPlaceRealLogs.PATHS,
+             "cmux-swift-test-43082766736": ".github/workflows/cmux-next.yml",
+             "cmux-40455-checks": ".github/workflows/cmux-next.yml"}
+    SWIFT = "cmux-swift-test-43082766736"
+    CHECKS = "cmux-40455-checks"
+    # The last line of one of the base's red shards, after which a test adds a failure in the same step.
+    SHARD_RED = "##[error]1 red tests: thePaletteRowsCloseRunsCloseWorkspace() PinnedPageTests.swift:269"
+
+    def view(self, case, side, *, base):
+        job, text = self.fixture(case, side)
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[case],
+                                           self.github(case, (job, text), (job, text)), {})
+        return excuse.failed_view(job, text, step_names=names, base=base)
+
+    def test_the_swift_test_base_log_is_placed_with_its_runner_download_lines(self):
+        for base in (True, False):
+            with self.subTest(base=base):
+                view = self.view(self.SWIFT, "base", base=base)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual([(str(view.steps[k]["name"]), status) for k, status, _ in view.sections],
+                                 [("Run package tests (changed suites first, then selected targets)", "failed"),
+                                  ("Run main-thread-heavy suites in their own process", "failed")])
+                _, tests, _ = excuse.signature(view)
+                for test in ("TabDoubleClickZoomTests", "ClassicModeRemovedTests", "HangReportingEndToEndTests"):
+                    self.assertIn(test, tests)
+
+    def test_without_the_runner_download_lines_rule_it_is_unplaced_as_reported(self):
+        # The detector: with RUNNER_PREAMBLE matching nothing (the reading before this fix) the same log is UNPLACED,
+        # the refusal the lanes quoted.
+        with unittest.mock.patch.object(excuse.steps_log, "RUNNER_PREAMBLE", re.compile(r"(?!)")):
+            self.assertIs(self.view(self.SWIFT, "base", base=True), excuse.UNPLACED)
+
+    def test_download_lines_stamped_before_the_step_they_open_place_nothing(self):
+        # The rule moves only the timing of a run of runner download lines to the step their header opens: stamped
+        # before that step started, they fit neither step, and the log is not placed.
+        job, text = self.fixture(self.SWIFT, "base")
+        moved = re.sub(r"^2026-11-11T19:01:08\.(\d+Z (?:Prepare all required actions|Getting action download info))",
+                       r"2026-11-11T19:01:05.\1", text, flags=re.M)
+        self.assertNotEqual(moved, text)
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[self.SWIFT],
+                                           self.github(self.SWIFT, (job, moved), (job, moved)), {})
+        self.assertIs(excuse.failed_view(job, moved, step_names=names, base=True), excuse.UNPLACED)
+
+    def test_a_head_red_the_same_as_the_bases_is_excused_by_step(self):
+        base = self.fixture(self.SWIFT, "base")
+        said = self.judge(self.github(self.SWIFT, base, base))
+        self.assertIn("excused 'cmux-next swift test'", said)
+        self.assertNotIn("does not map one to one", said)
+
+    def test_a_failing_test_the_head_adds_is_refused_by_name(self):
+        base = self.fixture(self.SWIFT, "base")
+        added = (base[0], self.after(base[1], self.SHARD_RED,
+                                     "✘ Test aNewHeadOnlyFailure() recorded an issue at NewTests.swift:12:5: "
+                                     "Expectation failed"))
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.SWIFT, added, base))
+        self.assertIn("aNewHeadOnlyFailure", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_the_checks_job_cites_its_red_check_never_a_warn_only_steps_error(self):
+        view = self.view(self.CHECKS, "head", base=False)
+        self.assertIsNot(view, excuse.UNPLACED)
+        statuses = {str(view.steps[k]["name"]): status for k, status, _ in view.sections}
+        self.assertEqual(statuses.get("Package conventions lint"), "errored")
+        self.assertEqual(statuses.get("Fail on any red check"), "failed")
+        with self.assertRaises(excuse.Refused) as said:
+            excuse.guard_tests(view)
+        self.assertIn("red check: Check the app FFI pin", str(said.exception))
+        self.assertNotIn("lint-ios-package-conventions", str(said.exception))
+
+    def test_with_no_red_check_line_it_cites_a_failed_steps_error(self):
+        # The same log without the rollup's `red check:` line: the failed rollup step's own error line is cited, still
+        # never the warn-only lint's.
+        job, text = self.fixture(self.CHECKS, "head")
+        cut = "\n".join(line for line in text.splitlines() if "##[error]red check: " not in line)
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[self.CHECKS],
+                                           self.github(self.CHECKS, (job, cut), (job, cut)), {})
+        view = excuse.failed_view(job, cut, step_names=names, base=False)
+        self.assertIsNot(view, excuse.UNPLACED)
+        with self.assertRaises(excuse.Refused) as said:
+            excuse.guard_tests(view)
+        self.assertIn("Process completed with exit code 1", str(said.exception))
+        self.assertNotIn("lint-ios-package-conventions", str(said.exception))
+
+
+class GeneratedFilesOfNovember14(RealShapesOfNovember11):
+    """2026-11-14: every PR's "cmux-next generated files" red was refused with "its log does not map one to one onto
+    its steps (step_owners ...); compared whole, its failing tests are not feat-cmux-next run 43606519098's", though it
+    failed exactly as that base run did (sidebar.customize, #42944: titlesUseTitleCase, countsByDomainMatchInventory,
+    exportIsFresh, reportIsFresh in the continue-on-error catalog check, everyMenuKeepsAShortTopLevel in "Regenerate
+    stale files"). cmux#43062's head job (132490831528, PR run 43608909796) prints `Prepare all required actions`,
+    `Getting action download info` and `Download action repository 'WarpBuilds/cache@...'` before "Restore the web
+    bundles from R2"'s `##[group]Run ./.github/actions/cache-restore`, stamped past the step before's end: the
+    RUNNER_PREAMBLE shape, unplaced without it. The base job (132482596302) printed the same lines inside the step
+    before's last second, so it was placed and only the head's log went unplaced. Fixtures: both jobs' steps and logs
+    trimmed to the step headers, groups, runner lines and failure lines, stamps as served; the job's workflow steps at
+    5e31c1f3 (the head's are the same)."""
+
+    PATHS = {**RealShapesOfNovember11.PATHS, "cmux-43062-generated-files": ".github/workflows/cmux-next.yml"}
+    GENERATED = "cmux-43062-generated-files"
+    SECTIONS = [("Check generated action catalog, surfaces and inventory", "errored"),
+                ("Regenerate stale files", "failed")]
+
+    def test_the_head_and_base_logs_are_placed(self):
+        for side in ("head", "base"):
+            with self.subTest(side=side):
+                view = self.view(self.GENERATED, side, base=False)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual([(str(view.steps[k]["name"]), status) for k, status, _ in view.sections],
+                                 self.SECTIONS)
+                _, tests, _ = excuse.signature(view)
+                for test in ("titlesUseTitleCase()", "countsByDomainMatchInventory()", "exportIsFresh()",
+                             "reportIsFresh()", "everyMenuKeepsAShortTopLevel()"):
+                    self.assertIn(test, tests)
+
+    def test_without_the_runner_download_lines_rule_the_head_is_unplaced_as_reported(self):
+        # The detector: the reading before RUNNER_PREAMBLE leaves the head's log unplaced, the refusal #43062 got.
+        with unittest.mock.patch.object(excuse.steps_log, "RUNNER_PREAMBLE", re.compile(r"(?!)")):
+            self.assertIs(self.view(self.GENERATED, "head", base=False), excuse.UNPLACED)
+
+    def test_the_bases_failed_regenerate_step_vouches_for_the_catalog_check(self):
+        # "Regenerate stale files" runs only when the catalog or settings check failed (gate_vouched), so the base's
+        # ERRORED catalog section is evidence: its five failing tests are the base's.
+        view = self.view(self.GENERATED, "base", base=True)
+        self.assertEqual([(str(view.steps[k]["name"]), status) for k, status, _ in view.sections], self.SECTIONS)
+        self.assertIn("titlesUseTitleCase()", excuse.signature(view)[1])
+
+    def test_without_the_gate_the_base_keeps_its_failed_step_alone(self):
+        # The detector: with no gates (the reading before gate_vouched) the base's catalog check is never evidence,
+        # and the head's catalog failures were refused as "5 failing test(s) pass ... on each of feat-cmux-next run".
+        with unittest.mock.patch.object(excuse, "_failure_gates", lambda *_: {}):
+            view = self.view(self.GENERATED, "base", base=True)
+            self.assertEqual([str(view.steps[k]["name"]) for k, _, _ in view.sections], ["Regenerate stale files"])
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge(self.github(self.GENERATED, self.fixture(self.GENERATED, "head"),
+                                       self.fixture(self.GENERATED, "base")))
+            self.assertIn("titlesUseTitleCase", str(said.exception))
+
+    def test_only_a_gate_that_needs_a_failure_vouches(self):
+        for condition, ids in (
+                ("${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && "
+                 "steps.reuse.outputs.hit != 'true' }}", {"actions", "settings"}),
+                ("steps.a.outcome == 'failure'", {"a"}),
+                ("${{ always() && steps.a.outcome == 'failure' }}", {"a"}),
+                ("(steps.a.outcome == 'failure') || (steps.b.outcome == 'failure')", {"a", "b"}),
+                # Each of these can run the step with no named check failed.
+                ("steps.a.outcome == 'failure' || always()", None),
+                ("steps.a.outcome == 'failure' && x || y", None),
+                ("!(steps.a.outcome == 'failure')", None),
+                ("steps.a.outcome != 'failure'", None),
+                ("steps.a.outcome == 'success'", None),
+                ("success()", None),
+                (None, None)):
+            with self.subTest(condition=condition):
+                self.assertEqual(excuse._gate_ids(condition), None if ids is None else frozenset(ids))
+
+    def test_unwrapped_peels_only_enclosing_parentheses_in_one_pass(self):
+        for text, peeled in (("((a || b))", "a || b"), ("( (a) )", "a"), ("(a) || (b)", "(a) || (b)"),
+                             ("(a == ')')", "a == ')'"), ("((a)", "((a)"), ("a)", "a)"), ("", "")):
+            with self.subTest(text=text):
+                self.assertEqual(excuse._unwrapped(text), peeled)
+        deep = 200_000
+        self.assertEqual(excuse._unwrapped("(" * deep + "steps.a.outcome == 'failure'" + ")" * deep),
+                         "steps.a.outcome == 'failure'")
+
+    def test_a_gate_on_a_step_that_is_not_a_continue_on_error_check_vouches_for_nothing(self):
+        steps = [{"id": "build", "run": "make"},
+                 {"name": "after", "if": "steps.build.outcome == 'failure'", "run": "echo"}]
+        api = [{"number": 1, "name": "Set up job"}, {"number": 2, "name": "Run make"},
+               {"number": 3, "name": "after"}, {"number": 4, "name": "Complete job"}]
+        self.assertEqual(excuse._failure_gates(steps, api, [None, False, True, None]), {})
+        steps[0]["continue-on-error"] = True
+        self.assertEqual(excuse._failure_gates(steps, api, [None, False, True, None]), {3: frozenset({2})})
+
+    def test_the_head_failing_as_its_base_did_is_excused_by_step(self):
+        said = self.judge(self.github(self.GENERATED, self.fixture(self.GENERATED, "head"),
+                                      self.fixture(self.GENERATED, "base")))
+        self.assertIn("excused 'cmux-next generated files'", said)
+        self.assertNotIn("does not map one to one", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_a_catalog_failure_the_head_adds_is_refused(self):
+        head = self.fixture(self.GENERATED, "head")
+        anchor = "✘ Test titlesUseTitleCase() failed after 0.734 seconds with 1 issue."
+        added = (head[0], self.after(head[1], anchor,
+                                     "✘ Test aHeadOnlyCatalogFailure() failed after 0.100 seconds with 1 issue."))
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.GENERATED, added, self.fixture(self.GENERATED, "base")))
+        self.assertIn("aHeadOnlyCatalogFailure", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+
+class RunnerDownloadLinesAreTheOpenedSteps(RealShapesOfNovember11):
+    """#41545's review F1: RUNNER_PREAMBLE moved the runner's download lines' timing to the step their header opens, but
+    step_owners still cut sections at the headers, so those lines stayed the step before's, and the one-to-one reading
+    never moved them at all: a failed step before a local composite was handed `Prepare all required actions` and
+    `Download action repository ...` as its own. Both readings now put them in the opened step's section (_lead)."""
+
+    PREAMBLE = ("Prepare all required actions", "Getting action download info", "Download action repository '")
+    BEFORE, OPENED = "Source key of the web bundles", "Restore the web bundles from R2"
+
+    def owners(self, job, text, names):
+        """{stripped line: the name of the step that owns it} for each preamble line of TEXT."""
+        steps = sorted((s for s in job["steps"] if s.get("conclusion") != "skipped"), key=lambda s: s["number"])
+        found = {}
+        for line, k, status in excuse.step_owners(job, text, step_names=names):
+            said = excuse.lines_of(line)[0] if line.strip() else ""
+            if said.startswith(self.PREAMBLE):
+                self.assertIsNotNone(k, line)
+                found.setdefault(said, []).append((str(steps[k]["name"]), status))
+        return found
+
+    def names(self, case, job, text):
+        return excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[case],
+                                          self.github(case, (job, text), (job, text)), {})
+
+    def earlier_step_failed(self):
+        """The real base log with the step before the composite failed: its own `##[error]` exit line in its times,
+        and the jobs API saying failure."""
+        job, text = self.fixture(self.SWIFT, "base")
+        job = copy.deepcopy(job)
+        for step in job["steps"]:
+            if step["name"] == self.BEFORE:
+                step["conclusion"] = "failure"
+        anchor = "2026-11-11T19:01:08.7658890Z Prepare all required actions"
+        self.assertIn(anchor, text)
+        text = text.replace(anchor, "2026-11-11T19:01:08.5000000Z ##[error]Process completed with exit code 1.\n"
+                            + anchor, 1)
+        return job, text
+
+    def test_the_real_logs_download_lines_are_the_composites_step(self):
+        job, text = self.fixture(self.SWIFT, "base")
+        owners = self.owners(job, text, self.names(self.SWIFT, job, text))
+        warp = [said for said in owners if "WarpBuilds/cache" in said]
+        self.assertEqual(len(warp), 1)
+        self.assertEqual({name for name, _ in owners[warp[0]]}, {self.OPENED})
+
+    def test_a_failed_step_before_the_composite_is_never_given_its_download_lines(self):
+        job, text = self.earlier_step_failed()
+        names = self.names(self.SWIFT, job, text)
+        view = excuse.failed_view(job, text, step_names=names, base=True)
+        self.assertIsNot(view, excuse.UNPLACED)
+        sections = {str(view.steps[k]["name"]): lines for k, _, lines in view.sections}
+        self.assertIn(self.BEFORE, sections)
+        self.assertTrue(any("Process completed with exit code 1." in line for line in sections[self.BEFORE]))
+        for line in sections[self.BEFORE]:
+            self.assertFalse(excuse.lines_of(line)[0].startswith(self.PREAMBLE), line)
+        for said, owned in self.owners(job, text, names).items():
+            if "WarpBuilds/cache" in said or said in self.PREAMBLE[:2]:
+                self.assertNotIn(self.BEFORE, {name for name, _ in owned}, said)
+
+    def test_without_the_lead_the_failed_step_takes_them(self):
+        # The detector: with step_owners' sections cut at the headers again (fd8a29bb: the lead timed in _aligned_starts,
+        # never owned), the same failed step's section holds the composite's download lines.
+        job, text = self.earlier_step_failed()
+        names = self.names(self.SWIFT, job, text)
+        lead = excuse.steps_log._lead
+
+        def timing_only(texts, lines, header, floor, window=None):
+            return header if window is not None else lead(texts, lines, header, floor)
+        with unittest.mock.patch.object(excuse.steps_log, "_lead", timing_only):
+            view = excuse.failed_view(job, text, step_names=names, base=True)
+        self.assertIsNot(view, excuse.UNPLACED)
+        sections = {str(view.steps[k]["name"]): lines for k, _, lines in view.sections}
+        self.assertTrue(any("WarpBuilds/cache" in line for line in sections[self.BEFORE]))
+
+    def one_to_one(self, preamble_second):
+        """Set up job, `Run a` (failed, 10-12), `Run ./.github/actions/x` (passed, 13-15): one header per step, so the
+        one-to-one reading places it; the runner's download lines before the composite are stamped PREAMBLE_SECOND."""
+        def at(second):
+            return f"2026-11-10T{clock(second)}Z"
+        job = {"steps": framed_steps([("Run a", "failure", 10, 12), ("Run ./.github/actions/x", "success", 13, 15)])}
+        text = "\n".join([
+            f"{at(1.0)} Current runner version: '2.338.2'",
+            f"{at(10.0)} ##[group]Run a", f"{at(10.1)} ##[endgroup]", f"{at(11.0)} boom",
+            f"{at(12.0)} ##[error]Process completed with exit code 1.",
+            f"{at(preamble_second)} Prepare all required actions",
+            f"{at(preamble_second)} Getting action download info",
+            f"{at(preamble_second)} Download action repository 'owner/cache@{'a' * 40}' (SHA:{'a' * 40})",
+            f"{at(13.5)} ##[group]Run ./.github/actions/x", f"{at(13.6)} ##[endgroup]", f"{at(14.0)} restored"])
+        return job, text
+
+    def test_the_one_to_one_reading_gives_them_to_the_opened_step(self):
+        job, text = self.one_to_one(13.2)
+        self.assertIsNotNone(excuse.steps_log._one_to_one_starts(
+            *[sorted(job["steps"], key=lambda s: s["number"])], text.splitlines(), excuse.lines_of(text),
+            [(excuse.steps_log._stamp_time(s["started_at"]),
+              excuse.steps_log._stamp_time(s["completed_at"]) + excuse.steps_log.timedelta(seconds=1))
+             for s in sorted(job["steps"], key=lambda s: s["number"])], excuse.STEP_NAMES_UNKNOWN))
+        owners = self.owners(job, text, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(len(owners), 3)
+        for said, owned in owners.items():
+            self.assertEqual(owned, [("Run ./.github/actions/x", "passed")], said)
+        failed = excuse.failed_view(job, text, base=True, **UNKNOWN)
+        self.assertNotIn("Download action repository", failed.text())
+        self.assertIn("boom", failed.text())
+
+    def test_download_lines_stamped_in_the_failed_steps_times_stay_its_own(self):
+        # Stamped while `Run a` ran (11.5, before the composite started at 13), they are not the composite's: the
+        # lead stops at a line outside the opened step's times, and they stay where the runner's clock puts them.
+        job, text = self.one_to_one(11.5)
+        for said, owned in self.owners(job, text, excuse.STEP_NAMES_UNKNOWN).items():
+            self.assertEqual(owned, [("Run a", "failed")], said)
+
+
+def run_own_tests_only(case):
+    """CASE, a TestCase subclassed for another case's fixtures and helpers, running only the tests it defines: the
+    inherited ones (None: not callable, so the loader skips them) already run in their own class."""
+    for name in dir(case):
+        if name.startswith("test") and name not in vars(case):
+            setattr(case, name, None)
+    return case
+
+
+run_own_tests_only(RealShapesOfNovember11)
+run_own_tests_only(RunnerDownloadLinesAreTheOpenedSteps)
+run_own_tests_only(GeneratedFilesOfNovember14)
+
+
 def one_step_flood(headers, steps):
     """(job, log, step_names, the own headers' line numbers): STEPS workflow steps, step K from second 100 + 10K to
     105 + 10K with its `Run x` header at its start, and the middle step printing the rest of HEADERS `Run x` lines in
@@ -12769,6 +13390,81 @@ def one_step_flood(headers, steps):
         if k == flooded:
             lines += [f"{at(100.0 + 10 * k + 4 * (n + 1) / (inner + 1))} ##[group]Run x" for n in range(inner)]
     return job, "\n".join(lines), names, own
+
+
+class MatrixLegsAreReadByTheirWorkflow(RealShapesOfNovember11):
+    """cmux#43014 at 749d8669 (2026-11-14) was refused over 'Reviewer path (appstore, ipad)' (head: run 43632344606,
+    job 132561563162; base: feat-cmux-next run 43625607673, job 132544579726 at d2314cf2). Its workflow job is a
+    matrix leg named by two expressions (`Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})`), so
+    workflow_step_names read no headers, and its composite setup-cmux-tui-rust step prints three inner `Run` lines, so
+    one header per step placed nothing: the log was compared whole. The walk step, which passed on both sides, prints
+    the gate's failing UI tests with different dead controls on each run, and those lines refused the head, though the
+    one failed step (Agent reviewer pass) is the base's. Fixtures: both jobs' steps and logs trimmed to the runner's
+    first lines, the step headers, groups and failure lines, stamps as served; the job's workflow steps at d2314cf2."""
+
+    PATHS = {**RealShapesOfNovember11.PATHS, "cmux-43014-review-gate-ipad": ".github/workflows/ios-review-gate.yml"}
+    GATE = "cmux-43014-review-gate-ipad"
+    JOB = "Reviewer path (appstore, ipad)"
+    AGENT = "##[error]agent reviewer pass: the agent exited 1 with no findings array"
+    WALK = "testSettingsHaveNoDeadControls] : XCTAssertTrue failed - dead controls in Settings"
+
+    def line(self, text, marker):
+        found = [line for line in text.splitlines() if marker in line]
+        self.assertEqual(len(found), 1, marker)
+        return found[0]
+
+    def with_agent_line_of(self, log, other):
+        """LOG with its agent-pass error line's text replaced by OTHER's, at LOG's own stamp (the same failure, the
+        walk's lines left as LOG's)."""
+        mine = self.line(log, self.AGENT)
+        return log.replace(mine, mine.split(" ", 1)[0] + " " + self.line(other, self.AGENT).split(" ", 1)[1])
+
+    def test_both_legs_are_placed_and_only_the_agent_pass_is_failed(self):
+        for side in ("head", "base"):
+            with self.subTest(side=side):
+                view = self.view(self.GATE, side, base=side == "base")
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual([(str(view.steps[k]["name"]), status) for k, status, _ in view.sections],
+                                 [("Agent reviewer pass", "failed")])
+
+    def test_without_the_rendered_name_the_leg_is_unplaced_as_reported(self):
+        # The detector: the reading before _rendered_name_fits finds no workflow job for the leg, the refusal #43014 got.
+        with unittest.mock.patch.object(excuse, "_rendered_name_fits", lambda *_: False):
+            self.assertIs(self.view(self.GATE, "head", base=False), excuse.UNPLACED)
+
+    def test_a_leg_whose_name_fits_two_workflow_jobs_reads_no_headers(self):
+        job, text = self.fixture(self.GATE, "head")
+        workflow = (STEP_MAPPING_FIXTURES / f"{self.GATE}.yml").read_text()
+        twin = workflow.replace("  reviewer-path:\n", "  twin:\n    name: Reviewer path (${{ matrix.x }})\n"
+                                "    runs-on: fixture\n    steps: []\n  reviewer-path:\n", 1)
+        github = self.github(self.GATE, (job, text), (job, text))
+        github.blob = lambda repo, ref, wanted: twin
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[self.GATE], github, {})
+        self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
+
+    def test_the_same_failed_step_is_excused_whatever_the_passing_walk_printed(self):
+        head, base = self.fixture(self.GATE, "head"), self.fixture(self.GATE, "base")
+        self.assertNotEqual(self.line(head[1], self.WALK), self.line(base[1], self.WALK))
+        said = self.judge(self.github(self.GATE, head, (base[0], self.with_agent_line_of(base[1], head[1]))))
+        self.assertIn(f"excused '{self.JOB}'", said)
+        self.assertNotIn("compared whole", said)
+
+    def test_a_different_agent_failure_is_refused_by_its_step_not_whole(self):
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.GATE, self.fixture(self.GATE, "head"), self.fixture(self.GATE, "base")))
+        self.assertIn("agent reviewer pass: the agent exited # with no findings array", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+        self.assertNotIn("dead controls", str(said.exception))
+
+    def test_rendered_name_fits_only_the_template_with_its_expressions_filled(self):
+        template = "Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})"
+        for name, fits in (("Reviewer path (appstore, ipad)", True), ("Reviewer path (, )", True),
+                           ("Reviewer path (appstore ipad)", False), ("Reviewer path (appstore, ipad) / x", False),
+                           ("Other (appstore, ipad)", False)):
+            with self.subTest(name=name):
+                self.assertIs(excuse._rendered_name_fits(template, name), fits)
+        self.assertFalse(excuse._rendered_name_fits("Reviewer path", "Reviewer path"))
+        self.assertFalse(excuse._rendered_name_fits(None, "Reviewer path"))
 
 
 class AlignedStartsIsLinear(unittest.TestCase):
@@ -12942,10 +13638,14 @@ SCANNERS = {
     "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
     "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
     "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
+    "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
+    "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
     "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
                                               excuse.step_owners(f.job, f.flood, **UNKNOWN)),
     "failed_steps_log._live_red": lambda f: excuse._live_red(f.lines, 0, len(f.lines), opened=True),
+    "failed_steps_log._lead": lambda f: excuse.steps_log._lead(f.lines, f.raw, len(f.lines) - 1, 0),
     "failed_steps_log._one_to_one_starts": lambda f: excuse._one_to_one_starts(
         [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
     "failed_steps_log.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
@@ -12961,12 +13661,14 @@ SCANNERS = {
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
     "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
+    "base_red_excuse.agent_api_unavailable": lambda f: excuse.agent_api_unavailable(f.job, f.log),
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
     "base_red_excuse.swift_without_comments": lambda f: excuse.swift_without_comments(f.log),
     "base_red_excuse.package_tests": lambda f: excuse.package_tests(_package(), f.view),
     "base_red_excuse.guard_tests": lambda f: excuse.guard_tests(f.view),
+    "base_red_excuse.cited_red": lambda f: excuse.cited_red(f.view, [(excuse.FAILED, ["##[error]x"])]),
     "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
     "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),

@@ -588,7 +588,7 @@ test("closing a turn's fold closes the runs of messages inside it, opened by key
 });
 
 test("short notes join their runs in one pass, each call once and in order", () => {
-  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: `Next ${id}.` });
+  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: `Checking ${id}.` });
   const rows = [
     run("a", [command("a1", "ls")]),
     note("n1"),

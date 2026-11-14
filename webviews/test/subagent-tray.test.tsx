@@ -1810,10 +1810,8 @@ describe("the tray lists only the chat's own work", () => {
   });
 });
 
-// Leo, 2026-11-04: "didn't we see better stacked subagents or whatever earlier idk these all being
-// claude". Under a Claude chat its own subagents draw the subagent sparkle in each one's tone, never the
-// Claude mark on every line; only a subagent of another family (Codex) draws its harness's mark.
-describe("a subagent of the chat's own family draws its toned sparkle, not the chat's mark", () => {
+// A subagent keeps its harness logo even when it shares the parent chat's family.
+describe("subagents show their harness logos", () => {
   // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
   // tests pin that look.
   beforeAll(async () => {
@@ -1825,7 +1823,7 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
     const { configureSenderIconLook } = await import("../src/agent-session/acpmux/subagents/senderIconLook");
     configureSenderIconLook({});
   });
-  test("Claude subagents under a Claude chat are toned sparkles; a Codex one keeps its mark", async () => {
+  test("same-family and inherited harnesses keep their logos alongside another family", async () => {
     const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
     const items = trayItems(
       [
@@ -1848,12 +1846,11 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
     try {
       const icons = [...root.querySelectorAll(".acpmux-agent-line .acpmux-lineage__icon")];
       expect(icons.length).toBe(3);
-      const sparkles = icons.filter((icon) => icon.querySelector('[data-agent-tone] [data-icon="task.ai"]'));
-      expect(sparkles.length).toBe(2);
-      // The header stacks the same three marks: two toned sparkles and the Codex mark.
+      expect(icons.every((icon) => icon.querySelector(".agent-mark"))).toBe(true);
+      expect(icons.some((icon) => icon.querySelector('[data-icon="task.ai"]'))).toBe(false);
       const stack = root.querySelector(".acpmux-running-tray__stack")!;
       expect(stack.querySelectorAll(".acpmux-running-tray__stack-mark").length).toBe(3);
-      expect(stack.querySelectorAll('[data-icon="task.ai"]').length).toBe(2);
+      expect(stack.querySelectorAll(".agent-mark").length).toBe(3);
     } finally {
       await done();
     }
@@ -1878,5 +1875,53 @@ test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
     expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
   } finally {
     await done();
+  }
+});
+
+test("many live and finished commands share one terminal header mark without hiding agents", async () => {
+  const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
+  const commands = Array.from({ length: 7 }, (_, index) => command(`wait-${index}`, { command: "sleep 300" }));
+  const agents = [agent("Reviewer", { harness: "claude" })];
+  const items = trayItems(agents, commands, NONE, true);
+  const finished = [{ kind: "command" as const, id: "done", command: command("done", { state: "completed" }) }];
+  const shown = await render(
+    createElement(
+      SubagentHarnessContext.Provider,
+      { value: "claude" },
+      createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    ),
+    { open: true },
+  );
+  try {
+    const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
+    expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
+    expect(stack.querySelectorAll(".agent-mark")).toHaveLength(1);
+    expect(shown.root.querySelectorAll(".acpmux-agent-line")).toHaveLength(9);
+    await shown.show(
+      createElement(SubagentTray, {
+        items: trayItems([], commands, NONE, true),
+        onOpen: () => {},
+        finished,
+        working: true,
+        waiting: new Set<string>(),
+      }),
+    );
+    expect(shown.root.querySelectorAll('.acpmux-running-tray__stack [data-icon="terminal"]')).toHaveLength(1);
+    const olderAgents = Array.from({ length: 6 }, (_, index) =>
+      agent(`Reviewer ${index}`, { harness: "claude", startedAt: at(0) }),
+    );
+    await shown.show(
+      createElement(SubagentTray, {
+        items: trayItems(olderAgents, commands, NONE, true),
+        finished,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    expect(shown.root.querySelectorAll('.acpmux-running-tray__stack [data-icon="terminal"]')).toHaveLength(1);
+    expect(shown.root.querySelectorAll(".acpmux-running-tray__stack .agent-mark")).toHaveLength(3);
+  } finally {
+    await shown.done();
   }
 });

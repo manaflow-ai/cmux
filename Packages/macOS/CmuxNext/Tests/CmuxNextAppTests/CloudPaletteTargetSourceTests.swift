@@ -11,7 +11,7 @@ import Testing
 
 @MainActor
 struct CloudPaletteTargetSourceTests {
-    @Observable private final class Inventory {
+    @Observable fileprivate final class Inventory {
         var machines: [CloudMachine] = []
     }
 

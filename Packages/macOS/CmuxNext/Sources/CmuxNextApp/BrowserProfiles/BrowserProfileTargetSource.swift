@@ -42,7 +42,7 @@ final class BrowserProfileTargetSource: PaletteTargetSource {
     static func creator(services: AppServices) -> PaletteTargetCreator {
         PaletteTargetCreator(title: BrowserProfileAppStrings.createNamed, symbol: "person.crop.circle.badge.plus") { [weak services] name in
             guard let profiles = services?.browserProfiles else { throw CancellationError() }
-            let color = GroupColor.automatic(used: Set(profiles.ordered.compactMap(\.color)))?.rawValue
+            let color = GroupColor.automatic(after: profiles.ordered.compactMap(\.color)).rawValue
             do {
                 return try await profiles.createProfile(name: name, color: color, icon: nil)
             } catch let error as BrowserProfileBookError {

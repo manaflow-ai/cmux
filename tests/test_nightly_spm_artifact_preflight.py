@@ -25,6 +25,30 @@ PREFLIGHT = ROOT / 'scripts/ci/spm_artifact_preflight.py'
 BUILD_STEP = ROOT / 'scripts/ci/nightly-steps/app-build-release.sh'
 IROH_PACKAGE = 'let package = Package(targets: [\n  .binaryTarget(\n    name: "Iroh",\n    url: "https://x/Iroh.zip", checksum: "0")\n])\n'
 
+# iroh-ffi's Package.swift at the pin of Package.resolved (ee19f156667c, 1.2.0-cmux.1.ios17), the lines that select
+# its binary, verbatim: ONE target `Iroh`, declared in 2 ways. SwiftPM takes `path:` only where a locally built
+# xcframework is in the package's folder; a checkout has none, so the build gets the release zip in artifacts/.
+IROH_FFI_PACKAGE = r'''let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let localBuiltBinaries = [
+    "Iroh.xcframework/macos-arm64_x86_64/Iroh.framework/Versions/A/Iroh",
+    "Iroh.xcframework/macos-x86_64_arm64/Iroh.framework/Versions/A/Iroh",
+    // Continue recognizing locally built artifacts from before Intel support.
+    "Iroh.xcframework/macos-arm64/Iroh.framework/Versions/A/Iroh",
+].map { packageDir.appendingPathComponent($0) }
+let forceRemote = ProcessInfo.processInfo.environment["IROH_FORCE_REMOTE_XCFRAMEWORK"] != nil
+let useLocalXcframework = !forceRemote
+    && localBuiltBinaries.contains { FileManager.default.fileExists(atPath: $0.path) }
+
+let irohBinary: Target = useLocalXcframework
+    ? .binaryTarget(
+        name: "Iroh",
+        path: "Iroh.xcframework")
+    : .binaryTarget(
+        name: "Iroh",
+        url: "https://github.com/\(releaseRepository)/releases/download/\(releaseTag)/IrohLib.xcframework.zip",
+        checksum: releaseChecksum)
+'''
+
 
 def write_state(source_packages: Path, artifact_path: Path) -> None:
     source_packages.mkdir(parents=True, exist_ok=True)
@@ -164,6 +188,42 @@ class SpmArtifactPreflight(unittest.TestCase):
         local.rmdir()
         found = preflight.problems(self.packages, [], [project])
         self.assertTrue(any(f'{local} is missing' in problem for problem in found), found)
+
+    def iroh_ffi_checkout(self):
+        """The pinned iroh-ffi checkout as the nightly's tree has it: the real manifest's 2 declarations of `Iroh`."""
+        checkout = self.packages / 'checkouts/iroh-ffi'
+        checkout.mkdir(parents=True)
+        (checkout / 'Package.swift').write_text(IROH_FFI_PACKAGE)
+        resolved = self.root / 'Package.resolved'
+        resolved.write_text(json.dumps({'pins': [{'identity': 'iroh-ffi',
+                                                  'location': 'https://github.com/manaflow-ai/iroh-ffi.git'}]}))
+        return checkout, resolved
+
+    def test_a_target_declared_by_path_or_url_is_in_place_from_its_release_zip(self):
+        # Nightly push runs 43375104895 and 43375861824: the build stopped at "checkouts/iroh-ffi/Iroh.xcframework
+        # is missing (iroh-ffi declares binary target Iroh at Iroh.xcframework)" with the artifact in artifacts/.
+        _checkout, resolved = self.iroh_ffi_checkout()
+        self.own.mkdir(parents=True)
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
+
+    def test_a_target_declared_by_path_or_url_comes_back_with_a_resolve(self):
+        # Nothing is there: the artifact a resolve can bring is the one that is asked for, never the path in the
+        # checkout, which no resolve fills.
+        checkout, resolved = self.iroh_ffi_checkout()
+        found = preflight.problems(self.packages, [resolved])
+        self.assertEqual(found, [f'{self.own} is missing (iroh-ffi declares binary target Iroh)'])
+        result = subprocess.run([sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--resolved', str(resolved),
+                                 '--', *self.resolver()], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('resolving again', result.stdout)
+        self.assertNotIn(str(checkout / 'Iroh.xcframework'), result.stdout)
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
+
+    def test_a_target_declared_by_path_or_url_is_in_place_from_its_local_build(self):
+        # A source checkout that was built: SwiftPM takes the `path:` form, and artifacts/ holds nothing of it.
+        checkout, resolved = self.iroh_ffi_checkout()
+        (checkout / 'Iroh.xcframework').mkdir()
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
 
     def test_checkouts_are_read_when_no_package_resolved_pins_them(self):
         checkout = self.packages / 'checkouts/iroh-ffi'

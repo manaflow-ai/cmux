@@ -1,7 +1,8 @@
 // The changelog page's state owner: the build list, the selected build and its notes. Notes are a
 // projection of the provider; the page keeps no copy beyond a per-build cache. React reads it
 // through `useSyncExternalStore` (no effects).
-import { isPageError, type PageClient } from "../shared/pageClient";
+import type { PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ACTION_RUN,
   ChangelogOps,
@@ -271,7 +272,7 @@ export class ChangelogStore {
         (await this.client.call<ListResult>(ChangelogOps.list, {}));
       await this.showList(list);
     } catch (error) {
-      this.set({ loading: false, failed: isPageError(error) ? error.message : String(error) });
+      this.set({ loading: false, failed: userMessage(error) });
     }
   }
 
@@ -350,7 +351,8 @@ export class ChangelogStore {
     try {
       await this.client.call(ChangelogOps.install, { build });
     } catch (error) {
-      this.set({ installFailed: { build, message: isPageError(error) ? error.message : String(error) } });
+      // The updater words its refusals (pulled, unsigned, gone) for the person.
+      this.set({ installFailed: { build, message: userMessage(error, { "cmux.page.refused": OWNER_SENTENCE }) } });
     } finally {
       this.set({ installing: undefined });
     }
@@ -361,7 +363,7 @@ export class ChangelogStore {
     try {
       await this.client?.call(ACTION_RUN, { action });
     } catch (error) {
-      this.set({ failed: isPageError(error) ? error.message : String(error) });
+      this.set({ failed: userMessage(error) });
     }
   }
 }

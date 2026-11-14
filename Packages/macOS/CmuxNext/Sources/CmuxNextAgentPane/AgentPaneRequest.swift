@@ -137,6 +137,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
     case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
+    /// `chat.attach.external`: the files another app sent to this chat, which the page adds as a
+    /// drop's (``AgentPaneDroppedPaths/hold(external:claimed:)``).
+    case attachExternal
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
@@ -252,9 +255,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.sessionInfo.pinch {scale, left, top}`: the page's trackpad pinch, which the natively
+    /// drawn Session Info zooms and pans with (``AgentPaneSessionInfoPinch``).
+    case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
     case toastAvoidance(CGRect?)
+    /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
+    /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
+    case toast(message: String, isError: Bool, group: String?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])

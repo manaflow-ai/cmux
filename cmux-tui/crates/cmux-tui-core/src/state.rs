@@ -116,6 +116,8 @@ pub(crate) mod project_watch;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
+#[cfg(test)]
+mod remote_adopt_top_tests;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
 #[cfg(test)]

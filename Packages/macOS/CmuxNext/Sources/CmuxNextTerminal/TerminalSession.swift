@@ -204,7 +204,6 @@ public final class TerminalSession {
         view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
-        view.attachFind(find)
         echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
         echo?.attach(to: surfaceView)
 

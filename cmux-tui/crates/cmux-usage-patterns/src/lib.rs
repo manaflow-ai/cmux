@@ -13,6 +13,11 @@
 //! kind). [`clean_key`] refuses anything else, so no prompt, terminal text,
 //! URL, file path or title can become a key. Free text never reaches this
 //! crate's callers' keys.
+//! One family holds names from outside the program: `install-package`, the
+//! registry name of a package an agent's shell call installed
+//! (`npm:react`), which acpmux keeps only when it passes that registry's own
+//! name rule (`cmux_command_class::package_installs`), never a path, URL or
+//! version.
 //!
 //! Cost stays constant as use grows: a count is one atomic load when off, and
 //! one mutex and two map increments when on. Each family keeps at most

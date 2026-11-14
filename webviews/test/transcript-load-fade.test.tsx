@@ -55,6 +55,7 @@ const { act } = await import("react");
 
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { releaseReaderScroll } = await import("../src/agent-session/acpmux/summary/heldWhileScrolling");
 
 afterAll(async () => {
   performance.now = realNow;
@@ -66,7 +67,8 @@ const row = (id: string, kind: "user" | "assistant", text: string, version = 1):
   kind,
   text,
   version,
-  at: 1,
+  // Made when it arrives: a row from before the chat's open never enters (openBreakpoint.ts).
+  at: Date.now(),
 });
 
 const turns = (from: number, count: number) =>
@@ -101,6 +103,7 @@ function mount(sessionId: string) {
   const node = (id: string) => host.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
   const unmount = async () => {
     await act(async () => root.unmount());
+    releaseReaderScroll();
     host.remove();
   };
   return { render, fading, node, unmount };
@@ -173,5 +176,38 @@ test("a chat that never loaded (a new chat, or loading off) keeps the live entra
     await view.unmount();
   }
 });
+
+for (const loading of [true, false]) {
+  test(`rows arriving during a reader's wheel draw settled (loading=${loading})`, async () => {
+    const view = mount(`load-fade-wheel-${loading}`);
+    try {
+      const existing = turns(0, 6);
+      await view.render(existing, loading);
+      const scroller = view.node("prompt-0")!.closest(".acpmux-scroll")!;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -18.25, bubbles: true }));
+      });
+      const arriving = row("scroll-arrival", "assistant", "A reply arriving under the wheel");
+      await view.render([...existing, arriving], loading);
+      const drawn = view.node(arriving.id);
+      expect(drawn).not.toBeNull();
+      expect(view.fading(arriving.id)).toBe(false);
+      expect(drawn!.classList.contains("acpmux-row--message-enter")).toBe(false);
+      expect(drawn!.classList.contains("acpmux-row--enter")).toBe(false);
+
+      // Once the gesture is quiet, a new live reply uses its normal entrance again.
+      await view.render([...existing, arriving], false);
+      releaseReaderScroll();
+      clockSkew += 2_000;
+      const later = row("after-wheel", "assistant", "The next reply after the gesture");
+      await view.render([...existing, arriving, later], false);
+      expect(view.node(later.id)?.classList.contains("acpmux-row--message-enter")).toBe(true);
+      expect(view.node(arriving.id)).toBe(drawn);
+      expect(view.fading(arriving.id)).toBe(false);
+    } finally {
+      await view.unmount();
+    }
+  });
+}
 
 const render0 = (view: ReturnType<typeof mount>) => view.render([], true);
