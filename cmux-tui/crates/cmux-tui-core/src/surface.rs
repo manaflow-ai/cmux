@@ -7241,7 +7241,7 @@ impl PtySurface {
     fn publish_final_frame(&self) {
         let term = self.term.lock().unwrap();
         let generation = self.render_generation.load(Ordering::Acquire);
-        let _ = self.build_producer_frame(term, generation);
+        let _ = self.build_producer_frame_as(term, generation, false);
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
@@ -7281,12 +7281,16 @@ impl PtySurface {
     /// holds `Mux::state` while it reads `Surface::size` (geometry), while a
     /// resize holds geometry and then takes `term`. So the event must not be
     /// sent while the terminal lock is held.
+    ///
+    /// This is the producer's live cadence: an open synchronized update
+    /// (DECSET 2026) keeps the last complete frame. The final frame of a
+    /// closing surface uses [`Self::build_producer_frame_as`] without the hold.
     fn build_producer_frame(
         &self,
         term: std::sync::MutexGuard<'_, Box<Terminal>>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
-        self.build_producer_frame_as(term, generation, false)
+        self.build_producer_frame_as(term, generation, true)
     }
 
     fn build_producer_frame_as(
@@ -7790,9 +7794,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                 let _ = pty.flush_attach_colors_locked(&term, defaults);
             }
-            if pty.build_producer_frame_as(term, generation, true).unwrap_or(false)
-                || colors_pending
-            {
+            if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
                 last_frame = Instant::now();
             }
             // Wake at the hold deadline only while a frame is actually held
@@ -10563,13 +10565,13 @@ mod tests {
         let surface = Surface::spawn_for_test(1, opts, Arc::downgrade(&mux)).unwrap();
         let pty = surface.as_pty().unwrap();
         let attach = surface.attach_render_stream().unwrap();
+        // Test surfaces run no producer thread; build each frame the way it
+        // does, once per output chunk.
         let push = |bytes: &[u8]| {
-            let generation = {
-                let mut term = pty.term.lock().unwrap();
-                term.vt_write(bytes);
-                pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
-            };
-            pty.request_frame(generation);
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(bytes);
+            let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            let _ = pty.build_producer_frame(term, generation);
         };
 
         push(b"\x1b[2J\x1b[1;1Hask: Approve\x1b[3;1HJump to bottom");
@@ -10581,17 +10583,11 @@ mod tests {
             }
         }
 
-        // Begin the update, erase the old pill, draw the new one a row up,
-        // and pause well past the producer's frame cadence.
+        // Begin the update, erase the old pill and draw the new one a row up;
+        // the rest of the frame has not arrived yet.
         push(b"\x1b[?2026h\x1b[3;1H\x1b[2K\x1b[2;1H6 new messages");
-        let began = Instant::now();
-        let pause = began + Duration::from_millis(300);
-        while let Some(frame) = next_frame(&attach, pause) {
-            // Past the hold timeout the producer rightly presents the update,
-            // so a test thread stalled that long has nothing left to check.
-            if began.elapsed() >= Duration::from_millis(900) {
-                break;
-            }
+        let drained = Instant::now() + Duration::from_millis(50);
+        while let Some(frame) = next_frame(&attach, drained) {
             assert!(
                 !rows(&frame).iter().any(|row| row.contains("6 new messages")),
                 "a half-drawn synchronized update was published: {:?}",
