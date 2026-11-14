@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43594192032",
+  "recorded_at": "2026-11-14T12:26:15Z",
+  "reason": "cmux-tui ec51030c35dc changes the image's cmux-tui (pinned b702724bfdcf)",
+  "dry_run": false,
+  "cmux_tui": "ec51030c35dcf88b8761f4d27fdbcee50cf7ed50",
+  "fixes": [
+    {
+      "sha": "ec51030c35dcf88b8761f4d27fdbcee50cf7ed50",
+      "mergedAt": "2026-11-14T03:58:37-08:00",
+      "subject": "Customize: a radio player and a start page of your own (media-player, start-page templates) (#42992)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T12:26:15Z",
+    "snapshot_id": "sh-37455cacc61e44f6a089fc0182c68828",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43594192032): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f569fa432885337ab173d521116632d931375444",
+    "image": "cloud-native-auto-ec51030c-43594192032-1",
+    "revision": "ci-43594192032-1",
+    "at": "2026-11-14T12:26:15Z"
+  },
+  "rolled_back": false
+}
