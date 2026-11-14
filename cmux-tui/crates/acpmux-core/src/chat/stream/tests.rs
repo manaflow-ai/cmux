@@ -1410,3 +1410,7 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
 #[cfg(target_os = "linux")]
 #[path = "gates_tests.rs"]
 mod gates;
+
+/// The parity corpus: the change strings a page gets for each raw log (decision 233).
+#[path = "parity_tests.rs"]
+mod parity;
