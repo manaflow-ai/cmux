@@ -258,6 +258,7 @@ struct SubagentTranscriptScreen: View {
                     }
                     ForEach(rows) { row in
                         SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
+                            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)

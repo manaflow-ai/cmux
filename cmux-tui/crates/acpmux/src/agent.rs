@@ -142,11 +142,42 @@ pub struct ClaudeState {
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 
-/// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
+/// How long [`ChildAgent::host_kind`] waits for a host's answer. Shorter than
 /// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
-/// not answer in time is judged by its profile, then asked again when a prompt reaches it.
-// timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
+/// not answer in time is judged by its profile until its answer comes.
+// timeout: never fails anything; a late host's answer still decides when it comes (`hub/hosts.rs` `note_host_kind`).
 const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether [`ChildAgent::host_kind`] waits for a host's answer. Debug builds only:
+/// `ACPMUX_TEST_HOST_KIND_LATE` makes every answer count as late (past the budget), as the answer
+/// of a host whose replay a loaded Mac did not drain in time does. Release builds have no seam.
+fn host_kind_waits() -> bool {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_HOST_KIND_LATE").is_some() {
+        return false;
+    }
+    true
+}
+
+/// What [`ChildAgent::host_kind`] learned of the translator an agent runs under.
+pub enum HostKind {
+    /// Claude Code's (true) or another's.
+    Known(bool),
+    /// The host did not answer within [`HOST_KIND_BUDGET`]; its answer comes later.
+    Late(LateHostKind),
+    /// The query could not be sent, or the link ended before the answer.
+    Unknown,
+}
+
+/// A host's answer to the kind query, after the budget the caller waited.
+pub struct LateHostKind(oneshot::Receiver<crate::agent_host::link::QueryReply>);
+
+impl LateHostKind {
+    /// Whether Claude Code's translator runs the agent; None when the link ended first.
+    pub async fn answer(self) -> Option<bool> {
+        self.0.await.ok().map(|reply| reply.modes.is_some())
+    }
+}
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
@@ -1535,7 +1566,13 @@ impl ChildAgent {
             if h.exited.load(Ordering::SeqCst) {
                 return;
             }
-            if h.link().terminate(grace).await.is_ok() {
+            // Bounded: a host whose link stopped reading (its queue full) never takes the frame.
+            // Its caller ends that host by its nonce (`host_unended`). The send goes on in its
+            // own task past the bound, so a host whose queue clears later still takes it.
+            let link = h.link();
+            let mut send = tokio::spawn(async move { link.terminate(grace).await });
+            let told = tokio::time::timeout(grace, &mut send).await;
+            if matches!(told, Ok(Ok(Ok(())))) {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
                 let _ =
@@ -1557,6 +1594,11 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1570,15 +1612,11 @@ impl ChildAgent {
             }
         })
         .await;
-        // Then the job ends, stragglers included (SIGKILL on Unix).
+        // Then the job ends, stragglers included (SIGKILL on Unix, by the guard's drop).
         #[cfg(windows)]
         self.kill_job();
         #[cfg(unix)]
-        if let Some(pg) = pgid {
-            unsafe {
-                libc::killpg(pg, libc::SIGKILL);
-            }
-        }
+        drop(escalate);
         if let Ok(mut g) = self.child.try_lock()
             && let Some(c) = g.as_mut()
         {
@@ -2044,14 +2082,24 @@ impl ChildAgent {
     }
 
     /// Whether Claude Code's translator runs this agent: here, or in its host
-    /// (only that translator answers the host's query with modes). None: the
-    /// host did not answer within [`HOST_KIND_BUDGET`].
-    pub async fn runs_claude(&self) -> Option<bool> {
+    /// (only that translator answers the host's query with modes). A host that
+    /// does not answer within [`HOST_KIND_BUDGET`] gives [`HostKind::Late`]: its
+    /// answer still comes, behind the replay the inbound loop drains, which on a
+    /// loaded Mac takes longer than any fixed budget.
+    pub async fn host_kind(&self) -> HostKind {
         if self.translator.is_some() {
-            return Some(true);
+            return HostKind::Known(true);
         }
-        let Some(h) = &self.hosted else { return Some(false) };
-        h.link().query_within(HOST_KIND_BUDGET).await.ok().map(|reply| reply.modes.is_some())
+        let Some(h) = &self.hosted else { return HostKind::Known(false) };
+        let Ok(mut answer) = h.link().query_answer().await else { return HostKind::Unknown };
+        if !host_kind_waits() {
+            return HostKind::Late(LateHostKind(answer));
+        }
+        match crate::agent_host::within("query", HOST_KIND_BUDGET, &mut answer).await {
+            Ok(Ok(reply)) => HostKind::Known(reply.modes.is_some()),
+            Ok(Err(_)) => HostKind::Unknown,
+            Err(_) => HostKind::Late(LateHostKind(answer)),
+        }
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -2081,9 +2129,12 @@ impl ChildAgent {
 
     /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
     /// True when this call lowered it. A harness with no class set (another daemon started it)
-    /// or one that ended is left alone.
+    /// takes the agent tier; one that ended is left alone.
     pub async fn enter_run_class(&self) -> bool {
-        let Some(class) = self.run_class.get().copied() else { return false };
+        // A harness adopted from another daemon has no class here: one whose start that daemon
+        // did not see end (a restart mid-start) would keep the start's priority for good, so it
+        // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
+        let class = self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal);
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
@@ -2141,15 +2192,26 @@ impl ChildAgent {
         self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
     }
 
-    /// The hosted harness exited (its host is finishing).
     /// Tests only: its child's slot, which its reaper locks (`Fence::cut_or_end`).
     #[cfg(test)]
     pub(crate) fn child_slot(&self) -> Arc<Mutex<Option<Child>>> {
         self.child.clone()
     }
 
+    /// The hosted harness exited (its host is finishing).
     pub fn has_exited(&self) -> bool {
         self.hosted.as_ref().is_some_and(|h| h.exited.load(Ordering::SeqCst))
+    }
+
+    /// Its host is still connected and reported no exit: after a [`Self::terminate`], the host
+    /// did not take it (its link stopped reading) or could not end the agent within the grace.
+    /// A host whose link closed is not judged here.
+    pub fn host_unended(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            !h.exit_seen.load(Ordering::SeqCst)
+                && !h.exited.load(Ordering::SeqCst)
+                && !h.link().is_closed()
+        })
     }
 
     /// The reader stopped because an entry could not be logged.
@@ -2710,6 +2772,22 @@ impl ChildAgent {
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
+            }
+        }
+    }
+}
+
+/// SIGKILL to an agent's process group once dropped: at the end of `ChildAgent::terminate`'s
+/// grace, or earlier when its caller drops the terminate future after the SIGTERM went out.
+#[cfg(unix)]
+struct KillGroupOnDrop(Option<i32>);
+
+#[cfg(unix)]
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        if let Some(pg) = self.0 {
+            unsafe {
+                libc::killpg(pg, libc::SIGKILL);
             }
         }
     }

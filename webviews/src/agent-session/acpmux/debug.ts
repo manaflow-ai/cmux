@@ -397,6 +397,9 @@ export function createAcpmuxDebug(
             // absent/unknown state that still offers the sign-in action.
             cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
+            // The transcript's scroll offset and height in CSS pixels (null with no transcript drawn): a swap
+            // to another tab and back reads the same offset (scripts/cmux-next/media/tours/terminal-chat-swap.json).
+            ...transcriptScroll(),
           }
         : NO_AUTOMATION;
     },
@@ -462,6 +465,15 @@ export function createAcpmuxDebug(
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
+  };
+}
+
+/// The transcript's `.acpmux-scroll` offset and scroll height, rounded to CSS pixels; null with none drawn.
+function transcriptScroll() {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  return {
+    scrollTop: scroller ? Math.round(scroller.scrollTop) : null,
+    scrollHeight: scroller ? Math.round(scroller.scrollHeight) : null,
   };
 }
 

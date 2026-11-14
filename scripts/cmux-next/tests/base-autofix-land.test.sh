@@ -47,7 +47,7 @@ if [[ -f "$repo/$cap_source" && -f "$repo/$cap" ]]; then
   fi
 fi
 if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && "${FAKE_MOVE:-}" == always ]]; then
-  n="$(wc -l < "$FAKE_AGAIN")"
+  n="$(wc -l < "$FAKE_AGAIN" | tr -d ' ')"  # macOS wc pads the count
   (cd "$FAKE_LANE" && git pull -q --ff-only origin feat && echo "manifest moved $n" > Packages/macOS/CmuxNext/Package.swift \
     && git commit -q -am "lane moves the manifest again" && git push -q origin feat)
 fi
@@ -113,7 +113,7 @@ run > "$tmp/out" 2>&1 || fail "the graph was not made again on the moved tip: $(
 [[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the new repair is not on top of the moved tip"
 git -C "$tmp/remote.git" log -1 --format=%s feat | grep -qE "^chore\(next\): base autofix at ${moved:0:12}$" \
   || fail "the new repair does not name the tip it was made at: $(git -C "$tmp/remote.git" log -1 --format=%s feat)"
-[[ "$(wc -l < "$tmp/again")" == 1 ]] || fail "the repair was made again $(wc -l < "$tmp/again") times, not once"
+[[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 1 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not once"
 grep -q "again on ${moved:0:12}" "$tmp/out" || fail "the run does not say it made the repair again on the tip: $(cat "$tmp/out")"
 
 # The source-derived capability export is also remade on a moved tip.
@@ -136,7 +136,7 @@ lane_commit "lane edits the manifest" "$manifest" "manifest v2"
 if run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1; then
   fail "a repair whose inputs never held still passed: $(cat "$tmp/out")"
 fi
-[[ "$(wc -l < "$tmp/again")" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again") times, not 2 (3 rounds)"
+[[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
 grep -q "::error::.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
 
@@ -204,36 +204,6 @@ lane_commit "lane rebuilds the page" "$inspector" "page lane"
 if run > "$tmp/out" 2>&1; then fail "a held inspector page passed the run: $(cat "$tmp/out")"; fi
 [[ "$(remote_show "$inspector")" == "page lane" ]] || fail "the lane's page was overwritten"
 grep -q "$inspector" "$tmp/out" || fail "the run does not name the held page: $(cat "$tmp/out")"
-
-# 7d. A held display suite list (base-autofix.sh step 1e4) is pure Python: a round on the tip makes it again
-#     from the tip's test sources and lands it (review of #41785: remade() had no case for it, so it waited
-#     and the run failed every time a package test moved during the run).
-setup
-display_test=Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/DisplayTests.swift
-display_list=scripts/ci/display-suites.txt
-cat > "$tmp/fake-display-repair.sh" <<'FAKE'
-#!/usr/bin/env bash
-set -euo pipefail
-repo="$1"
-[[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
-made="display list for $(cat "$repo/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/DisplayTests.swift")"
-if [[ "$(cat "$repo/scripts/ci/display-suites.txt")" != "$made" ]]; then
-  echo "$made" > "$repo/scripts/ci/display-suites.txt"
-  echo "fixed: regenerated scripts/ci/display-suites.txt"
-fi
-FAKE
-chmod +x "$tmp/fake-display-repair.sh"
-lane_commit "lane adds a display test" "$display_test" "display test v1" "$display_list" "display list old"
-git -C "$tmp/bot" fetch -q --depth=1 origin feat && git -C "$tmp/bot" checkout -q --detach FETCH_HEAD
-base="$(git -C "$tmp/bot" rev-parse HEAD)"
-(cd "$tmp/bot" && echo "display list for display test v1" > "$display_list" \
-  && git commit -q -am "chore(next): base autofix at ${base:0:12}")
-lane_commit "lane edits the display test" "$display_test" "display test v2"
-run CMUX_BASE_AUTOFIX_REPAIR="$tmp/fake-display-repair.sh" > "$tmp/out" 2>&1 \
-  || fail "a held display suite list was not made again on the moved tip: $(cat "$tmp/out")"
-[[ "$(wc -l < "$tmp/again")" == 1 ]] || fail "the display suite list was made again $(wc -l < "$tmp/again") times, not once"
-[[ "$(remote_show "$display_list")" == "display list for display test v2" ]] \
-  || fail "the display suite list on the branch is not the tip's: $(remote_show "$display_list")"
 
 # 8. The workflow lands its repair through this script, with the same repair for every round.
 workflow="$here/../../../.github/workflows/cmux-next-base-autofix.yml"

@@ -2,11 +2,51 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub const V2_SURFACES: [&str; 5] = ["books", "list", "chat", "peers", "start"];
+
+/// The opt-in v2 surfaces. Unknown names are intentionally ignored so a newer
+/// config remains readable by an older daemon.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(transparent)]
+pub struct V2Surfaces(pub Vec<String>);
+
+impl V2Surfaces {
+    pub fn enabled(&self) -> BTreeSet<&str> {
+        let mut known = BTreeSet::new();
+        for name in &self.0 {
+            if V2_SURFACES.contains(&name.as_str()) {
+                known.insert(name.as_str());
+            } else {
+                log_unknown_surface(name);
+            }
+        }
+        if known.contains("chat") || known.contains("start") {
+            known.insert("books");
+        }
+        known
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+fn log_unknown_surface(name: &str) {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    if let Ok(mut names) = seen.lock()
+        && names.insert(name.to_owned())
+    {
+        tracing::warn!(surface = name, "ignoring unknown acpmux.v2 surface");
+    }
+}
 
 /// Set the state directory for this process, below `ACPMUX_HOME` in
 /// precedence. A host binary uses it to keep a tagged build's daemon apart
@@ -275,7 +315,7 @@ pub(crate) mod seams {
 /// directory owned by another user before changing its permissions.
 #[cfg(unix)]
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
 
     refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
@@ -288,6 +328,28 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
         .with_context(|| format!("open private state directory {}", dir.display()))?;
+    validate_private_state_dir(&opened, dir)?;
+    let metadata = opened.metadata()?;
+    let reopened = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
+    let again = reopened.metadata()?;
+    anyhow::ensure!(
+        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
+        "{} changed while its private permissions were checked",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Checks the open folder itself, so a held parent can validate a child without walking
+/// the parent's ancestors again.
+#[cfg(unix)]
+pub(crate) fn validate_private_state_dir(opened: &std::fs::File, dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let metadata = opened.metadata()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -301,23 +363,12 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{}",
         writable_refusal(dir, metadata.mode(), "700")
     );
-    refuse_extended_acl(&opened, dir)?;
+    refuse_extended_acl(opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
     }
-    let reopened = crate::home_fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(dir)
-        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
-    let again = reopened.metadata()?;
-    anyhow::ensure!(
-        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
-        "{} changed while its private permissions were checked",
-        dir.display()
-    );
     Ok(())
 }
 
@@ -344,9 +395,11 @@ fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
 /// sticky temporary directory is safe because another account cannot rename
 /// this user's entry there.
 #[cfg(unix)]
-fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
+pub(crate) fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
 
+    #[cfg(test)]
+    startup_seams::ancestor_check(dir);
     let uid = unsafe { libc::getuid() };
     let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
         anyhow::ensure!(
@@ -1366,6 +1419,9 @@ impl ContextOverrides {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
+    /// Opt-in agent service v2 surfaces (`books`, `list`, `chat`, `peers`, `start`).
+    #[serde(rename = "acpmux.v2", default, skip_serializing_if = "V2Surfaces::is_empty")]
+    pub acpmux_v2: V2Surfaces,
     #[serde(default)]
     #[serde(alias = "agents")]
     pub harnesses: BTreeMap<String, HarnessProfile>,
@@ -2113,11 +2169,37 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // Sync before rename so a power loss cannot leave empty chat metadata behind.
+    write_atomic_with(path, bytes, |file, tmp| {
+        #[cfg(test)]
+        startup_seams::sync(tmp);
+        file.sync_all().with_context(|| format!("sync {}", tmp.display()))
+    })?;
+    // The rename itself is durable once its directory is synced.
+    if let Some(dir) = path.parent() {
+        #[cfg(test)]
+        startup_seams::sync(dir);
+        let _ = crate::home_fs::sync_dir(dir);
+    }
+    Ok(())
+}
+
+/// Only for checked, rebuildable copies. A lost copy is rebuilt from its source.
+/// The rename still keeps concurrent readers from seeing a partial write.
+pub(crate) fn write_atomic_unsynced(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_with(path, bytes, |_, _| Ok(()))
+}
+
+fn write_atomic_with(
+    path: &Path,
+    bytes: &[u8],
+    sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
+) -> Result<()> {
     refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes);
+    let written = write_then_rename(&tmp, path, bytes, sync);
     // A failed write (a full disk) leaves no partial temporary file to hold
     // the space it ran out of; every retry uses a new name.
     if written.is_err() {
@@ -2126,7 +2208,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     written
 }
 
-fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_then_rename(
+    tmp: &Path,
+    path: &Path,
+    bytes: &[u8],
+    sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
+) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file; it lands in the folder this daemon locked, wherever it is now.
@@ -2142,9 +2229,7 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
             .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        // On disk before the rename: a power loss never leaves an empty
-        // session.json (its session id and ACP session id) behind.
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        sync(&f, tmp)?;
         crate::home_fs::before_rename(path);
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
@@ -2162,13 +2247,9 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         }
         .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        sync(&f, tmp)?;
     }
     crate::home_fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
-    // The rename itself is durable once its directory is synced.
-    if let Some(dir) = path.parent() {
-        let _ = crate::home_fs::sync_dir(dir);
-    }
     Ok(())
 }
 
@@ -2234,3 +2315,6 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
 mod save_merge_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod startup_seams;

@@ -27,14 +27,31 @@ public struct LinkPairing: Sendable {
     /// A scanned pairing code waiting for its Mac's challenge (``PairInvite``).
     public let invites: PairInvites
 
+    // Network exchange and the Mac's Allow prompt have different budgets.
+    static let defaultHandshakeTimeout: Duration = .seconds(15)
+    static let defaultApprovalTimeout: Duration = .seconds(180)
+    /// Channels opened behind auth may wait for both the proof and the Allow prompt.
+    public static let authorizationTimeout = defaultHandshakeTimeout + defaultApprovalTimeout
+    var handshakeTimeout: Duration = defaultHandshakeTimeout
+    var approvalTimeout: Duration = defaultApprovalTimeout
+    private let clockNow: @Sendable () -> Duration
+
     public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil,
                 invites: PairInvites = PairInvites()) {
+        self.init(keys: keys, phoneID: phoneID, name: name, pins: pins, push: push, invites: invites,
+                  clock: ContinuousClock())
+    }
+
+    init<C: Clock<Duration>>(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins,
+                             push: PushKeys?, invites: PairInvites, clock: C) {
         self.keys = keys
         self.phoneID = phoneID
         self.name = name
         self.pins = pins
         self.push = push
         self.invites = invites
+        let start = clock.now
+        self.clockNow = { start.duration(to: clock.now) }
     }
 
     /// What the phone says when a paired Mac's identity changed.
@@ -140,7 +157,12 @@ public struct LinkPairing: Sendable {
             ]
             let pushArgs = macID.flatMap { pushKeyArgs(mac: $0) }
             if let pushArgs { args.merge(pushArgs) { a, _ in a } }
-            let channel = try await link.openChannel(service: "auth", args: args)
+            let channelArgs = args
+            let channel = try await LinkDeadline.run(
+                timeout: handshakeTimeout,
+                operation: { try await link.openChannel(service: "auth", args: channelArgs) },
+                onDiscard: { await $0.close(code: "eof", reason: "pairing expired") }
+            )
             var opened = Opened(channel: channel, identity: identity, approval: approval, macNonce: macNonce)
             opened.sentPushKey = pushArgs != nil
             return .success(opened)
@@ -199,9 +221,12 @@ public struct LinkPairing: Sendable {
         /// The box key that key vouched for (sealed replies go to it), and its signature.
         var boxKey: String?
         var boxSignature: String?
+        var waitingForApproval = false
+        var deadline = clockNow() + handshakeTimeout
         do {
             while true {
-                guard let frame = try await channel.receive() else {
+                guard let frame = try await exchange(channel, until: deadline, approval: waitingForApproval,
+                                                     operation: { try await channel.receive() }) else {
                     let closed = channel.closedBy ?? LinkError(code: "closed", message: "The Mac closed pairing")
                     // A Mac with no `auth` cannot prove a pinned key either.
                     if closed.code == "unknown_service", pinned != nil { return .refused(Self.changed) }
@@ -220,7 +245,12 @@ public struct LinkPairing: Sendable {
                     return .paired(macDevice: macID)
                 }
                 if value["pending"] == .bool(true) {
-                    await onWaiting()
+                    // Repeated pending frames never extend the approval deadline.
+                    if !waitingForApproval {
+                        waitingForApproval = true
+                        deadline = clockNow() + approvalTimeout
+                        await onWaiting()
+                    }
                     continue
                 }
                 guard let nonce = value["challenge"]?.stringValue, let mac = value["mac"]?.stringValue else {
@@ -248,7 +278,9 @@ public struct LinkPairing: Sendable {
                 // A scanned code stands in for the Mac's Allow prompt, only on the Mac that just
                 // proved the key the code names (never in `open`'s args, sent before any proof).
                 if let token = invites.token(mac: mac, provenKey: provenNow) { reply["pairToken"] = .string(token) }
-                try await channel.send(try JSONEncoder().encode(JSONValue.object(reply)))
+                let bytes = try JSONEncoder().encode(JSONValue.object(reply))
+                try await exchange(channel, until: deadline, approval: waitingForApproval,
+                                   operation: { try await channel.send(bytes) })
             }
         } catch let error as LinkError {
             return .refused(error)
@@ -284,19 +316,41 @@ public struct LinkPairing: Sendable {
 
     /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
+        let deadline = clockNow() + handshakeTimeout
         guard let (identity, approval) = try? keys.publicKeys(),
-              let channel = try? await link.openChannel(service: "auth", args: [
-                  "identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
-              ]) else { return }
+              let channel = try? await LinkDeadline.run(
+                timeout: handshakeTimeout,
+                operation: { try await link.openChannel(service: "auth", args: [
+                    "identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
+                ]) },
+                onDiscard: { await $0.close(code: "eof", reason: "unpair expired") }
+              ) else { return }
         defer { Task { await channel.close(code: "eof", reason: "") } }
-        guard let frame = try? await channel.receive(), let value = try? JSONDecoder().decode(JSONValue.self, from: frame),
+        guard let frame = try? await exchange(channel, until: deadline, operation: { try await channel.receive() }), let value = try? JSONDecoder().decode(JSONValue.self, from: frame),
               let nonce = value["challenge"]?.stringValue, value["mac"]?.stringValue == macID else { return }
         let payload = LinkAuthPayload(mac: macID, phone: phoneID, nonce: nonce, identityKey: identity,
                                       approvalKey: approval, action: "unpair")
         guard let signature = try? keys.signIdentity(payload.message),
               let reply = try? JSONEncoder().encode(JSONValue.object(["signature": .string(ApprovalPayload.hex(signature))]))
         else { return }
-        try? await channel.send(reply)
-        _ = try? await channel.receive()
+        do {
+            try await exchange(channel, until: deadline, operation: { try await channel.send(reply) })
+            _ = try await exchange(channel, until: deadline, operation: { try await channel.receive() })
+        } catch { return }
+    }
+
+    /// Deadline/cancellation closes this auth channel, unblocking its reader.
+    /// Network silence must not be mistaken for an unanswered human prompt.
+    private func exchange<Value: Sendable>(
+        _ channel: any LinkChannel, until deadline: Duration, approval: Bool = false,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try await LinkDeadline.run(
+            timeout: deadline - clockNow(),
+            timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
+                                   message: "The Mac didn't answer. Retry."),
+            operation: operation,
+            onCancel: { await channel.close(code: "eof", reason: "pairing ended") }
+        )
     }
 }

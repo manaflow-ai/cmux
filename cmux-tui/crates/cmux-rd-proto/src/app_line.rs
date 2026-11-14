@@ -22,6 +22,41 @@ pub struct LinePath {
     pub rtt_ms: Option<f64>,
 }
 
+/// Carrier whose negotiation failed after the ticket and peer were authenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CarrierKind {
+    RdWg,
+}
+
+/// A retry destination on the same approved session, never a new authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryCarrier {
+    WebRtc,
+}
+
+/// Only transport failures may permit a retry. Authentication, consent and
+/// revocation have no representation here and must end the approved session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WgFallbackReason {
+    Unsupported,
+    Timeout,
+    Malformed,
+    Closed,
+    Overloaded,
+}
+
+/// Rust's pre-media carrier decision, consumed by the app through its line reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CarrierFallback {
+    pub carrier: CarrierKind,
+    pub reason: WgFallbackReason,
+    pub retry: RetryCarrier,
+}
+
 /// One stdout line of `cmux rd serve` or `cmux rd connect`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppLine {
@@ -55,6 +90,9 @@ pub struct AppLine {
     /// Why the displays could not be read (with an empty `displays`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// An eligible carrier failure before streaming; the original approval still applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<CarrierFallback>,
 }
 
 // serde's `skip_serializing_if` passes a reference.
@@ -177,5 +215,28 @@ mod tests {
         assert_eq!(AppLine::decode(b"not json"), None);
         assert_eq!(AppLine::decode(b"[1,2]"), None);
         assert_eq!(AppLine::decode(br#"{"connected":"yes"}"#), None);
+    }
+
+    #[test]
+    fn fallback_decision_round_trips_and_rejects_authorization_failures() {
+        let line = AppLine {
+            fallback: Some(CarrierFallback {
+                carrier: CarrierKind::RdWg,
+                reason: WgFallbackReason::Timeout,
+                retry: RetryCarrier::WebRtc,
+            }),
+            ..AppLine::default()
+        };
+        assert_eq!(
+            line.to_json(),
+            r#"{"fallback":{"carrier":"rd_wg","reason":"timeout","retry":"web_rtc"}}"#
+        );
+        assert_eq!(AppLine::decode(line.to_json().as_bytes()), Some(line));
+        for reason in ["revoked", "consent_denied", "peer_mismatch", "unknown"] {
+            let input = format!(
+                r#"{{"fallback":{{"carrier":"rd_wg","reason":"{reason}","retry":"web_rtc"}}}}"#
+            );
+            assert_eq!(AppLine::decode(input.as_bytes()), None);
+        }
     }
 }

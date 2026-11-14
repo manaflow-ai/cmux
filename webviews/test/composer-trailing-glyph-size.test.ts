@@ -19,12 +19,15 @@ const token = (body: string, name: string) => body.match(new RegExp(`${name}:\\s
 
 describe("composer trailing glyphs", () => {
   test("the composer root declares one 16 px glyph on the density and a 1.5 px line", () => {
-    const root = block(css("composerLocation.css"), ".acpmux-dock,\n:is(.acpmux-composer, .nt-composer) {");
+    const root = block(
+      css("composerLocation.css"),
+      ".acpmux-dock,\n:is(.acpmux-composer, .nt-composer, .nt-popover) {",
+    );
     expect(token(root, "--acpmux-composer-glyph")).toBe("calc(16px * var(--acpmux-density))");
     expect(token(root, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
     expect(Number(token(root, "--acpmux-composer-trail-stroke"))).toBeCloseTo(1.5, 1);
     const newTab = block(css("newtab/screen.css"), ".nt-screen .nt-composer {\n  --acpmux-composer-control");
-    expect(token(newTab, "--acpmux-composer-glyph")).toMatch(/^calc\(16px \* var\(--cmux-density-scale/);
+    expect(token(newTab, "--acpmux-composer-glyph")).toBe("calc(16px * var(--nt-density))");
     expect(token(newTab, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
     expect(token(newTab, "--acpmux-composer-trail-stroke")).toBe(token(root, "--acpmux-composer-trail-stroke"));
   });

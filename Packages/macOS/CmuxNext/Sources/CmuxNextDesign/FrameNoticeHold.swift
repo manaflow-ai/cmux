@@ -27,6 +27,13 @@ public final class FrameNoticeReaders {
 
     public func contains(_ view: NSView) -> Bool { entries.object(forKey: view) != nil }
 
+    /// An ancestor's clip changed without moving its readers.
+    public func notifyGeometryChange() {
+        for case let view as NSView in entries.keyEnumerator().allObjects {
+            entries.object(forKey: view)?.onAncestorMove()
+        }
+    }
+
     func onAncestorMove(of view: NSView) -> (() -> Void)? { entries.object(forKey: view)?.onAncestorMove }
 }
 
@@ -48,8 +55,8 @@ extension NSView {
     }
 }
 
-/// Keeps a subtree's frame notices for the end of a resize drag or a zoom's spring: one notice per moved view when it ends,
-/// none on its frames.
+/// Keeps a subtree's frame notices for the end of a resize drag, a zoom's spring or a key resize's spring: one notice per
+/// moved view when it ends, none on its frames.
 ///
 /// AppKit posts a frame notice for each frame change of a view, and after each post of a view with controls in
 /// the titlebar band, or of one of their ancestors (a pane's tab strip, its pane views), it marks the window's
@@ -59,6 +66,12 @@ extension NSView {
 /// cmux windows move only with `performDrag` (`TitlebarDragPolicy`), so the shapes are the same at the end.
 /// A view with `postsFrameChangedNotifications` off posts nothing and dirties nothing; turning it back on posts
 /// once when its frame changed in between (AppKit's documented behavior), and that post marks the margins once.
+///
+/// A key resize's spring holds as a divider drag does (`ScreenContentView.update`): a frame then posts the notice of a
+/// reader alone (a Chromium page's host view), so the fork's page tracker runs its update once in a frame, not once more
+/// for each of the page's ancestors. A press on a spring that already holds (a key repeat, a drag or a zoom in motion)
+/// keeps that hold: a release between two presses would post each moved view's notice once per press. A hidden or
+/// parked screen's layout is never animated (`LayoutRootView.syncBatched`), so it starts no hold.
 ///
 /// Never held: scroll views and everything in them (clip and document notices drive their layout), the
 /// ``FrameNoticeReaders`` and everything in them, and views that already posted nothing.

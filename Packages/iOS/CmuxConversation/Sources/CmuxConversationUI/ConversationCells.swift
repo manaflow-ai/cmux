@@ -910,9 +910,11 @@ final class ConversationStartCell: UICollectionViewCell {
     static func text(title: String, subtitle: String, color: UIColor) -> NSAttributedString {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
-        let text = NSMutableAttributedString(string: title + "\n", attributes: [
+        let text = NSMutableAttributedString(string: subtitle.isEmpty ? title : title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
+        // A service line without a subtitle (no encryption claim): no lock.
+        guard !subtitle.isEmpty else { return text }
         let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
         // A 9.33 pt tall lock on the baseline at the symbol's own proportions
