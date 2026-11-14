@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43584954096",
+  "recorded_at": "2026-11-14T10:33:08Z",
+  "reason": "cmux-tui e2d500ad9412 changes the image's cmux-tui (pinned 1db4751815f2)",
+  "dry_run": false,
+  "cmux_tui": "e2d500ad94125d7b17115644d788779d4e830f81",
+  "fixes": [
+    {
+      "sha": "e2d500ad94125d7b17115644d788779d4e830f81",
+      "mergedAt": "2026-11-14T02:03:14-08:00",
+      "subject": "test(cmux-tui): verify orphan host discovery cleanup on NEXT (#42968)"
+    },
+    {
+      "sha": "62068b9cf973420d7bb0b3ff2f3b00220eaf93d9",
+      "mergedAt": "2026-11-14T01:59:40-08:00",
+      "subject": "desktop-lease: computer use as leased desktops, suspended while the model thinks (prototype, opt-in) (#41974)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T10:33:08Z",
+    "snapshot_id": "sh-aa0769fc461c4aabab146a5a6ebe3ec0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43584954096): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "878d19ddf270faa7d60b1d57d0d9d9fb00b3e3a1",
+    "image": "cloud-native-auto-e2d500ad-43584954096-1",
+    "revision": "ci-43584954096-1",
+    "at": "2026-11-14T10:33:08Z"
+  },
+  "rolled_back": false
+}
