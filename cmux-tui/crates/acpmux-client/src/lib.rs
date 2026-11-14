@@ -3385,6 +3385,8 @@ tail"#;
     #[ignore = "release gate: run once through cmux-ci with --profile gate"]
     fn v2_pr04b_mirror_v1_rows_gate() {
         fn sample(closed_rows: usize) -> (u64, u64) {
+            use acpmux_book::index::{ReadSide, SummaryIndex};
+
             let mut timings = Vec::new();
             let mut received = 0_u64;
             for _ in 0..8 {
@@ -3402,18 +3404,28 @@ tail"#;
                 sub.view = Some(ListView::Live);
                 client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
                 let _ = client.take_send();
-                let rows: Vec<Value> = (0..20)
-                    .map(|index| {
-                        let mut row = Summary::new(format!("live-{index}"));
-                        row.state = "idle".into();
-                        row.last_activity = index as u64;
-                        serde_json::to_value(row).unwrap()
-                    })
+                let mut index = SummaryIndex::new();
+                for row_id in 0..closed_rows {
+                    let mut row = Summary::new(format!("closed-{row_id}"));
+                    row.state = "closed".into();
+                    row.last_activity = row_id as u64;
+                    index = index.apply(row_id as u64 + 1, row);
+                }
+                for row_id in 0..20 {
+                    let mut row = Summary::new(format!("live-{row_id}"));
+                    row.state = "idle".into();
+                    row.last_activity = (closed_rows + row_id) as u64;
+                    index = index.apply((closed_rows + row_id) as u64 + 1, row);
+                }
+                let page = index
+                    .read_live_page(None, ReadSide::After, false, 100, wire::MAX_PAGE_BYTES, None)
+                    .unwrap();
+                assert_eq!(page.rows.len(), 20);
+                let rows: Vec<Value> = page
+                    .rows
+                    .iter()
+                    .map(|row| serde_json::to_value(row.as_ref()).unwrap())
                     .collect();
-                // The closed rows are present in the hub fixture but excluded
-                // by the live window. Keeping their count here makes the gate
-                // input explicit without retaining their summaries in Client.
-                assert!(closed_rows <= 11_000);
                 let frame = Frame::json(
                     FrameKind::Window,
                     &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
