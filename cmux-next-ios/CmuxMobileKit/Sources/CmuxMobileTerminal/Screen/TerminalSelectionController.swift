@@ -243,6 +243,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     }
 
     @objc private func autoscrollTick(_ link: CADisplayLink) {
+        TerminalWakeCounts.count(.autoscroll)
         guard let scrollView, let finger = autoscrollFinger, var current = selection else { return stopAutoscroll() }
         let dt = autoscrollLastTime == 0 ? link.duration : link.timestamp - autoscrollLastTime
         autoscrollLastTime = link.timestamp

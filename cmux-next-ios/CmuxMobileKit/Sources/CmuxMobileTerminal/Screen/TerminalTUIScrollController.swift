@@ -99,6 +99,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     }
 
     @objc private func stepMomentum(_ link: CADisplayLink) {
+        TerminalWakeCounts.count(.tuiMomentum)
         guard var fling = momentum, isEnabled() else { return stopMomentum() }
         let dt = lastStep == 0 ? link.duration : link.timestamp - lastStep
         lastStep = link.timestamp

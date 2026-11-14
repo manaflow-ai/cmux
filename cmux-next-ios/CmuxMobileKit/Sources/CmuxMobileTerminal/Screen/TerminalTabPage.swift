@@ -27,6 +27,15 @@ public final class TerminalTabHost {
         self.model = model
     }
 
+    /// What woke the terminal pages since the app started, by source
+    /// (`TerminalWakeCounts`): for the energy bench's terminal cases.
+    public static func wakeCounts() -> [String: UInt64] { TerminalWakeCounts.snapshot() }
+
+    /// `after` minus `before` by source, as `name=N` (`wakeCounts`).
+    public static func wakeDelta(_ before: [String: UInt64], _ after: [String: UInt64]) -> String {
+        TerminalWakeCounts.delta(before, after)
+    }
+
     /// Where the reader is in the scrollback, kept by the tab when the warm
     /// set cools this host; nil while following the prompt or in a
     /// full-screen app.

@@ -168,6 +168,7 @@ final class TerminalSurfaceView: UIView {
         observeHostThemes()
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
+        TerminalWakeCounts.register(self)
         // Also its focus: focused while seen (`updateOcclusion`).
         updateOcclusion()
         syncSize()
@@ -597,6 +598,7 @@ final class TerminalSurfaceView: UIView {
     func setNeedsTerminalDraw() {
         guard let surface, drawsFrames != false else { return }
         drawRequests += 1
+        TerminalWakeCounts.count(.drawRequest)
         ghostty_surface_refresh(surface)
     }
 
@@ -608,6 +610,7 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_refresh(surface)
         ghostty_surface_draw(surface)
         draws += 1
+        TerminalWakeCounts.count(.drawNow)
     }
 
     /// Called on the main thread in the transaction that shows a new frame.
@@ -753,6 +756,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                TerminalWakeCounts.count(.present)
                 self.presentPending = true
                 self.observeCommits()
             }

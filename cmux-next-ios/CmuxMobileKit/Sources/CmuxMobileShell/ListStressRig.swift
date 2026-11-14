@@ -221,6 +221,35 @@ final class ListStressRig: NSObject {
         let warm = terminals.filter { shell.terminalTabs.model(forTabID: $0.id) != nil }.count
         let hidden = settings.terminalVisible ? terminals.count - 1 : terminals.count
         log.notice("FRAMELOG list-stress terminals hidden=\(hidden, privacy: .public) visible=\(terminals.count - hidden, privacy: .public) warm=\(warm, privacy: .public) streaming=\(streaming, privacy: .public)")
+        if settings.terminalVisible { logTerminalWakes() }
+    }
+
+    /// Main run loop wakes (`kCFRunLoopAfterWaiting`), for `logTerminalWakes`.
+    private static var mainWakes = 0
+    private var wakeObserver: CFRunLoopObserver?
+
+    /// Every 10 s, what woke the app: the main run loop's wakes and the
+    /// terminal pages' sources (`TerminalTabHost.wakeCounts`), so the energy
+    /// bench's visible terminal cases name what ticks while nothing arrives.
+    private func logTerminalWakes() {
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
+            MainActor.assumeIsolated { ListStressRig.mainWakes += 1 }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        wakeObserver = observer
+        Task { @MainActor [log] in
+            var before = TerminalTabHost.wakeCounts()
+            var wakesBefore = ListStressRig.mainWakes
+            while true {
+                try? await Task.sleep(for: .seconds(10))
+                let after = TerminalTabHost.wakeCounts()
+                let wakes = ListStressRig.mainWakes
+                let line = "main-wakes=\(wakes - wakesBefore) " + TerminalTabHost.wakeDelta(before, after)
+                log.notice("FRAMELOG list-stress terminal-wakes 10s \(line, privacy: .public)")
+                before = after
+                wakesBefore = wakes
+            }
+        }
     }
 
     /// `count` workspaces cycled from the mock ones: a quarter working (the shimmer),

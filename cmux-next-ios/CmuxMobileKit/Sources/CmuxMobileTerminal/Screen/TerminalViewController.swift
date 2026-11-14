@@ -1271,6 +1271,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
             self?.outputCounts.frameTicks += 1
+            TerminalWakeCounts.count(.outputLink)
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
@@ -2297,6 +2298,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             guard self.view.window != nil else { return self.stopFollowFallback() }
             self.followFallbackTicks += 1
+            TerminalWakeCounts.count(.followFallback)
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             let waited = CACurrentMediaTime() - (self.awaitStarted ?? CACurrentMediaTime())
             if self.followAwaitsPresent, let target = self.pendingTarget,
@@ -3718,6 +3720,7 @@ final class BottomGlide {
     }
 
     @objc private func step(_ link: CADisplayLink) {
+        TerminalWakeCounts.count(.glide)
         guard let scrollView else { return finish() }
         if let entry = waitingFor {
             guard covered(entry) || waited >= Self.waitFrames else {
@@ -3776,6 +3779,7 @@ final class FlingAnimator {
     private var previousTimestamp: CFTimeInterval = 0
 
     @objc private func step(_ link: CADisplayLink) {
+        TerminalWakeCounts.count(.fling)
         let began = CACurrentMediaTime()
         defer { Self.pacing.stepMs = max(Self.pacing.stepMs, (CACurrentMediaTime() - began) * 1000) }
         if previousTimestamp > 0 {
