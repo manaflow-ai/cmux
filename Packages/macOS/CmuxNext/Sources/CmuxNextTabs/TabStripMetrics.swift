@@ -62,16 +62,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
-    /// The radius of a fill (the close button's hover and pressed fill, a badge's
-    /// fill, a group chip) at `rect` inside a tab pill at `pill`: concentric with the
-    /// pill (``cornerRadius`` less the fill's inset from the pill's nearer top or bottom
-    /// edge, `ConcentricCorners`), at most half the fill's shorter side. A rounded rect,
-    /// not Chrome's circle; the default 16 pt close button in a 24 pt, 8 pt pill is
-    /// Helium's 4 pt (`TabCloseButton` `kCornerRadius`).
     /// The x's hover and pressed fill corner: Helium's 4 pt on its 14 pt square (tab_close_button.cc's own
     /// `RoundRectHighlightPathGenerator` radius, not nested in the pill), the same share of the square at every
-    /// density, in half points.
-    public var closeCornerRadius: CGFloat { (closeButtonSize * 4 / 14 * 2).rounded() / 2 }
+    /// density, in half points, unless the density's `closeCorner` is tuned (``BrowserChromeTuning``).
+    public var closeCornerRadius: CGFloat
 
     /// The side of the x's ink box (``closeGlyphSize``): the stroke's round caps reach to it, so the path's ends sit
     /// inside it (``closeGlyphPathInset``).
@@ -172,6 +166,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         iconSize = Metrics.iconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
+        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
         iconTitleSpacing = TabTunables.iconTitleSpacing.value
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
