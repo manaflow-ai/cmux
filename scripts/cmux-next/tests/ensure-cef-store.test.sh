@@ -45,11 +45,13 @@ python3 "$TMP/server.py" "$TMP" "$sha" & server_pid=$!
 for _ in $(seq 50); do [[ -s "$TMP/port" ]] && break; sleep 0.1; done
 port=$(cat "$TMP/port")
 
-run() { # <cache> -> output; status in $status
+run() { # <cache> [ensure-cef args...] -> output; status in $status
+  local cache="$1"
+  shift
   status=0
   out=$(env -u GH_TOKEN -u GITHUB_TOKEN PATH=/usr/bin:/bin CMUX_CEF_MANIFEST="$TMP/manifest.json" \
-    CMUX_CEF_CACHE_DIR="$1" CMUX_CEF_NO_R2=1 CMUX_CEF_STORE_URL="http://127.0.0.1:$port" \
-    bash "$ROOT/scripts/cmux-next/ensure-cef.sh" 2>&1) || status=$?
+    CMUX_CEF_CACHE_DIR="$cache" CMUX_CEF_NO_R2=1 CMUX_CEF_STORE_URL="http://127.0.0.1:$port" \
+    bash "$ROOT/scripts/cmux-next/ensure-cef.sh" "$@" 2>&1) || status=$?
 }
 
 run "$TMP/cache1"
@@ -68,7 +70,7 @@ m['x86_64'] = {k: m[k] for k in ('version', 'tag', 'asset', 'sha256', 'url')}
 m['version'] = m['tag'] = 'cef-new-arm-release'
 with open(p, 'w') as f: json.dump(m, f)
 PY
-CMUX_CEF_ARCH=x86_64 run "$TMP/cache-intel"
+run "$TMP/cache-intel" --arch x86_64
 [[ "$status" == 0 ]] || { printf 'retained Intel archive failed (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
 [[ "$(cat "$TMP/cache-intel/$version-x86_64/.verified")" == "$sha" ]] || { echo 'Intel version cache not verified' >&2; exit 1; }
 [[ ! -e "$TMP/cache-intel/cef-new-arm-release-x86_64" ]] || { echo 'Intel archive cached under ARM version' >&2; exit 1; }
