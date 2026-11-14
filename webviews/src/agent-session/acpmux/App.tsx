@@ -3,6 +3,7 @@ import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
+import { beforeTranscriptDormant, useTranscriptDormant } from "./hiddenTranscript";
 import React, {
   Activity,
   useCallback,
@@ -6798,6 +6799,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// A page hidden a while draws no transcript (hiddenTranscript.ts); shown again, the transcript opens at the
+  /// place it rested at when it went (null: at its latest message).
+  const transcriptDormant = useTranscriptDormant();
+  const [dormantPlace, setDormantPlace] = useState<{ sessionId: string; anchor: ScrollAnchor | null }>();
+  const dormantSession = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    dormantSession.current = shownSessionId;
+  }, [shownSessionId]);
+  useEffect(
+    () =>
+      beforeTranscriptDormant(() => {
+        const sessionId = dormantSession.current;
+        const anchor = transcriptAnchor.current?.();
+        if (sessionId && anchor !== undefined) setDormantPlace({ sessionId, anchor });
+      }),
+    [],
+  );
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -11512,6 +11530,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       : launchSecondOpinion
                                                                   }
                                                                 >
+                                                                  transcriptDormant ? null : (
                                                                   <VirtualTranscript
                                                                     key={chatPresentation}
                                                                     topInset={soloUnder ? tabRow.height : 0}
@@ -11587,9 +11606,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     openAt={
                                                                       !childRows &&
                                                                       shownSessionId &&
-                                                                      scrollAnchor?.sessionId === shownSessionId
-                                                                        ? scrollAnchor
-                                                                        : undefined
+                                                                      dormantPlace?.sessionId === shownSessionId
+                                                                        ? (dormantPlace.anchor ?? undefined)
+                                                                        : !childRows &&
+                                                                            shownSessionId &&
+                                                                            scrollAnchor?.sessionId === shownSessionId
+                                                                          ? scrollAnchor
+                                                                          : undefined
                                                                     }
                                                                     anchorNow={
                                                                       quick || childRows ? undefined : transcriptAnchor
@@ -11659,6 +11682,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     onOpenDiff={quick ? undefined : openDiff}
                                                                     onToggleActivity={toggleActivity}
                                                                   />
+                                                                  )
                                                                 </SecondOpinionContext.Provider>
                                                               )}
                                                             </ChatFindScope>
