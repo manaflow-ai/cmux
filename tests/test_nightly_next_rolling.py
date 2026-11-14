@@ -97,7 +97,8 @@ class RollingRuleTests(unittest.TestCase):
                                     oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
                                     starts=[holder, waiting])
         self.assertFalse(go, reason)
-        self.assertIn("runs/15", reason)
+        # The head's run pending on the group holds too (run_holds_group): a promotion would replace it.
+        self.assertRegex(reason, r"runs/1[56]\b")
 
     def test_a_queued_run_that_never_started_is_not_building(self):
         """Run 40738012059: `decide` queued 73 minutes on a label that started nothing."""

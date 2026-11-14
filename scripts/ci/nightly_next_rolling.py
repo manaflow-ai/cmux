@@ -24,9 +24,12 @@ builds alongside a running one instead of waiting behind it"):
   ever cancelled. --window-minutes now only spaces starts when a run list lags.
 
 "Building" means holding the push group (nightly_next_feed_watch.holds_push_group: a
-push or the loop's retry dispatch; run_holds_group): a published run still holds it
-through its tail, and a run that has sat 10 minutes with nothing running and every
-queued job without a runner holds nothing. A promotion run on
+push or the loop's retry dispatch; run_holds_group): a run whose nightly-next-one ran
+holds it only until that job ends (the push slot is that job's group, nightly-next-one-push,
+and its finish asks this tick through wake-nightly-next-tick), and holds it while that job
+is queued or pending however long; a run of the split jobs still holds it through its tail;
+and a run that has sat 10 minutes with nothing running and every queued job without a
+runner holds nothing. A promotion run on
 main that is still moving nightly-next counts as building for --promotion-minutes.
 One exception: a retry of nightly-next's own head while a newer commit waits neither
 holds nor counts as a start (retry_of). It leaves the slot only when a newer push

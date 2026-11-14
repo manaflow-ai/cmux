@@ -572,15 +572,35 @@ def holds_push_group(run: dict) -> bool:
     return run.get("event") == "workflow_dispatch" and bool(RETRY_TITLE.match(title))
 
 
+# The one-job nightly-next build (feat-cmux-next's nightly.yml, vars.NIGHTLY_NEXT_ONE_JOB). It holds the push
+# slot itself (its job group nightly-next-one-push), so the run's tail after the feed holds nothing.
+ONE_JOB = "nightly-next-one"
+
+
 def run_holds_group(run: dict, jobs: list[dict], now: dt.datetime,
                     unstarted_minutes: float = UNSTARTED_MINUTES) -> bool:
     """Whether an active run still holds its concurrency group: `run_is_building` without the
     publication cut-off, since a run that published keeps its group through its tail (deltas, the
-    GitHub release, the sign handoff), and a newer push then waits behind it."""
+    GitHub release, the sign handoff), and a newer push then waits behind it.
+
+    A loop run whose nightly-next-one ran holds the push slot only while that job is not done: the slot is the
+    job's own group, and its tail (published-build, dSYMs, the GitHub release, dispatch-published-in) held the
+    next landing 5-10 min more (holders 43581845419 and 43605506661: 22.1 and 23.9 min landing to run created).
+    Until then it holds however long it waits: queued or pending, it is the one loop run at the slot, and a
+    promotion would only get it replaced (2026-11-12). A skipped nightly-next-one (the split jobs build) keeps
+    the rule below. A run pending on a concurrency group with no job yet holds too, for the same reason."""
     if run.get("status") == "completed":
         return False
+    one = next((job for job in jobs if job.get("name") == ONE_JOB), None)
+    if one is not None:
+        if one.get("status") != "completed":
+            return True
+        if one.get("conclusion") != "skipped":
+            return False
     if not jobs:
-        # No job yet (a run pending on its concurrency group, or just created).
+        # No job yet: pending on its concurrency group (holds), or just created.
+        if run.get("status") == "pending":
+            return True
         return queued_minutes({}, run, now) < unstarted_minutes
     if any(job.get("status") in ("in_progress", "waiting") for job in jobs):
         return True
