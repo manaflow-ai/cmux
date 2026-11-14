@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { messagesRows } from "../../src/agent-session/acpmux/conversation/messagesRows";
+import { PresentationContext } from "../../src/agent-session/acpmux/conversation/presentationContextModel";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
@@ -36,6 +38,9 @@ import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 // The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map, and
 // `?wave=stepped` (or another wave.experiment.ts arm) picks the hover wave's shape.
 const query = new URLSearchParams(location.search);
+/// `?presentation=messages` draws the rows as the Messages page does (Home, Chief and a chat set to
+/// Messages: App.tsx `chatPresentation`), speakers only, through messagesRows.
+const messages = query.get("presentation") === "messages";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": query.get("layout") === "full" ? "full" : "compact",
   ...(query.get("wave") ? { "thread-minimap-wave": query.get("wave")! } : {}),
@@ -72,9 +77,10 @@ const actions = {
     shownRows = rows;
     shownExtra = extra;
     view.render(
+      <PresentationContext.Provider value={messages ? "messages" : "transcript"}>
       <TurnActionsContext.Provider value={actions}>
         <VirtualTranscript
-          rows={turnView(rows, new Set())}
+          rows={messages ? messagesRows(rows) : turnView(rows, new Set())}
           sessionId="minimap-session"
           earlier={shownExtra.earlier}
           promptCount={shownExtra.promptCount}
@@ -85,7 +91,8 @@ const actions = {
           canLoadOlder={olderPage !== undefined}
           onLoadOlder={olderPage}
         />
-      </TurnActionsContext.Provider>,
+      </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     );
   })();
 
