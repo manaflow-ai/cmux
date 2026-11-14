@@ -273,8 +273,17 @@ impl Mux {
                     );
                     let previous_revision = doc.revision;
                     let mut mint = mint_item_id;
-                    let applied = reduce::apply_in_place(doc, &ops, &mut mint)
-                        .map_err(|refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()))?;
+                    let applied =
+                        reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
+                            // The app shows this only for the person's own change; the log keeps every
+                            // refusal with its key and op kinds, so one can be read back after the fact.
+                            let kinds: Vec<&str> = ops.iter().map(|op| op.kind_name()).collect();
+                            eprintln!(
+                                "cmux-tui: sidebar change {key} refused: {} (ops {kinds:?})",
+                                refusal.as_str()
+                            );
+                            anyhow::anyhow!("bad request: {}", refusal.as_str())
+                        })?;
                     let result = json!({
                         "revision": doc.revision.to_string(),
                         "inverse": applied.inverse,
