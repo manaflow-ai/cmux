@@ -100,8 +100,8 @@ public final class CmuxRemoteService {
                     }
                 }
             } onCancel: {
-                // task-owner: one hop to remove this caller's MainActor-owned continuation.
-                Task { @MainActor [weak self] in
+                // Cancellation may arrive on any executor; remove only this caller's waiter.
+                MainDelivery().run { [weak self] in
                     self?.configWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
                 }
             }
