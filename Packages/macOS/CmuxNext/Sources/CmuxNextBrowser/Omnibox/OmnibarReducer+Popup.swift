@@ -230,12 +230,14 @@ nonisolated extension OmnibarStep {
         let first = state.popup.pointer == nil
         state.popup.pointer = pointer
         guard !first else { return }
-        // A row the pointer left keeps its highlight until another row takes it: the exit from one row comes before
-        // the entry into the next, and clearing it in between flashed the keyboard's row (Lucas 2026-11-14: "hovering
-        // over the results also causes some weird flashing glitch on other rows").
-        guard let row, state.popup.rows.indices.contains(row) else { return }
-        state.popup.hover = row
-        state.popup.source = .mouse
+        // The card reports no row only once the pointer leaves it (`OmniboxSuggestionPanel`): moving between rows
+        // never clears the hover, so it never flashes the keyboard's row (Lucas 2026-11-14).
+        if let row, state.popup.rows.indices.contains(row) {
+            state.popup.hover = row
+            state.popup.source = .mouse
+        } else {
+            state.popup.hover = nil
+        }
     }
 
     mutating func rowClick(_ row: Int, _ disposition: OmnibarInput.Disposition) {
