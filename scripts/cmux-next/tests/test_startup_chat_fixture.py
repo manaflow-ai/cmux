@@ -156,6 +156,8 @@ class Restoration(unittest.TestCase):
             sock = mock.Mock()
 
             def call(self, method, params):
+                if method == "acp.trust.set":
+                    return {"ok": True, "result": {}}
                 if method == "action.run":
                     if params["action"] == "palette.newAgentChat":
                         page["opened"] = True
