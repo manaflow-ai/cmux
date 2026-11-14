@@ -837,7 +837,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     .with_exit(2)
                 })?;
                 crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, Some(token))
-                    .await
+                    .await?;
+                // A pair code's join runs only this (the join line also installs the service):
+                // the update timer `host setup` installs, when acpmux's own service runs here.
+                // Its stdout is the join's answer, so a note goes to stderr.
+                let timer = tokio::task::spawn_blocking(|| {
+                    crate::cli::daemon_service::ensure_update_timer(
+                        &crate::cli::daemon_service::Here,
+                    )
+                })
+                .await;
+                // `cmux pair` reads this line's prefix from the join's stderr
+                // (`cmux-server/src/pairing/machine_join.rs`, `TIMER_NOTE`).
+                if let Ok(Some(off)) = timer {
+                    eprintln!("acpmux update timer: {off}");
+                }
+                Ok(())
             } else if value.starts_with("cmxt1.") {
                 let ticket = crate::cli::pairing::join_ticket_text(&value)?;
                 let client = connect(true).await?;
