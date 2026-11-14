@@ -27,8 +27,10 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   output it should interrupt. Until that channel is open (or when it
 ///   fails) input goes on the attach channel. The composer's Send
 ///   (``submit(_:)``) is one `send` with `submit: true` against a daemon
-///   that lists `send-expect-agent-v1`: its text and Return arrive together
-///   or not at all.
+///   that lists `send-expect-agent-v1`: its text and Return travel in one
+///   request, so a stalled channel cannot deliver the text without its
+///   Return (only a failed terminal write between the two, which the
+///   request reports, can).
 /// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid,
 ///   on the attach channel (the daemon gives geometry authority to the
 ///   attaching client), only while the terminal is on screen
@@ -306,7 +308,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// The composer's Send: `payload` and Return as one `send` with
-    /// `submit: true`, so a stalled or failed channel loses both or neither
+    /// `submit: true`, so a stalled or failed channel loses both or neither (a
+    /// terminal write that fails between the text and Return is reported as an error)
     /// (live logs, 2026-11-13: the Return of a command sent as two requests
     /// was dropped after the text was typed, and the shell glued the text
     /// onto the next command). The never-send-twice rule holds for it as for

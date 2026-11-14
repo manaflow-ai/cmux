@@ -430,8 +430,10 @@ channel its own SCTP stream:
   because the daemon gives geometry authority to the attaching client.
   Output, attach streams, `acpmux` and `file` stay bulk. The composer's
   Send is one `send` with the paste's bytes and `submit: true` on a daemon
-  that lists `send-expect-agent-v1`, so its text and Return arrive together
-  or not at all (a `send` that was written is never sent again); an older
+  that lists `send-expect-agent-v1`, so a stalled channel never delivers the
+  text without its Return (a `send` that was written is never sent again; a
+  terminal write that fails between the two is reported as the request's
+  error); an older
   daemon gets the paste and Return as two `send`s.
 
 ### Media session (`webrtc-media`; added 2026-10-19, backward compatible)
