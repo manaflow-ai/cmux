@@ -845,20 +845,29 @@ rebuild replaced it (`swapped_at_ms`), the first time it can go
 (`full_starts`, `full_starts_left`, of 3). The file goes at the first start
 after both conditions. Until then the session's directory is larger than the
 registry by `bytes`, no start reads the file, and no rebuild runs (retention
-deletes in place). To go back to it: quit cmux and each program that talks
-to the daemon, then stop the daemon. Make sure that no cmux daemon runs, and
-that none starts, until the last step is done. Move each file whose name
-starts with `workspace-registry.sqlite3`, but not the kept file, away
-together into one other folder: the registry and, if they exist, its `-wal`,
-`-shm` and `-journal` files. Do not delete them: they hold the work since
-the rebuild, and that work is not in the kept file. Make sure that no
-`-wal`, `-shm` or `-journal` file with the registry's name is left in the
-session's directory. Then copy the kept file to `workspace-registry.sqlite3`
-(a copy, not a rename: the kept file stays whole) and start cmux. The kept
-file that stays beside the registry that came back does not go by itself,
-because that registry has no record of a swap: while it is there no rebuild
-starts and retention deletes in place, and each open says so in the log.
-Remove it by hand when it is not necessary any more. `kept_raw` counts the saved reducer states
+deletes in place). To go back to it: first copy the kept file to a folder
+outside the session's directory. That copy is yours: no start touches it.
+Then quit cmux and each program that talks to the daemon, and stop the
+daemon. Make sure that no cmux daemon runs, and that none starts, until the
+last step is done. Move each file whose name starts with
+`workspace-registry.sqlite3`, but not the kept file and not a file whose
+name starts with the kept file's name, away together into one other folder:
+the registry, its `-wal`, `-shm` and `-journal` files, and each other file
+with that start of its name that exists. Do not delete them: they hold the
+work since the rebuild, and that work is not in the kept file. Make sure
+that no `-wal`, `-shm` or `-journal` file with the registry's name is left
+in the session's directory, and that the disk has free space of the size of
+the kept file. Then copy the kept file to a temporary name in the session's
+directory that does not start with `workspace-registry.sqlite3` (a copy,
+not a rename). When the copy is complete, rename the copy to
+`workspace-registry.sqlite3` and start cmux. The kept file that stays beside
+the registry that came back can go by itself. If the registry that came back
+holds the record of an earlier swap, the rule of 7 days and 3 full starts
+counts from that earlier swap, so the file can go at the first start. If it
+holds no such record, the file stays and no rebuild starts until you remove
+the file by hand, and a start writes `output cleanup: kept <file>: the
+registry is not the one made from it` to the log. While the file is there,
+retention deletes in place. `kept_raw` counts the saved reducer states
 that a start could not load after journal retention deleted records; each is
 kept as it was in `meta` under `journal_reducer_kept.<reducer>`. That start
 goes on from the reducer's base (`meta` `journal_reducer_base.<reducer>`, a
