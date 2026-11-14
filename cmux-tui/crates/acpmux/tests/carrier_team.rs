@@ -54,9 +54,9 @@ fn hub(d: &Path) -> Arc<Hub> {
     let _ = HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fclaude": {
-            "argv": ["python3", FAKE], "family": "claude",
             // A teammate's prompt reaches the agent behind a line naming its author.
-            "env": {"FAKE_UNTIL_CANCEL_IN": "until-cancel"},
+            "argv": ["python3", FAKE, "--fake", "FAKE_UNTIL_CANCEL_IN", "until-cancel"],
+            "family": "claude",
         }},
         "defaultHarness": "fclaude",
         "permissionPolicy": "ask",

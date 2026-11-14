@@ -381,13 +381,33 @@ acpmux's own Claude Code gate, a harness mode that asks, OpenCode asked to ask,
 or an ACP agent that says at `initialize` that it asks before every tool call
 (`agentCapabilities._meta.acpmux.asksBeforeTools: true`). acpmux believes that
 claim only from an agent it started from a harness entry of its own config
-(`config.json` or a discovered harness), and only while that entry still has
-the argv and env the agent started with. It does not believe it from a folder
-profile (`.cmux/harnesses/*.toml`, which the repository supplies), from an
-entry changed or removed after the start, or from a fork or moved chat that
-has a copy of another agent's claim. Each claim is in the session events as
-`asks_before_tools_claim`, with `trusted` and, when false, `reason`
-(`not_started_here`, `not_a_config_entry`, `entry_changed`); see them with
+(`config.json` or a discovered harness), with a command that nothing but the
+config chose, and only while the config still gives the entry's argv and env,
+its `defaults` env and its preset as they were at the start. It does not
+believe it from a folder profile (`.cmux/harnesses/*.toml`, which the
+repository supplies; also not after a config entry takes the profile's name),
+from a command that skips approvals (`--yolo`, `--dangerously-skip-permissions`),
+from a command that runs code of the chat's folder (`${cwd}/agent.py`, a
+relative program such as `./agent`, `python3 -m NAME`, an env value such as
+`PYTHONPATH=.`, a relative `PATH` entry, a program that `PATH` finds in the
+folder, a runner such as `npx`, `uvx` or `bun`, a file of the folder that an
+option names or an interpreter or wrapper runs: `--config agent.json`,
+`env python3 agent.py`, a bare `NODE_OPTIONS` preload such as `--require hook`;
+acpmux believes the claim only from a launch whose every word it understands, so
+`sh -c`, `bash -lc`, an unknown wrapper such as `pyenv exec`, PyPy and
+`python3` with only `PYTHONSAFEPATH` count too; the program must be `opencode`,
+`codex`, `python3`/`python3.N` or `node` by its written name and by the real
+file it runs, any case, and every env name must be a reviewed one such as
+`LANG`, `NO_COLOR`, `PYTHONSAFEPATH` or a `*_API_KEY`, `*_BASE_URL` or
+`*_MODEL` name, so `perl5.34`, `ruby`, `RUBYOPT`, `NODE_OPTIONS` or
+`DYLD_INSERT_LIBRARIES` count too, as does an argument that names another
+program inside a `KEY=VALUE`, quoted, JSON or command-string word such as
+`-c mcp_servers.x.command=node`),
+from an entry, defaults or preset changed or removed after the start, or from
+a fork or moved chat that has a copy of another agent's claim. Each claim is in
+the session events as `asks_before_tools_claim`, with `trusted` and, when
+false, `reason` (`not_started_here`, `not_a_config_entry`,
+`argv_skips_approvals`, `launch_reads_folder`, `entry_changed`); see them with
 `acpmux session tail NAME`.
 
 ## 6. Other machines

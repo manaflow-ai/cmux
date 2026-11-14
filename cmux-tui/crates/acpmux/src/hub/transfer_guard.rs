@@ -349,6 +349,8 @@ impl Hub {
         meta.harness_argv.clear();
         meta.spawn_argv = None;
         meta.launch_digest = None;
+        meta.claim_basis = None;
+        meta.claim_unbelieved = None;
         meta.tags.clear();
         // The folders beside its own: each one under the move's roots, as its `cwd` is; any
         // other is dropped (`additional_dirs.rs`), so a bundle never widens what it can see.

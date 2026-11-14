@@ -185,9 +185,9 @@ impl Daemon {
             "harnesses": {
                 "fake": {"argv": ["python3", FAKE]},
                 "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
-                "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
-                "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
-                "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
+                "other": {"argv": ["python3", FAKE, "--fake", "FAKE_SESSION_PREFIX", "other-"], "family": "fake"},
+                "gated": {"argv": ["python3", FAKE, "--fake", "FAKE_START_GATE", dir.join("gate")], "family": "fake"},
+                "wide": {"argv": ["python3", FAKE, "--fake", "FAKE_FULL_ACCESS", "1"], "family": "wide"},
                 "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
                 "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             },

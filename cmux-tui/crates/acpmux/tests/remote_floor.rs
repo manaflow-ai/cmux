@@ -45,7 +45,7 @@ fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
-            "fnomode": {"argv": ["python3", FAKE], "family": "claude", "env": {"FAKE_NO_MODES": "1"}},
+            "fnomode": {"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1"], "family": "claude"},
             "ftarget": {"argv": ["python3", FAKE], "family": "target"},
         },
         "defaultHarness": "fclaude",

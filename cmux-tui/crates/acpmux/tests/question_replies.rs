@@ -34,7 +34,7 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             // Steers as Claude Code does: a prompt during a turn is read into it at once.
-            "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
+            "steer": {"argv": ["python3", FAKE, "--fake", "FAKE_CLAUDE_STEER", "1"], "family": "fake"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",

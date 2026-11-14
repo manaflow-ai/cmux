@@ -23,7 +23,7 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
             "fmine": {"argv": ["python3", FAKE], "family": "mine"},
-            "fnomode": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}},
+            "fnomode": {"argv": ["python3", FAKE, "--fake", "FAKE_NO_MODES", "1"]},
         },
         "defaultHarness": "fcodex",
         "permissionPolicy": "ask",

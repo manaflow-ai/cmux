@@ -55,13 +55,9 @@ fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
                 }
             },
             "fakeacp": {
-                "argv": ["python3", FAKE_AGENT],
+                "argv": ["python3", FAKE_AGENT, "--fake", "FAKE_ASK_MODE", "1"],
                 "family": "sample",
-                "env": {
-                    "FAKE_ASK_MODE": "1",
-                    "REMOTE_PROFILE_VALUE": "profile-authorized",
-                    "__ACPMUX_REMOTE_ENV_CLEARED": "profile-collision"
-                }
+                "env": {"REMOTE_PROFILE_VALUE": "profile-authorized", "__ACPMUX_REMOTE_ENV_CLEARED": "profile-collision"}
             }
         },
         "defaultHarness": "fakeclaude",
