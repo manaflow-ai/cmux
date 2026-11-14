@@ -27,19 +27,14 @@ public final class CmuxToastPlaygroundWindow {
     /// The playground's window, once opened (tests, captures).
     public var shownWindow: NSWindow? { window }
 
-    /// Opens the playground (its sheets in `themes`), or brings it to the front.
+    /// Opens the playground (its sheets in `themes`, the styles Debug Settings > Toasts > Playground shows
+    /// picks), or brings it to the front with those styles.
     public func show(themes: CmuxToastPlaygroundThemes) {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 860),
-                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Toast Playground"
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 1000, height: 500)
+        let window = window ?? makeWindow()
+        self.window = window
         let center = center, target = target
-        let view = CmuxToastPlaygroundView(center: center, themes: themes) { [weak window] style in
+        let view = CmuxToastPlaygroundView(center: center, themes: themes,
+                                           focus: CmuxToastTunables.playgroundFocus.value(in: center.tunables)) { [weak window] style in
             guard let shownIn = target() ?? window else { return }
             for var toast in CmuxToastPlaygroundSamples.fired {
                 toast.style = style
@@ -48,11 +43,19 @@ public final class CmuxToastPlaygroundWindow {
             }
         }
         window.contentView = view
-        window.setAccessibilityIdentifier("cmux.toastPlayground")
-        window.center()
-        self.window = window
         window.makeKeyAndOrderFront(nil)
         view.layoutSubtreeIfNeeded()
         view.enter()
+    }
+
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 860),
+                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = "Toast Playground"
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 1000, height: 500)
+        window.setAccessibilityIdentifier("cmux.toastPlayground")
+        window.center()
+        return window
     }
 }
