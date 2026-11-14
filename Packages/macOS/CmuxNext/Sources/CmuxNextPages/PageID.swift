@@ -58,8 +58,10 @@ public nonisolated struct PageID {
 public extension PageDescriptor {
     /// A page an app manifest declares (third party or first-party app code outside the host
     /// table). Its id must be the app's reverse-DNS id, never a first-party id, and its namespaces
-    /// must be its own; it gets no native ops and runs no registry actions.
-    static func appPage(id: String, resource: String, namespaces: [String]) throws(PageID.Refusal) -> PageDescriptor {
+    /// must be its own; it gets no native ops and runs no registry actions. `entry` is the file
+    /// `/` serves (one name inside the root, else `index.html`).
+    static func appPage(id: String, resource: String, namespaces: [String],
+                        entry: String = "index.html") throws(PageID.Refusal) -> PageDescriptor {
         guard !PageID.isReserved(id) else { throw .reservedID(id) }
         let host = id.lowercased()
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-")
@@ -69,6 +71,6 @@ public extension PageDescriptor {
             throw .reservedNamespace(reserved)
         }
         // An app's own content decides what sits under a click that only brings the window forward.
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
+        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, entry: entry, acceptsFirstMouse: false)
     }
 }

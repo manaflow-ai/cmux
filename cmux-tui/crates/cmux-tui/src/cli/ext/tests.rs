@@ -438,7 +438,8 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                 let apps = if local.join(name).is_dir() {
                     vec![
                         json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
-                        "hidden": false, "available": true, "bundle_dir": local.join(name)}),
+                        "hidden": false, "available": true, "bundle_dir": local.join(name),
+                        "web_pages": served_web_pages(&local.join(name))}),
                     ]
                 } else {
                     vec![]
@@ -804,4 +805,80 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
+/// fails the load when the daemon does not host one the manifest declares.
+#[test]
+fn ext_dev_reports_web_panes_and_fails_when_the_daemon_hosts_none() {
+    let manifest = json!({
+        "id": "local/web-pane", "runtime": { "web": { "root": "web" } },
+        "implements": { "cmux.pane/1": { "web": "web/index.html" } }
+    });
+    let page = json!({ "interface": "cmux.pane/1", "root": "web", "entry": "index.html" });
+    let served = json!({ "id": "local/web-pane", "web_pages": [page] });
+    assert_eq!(dev::web_check(&manifest, Some(&served)).unwrap(), vec![page]);
+    // A daemon older than web panes lists no `web_pages`.
+    let old = json!({ "id": "local/web-pane" });
+    let problem = dev::web_check(&manifest, Some(&old)).unwrap_err();
+    assert_eq!(problem.field.as_deref(), Some("/implements/cmux.pane~11/web"));
+    // A scene app has nothing to check.
+    let scene =
+        json!({ "id": "local/s", "implements": { "cmux.pane/1": { "export": "renderPane" } } });
+    assert!(dev::web_check(&scene, Some(&old)).unwrap().is_empty());
+}
+
+/// The sample web pane in examples/extensions passes the manifest and file
+/// checks `ext dev` runs first, and its page is one the daemon hosts.
+#[test]
+fn the_web_pane_example_is_a_valid_package() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let pkg = dev::load_package(&dir).expect("valid package");
+    assert_eq!(pkg.id, "local/web-pane");
+    let pages = cmux_app_manifest::web_pages(&pkg.manifest);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(
+        (pages[0].interface.as_str(), pages[0].root.as_str(), pages[0].entry.as_str()),
+        ("cmux.pane/1", "web", "index.html")
+    );
+}
+
+/// The `web_pages` the real daemon lists for the copied package (supervisor
+/// `entry`: cmux_app_manifest::web_pages of its manifest).
+fn served_web_pages(package: &Path) -> Vec<Value> {
+    let Ok(text) = std::fs::read_to_string(package.join("cmux-app.json")) else { return vec![] };
+    let Ok(manifest) = serde_json::from_str::<Value>(&text) else { return vec![] };
+    cmux_app_manifest::web_pages(&manifest)
+        .into_iter()
+        .map(|p| json!({ "interface": p.interface, "root": p.root, "entry": p.entry, "symbol": p.symbol }))
+        .collect()
+}
+
+/// `cmux ext dev --once --json` on the sample web pane: the files are copied
+/// to the daemon's local folder, the reload is picked up, no scene probe
+/// runs (a web pane has no export), and the result names the hosted page.
+#[test]
+fn once_loads_the_web_pane_example() {
+    let sample =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/extensions/web-pane");
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("web-pane");
+    for file in ["cmux-app.json", "web/index.html", "web/page.js", "web/page.css"] {
+        let to = dir.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(file), &to).unwrap();
+    }
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/web-pane", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert_eq!(outcome.probe, None, "a web pane has no scene to probe");
+    assert!(local.join("web-pane/web/index.html").is_file());
+    let json = outcome.to_json(&dir);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["web"][0]["interface"], "cmux.pane/1");
+    assert_eq!(json["web"][0]["entry"], "index.html");
+    assert!(outcome.line().contains("1 web pane reloads in place"), "{}", outcome.line());
+    assert!(!fake.cmds().contains(&"apps-mount".to_string()));
 }

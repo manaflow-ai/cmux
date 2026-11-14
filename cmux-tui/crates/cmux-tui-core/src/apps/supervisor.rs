@@ -269,6 +269,9 @@ pub(super) struct Inner {
     /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
     /// is paused. Absent: Normal with nothing counted.
     pub ladders: HashMap<String, super::budget::AppLadder>,
+    /// Open web panes' bridges and their calls waiting for a provider
+    /// (`page_calls.rs`).
+    pub pages: super::page_calls::Pages,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -429,6 +432,7 @@ impl Supervisor {
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
+                pages: Default::default(),
             }),
             config,
             router,
@@ -472,6 +476,7 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
+            inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
@@ -884,5 +889,18 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(Package::palette_commands).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
+        // The web panes the client may host (`render: web`): each page's
+        // file root inside `bundle_dir` and its entry file, as the manifest
+        // rules accepted them (cmux_app_manifest::web_pages).
+        "web_pages": package.map(|p| web_pages_json(&p.manifest)).unwrap_or_default(),
     })
+}
+
+fn web_pages_json(manifest: &Value) -> Vec<Value> {
+    cmux_app_manifest::web_pages(manifest)
+        .into_iter()
+        .map(|page| {
+            json!({ "interface": page.interface, "root": page.root, "entry": page.entry, "symbol": page.symbol })
+        })
+        .collect()
 }

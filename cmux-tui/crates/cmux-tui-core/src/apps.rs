@@ -49,10 +49,12 @@ mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
-// The `render: web` page bridge (design step 5); the daemon's page-call
-// command and the Mac page host wire it in a follow-up.
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]

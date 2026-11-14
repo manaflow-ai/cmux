@@ -153,6 +153,10 @@ final class DaemonAppsTransport: AppsTransport {
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
     }
 
+    func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
+        AppJSON(try await send(AppsPageCallRequest(app: app, page: page, message: message), timeout: Self.runTimeout))
+    }
+
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
         AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }

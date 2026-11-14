@@ -12,7 +12,8 @@ public nonisolated struct AppsWireDecoding {
         let date = json["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         switch name {
         case "apps-changed":
-            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) })
+            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
+                            app: json["transaction"]?.stringValue == "local-reload" ? json["app"]?.stringValue : nil)
         case "apps-scene":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)

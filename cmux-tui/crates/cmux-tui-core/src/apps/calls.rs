@@ -3,7 +3,7 @@
 //! thread (storage, egress, or the daemon's own dispatcher), answered back
 //! to the host that asked if it is still the same process.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Instant;
 
 use cmux_app_host::ToHost;
@@ -25,14 +25,16 @@ fn error(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into(), "retryable": false })
 }
 
-struct Work {
-    app: String,
-    op: String,
-    params: Value,
-    idempotency_key: Option<String>,
-    origin: Origin,
-    grant: Grant,
-    generation: u64,
+/// One admitted call, run on a worker thread: a host's (`call_locked`) or a
+/// web pane's (`page_calls.rs`).
+pub(super) struct Work {
+    pub app: String,
+    pub op: String,
+    pub params: Value,
+    pub idempotency_key: Option<String>,
+    pub origin: Origin,
+    pub grant: Grant,
+    pub generation: u64,
 }
 
 impl Supervisor {
@@ -155,17 +157,30 @@ impl Supervisor {
     }
 
     fn execute(&self, key: &HostKey, work: Work) -> Result<Value, Value> {
-        let Work { app, op, params, idempotency_key, origin, grant, generation } = work;
+        let generation = work.generation;
+        self.execute_with(work, |inner| {
+            !key.preview
+                && inner
+                    .hosts
+                    .get(key)
+                    .is_some_and(|h| h.generation == generation && !h.grant.revoked)
+        })
+    }
+
+    /// Runs `work`. `current` says, under the supervisor lock, whether the
+    /// caller (a host process, a web pane) still speaks for the app.
+    pub(super) fn execute_with(
+        &self,
+        work: Work,
+        current: impl FnOnce(&Inner) -> bool,
+    ) -> Result<Value, Value> {
+        let Work { app, op, params, idempotency_key, origin, grant, .. } = work;
         if op.starts_with("app.storage.") {
             // Under the supervisor lock: an uninstall (which drops the
             // table under the same lock) cannot interleave with this write.
             let inner = self.inner.lock().unwrap();
-            let current = inner
-                .hosts
-                .get(key)
-                .is_some_and(|h| h.generation == generation && !h.grant.revoked);
             let installed = inner.mirror.apps.get(&app).is_some_and(|r| r.installed);
-            if !current || !installed || key.preview {
+            if !current(&inner) || !installed {
                 return Err(error("scope.missing", "the app is not installed"));
             }
             let storage = self.storage();
@@ -192,7 +207,7 @@ impl Supervisor {
     /// Writes the answer if the host that asked is still the current process.
     fn answer(&self, key: &HostKey, generation: u64, process: &Arc<HostProcess>, message: ToHost) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) else {
                 return;
             };
@@ -205,7 +220,7 @@ impl Supervisor {
     }
 }
 
-fn mint_key() -> String {
+pub(super) fn mint_key() -> String {
     let mut bytes = [0u8; 12];
     let _ = getrandom::fill(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()

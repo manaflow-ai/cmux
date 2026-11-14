@@ -87,6 +87,9 @@ pub(super) enum Target {
     /// An app server's `relay.op` or `relay.session` line (`relay.rs`),
     /// answered on that server process's input.
     Relay { app: String, generation: u64, id: Value, session: bool },
+    /// A web pane's call (`page_calls.rs`): its responder waits in
+    /// `Inner::page_waiters` under `waiter`.
+    Page(super::page_calls::PageTarget),
 }
 
 pub(super) struct ProviderCall {
@@ -282,6 +285,36 @@ impl Supervisor {
         origin: Origin,
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
+        let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
+        let target = Target::Host { host: key.clone(), generation, cb };
+        let outs = self.send_to_provider_locked(
+            inner,
+            &key.app,
+            target,
+            op,
+            params,
+            origin,
+            idempotency_key,
+        )?;
+        if let Some(host) = inner.hosts.get_mut(key) {
+            host.inflight += 1;
+        }
+        Ok(outs)
+    }
+
+    /// Sends an app's call of `op` to the provider of its family; `target`
+    /// is who waits for the answer (`finish_locked`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn send_to_provider_locked(
+        &self,
+        inner: &mut Inner,
+        app: &str,
+        target: Target,
+        op: &str,
+        params: Value,
+        origin: Origin,
+        idempotency_key: Option<String>,
+    ) -> Result<Vec<Out>, Value> {
         // The credential relay serves app servers' relay lines only
         // (`relay.rs`), never an app host's call, whatever its scopes say.
         if !FAMILIES.contains(&family_of(op)) || family_of(op) == "credential" {
@@ -291,7 +324,7 @@ impl Supervisor {
         }
         let Some(&client) = inner.providers.get(family_of(op)) else { return Err(unavailable(op)) };
         let version =
-            inner.catalog.packages.get(&key.app).map(|p| p.version.clone()).unwrap_or_default();
+            inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
         if serde_json::to_vec(&params).map_or(usize::MAX, |b| b.len()) > MAX_PARAMS_BYTES {
             return Err(
                 json!({ "code": "validation.invalid", "message": "params are larger than 64 KiB", "retryable": false }),
@@ -302,7 +335,6 @@ impl Supervisor {
                 json!({ "code": "app.limit", "message": "the cmux app has too many calls outstanding", "retryable": true }),
             );
         }
-        let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
         let deadline = if WAITS_FOR_USER.contains(&op) {
             self.config.provider_user_deadline
         } else {
@@ -316,26 +348,17 @@ impl Supervisor {
                 me.provider_timeout(request_id);
             }
         });
-        inner.provider_calls.insert(
-            request_id,
-            ProviderCall {
-                client,
-                op: op.to_string(),
-                target: Target::Host { host: key.clone(), generation, cb },
-                timer,
-            },
-        );
-        if let Some(host) = inner.hosts.get_mut(key) {
-            host.inflight += 1;
-        }
+        inner
+            .provider_calls
+            .insert(request_id, ProviderCall { client, op: op.to_string(), target, timer });
         let mut event = json!({
             "event": "apps-provider-request",
             "request_id": request_id,
-            "app": key.app,
+            "app": app,
             // The identity.md section 3 `app` actor (only the supervisor sets it).
             "actor": {
                 "kind": "app",
-                "id": key.app,
+                "id": app,
                 "host": crate::machine_name::machine_name(),
                 "version": version,
                 "on_behalf_of": { "kind": "user", "id": crate::conversation_store::LOCAL_USER },
@@ -403,18 +426,23 @@ impl Supervisor {
         call: &ProviderCall,
         ending: Ending,
     ) -> Vec<Out> {
+        let resolved = |ending: Ending| match ending {
+            Ending::Answer { ok, body } => (ok, body),
+            Ending::Timeout => (
+                false,
+                json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
+            ),
+            Ending::Gone => (false, unavailable(&call.op)),
+        };
         match &call.target {
             Target::Host { host, generation, cb } => {
-                let (ok, body) = match ending {
-                    Ending::Answer { ok, body } => (ok, body),
-                    Ending::Timeout => (
-                        false,
-                        json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
-                    ),
-                    Ending::Gone => (false, unavailable(&call.op)),
-                };
+                let (ok, body) = resolved(ending);
                 answer_locked(inner, host, *generation, ToHost::Resolve { cb: *cb, ok, body });
                 self.idle_check_locked(inner, host)
+            }
+            Target::Page(target) => {
+                let (ok, body) = resolved(ending);
+                Self::page_answer_locked(inner, target, ok, body)
             }
             Target::Relay { app, generation, id, session } => {
                 let reply = super::relay::relay_reply(id, *session, ending);
