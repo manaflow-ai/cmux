@@ -63,10 +63,32 @@ impl Gate {
         deadline: Duration,
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Option<T> {
-        // Red probe: the base's behavior, the call waited for as long as the Keychain takes.
-        let _ = (deadline, mpsc::sync_channel::<()>(0), Instant::now(), PoisonError::<()>::new);
-        let _running = Running { inner: Arc::clone(&self.inner), item: item.clone() };
-        Some(work())
+        let end = Instant::now() + deadline;
+        let mut calls = self.inner.calls();
+        while let Some(&started) = calls.get(item) {
+            let now = Instant::now();
+            let stuck = started + deadline;
+            if now >= stuck || now >= end {
+                return None;
+            }
+            calls = self
+                .inner
+                .ended
+                .wait_timeout(calls, stuck.min(end) - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        calls.insert(item.clone(), Instant::now());
+        drop(calls);
+        let running = Running { inner: Arc::clone(&self.inner), item: item.clone() };
+        let (answered, answer) = mpsc::sync_channel(1);
+        let spawned = thread::Builder::new().name("cmux-keychain".into()).spawn(move || {
+            let _running = running;
+            let _ = answered.send(work());
+        });
+        // A thread that could not start drops `running` (and `work`) with the closure: the item is free again.
+        spawned.ok()?;
+        answer.recv_timeout(end.saturating_duration_since(Instant::now())).ok()
     }
 }
 
