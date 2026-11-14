@@ -13,8 +13,9 @@
 // after waiting. The re-run's decide deletes the marker when it has its answer;
 // from then on the active run blocks later runs by itself until its upload job
 // is done, like any other run. reconcile() runs after every upload and in
-// every 20-minute INTERNAL poll that does not upload, so a missed handoff is
-// picked up by the next poll.
+// every DEMO run that is blocked. Since the 20-minute INTERNAL poll was
+// retired (cmux INTERNAL belongs to cmux-next), a missed handoff waits for
+// the next twice-daily DEMO run, up to 12 hours.
 //
 // Every function makes a fixed, small number of API calls and returns. Nothing
 // here waits: tests/test_ios_testflight_main_push_filter.py fails on a timer.

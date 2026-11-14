@@ -141,9 +141,9 @@ jobs:
             // main run has finished its upload job and no earlier run is queued.
             // Assignment can continue independently after the upload completes.
             //
-            // Nothing here waits. The 20-minute internal poll is idempotent, so
-            // a blocked poll leaves and the next one builds whatever main is by
-            // then. A blocked manual dispatch or DEMO run would lose a build if
+            // Nothing here waits. An internal poll (retired with its schedule;
+            // tests still drive this branch) is idempotent, so a blocked poll
+            // leaves. A blocked manual dispatch or DEMO run would lose a build if
             // it left, so it joins the upload queue instead: the next step saves
             // its marker and the run ends, and scripts/ci/ios_testflight_queue.cjs
             // re-runs it (same commit, same inputs) when its turn comes. Before
@@ -1205,8 +1205,9 @@ jobs:
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
   # Hands the upload queue on as soon as this run's upload job is done (or
-  # skipped): re-runs the oldest queued manual or DEMO run. The 20-minute
-  # INTERNAL poll does the same, so a failure here only delays the next upload.
+  # skipped): re-runs the oldest queued manual or DEMO run. With the 20-minute
+  # INTERNAL poll retired, a failure here waits for the next twice-daily DEMO
+  # run (up to 12 hours), whose decide job reconciles the queue.
   next-queued-upload:
     name: Start the next queued upload
     needs: [decide, upload]

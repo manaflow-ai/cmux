@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Pin count-plus-age batching of the scheduled iOS TestFlight uploads.
 
-ios-testflight.yml (CMUX INTERNAL, 20-minute polls) and ios-appstore-upload.yml
-(cmux.app, hourly) upload only when at least one relevant commit is waiting
+ios-testflight.yml's INTERNAL batching (its 20-minute schedule is retired, so the
+step is unreachable but still pinned) and ios-appstore-upload.yml (cmux CLASSIC,
+hourly) upload only when at least one relevant commit is waiting
 AND (N are waiting OR the oldest is T minutes old). The rule lives in
 scripts/ci/ios_upload_batch_decision.py; these tests cover the rule, the git
 history reader against a real repository, and the workflow wiring.
