@@ -33,6 +33,12 @@ debug = false
 strip = "debuginfo"
 lto = "fat"
 
+# Match the shipped CLI's package override; dependency workspace profiles
+# do not propagate into this standalone experiment.
+[profile.release.package.cmux-tui]
+opt-level = "z"
+codegen-units = 1
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"

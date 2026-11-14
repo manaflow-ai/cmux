@@ -15,6 +15,12 @@ runs a thin executable's `cmux --help` with a 30-second deadline. The output
 explicitly measures link payloads, not an installed app. No shipping build
 selects this crate.
 
+The standalone experiment repeats the shipping workspace's `cmux-tui`
+package override (`opt-level = "z"`); all other packages keep release level
+3. Cargo does not inherit a dependency workspace's profiles. Measurements
+from before this override compared a level-3 CLI with the shipped level-z
+CLI and must be repeated before choosing either packaging arm.
+
 The full comparison still requires two app artifacts from the same source,
 architecture and nightly configuration:
 
