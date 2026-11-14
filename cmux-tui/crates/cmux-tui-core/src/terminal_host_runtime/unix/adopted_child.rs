@@ -33,7 +33,7 @@ pub(super) fn leads_session(pid: libc::pid_t, session: libc::pid_t) -> bool {
 fn is_zombie(pid: libc::pid_t) -> bool {
     // `/proc/<pid>/stat` is "pid (comm) S ..."; comm may contain spaces or
     // parentheses, so the state follows the last ')'.
-    fs::read_to_string(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
+    crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok().is_some_and(|stat| {
         stat.rsplit_once(')').is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
     })
 }

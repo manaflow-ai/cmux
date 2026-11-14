@@ -73,7 +73,7 @@ pub(crate) fn busctl_args(pid: u32) -> Vec<String> {
 
 /// The parent PID of `pid` from `/proc/<pid>/stat` (Linux).
 fn parent_pid(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // The command name may hold spaces or parentheses: parse after the last ')'.
     stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
 }

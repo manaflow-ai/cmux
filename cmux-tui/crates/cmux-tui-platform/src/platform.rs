@@ -1072,7 +1072,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.

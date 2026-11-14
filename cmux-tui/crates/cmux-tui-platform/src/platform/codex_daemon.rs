@@ -58,7 +58,7 @@ fn process_arguments(pid: u32) -> Option<Vec<String>> {
 
 #[cfg(target_os = "linux")]
 fn parent_process_id(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4).
     let fields = stat.get(stat.rfind(')')? + 1..)?;
     fields.split_whitespace().nth(1)?.parse().ok()

@@ -166,7 +166,7 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         let Ok(_pid) = name.parse::<libc::pid_t>() else { continue };
-        let stat = match fs::read_to_string(entry.path().join("stat")) {
+        let stat = match crate::process_resources::stat_line(entry.path().join("stat")) {
             Ok(stat) => stat,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(_) => return Err(()),

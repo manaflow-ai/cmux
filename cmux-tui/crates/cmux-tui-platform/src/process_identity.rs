@@ -45,7 +45,7 @@ pub fn started_ms(pid: u32) -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn identity(pid: u32) -> Option<ProcessIdentity> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     let (head, rest) = stat.rsplit_once(')')?;
     let name = head.split_once('(')?.1.to_string();
     // After the name: state(3) ppid(4) ... starttime(22), so ppid is index 1

@@ -24,14 +24,25 @@ impl CutNameChild {
     ///
     /// # Errors
     ///
-    /// When the folder, the link or the child cannot be made.
+    /// When the folder, the link or the child cannot be made, or when the
+    /// system did not cut the name of the child inside a character.
     pub fn start(label: &str) -> io::Result<Self> {
         let dir =
             std::env::temp_dir().join(format!("cmux-cut-name-{label}-{}", std::process::id()));
         // An earlier process with this id can have left its folder.
         let _ = std::fs::remove_dir_all(&dir);
         match spawn_in(&dir) {
-            Ok(child) => Ok(Self { child, dir }),
+            Ok(child) => {
+                let started = Self { child, dir };
+                // The name that the system keeps ends in a part of a character.
+                let name =
+                    crate::process_identity::identity(started.id()).map(|process| process.name);
+                if name.is_some_and(|name| name.ends_with(char::REPLACEMENT_CHARACTER)) {
+                    Ok(started)
+                } else {
+                    Err(io::Error::other("the name of the child was not cut inside a character"))
+                }
+            }
             Err(error) => {
                 let _ = std::fs::remove_dir_all(&dir);
                 Err(error)
