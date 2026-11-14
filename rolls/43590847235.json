@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43590847235",
+  "recorded_at": "2026-11-14T11:50:08Z",
+  "reason": "cmux-tui 94268dd8eac9 changes the image's cmux-tui (pinned afc0f6d786be)",
+  "dry_run": false,
+  "cmux_tui": "94268dd8eac998ef89ce5b676b961ca1b114f5ee",
+  "fixes": [
+    {
+      "sha": "94268dd8eac998ef89ce5b676b961ca1b114f5ee",
+      "mergedAt": "2026-11-14T03:16:03-08:00",
+      "subject": "cmux-tui: a synchronized update that starts after an expired hold holds again (#43001)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T11:50:08Z",
+    "snapshot_id": "sh-ff569fe162ab429dbbc80b03a9c98498",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43590847235): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a55787437f2451fb429bdb82f004027400bf0a5a",
+    "image": "cloud-native-auto-94268dd8-43590847235-1",
+    "revision": "ci-43590847235-1",
+    "at": "2026-11-14T11:50:08Z"
+  },
+  "rolled_back": false
+}
