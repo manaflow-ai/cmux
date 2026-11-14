@@ -38,7 +38,13 @@ NOW = dt.datetime(2026, 10, 19, 22, 0, tzinfo=dt.timezone.utc)
 BOT = "github-actions[bot]"
 
 sys.path.insert(0, str(ROOT / "tests"))
-from test_seed_derived_data import evaluate, github_context  # noqa: E402
+from test_seed_derived_data import evaluate, github_context as seed_github_context  # noqa: E402
+
+
+def github_context(event_name, ref="refs/heads/main", **variables):
+    """test_seed_derived_data.github_context with Blacksmith macOS on (vars.CMUX_BLACKSMITH_MACOS): these tests
+    model the Blacksmith routes; BlacksmithMacosOffSwitch reads the switch off."""
+    return seed_github_context(event_name, ref, **{"CMUX_BLACKSMITH_MACOS": "on", **variables})
 import workflow_jobs  # noqa: E402
 
 
@@ -68,8 +74,7 @@ placement = load("side_lane_placement")
 
 
 def env(**overrides: str) -> dict:
-    # Blacksmith macOS on: these tests model the cascade; BlacksmithMacosOffSwitch tests it off.
-    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1", "CMUX_BLACKSMITH_MACOS": "on",
+    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1",
             "CASCADE_RUNS": " fast-tier swift-canary cmux-scheme-compile ", **overrides}
 
 

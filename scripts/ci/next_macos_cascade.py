@@ -192,7 +192,7 @@ OWNED_HEALTH_QUEUE_SECONDS = 3 * 60
 # (reserved_from()): pr_runner_pool.MAX_SNAPSHOT_MINUTES, the oldest artifact the read fetches at all.
 RESERVED_SNAPSHOT_MINUTES = 45
 # The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"). Only the
-# repository variable CMUX_BLACKSMITH_MACOS set to `on` lets a job of this cascade take a Blacksmith macOS label,
+# repository variable CMUX_BLACKSMITH_MACOS set to `on` lets a cmux-next job take a Blacksmith macOS label,
 # as HQ's HQ_BLACKSMITH_MACOS does (cmuxterm-hq docs/handbook/label-no-pool-lists.md). Unset, every label in
 # LABELS is unavailable (place()) and the GUI jobs take no Blacksmith overflow (side_lane_placement.gui_overflow()),
 # so a job stays on its owned label. On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807)
@@ -248,8 +248,12 @@ def pool_label(label: str) -> bool:
 
 
 def blacksmith_on(env: Mapping[str, str]) -> bool:
-    """Whether the repository lets a job take a Blacksmith macOS label (BLACKSMITH_SWITCH is `on`)."""
-    return (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
+    """Whether the repository lets a job take a Blacksmith macOS label: BLACKSMITH_SWITCH is `on`.
+
+    A caller that passes no BLACKSMITH_SWITCH at all (another workflow's placement step, which does not read the
+    variable yet) keeps the cascade it had; every cmux-next.yml placement step passes it, so there unset is off.
+    """
+    return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
 def blacksmith_off_why(env: Mapping[str, str]) -> str:

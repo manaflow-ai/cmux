@@ -182,6 +182,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CMUX_BLACKSMITH_MACOS": {
+      "fallback": "an off switch, not a host: unset sends each Mac job to its owned glaeda-gui-std or glaeda-side-std label (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "after_minutes": 5
+    },
     "LINUX_ARM64_RUNNER": {
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
