@@ -86,6 +86,37 @@ struct TerminalFrameOwnerMainThreadTests {
         #expect(fixture.session.surfaceView.frame.width == 500, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
     }
 
+    /// NIGHTLY REGRESSION S-P3 (2026-11-10): a watch that runs out (``TerminalFramePresenter/watchLimit`` refreshes with
+    /// no frame at the host size) must not leave Ghostty routing every frame through main. Ghostty sends frames through
+    /// main from each main-thread change of the shown size until `ghostty_surface_host_frame_committed`
+    /// (IOSurfaceLayer.zig `offMainDecisionLocked`: `mainPending`), and only the presenter reports that commit. Here a
+    /// terminal resized while hidden is shown again (the reveal watches it) while its program holds frame updates
+    /// (synchronized output), so the watch runs out on HELD; the frame then shows through main (its bounds already fit,
+    /// IOSurfaceLayer.zig `setSurfaceCallback`), which sets `mainPending` again. Without the commit the terminal's echo,
+    /// scroll and output frames all wait for the main thread, which a busy main thread (#38166) delays.
+    @Test func aWatchThatRanOutBeforeTheFrameStillLetsFramesGoOffMain() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        try await fixture.revealResizedWhileHeld(width: 520, ahead: nil)
+        let offMainBefore = fixture.offMainPresents
+        try await fixture.writeOutput(for: .milliseconds(1500), tag: "a")
+        #expect(fixture.offMainPresents > offMainBefore,
+                "every frame after the expired watch went through main (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
+    }
+
+    /// The same, with the watch running out while a size drawn ahead waits (`frameOwnership.ahead`: the watch skips its
+    /// READY frame for the spring's own present, so it counts refreshes as it does for HELD or PENDING). The spring then
+    /// ends without its present (its size drawn ahead is dropped) and the frame shows through main.
+    @Test func aWatchThatRanOutWithASizeDrawnAheadStillLetsFramesGoOffMain() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        try await fixture.revealResizedWhileHeld(width: 540, ahead: CGSize(width: 540, height: 300))
+        let offMainBefore = fixture.offMainPresents
+        try await fixture.writeOutput(for: .milliseconds(1500), tag: "b")
+        #expect(fixture.offMainPresents > offMainBefore,
+                "every frame after the expired watch went through main (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
+    }
+
     /// `duration` in milliseconds, for messages.
     nonisolated static func ms(_ duration: Duration) -> String {
         let ms = Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
@@ -149,6 +180,46 @@ struct TerminalFrameOwnerMainThreadTests {
         var offMainPresents: UInt64 {
             guard let surface = session.surfaceView.surface else { return 0 }
             return ghostty_surface_render_counters(surface).host_off_main_presents
+        }
+
+        /// S-P3 set-up: hides the terminal, gives it `width` while hidden, holds its frame updates (synchronized output),
+        /// shows it again (the reveal watches it) and lets the watch run out on HELD (a 1-refresh watch). With `ahead`, a
+        /// size drawn ahead waits while the watch runs out and is dropped after it. Then the hold ends, and the frame at
+        /// the new width shows (through main: its bounds already fit). Ends with the frame shown at `width`.
+        func revealResizedWhileHeld(width: CGFloat, ahead: CGSize?) async throws {
+            let presenter = TerminalFramePresenter.forWindow(window)
+            let surfaceView = session.surfaceView
+            session.view.isHidden = true
+            await commits(2)
+            container.terminalWidth = width
+            container.needsLayout = true
+            await commits(2)
+            io.send(.output(Data("\u{1b}[?2026h".utf8)))
+            await commits(3)
+            presenter.watchLimitForTesting = 1
+            defer { presenter.watchLimitForTesting = nil }
+            session.view.isHidden = false
+            if let ahead { surfaceView.frameOwnership.ahead = ahead }
+            // Ghostty's synchronized output ends by itself after 1 s: the 1-refresh watch runs out well before.
+            await commits(4)
+            // "-" with no record of the commit Ghostty still waits for; "owed" once the presenter keeps it.
+            #expect(["-", "owed"].contains(presenter.debugState(of: surfaceView)),
+                    "the reveal's watch did not run out: \(presenter.debugState(of: surfaceView))")
+            if ahead != nil { surfaceView.frameOwnership.ahead = nil }
+            io.send(.output(Data("\u{1b}[?2026l$ shown again\r\n$ ".utf8)))
+            let shown = await waitShown(width: width)
+            try #require(shown, "the frame at \(width) pt never showed")
+        }
+
+        /// Writes a line every 4 ms for `duration` (frames at the shown size: off main once the commit is reported).
+        func writeOutput(for duration: Duration, tag: String) async throws {
+            let until = ContinuousClock.now.advanced(by: duration)
+            var line = 0
+            while ContinuousClock.now < until {
+                io.send(.output(Data("s-p3 \(tag) line \(line)\r\n".utf8)))
+                line += 1
+                await commits(1)
+            }
         }
 
         /// Returns after `count` main run-loop turns ended with a Core Animation commit.
