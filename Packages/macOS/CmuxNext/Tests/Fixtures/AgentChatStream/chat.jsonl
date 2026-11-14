@@ -34,36 +34,36 @@
 {"step":"window-new-edition"}
 {"call":"disconnected"}
 {"call":"connected"}
-{"feed":[4279,5592]}
+{"feed":[4279,5648]}
 "{\"kind\":\"chatResumeEnd\",\"sid\":\"rows.1\",\"cursor\":40}"
-"{\"kind\":\"chatWindow\",\"replaces\":true,\"window\":{\"sid\":\"rows.1\",\"cursor\":30,\"edition\":2,\"rows\":[{\"id\":21,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 21 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":22,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 22 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":23,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 23 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":24,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 24 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":25,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 25 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":26,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 26 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":27,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 27 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":28,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 28 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":29,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 29 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}}],\"hasBefore\":true,\"hasAfter\":false,\"open\":[{\"row\":{},\"bodyLen\":37}],\"queue\":{\"entries\":[{\"id\":\"p1\",\"text\":\"and then the tests\",\"len\":18,\"at\":1000}],\"count\":1},\"seen\":30}}"
+"{\"kind\":\"chatWindow\",\"replaces\":true,\"window\":{\"sid\":\"rows.1\",\"cursor\":30,\"edition\":2,\"rows\":[{\"id\":21,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 21 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":22,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 22 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":23,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 23 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":24,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 24 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":25,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 25 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":26,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 26 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":27,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 27 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":28,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 28 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":29,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 29 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}}],\"hasBefore\":true,\"hasAfter\":false,\"open\":[{\"row\":{\"id\":30,\"rev\":1,\"kind\":\"assistant\",\"open\":true,\"body\":{}},\"bodyLen\":37}],\"queue\":{\"entries\":[{\"id\":\"p1\",\"text\":\"and then the tests\",\"len\":18,\"at\":1000}],\"count\":1},\"seen\":30}}"
 {"step":"page"}
 {"call":"chat_page","request":{"before":21,"sid":"rows.1"}}
-{"feed":[5592,5964]}
+{"feed":[5648,6020]}
 "{\"kind\":\"chatPage\",\"page\":{\"sid\":\"rows.1\",\"edition\":2,\"rows\":[{\"id\":18,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 18 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":19,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 19 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":20,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 20 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}}],\"hasBefore\":true,\"hasAfter\":true,\"refused\":[19]}}"
 {"step":"page-stale"}
 {"call":"chat_page","request":{"before":18,"maxBytes":4096,"sid":"rows.1"}}
-{"feed":[5964,6024]}
+{"feed":[6020,6080]}
 "{\"kind\":\"chatError\",\"sid\":\"rows.1\",\"method\":\"page\",\"id\":null,\"code\":\"stale_edition\"}"
 {"step":"blob-settled"}
 {"call":"chat_blob","reply":{"id":"blob.1"},"request":{"id":"blob.1","len":4096,"rowId":25,"sid":"rows.1"}}
-{"feed":[6024,6124]}
+{"feed":[6080,6180]}
 "{\"kind\":\"chatBlob\",\"sid\":\"rows.1\",\"head\":{\"id\":\"blob.1\",\"start\":0,\"len\":49,\"total\":49},\"nextStart\":49}\n{\"text\":\"row 25 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}"
 {"step":"blob-open-first"}
 {"call":"chat_blob","reply":{"id":"blob.2"},"request":{"id":"blob.2","len":25,"rowId":30,"sid":"rows.1"}}
-{"feed":[6124,6248]}
+{"feed":[6180,6304]}
 "{\"kind\":\"chatBlob\",\"sid\":\"rows.1\",\"head\":{\"id\":\"blob.2\",\"start\":0,\"len\":25,\"total\":37,\"open\":true,\"gen\":\"0123456789abcdef\",\"fixed\":35},\"nextStart\":22}\n{\"text\":\"streaming caf"
 {"step":"blob-open-rest"}
 {"call":"chat_blob","reply":{"id":"blob.3"},"request":{"id":"blob.3","len":15,"rowId":30,"sid":"rows.1","start":22}}
-{"feed":[6248,6363]}
+{"feed":[6304,6419]}
 "{\"kind\":\"chatBlob\",\"sid\":\"rows.1\",\"head\":{\"id\":\"blob.3\",\"start\":22,\"len\":15,\"total\":37,\"open\":true,\"gen\":\"0123456789abcdef\",\"fixed\":35},\"nextStart\":37}\n\\u00e9 so far\"}"
 {"step":"dropped"}
-{"feed":[6363,7441]}
+{"feed":[6419,7497]}
 "{\"kind\":\"chatDropped\",\"sid\":\"rows.1\",\"cursor\":30}"
 "{\"kind\":\"chatResumeEnd\",\"sid\":\"rows.1\",\"cursor\":30}"
 "{\"kind\":\"chatWindow\",\"replaces\":false,\"window\":{\"sid\":\"rows.1\",\"cursor\":31,\"edition\":2,\"rows\":[{\"id\":22,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 22 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":23,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 23 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":24,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 24 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":25,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 25 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":26,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 26 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":27,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 27 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":28,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 28 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":29,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 29 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}},{\"id\":30,\"rev\":1,\"kind\":\"assistant\",\"body\":{\"text\":\"row 30 r1: caf\\u00e9 \\\"quoted\\\" \\u2713\"}}],\"hasBefore\":true,\"hasAfter\":false,\"open\":[],\"queue\":{\"entries\":[{\"id\":\"p1\",\"text\":\"and then the tests\",\"len\":18,\"at\":1000}],\"count\":1},\"seen\":31}}"
 {"step":"sub-error"}
-{"feed":[7441,7500]}
+{"feed":[7497,7556]}
 "{\"kind\":\"chatError\",\"sid\":\"rows.1\",\"method\":\"sub\",\"id\":null,\"code\":\"source_failed\"}"
 {"step":"after-end"}
-{"feed":[7500,7651]}
+{"feed":[7556,7707]}
