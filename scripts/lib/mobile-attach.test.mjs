@@ -217,12 +217,15 @@ test("iOS production-auth rejects staging origin overrides", () => {
   assert.match(broker.stderr, /--prod-auth cannot use the Iroh broker origin/u);
 });
 
-test("tagged reloads share a dedicated Iroh broker", () => {
+test("the iOS reload keeps its Iroh broker; the Mac reload injects no Iroh config", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
 
-  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL_VALUE=.*cmux-staging\.vercel\.app/);
-  assert.match(macReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IROH_BROKER_BASE_URL_VALUE"/);
+  // The cmux-next Mac app no longer runs the iroh phone listener, the only
+  // reader of the broker and v2 control-plane settings on the Mac.
+  assert.doesNotMatch(macReload, /CMUX_IROH_(BROKER_BASE_URL|V2_[A-Z_]+)/);
+  const macInfo = fs.readFileSync(path.join(repoRoot, "Resources/Info.plist"), "utf8");
+  assert.doesNotMatch(macInfo, /CMUX_IROH_V2_/);
   assert.match(iosReload, /CMUX_IOS_IROH_BROKER_BASE_URL_VALUE=.*cmux_ios_resolve_iroh_broker_base_url/);
   assert.match(iosReload, /CMUX_IROH_BROKER_BASE_URL="\$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"/);
 });
