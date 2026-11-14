@@ -1169,7 +1169,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 holdAwaitsReset = false
                 // The rows being read are rebuilt from the replay: a reader
                 // goes back to their rows once it is in (V2-3,
-                // TerminalReadingMark); otherwise to the prompt.
+                // TerminalReadingMark); otherwise to the prompt. A place
+                // waiting for older rows is placed by this reset's replay.
+                olderRowsAsked = false
                 markReadingPosition()
                 freezeLastFrame()
                 // Held already (a second reset, D4): the frame that releases
@@ -1388,13 +1390,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
     private var readingMarkAwaitsReport = false
+    /// A reader's place still to be put back across resets: one handed over
+    /// from the tab's previous host (``restoreScrollPlace(_:)``), or one above
+    /// the rows a replay held, waiting for the older rows it asked for
+    /// (`TerminalScrollRestore`). The next replay places it.
+    private var pendingRestore: TerminalScrollRestore?
+    /// Older rows were asked for and their reset has not come yet: the replay
+    /// deadline and the held frame's cap leave the pending place alone until
+    /// it does (a restore then would find the rows still missing).
+    private var olderRowsAsked = false
+    /// A place is waiting to be put back (the held frame stays for it).
+    private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
+    /// A place is waiting and the replay that places it is in (or overdue).
+    private var restoreDue: Bool { readingMark != nil || (pendingRestore != nil && !olderRowsAsked) }
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
-        guard let mark = readingMark else { return }
+        let pending = pendingRestore ?? readingMark.map { TerminalScrollRestore(mark: $0, fromEnd: false) }
         readingMark = nil
+        pendingRestore = nil
+        olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
         let reader = rowReader
         // Every row of the replay, read once (the whole-screen read is not
@@ -1402,13 +1419,66 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // by their text too, so output during the drop cannot push the reader
         // down (T-LIFE-09/15). Rows past the read's trimmed end use the reader.
         let screen = surface.screenRows()
-        guard let anchor = mark.locate(totalRows: total, rowText: { row in
+        let session = model.session
+        guard let anchor = restore.replayed(totalRows: total, rowText: { row in
             if let screen, row < screen.count { return screen.rows[row] }
             return reader.text(TerminalAbsoluteRow(row))
-        }) else { return }
-        sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
+        }, loadOlder: { session.loadOlderHistory() }) else {
+            // The reader is above the rows replayed: the older rows' replay
+            // (a reset) comes back here.
+            pendingRestore = restore
+            olderRowsAsked = true
+            let fromEnd = restore.mark.rowsFromEnd
+            let loads = restore.olderLoads
+            sizingLog.notice("reading mark \(fromEnd, privacy: .public) rows from the end, above the \(total, privacy: .public) replayed: older rows asked (\(loads, privacy: .public))")
+            return
+        }
+        let placed = restore.mark
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
-        restoredMark = (mark, anchor)
+        restoredMark = (placed, anchor)
+    }
+
+    /// Where the reader is, for the tab's next host when the warm set cools
+    /// this one: nil while following the prompt (the next host follows too)
+    /// and in a full-screen app, which has no scrollback.
+    func scrollPlace() -> TerminalScrollPlace? {
+        if let pendingRestore { return pendingRestore.place }
+        if let readingMark { return TerminalScrollPlace(mark: readingMark) }
+        guard !model.isTUI, cell.height > 0, let anchor = readingAnchor() else { return nil }
+        let reader = rowReader
+        return TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
+            .map { TerminalScrollPlace(mark: $0) }
+    }
+
+    /// The tab's previous host kept the reader's place: the first replay puts
+    /// them back (asking for older rows when it holds too few).
+    func restoreScrollPlace(_ place: TerminalScrollPlace) {
+        pendingRestore = TerminalScrollRestore(place: place)
+    }
+
+    /// The person took the page (a drag, typing, Jump to bottom): a place
+    /// still waiting for its replay is dropped.
+    private func dropPendingRestore() {
+        guard pendingRestore != nil else { return }
+        pendingRestore = nil
+        olderRowsAsked = false
+        sizingLog.notice("reading mark dropped: the person moved the page")
+    }
+
+    /// The rows at the top of the page while the reader is away from the
+    /// prompt, whatever the scroll state; nil while following (or within
+    /// `followSlackRows` of the bottom mid-gesture).
+    private func readingAnchor() -> TerminalScrollModel.Anchor? {
+        switch scroll.state {
+        case .following:
+            return nil
+        case .reading(let reading):
+            return reading
+        case .interacting:
+            guard let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height else { return nil }
+            return TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
+        }
     }
 
     /// The last mark restored and where it put the reader; reused when another
@@ -1421,7 +1491,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// fling lost the place, since only a settled reader was marked); a fling
     /// stops so the restore can land. Near the bottom, nothing: follow.
     private func markReadingPosition() {
-        guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        // A place still waiting for its replay (handed over, or older rows
+        // asked for) is the reader's: this replay places it.
+        guard !model.isTUI, readingMark == nil, pendingRestore == nil, cell.height > 0 else { return }
         // Mid Jump to bottom: the reader asked for the bottom, not the row
         // the glide was passing.
         if glide != nil {
@@ -1429,20 +1501,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             restoredMark = nil
             return
         }
-        let anchor: TerminalScrollModel.Anchor?
-        switch scroll.state {
-        case .following:
-            anchor = nil
-        case .reading(let reading):
-            anchor = reading
-        case .interacting:
-            if let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height {
-                anchor = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
-            } else {
-                anchor = nil
-            }
-        }
-        guard let anchor else {
+        guard let anchor = readingAnchor() else {
             restoredMark = nil
             return
         }
@@ -1475,12 +1534,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.model.mirrorPlaced()
             self.outputSinceProbe = true
             self.updateDocument()
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
             }
             self.applyScroll()
-            if let held = self.freezeView, self.readingMark == nil { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
+            if let held = self.freezeView, !self.restorePending { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
         }
     }
 
@@ -1516,7 +1575,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
             outputSinceProbe = true
             // Ghostty's next scrollbar report has the replay's row count.
-            if readingMark != nil { readingMarkAwaitsReport = true }
+            if restoreDue { readingMarkAwaitsReport = true }
             updateDocument()
             // The mirror was reset and replayed: an open find searches the new rows.
             finder.rowsReplaced()
@@ -1618,7 +1677,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.outputSinceProbe = true
                 self.updateDocument()
             }
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
                 self.applyScroll()
@@ -1926,6 +1985,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        dropPendingRestore()
         scroll.input()
         applyScroll()
     }
@@ -2066,7 +2126,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !holdAwaitsReset else { return false }
         guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
         let visible = model.isTUI ? 0..<0 : visibleRowRange
-        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: readingMark != nil,
+        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: restorePending,
                                                    cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
                                                    visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
                                                    documentRows: (document?.originRow ?? 0)..<(document?.endRow ?? 0))
@@ -2422,6 +2482,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
         restoredMark = nil
+        dropPendingRestore()
         placesFromReport = false
         // A finger owns the page: a move waiting for its frame is dropped
         // (the next one measures its own wait).
@@ -2514,6 +2575,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// nothing, since UIKit's deceleration kept the offset). The deceleration
     /// stops and a drag in progress is cancelled, so nothing else owns the page.
     func scrollToBottom(animated: Bool) {
+        dropPendingRestore()
         fling?.stop()
         fling = nil
         stopGlide()

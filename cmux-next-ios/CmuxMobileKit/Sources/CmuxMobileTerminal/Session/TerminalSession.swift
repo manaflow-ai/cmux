@@ -198,8 +198,10 @@ public protocol TerminalSession: AnyObject {
     /// The reader scrolled up to the oldest row the screen holds: a session
     /// that attached with the latest screen first brings older rows (a Mac
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
-    /// scrolls there; the session decides. Others ignore it.
-    func loadOlderHistory()
+    /// scrolls there; the session decides. Others ignore it. Returns whether
+    /// it asked (a mirror reset and a longer replay follow).
+    @discardableResult
+    func loadOlderHistory() -> Bool
     /// Before the first attach: the screen will put a reader back on a row
     /// `rows` rows above the end (a tab back from the warm set,
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
@@ -231,7 +233,8 @@ extension TerminalSession {
 
     public func clearHistory() async throws {}
 
-    public func loadOlderHistory() {}
+    @discardableResult
+    public func loadOlderHistory() -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
 

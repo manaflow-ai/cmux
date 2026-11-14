@@ -59,7 +59,16 @@ struct TerminalScrollRestore: Equatable {
     /// nil after `loadOlder` asked for older rows (their replay comes back
     /// here). `loadOlder` returns whether a fetch was sent.
     mutating func replayed(totalRows: Int, rowText: (Int) -> String?, loadOlder: () -> Bool) -> TerminalScrollModel.Anchor? {
-        // Red stub (the test commit): today's restore, the mark as it was.
-        mark.locate(totalRows: totalRows, rowText: rowText)
+        let short = totalRows < mark.rowsFromEnd
+        if short, olderLoads < Self.maxOlderLoads, loadOlder() {
+            olderLoads += 1
+            // The next replay starts further up: count from its end.
+            fromEnd = true
+            return nil
+        }
+        // The rows are above everything the Mac gives: its oldest row.
+        if short { return .init(row: 0, delta: 0) }
+        if fromEnd { mark = mark.rebased(totalRows: totalRows) }
+        return mark.locate(totalRows: totalRows, rowText: rowText)
     }
 }

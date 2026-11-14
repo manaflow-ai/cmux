@@ -564,13 +564,30 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reattach, but the connection stays attached throughout. One at a time;
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
-    public func loadOlderHistory() {
+    /// Returns whether the fetch was sent (its reset and replay follow).
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
-              let allowance = historyAllowance, inputInFlight == 0, let client else { return }
+              let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
         historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
         replacing = client
         Task { await attach() }
+        return true
+    }
+
+    /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
+    static let maxRequestedHistoryRows = 5 * historyChunkRows
+
+    /// A tab back from the warm set will put its reader back `rows` rows above
+    /// the end: the next attach asks for that much history, in whole
+    /// ``historyChunkRows`` (up to ``maxRequestedHistoryRows``), so the first
+    /// replay holds the reader's rows instead of the screen alone and a
+    /// second fetch.
+    public func requestHistoryRows(_ rows: Int) {
+        guard let allowance = historyAllowance, rows > allowance else { return }
+        let chunks = (rows + Self.historyChunkRows - 1) / Self.historyChunkRows
+        historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
