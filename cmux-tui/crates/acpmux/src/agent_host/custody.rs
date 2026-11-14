@@ -61,7 +61,7 @@ pub(crate) struct CustodyReply {
 }
 
 /// The harness's start time, for its identity next to its pid (macOS: seconds and microseconds
-/// since the epoch in one number). None where it can not be read.
+/// since the epoch in one number). None elsewhere: Linux names the harness by a pidfd.
 pub(crate) fn start_time(pid: u32) -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
@@ -80,14 +80,7 @@ pub(crate) fn start_time(pid: u32) -> Option<u64> {
         };
         (n == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
     }
-    #[cfg(target_os = "linux")]
-    {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        // Field 22, counted after the command's closing parenthesis (field 2 may hold spaces).
-        let rest = &stat[stat.rfind(')')? + 1..];
-        rest.split_whitespace().nth(19)?.parse().ok()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let _ = pid;
         None
