@@ -3067,3 +3067,28 @@ merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 13
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
 as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
 other route keeps 15.
+
+## note-350
+
+Above `macos-placement: CI_BLACKSMITH_MACOS` in `.github/workflows/cmux-next.yml`.
+
+The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), HQ's
+`HQ_BLACKSMITH_MACOS` pattern (cmuxterm-hq `docs/handbook/label-no-pool-lists.md`). Only the repository
+variable `CI_BLACKSMITH_MACOS` set to `on` lets a Mac job take a Blacksmith macOS label. Unset, the placement
+lists no job for a Blacksmith slot, overflow or retry label, and writes no GUI overflow
+(`next_macos_cascade.blacksmith_on()`); `GUI_LAST_RESORT` is the owned GUI label; and every
+`fromJSON(vars.RUNNER_POOLS).macos_26` and `.macos_26_large` read in a Mac job's runs-on is wrapped
+`(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || <read>)`: the owned side lane while the switch
+is off. The owned label comes from the variable, not a literal: tests/test_ci_self_hosted_guard.sh allows an owned
+literal only after a fork branch, which swift-canary has none of, and tests/test_ci_repo_variable_defaults.py wants a
+pool terminal. The variable's own fallback is declared in `.github/single-host-fallbacks.json`. The name carries no
+`cmux` token: the self-hosted guard reads one as a fleet label. The DEV landing compile
+(dispatch only, no pull request) keeps `dev_landing_place.py`'s own Blacksmith pick for now. Setting the variable
+to `on` resumes Blacksmith macOS with no code change. A fork's pull request keeps its Blacksmith literal: it
+gets no repository variables and never runs on an owned Mac.
+
+On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807) sat queued on
+`blacksmith-6vcpu-macos-26` with 0 of its 39 runners online: the rescue's attempt 3 carried attempt 1's
+placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`.
+`tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
+Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
