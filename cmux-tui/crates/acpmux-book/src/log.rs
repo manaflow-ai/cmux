@@ -233,6 +233,26 @@ pub struct Recovered {
     pub raw_map_len: u64,
 }
 
+/// Reads the durable envelope without opening derived indexes, for rebuild provenance.
+pub fn saved_checkpoint(dir: &Path) -> Result<Option<Recovered>, Error> {
+    let file = match File::open(dir.join("checkpoint")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let mut bytes = Vec::new();
+    file.take(MAX_CHECKPOINT as u64 + 1).read_to_end(&mut bytes)?;
+    let Some((mark, state, _)) = checkpoint::decode(&bytes) else { return Ok(None) };
+    Ok(Some(Recovered {
+        edition: mark.edition,
+        state: state.to_vec(),
+        checkpoint: true,
+        raw_files: mark.raw_files,
+        raw_map_len: mark.raw_map_len,
+        ..Recovered::default()
+    }))
+}
+
 /// Counters of what the log did since it was opened. Gauges for the `status` stream.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
@@ -395,6 +415,7 @@ impl Write for FailAfter<'_> {
 /// One book's log. The chat actor owns it and is its only writer; a second `open` of the same
 /// directory fails with [`Error::Busy`] until this value is dropped.
 pub struct Log {
+    staging: bool,
     edition: u32,
     dir: PathBuf,
     rows_dir: PathBuf,
@@ -427,6 +448,8 @@ pub struct Log {
     /// Set when a failed record write could not be cut back, or an index write failed after
     /// its record: the files are only known to agree again after the next open.
     broken: bool,
+    #[cfg(test)]
+    cut_fail_after: Option<usize>,
     stats: Stats,
     #[cfg(test)]
     fail_after: Option<usize>,
@@ -534,13 +557,23 @@ impl Log {
         options: Options,
         holds: impl FnMut(u32, u64) -> io::Result<bool>,
     ) -> Result<(Log, Recovered), Error> {
-        Self::open_with_raw_holds_mode(dir, options, holds)
+        Self::open_with_raw_holds_mode(dir, options, holds, false)
+    }
+
+    /// Opens an unserved rebuild. Only this mode accepts edition-zero checkpoints.
+    pub fn open_staging(
+        dir: &Path,
+        options: Options,
+        holds: impl FnMut(u32, u64) -> io::Result<bool>,
+    ) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_holds_mode(dir, options, holds, true)
     }
 
     fn open_with_raw_holds_mode(
         dir: &Path,
         options: Options,
         mut holds: impl FnMut(u32, u64) -> io::Result<bool>,
+        staging: bool,
     ) -> Result<(Log, Recovered), Error> {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
@@ -590,9 +623,11 @@ impl Log {
             Err(error) => return Err(Error::Io(error)),
         };
         let saved = match saved_bytes.as_deref() {
-            Some(bytes) => {
-                Some(checkpoint::decode(bytes).ok_or(Error::Rebuild("unreadable checkpoint"))?)
-            }
+            Some(bytes) => Some(
+                checkpoint::decode(bytes)
+                    .filter(|(mark, _, _)| staging || mark.edition != 0)
+                    .ok_or(Error::Rebuild("unreadable or uncommitted checkpoint"))?,
+            ),
             None => None,
         };
         // With a checkpoint the last segment is found by stepping up from the checkpoint's (a
@@ -813,6 +848,7 @@ impl Log {
         stats.bytes_written = rewritten;
         stats.writes = rewrites;
         let log = Log {
+            staging,
             edition: mark.edition,
             dir: dir.to_path_buf(),
             rows_dir,
@@ -839,6 +875,8 @@ impl Log {
             max_row,
             unsynced: recovered.replayed != 0,
             broken: false,
+            #[cfg(test)]
+            cut_fail_after: None,
             stats,
             #[cfg(test)]
             fail_after: None,
@@ -854,42 +892,80 @@ impl Log {
             return Err(Error::Stopped);
         }
         if self.tail.seg < self.checkpoint_mark.seg
-            || self.tail.len < u64::from(self.checkpoint_mark.off)
+            || (self.tail.seg == self.checkpoint_mark.seg
+                && self.tail.len < u64::from(self.checkpoint_mark.off))
         {
             return Err(Error::Corrupt("checkpoint is past the log tail"));
         }
-        let (_, undo_entries) = read_undo(&self.undo, Some(self.checkpoint_mark))?;
-        for undo in &undo_entries {
-            if self.rows.get(undo.row_id).is_some_and(|entry| {
-                entry.seg > self.checkpoint_mark.seg
-                    || (entry.seg == self.checkpoint_mark.seg
-                        && u64::from(entry.off) >= u64::from(self.checkpoint_mark.off))
-            }) {
-                self.rows.set(undo.row_id, undo.entry)?;
-            }
-        }
-        for row_id in open_rows {
-            if *row_id != 0 && self.rows.get(*row_id).is_some() {
-                self.rows.clear(*row_id)?;
-            }
-        }
-        let last_index_row = self.rows.max_row_id();
-        let mut row_id = self.checkpoint_max_row.saturating_add(1);
-        while row_id <= last_index_row {
-            if self.rows.get(row_id).is_some() {
-                self.rows.clear(row_id)?;
-            }
-            row_id = row_id.saturating_add(1);
-        }
-        let last_slot = self.seqs.max_slot();
-        let mut slot = (self.checkpoint_last_seq / SEQ_STRIDE).saturating_add(1);
-        while slot <= last_slot {
-            if self.seqs.get(slot)?.is_some() {
-                self.seqs.clear(slot)?;
-            }
-            slot = slot.saturating_add(1);
-        }
         let result = (|| {
+            self.cut_step()?;
+            let (_, undo_entries) = read_undo(&self.undo, Some(self.checkpoint_mark))?;
+            // List this interval before removing any bytes. A covered patch with a lost undo
+            // cannot be recovered from raw after the checkpoint cursor.
+            let mut restored = std::collections::BTreeMap::new();
+            for undo in &undo_entries {
+                if undo.entry.seg < self.checkpoint_mark.seg
+                    || (undo.entry.seg == self.checkpoint_mark.seg
+                        && undo.entry.off < self.checkpoint_mark.off)
+                {
+                    restored.insert(undo.row_id, undo.entry);
+                }
+            }
+            let mut seg = self.checkpoint_mark.seg;
+            let mut offset = u64::from(self.checkpoint_mark.off);
+            let mut header_bytes = [0; HEADER_LEN];
+            while seg <= self.tail.seg {
+                let count = self.read_segment(seg, offset, &mut header_bytes)?;
+                if count == 0 {
+                    seg = seg.saturating_add(1);
+                    offset = SEGMENT_HEADER_LEN;
+                    continue;
+                }
+                let header = record::Header::parse(&header_bytes)
+                    .filter(|_| count == header_bytes.len())
+                    .ok_or(Error::Rebuild("cut suffix has a damaged header"))?;
+                if header.row_id <= self.checkpoint_max_row
+                    && !open_rows.contains(&header.row_id)
+                    && !restored.contains_key(&header.row_id)
+                {
+                    return Err(Error::Rebuild("cut patch has no trusted undo"));
+                }
+                offset = offset.saturating_add(header.record_len() as u64);
+            }
+            for (row_id, entry) in restored {
+                if self.rows.get(row_id).is_some_and(|entry| {
+                    entry.seg > self.checkpoint_mark.seg
+                        || (entry.seg == self.checkpoint_mark.seg
+                            && u64::from(entry.off) >= u64::from(self.checkpoint_mark.off))
+                }) {
+                    self.cut_step()?;
+                    self.rows.set(row_id, entry)?;
+                }
+            }
+            for row_id in open_rows {
+                if *row_id != 0 && self.rows.get(*row_id).is_some() {
+                    self.cut_step()?;
+                    self.rows.clear(*row_id)?;
+                }
+            }
+            let last_index_row = self.rows.max_row_id();
+            let mut row_id = self.checkpoint_max_row.saturating_add(1);
+            while row_id <= last_index_row {
+                if self.rows.get(row_id).is_some() {
+                    self.cut_step()?;
+                    self.rows.clear(row_id)?;
+                }
+                row_id = row_id.saturating_add(1);
+            }
+            let last_slot = self.seqs.max_slot();
+            let mut slot = (self.checkpoint_last_seq / SEQ_STRIDE).saturating_add(1);
+            while slot <= last_slot {
+                if self.seqs.get(slot)?.is_some() {
+                    self.cut_step()?;
+                    self.seqs.clear(slot)?;
+                }
+                slot = slot.saturating_add(1);
+            }
             let rows_synced = self.rows.sync()?;
             let seqs_synced = self.seqs.sync()?;
             self.stats.syncs =
@@ -942,6 +1018,23 @@ impl Log {
         result
     }
 
+    #[inline]
+    fn cut_step(&mut self) -> Result<(), Error> {
+        #[cfg(test)]
+        if let Some(left) = &mut self.cut_fail_after {
+            if *left == 0 {
+                return Err(io::Error::other("injected cut mutation failure").into());
+            }
+            *left = left.saturating_sub(1);
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_cut_after(&mut self, writes: usize) {
+        self.cut_fail_after = Some(writes);
+    }
+
     fn create_segment(rows_dir: &Path, seg: u32) -> Result<File, Error> {
         let mut file = OpenOptions::new()
             .read(true)
@@ -987,6 +1080,9 @@ impl Log {
     /// Recovery has removed entries that can outlive their records. Remaining entries are
     /// checked against the record at read time; damage must not silently hide a settled row.
     fn entry(&self, row_id: u64) -> Option<Entry> {
+        if self.broken {
+            return None;
+        }
         self.rows.get(row_id)
     }
 
@@ -1358,6 +1454,9 @@ impl Log {
         open_rows: &[u64],
         edition: u32,
     ) -> Result<(), Error> {
+        if edition == 0 && !self.staging {
+            return Err(Error::InvalidInput("edition zero is only for an unserved rebuild"));
+        }
         if self.broken {
             return Err(Error::Stopped);
         }
@@ -1451,6 +1550,9 @@ impl Log {
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the
     /// bytes read.
     fn read_segment(&mut self, seg: u32, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
         let read = if seg == self.tail.seg {
             fsio::read_at(&self.tail.file, buf, offset)?
         } else {

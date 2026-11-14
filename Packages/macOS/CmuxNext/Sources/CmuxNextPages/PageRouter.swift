@@ -141,9 +141,11 @@ public final class PageRouter {
     /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
     public var swipeRelease: (@MainActor (Int) -> Void)?
 
-    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count and whether
-    /// it holds unsaved edits: the page view feeds app health. Nil (tests, a view not wired) still answers the beat.
-    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool) -> Void)?
+    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count, whether
+    /// it holds unsaved edits and whether it now rests (beats no more until something happens in it):
+    /// the page view feeds app health. Returns whether the host takes rest beats (the page may stop
+    /// beating). Nil (tests, a view not wired) still answers the beat.
+    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool, _ rest: Bool) -> Bool)?
 
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
