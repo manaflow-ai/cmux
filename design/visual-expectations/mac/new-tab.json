@@ -1,0 +1,20 @@
+{
+  "id": "new-tab",
+  "platform": "mac",
+  "title": "A focused New Tab page",
+  "schemes": ["light", "dark"],
+  "tolerance": { "ratio": 0.002, "threshold": 0.1 },
+  "keep": [
+    {
+      "name": "sidebar header",
+      "why": "The traffic lights, sidebar toggle, back/forward and new-workspace buttons stay put when a New Tab opens.",
+      "box": [0, 0, 228, 40]
+    }
+  ],
+  "captures": [
+    {
+      "state": "focused",
+      "stateFile": "scripts/cmux-next/visual-gate/states/new-tab.json"
+    }
+  ]
+}

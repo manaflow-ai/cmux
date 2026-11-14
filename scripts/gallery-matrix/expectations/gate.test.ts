@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
@@ -120,6 +120,14 @@ describe("judging", () => {
   test("a baselined state that stops rendering fails unless justified as removed", () => {
     expect(gate(fixture({ closed: null })).verdict).toBe("fail");
     expect(gate(fixture({ closed: null }), "## Visual changes\n- web/ui.menu#closed: removed — the closed state is gone").verdict).toBe("pass");
+  });
+
+  test("a surface the run did not attempt is listed, not failed", () => {
+    const f = fixture({});
+    rmSync(join(f.cap, "web", "ui.menu"), { recursive: true });
+    const report = gate(f);
+    expect(report.verdict).toBe("pass");
+    expect(report.notCaptured).toEqual(["web/ui.menu"]);
   });
 
   test("a changed renderer turns a keep failure into a warning", () => {

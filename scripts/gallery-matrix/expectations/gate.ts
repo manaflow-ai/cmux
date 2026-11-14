@@ -250,8 +250,14 @@ export function runGate(input: GateInput): Report {
     .filter((r) => r.base && r.head && r.base !== r.head);
   mkdirSync(join(input.out, "images"), { recursive: true });
   const results: StateResult[] = [];
+  const notCaptured: string[] = [];
   for (const surface of byRef.values()) {
-    if (!captured.has(surface.platform)) continue;
+    // A surface the run did not attempt (another platform, or a --surfaces subset) has no folder; a
+    // state it attempted and failed has a sidecar with its error, and is judged.
+    if (!captured.has(surface.platform) || !existsSync(join(input.captures, surface.platform, surface.id))) {
+      notCaptured.push(surfaceRef(surface));
+      continue;
+    }
     const ref = surfaceRef(surface);
     for (const capture of surface.captures) {
       const rows: (PNG | undefined)[][] = [];
@@ -341,7 +347,7 @@ export function runGate(input: GateInput): Report {
     verdict: counts.fail ? "fail" : counts.warn ? "warn" : "pass",
     counts,
     results,
-    notCaptured: [...byRef.values()].filter((s) => !captured.has(s.platform)).map(surfaceRef),
+    notCaptured,
     rendererChanged,
     expectationsChanged: input.headExpectations ? expectationsChanged : [],
     unusedJustifications: justifications.filter((j) => !used.has(j)),
