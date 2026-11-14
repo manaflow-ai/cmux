@@ -15,6 +15,7 @@ import { captureServerEvent, type ServerEventInput } from "../analytics/serverEv
 import { captureBillingError } from "../errors";
 import { appleSubscriptionRowsForUser, type AppleEntitlementRow } from "./apple/entitlement";
 import { ACTIVE_STRIPE_PRO_STATUSES, PERSONAL_PLAN_IDS, isPersonalPlanId } from "./pro";
+import { isStripeBillingConfigured, stripe } from "./stripe";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -121,6 +122,161 @@ export class DoubleBillingDetectedError extends Error {
     super("A cmux account pays for a personal plan through both Stripe and the App Store");
     this.name = "DoubleBillingDetectedError";
   }
+}
+
+/** The slice of the Stripe client that closing open Checkout sessions needs. */
+export type OpenCheckoutSessionClient = {
+  readonly checkout: {
+    readonly sessions: {
+      list(params: {
+        status: "open";
+        created: { gte: number };
+        limit: number;
+        starting_after?: string;
+      }): Promise<{
+        readonly data: readonly {
+          readonly id: string;
+          readonly client_reference_id?: string | null;
+          readonly metadata?: Record<string, string> | null;
+        }[];
+        readonly has_more: boolean;
+      }>;
+      expire(id: string): Promise<unknown>;
+    };
+  };
+};
+
+/** Stripe Checkout sessions stay open 24 hours by default; checkout never sets a shorter `expires_at`. */
+const CHECKOUT_SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+/** Upper bound on open sessions read per call; cmux has far fewer open at once. */
+const OPEN_SESSION_SCAN_LIMIT = 1000;
+
+export type ExpiredCheckoutSessions = {
+  readonly expired: readonly string[];
+  readonly failed: readonly string[];
+  /** True when the scan stopped at its limit and older sessions were not read. */
+  readonly truncated: boolean;
+};
+
+/**
+ * Expires every open personal-plan Stripe Checkout session the user started,
+ * so a session left open in a browser tab cannot complete after the user
+ * bought in the App Store. A session is the user's when its
+ * `client_reference_id` and `metadata.stackUserId` name them; Team sessions
+ * (`metadata.stackTeamId`) are left alone, because a Team plan is allowed.
+ * Sessions are matched by user, not by Stripe customer: a first purchase
+ * starts checkout with only an email, so its session has no customer.
+ * Reads open sessions created in the last 24 hours (every session that can
+ * still complete). A session that completes before its expiry lands is
+ * caught by the webhook's incident check.
+ */
+export async function expireOpenPersonalCheckoutSessions(
+  userId: string,
+  client: OpenCheckoutSessionClient,
+  now: Date = new Date(),
+): Promise<ExpiredCheckoutSessions> {
+  const created = { gte: Math.floor((now.getTime() - CHECKOUT_SESSION_LIFETIME_MS) / 1000) - 300 };
+  const mine: string[] = [];
+  let read = 0;
+  let startingAfter: string | undefined;
+  let truncated = false;
+  for (;;) {
+    const page = await client.checkout.sessions.list({
+      status: "open",
+      created,
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    for (const session of page.data) {
+      if (isPersonalCheckoutSessionFor(session, userId)) mine.push(session.id);
+    }
+    read += page.data.length;
+    const last = page.data.at(-1);
+    if (!page.has_more || !last) break;
+    if (read >= OPEN_SESSION_SCAN_LIMIT) {
+      truncated = true;
+      break;
+    }
+    startingAfter = last.id;
+  }
+  const expired: string[] = [];
+  const failed: string[] = [];
+  for (const id of mine) {
+    try {
+      await client.checkout.sessions.expire(id);
+      expired.push(id);
+    } catch {
+      // Already completed or expired in the meantime, or Stripe is down;
+      // the webhook's incident check covers a session that completes.
+      failed.push(id);
+    }
+  }
+  return { expired, failed, truncated };
+}
+
+function isPersonalCheckoutSessionFor(
+  session: { readonly client_reference_id?: string | null; readonly metadata?: Record<string, string> | null },
+  userId: string,
+): boolean {
+  const metadata = session.metadata ?? {};
+  return session.client_reference_id === userId &&
+    metadata.stackUserId === userId &&
+    metadata.app === "cmux" &&
+    !metadata.stackTeamId &&
+    isPersonalPlanId(metadata.plan);
+}
+
+export type ApplePurchaseGuardDependencies = {
+  /** Null when Stripe billing is not configured: there are no sessions to close. */
+  readonly stripe: () => OpenCheckoutSessionClient | null;
+  readonly detection?: DoubleBillingDependencies;
+  readonly now?: () => Date;
+};
+
+/**
+ * Runs after an App Store purchase, renewal or other state change is
+ * recorded for the user (the app-posted transaction route and every applied
+ * notification). When the user holds an App Store subscription that may
+ * bill, it first expires their open personal Stripe Checkout sessions, then
+ * records an incident if they already pay Stripe too. Never throws: an App
+ * Store purchase must never fail or retry because of Stripe.
+ */
+export async function guardApplePurchase(
+  userId: string,
+  deps: ApplePurchaseGuardDependencies = defaultApplePurchaseGuardDependencies(),
+): Promise<void> {
+  try {
+    const detection = deps.detection ?? defaultDoubleBillingDependencies();
+    const now = deps.now?.() ?? new Date();
+    const appleRows = await detection.store.appleSubscriptions(userId);
+    if (appleRows.some((row) => appleSubscriptionMayBill(row, now))) {
+      const client = deps.stripe();
+      if (client) {
+        const result = await expireOpenPersonalCheckoutSessions(userId, client, now);
+        if (result.expired.length > 0 || result.failed.length > 0 || result.truncated) {
+          console.info("billing: expired open Stripe Checkout sessions after an App Store purchase", {
+            stackUserId: userId,
+            expired: result.expired.length,
+            failed: result.failed.length,
+            truncated: result.truncated,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("billing: expiring open Stripe Checkout sessions failed", {
+      stackUserId: userId,
+      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+    });
+    captureBillingError(error, { operation: "expire_open_checkout_sessions", stackUserId: userId });
+  }
+  await reportDoubleBillingForUser(userId, "apple_transaction", deps.detection);
+}
+
+function defaultApplePurchaseGuardDependencies(): ApplePurchaseGuardDependencies {
+  return {
+    stripe: () => isStripeBillingConfigured() ? stripe() as unknown as OpenCheckoutSessionClient : null,
+  };
 }
 
 export type DoubleBillingIncidentResult = {

@@ -45,7 +45,7 @@ const incident: DoubleBillingIncident = {
   detectedAt: new Date("2026-11-13T00:00:00.000Z"),
   resolvedAt: null,
 };
-const listIncidents = mock(async (_input: { includeResolved: boolean; limit: number }) => [incident]);
+const listIncidents = mock(async (input: { includeResolved: boolean; limit: number }) => (input.limit > 0 ? [incident] : []));
 const { GET } = createDoubleBillingHandlers({ store: { listIncidents } });
 
 const admin: StackUser = { id: "admin", primaryEmail: "ops@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };

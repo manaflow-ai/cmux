@@ -49,11 +49,11 @@ export type AppleIapDependencies = {
    */
   readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
   /**
-   * Records a double billing incident when the subscription's owner also has
-   * an active personal Stripe subscription (services/billing/doubleBilling.ts).
-   * Never throws; omitted, no check runs.
+   * Double billing guard (services/billing/doubleBilling.ts): expires the
+   * owner's open personal Stripe Checkout sessions and records an incident
+   * if they already pay Stripe. Never throws; omitted, nothing runs.
    */
-  readonly reportDoubleBilling?: (userId: string) => Promise<void>;
+  readonly guardDoubleBilling?: (userId: string) => Promise<void>;
   readonly now: () => Date;
 };
 
@@ -82,7 +82,7 @@ async function tokenOwner(token: string | null | undefined, store: AppleIapStore
 async function applyEntitlements(write: AppleSubscriptionWrite, deps: AppleIapDependencies): Promise<void> {
   await deps.applyEntitlement(write.current.userId);
   if (write.transferredFrom) await deps.applyEntitlement(write.transferredFrom);
-  await deps.reportDoubleBilling?.(write.current.userId);
+  await deps.guardDoubleBilling?.(write.current.userId);
 }
 
 let defaultDependencies: AppleIapDependencies | null = null;
@@ -98,10 +98,10 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
-    reportDoubleBilling: async (userId) => {
-      // Detection never fails a purchase; the daily scan catches a miss.
-      const report = await import("../doubleBilling").catch(() => null);
-      await report?.reportDoubleBillingForUser(userId, "apple_transaction");
+    guardDoubleBilling: async (userId) => {
+      // The guard never fails a purchase; the daily scan catches a miss.
+      const guard = await import("../doubleBilling").catch(() => null);
+      await guard?.guardApplePurchase(userId);
     },
     now: () => new Date(),
   };

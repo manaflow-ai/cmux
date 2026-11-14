@@ -49,7 +49,7 @@ function deps(): AppleIapDependencies {
     captureEvent: async (input) => {
       events.push(input);
     },
-    reportDoubleBilling: async (userId) => {
+    guardDoubleBilling: async (userId) => {
       doubleBillingChecks.push(userId);
     },
     now: () => NOW,

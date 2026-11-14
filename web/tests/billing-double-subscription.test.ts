@@ -11,6 +11,9 @@ import {
   appleSubscriptionBlockingStripeCheckout,
   appleSubscriptionMayBill,
   detectDoubleBillingForUser,
+  expireOpenPersonalCheckoutSessions,
+  guardApplePurchase,
+  type OpenCheckoutSessionClient,
   reportDoubleBillingForUser,
   scanDoubleBilling,
   type DoubleBillingDependencies,
@@ -249,5 +252,104 @@ describe("GET /api/cron/billing-double-subscriptions", () => {
       if (previous === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = previous;
     }
+  });
+});
+
+type FakeSession = { id: string; client_reference_id?: string | null; metadata?: Record<string, string> | null };
+
+function fakeStripe(sessions: FakeSession[], options: { failExpire?: string[]; failList?: boolean; pageSize?: number } = {}) {
+  const listCalls: Array<Record<string, unknown>> = [];
+  const expired: string[] = [];
+  const client: OpenCheckoutSessionClient = {
+    checkout: {
+      sessions: {
+        list: async (params) => {
+          listCalls.push(params);
+          if (options.failList) throw new Error("stripe down");
+          const size = options.pageSize ?? params.limit;
+          const start = params.starting_after ? sessions.findIndex((row) => row.id === params.starting_after) + 1 : 0;
+          const data = sessions.slice(start, start + size);
+          return { data, has_more: start + size < sessions.length };
+        },
+        expire: async (id) => {
+          if (options.failExpire?.includes(id)) throw new Error("already completed");
+          expired.push(id);
+          return {};
+        },
+      },
+    },
+  };
+  return { client, listCalls, expired };
+}
+
+const personal = (id: string, user: string, plan = "pro"): FakeSession =>
+  ({ id, client_reference_id: user, metadata: { app: "cmux", stackUserId: user, plan } });
+
+describe("expireOpenPersonalCheckoutSessions", () => {
+  test("expires only this user's open personal sessions, across pages, from the last 24 hours", async () => {
+    const stripe = fakeStripe([
+      personal("cs_mine_pro", "u1"),
+      personal("cs_other_user", "u2"),
+      { id: "cs_team", client_reference_id: "team-1", metadata: { app: "cmux", stackUserId: "u1", stackTeamId: "team-1", plan: "team" } },
+      { id: "cs_foreign", client_reference_id: "u1", metadata: { app: "other", stackUserId: "u1", plan: "pro" } },
+      { id: "cs_no_meta", client_reference_id: "u1", metadata: null },
+      personal("cs_mine_max", "u1", "max"),
+    ], { pageSize: 2 });
+    const result = await expireOpenPersonalCheckoutSessions("u1", stripe.client, NOW);
+    expect(stripe.expired).toEqual(["cs_mine_pro", "cs_mine_max"]);
+    expect(result).toEqual({ expired: ["cs_mine_pro", "cs_mine_max"], failed: [], truncated: false });
+    expect(stripe.listCalls).toHaveLength(3);
+    expect(stripe.listCalls[0]).toMatchObject({ status: "open", created: { gte: Math.floor(NOW.getTime() / 1000) - 24 * 3600 - 300 } });
+  });
+
+  test("a session that cannot be expired is reported, and the rest still expire", async () => {
+    const stripe = fakeStripe([personal("cs_a", "u1"), personal("cs_b", "u1")], { failExpire: ["cs_a"] });
+    expect(await expireOpenPersonalCheckoutSessions("u1", stripe.client, NOW))
+      .toEqual({ expired: ["cs_b"], failed: ["cs_a"], truncated: false });
+  });
+});
+
+describe("guardApplePurchase", () => {
+  function guardDeps(input: { apple: AppleEntitlementRow[]; stripeSubs?: StripeRecurringSubscription[]; client?: OpenCheckoutSessionClient | null }) {
+    const store = memoryStore({ apple: { u1: input.apple }, stripe: input.stripeSubs ? { u1: input.stripeSubs } : {} });
+    return { store, deps: { stripe: () => input.client ?? null, detection: deps(store), now: () => NOW } };
+  }
+
+  test("an App Store purchase that may bill expires the user's open Stripe sessions", async () => {
+    const stripe = fakeStripe([personal("cs_open", "u1")]);
+    const { store, deps: guard } = guardDeps({ apple: [apple()], client: stripe.client });
+    await guardApplePurchase("u1", guard);
+    expect(stripe.expired).toEqual(["cs_open"]);
+    expect(store.incidents).toEqual([]);
+  });
+
+  test("it still records an incident when the user already pays Stripe (session completed first)", async () => {
+    const stripe = fakeStripe([]);
+    const { store, deps: guard } = guardDeps({ apple: [apple()], stripeSubs: [stripeSub], client: stripe.client });
+    await guardApplePurchase("u1", guard);
+    expect(store.incidents).toHaveLength(1);
+    expect(store.incidents[0]!.write.detectedBy).toBe("apple_transaction");
+  });
+
+  test("an App Store row that cannot bill (Sandbox, expired) leaves Stripe sessions open", async () => {
+    for (const row of [apple({ environment: "Sandbox" }), apple({ status: "expired", expiresAt: new Date(NOW.getTime() - DAY) })]) {
+      const stripe = fakeStripe([personal("cs_open", "u1")]);
+      await guardApplePurchase("u1", guardDeps({ apple: [row], client: stripe.client }).deps);
+      expect(stripe.listCalls).toEqual([]);
+      expect(stripe.expired).toEqual([]);
+    }
+  });
+
+  test("a Stripe outage never throws and the incident check still runs", async () => {
+    const stripe = fakeStripe([], { failList: true });
+    const { store, deps: guard } = guardDeps({ apple: [apple()], stripeSubs: [stripeSub], client: stripe.client });
+    await expect(guardApplePurchase("u1", guard)).resolves.toBeUndefined();
+    expect(store.incidents).toHaveLength(1);
+  });
+
+  test("without Stripe configured it only runs the incident check", async () => {
+    const { store, deps: guard } = guardDeps({ apple: [apple()], stripeSubs: [stripeSub], client: null });
+    await guardApplePurchase("u1", guard);
+    expect(store.incidents).toHaveLength(1);
   });
 });
