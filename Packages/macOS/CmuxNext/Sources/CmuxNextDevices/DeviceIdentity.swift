@@ -137,4 +137,7 @@ extension DeviceIdentity {
     static let idAccount = "device-id"
     static let signingAccount = "device-signing-key"
     static let agreementAccount = "device-agreement-key"
+
+    /// The only identity accounts a protected capture may remove.
+    public static let captureIdentityAccounts = [idAccount, signingAccount, agreementAccount]
 }

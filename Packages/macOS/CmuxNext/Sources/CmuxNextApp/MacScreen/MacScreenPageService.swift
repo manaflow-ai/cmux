@@ -249,9 +249,13 @@ extension AppServices {
 
     /// `debug.device_hub` (DEV builds).
     func registerDeviceHubDebug(on router: ControlRouter?) {
-        macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
+        macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel, openTab: { [weak self] record, key in
             self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
-        }
+        }, captureCleanup: { [weak self] phase, leaseID, bundleID in
+            guard let self else { return DeviceHubCaptureCleanupResult(ok: false, code: .hubNotQuiescent) }
+            return await self.deviceHub.captureCleanup(phase: phase, leaseID: leaseID,
+                                                       requestedBundleIdentifier: bundleID)
+        })
     }
 
     /// A debug method's Mac Screen tab: in the pane named `key`, else the active or first window's focused pane.

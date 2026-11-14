@@ -6,6 +6,11 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
+public enum DeviceHubCaptureCleanupPhase: String, Sendable {
+    case prepare
+    case cleanup
+}
+
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
 /// the cmux account is signed in, at the build's built-in hub address (DEV
 /// builds: the dev hub, unless `deviceHub.url` overrides it), started on
@@ -53,6 +58,11 @@ public final class DeviceHubService {
     private var watch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
     private var removalWatch: Task<Void, Never>?
+    /// Completion of the last asynchronous hub sign-out, awaited by the
+    /// protected capture cleanup before it touches the keychain.
+    private var stopCompletion: Task<Void, Never>?
+    /// Completion of an identity load cancelled by a sign-out.
+    private var loadingCompletion: Task<Void, Never>?
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
@@ -153,6 +163,8 @@ public final class DeviceHubService {
             loading = nil
             install(hub, url: url, user: user)
         }
+        let task = loading
+        loadingCompletion = Task { _ = await task?.value }
     }
 
     private func install(_ hub: DeviceHub, url: URL, user: String) {
@@ -181,6 +193,34 @@ public final class DeviceHubService {
         stopHub(endingSessions: true)
     }
 
+    /// DEBUG capture namespace cleanup. This never participates in normal
+    /// sign-out or identity renewal: the caller must have signed out first,
+    /// and cleanup fails while the hub or an identity load is still present.
+    public func captureCleanup(phase: DeviceHubCaptureCleanupPhase, leaseID: String,
+                               requestedBundleIdentifier: String) async -> DeviceHubCaptureCleanupResult {
+        #if DEBUG
+        guard requestedBundleIdentifier == bundleIdentifier else { return .failure(.bundleMismatch) }
+        guard hub == nil, loading == nil else { return .failure(.hubNotQuiescent) }
+        await loadingCompletion?.value
+        loadingCompletion = nil
+        await stopCompletion?.value
+        stopCompletion = nil
+        let namespace = CaptureKeychainNamespace()
+        switch phase {
+        case .prepare:
+            return await Task.detached {
+                namespace.prepare(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
+            }.value
+        case .cleanup:
+            return await Task.detached {
+                namespace.cleanup(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
+            }.value
+        }
+        #else
+        return .failure(.unavailable)
+        #endif
+    }
+
     /// Signed out (or another account, address or a removal): this Mac's
     /// sessions end here at once, and the hub hears why in the background
     /// (one device sign-out, `signed_out`, while the hub session still
@@ -206,7 +246,7 @@ public final class DeviceHubService {
             return
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
-        Task {
+        stopCompletion = Task {
             do { try await hub.signOutDevice() } catch {
                 await withTaskGroup(of: Void.self) { group in
                     for id in ids {

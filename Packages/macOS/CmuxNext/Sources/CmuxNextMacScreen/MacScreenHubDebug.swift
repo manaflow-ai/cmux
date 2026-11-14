@@ -1,7 +1,7 @@
 public import CmuxNextControl
-#if DEBUG
 import CmuxNextDevices
 import CmuxNextSettings
+#if DEBUG
 import Foundation
 
 /// `debug.device_hub` (development builds): the device hub as Mac Screen and
@@ -26,6 +26,10 @@ import Foundation
 /// - `set_shared` {shared}: Allow Mac Screen on this Mac.
 /// - `rename` {device, name}, `remove` {device}.
 /// - `end` {session, reason?}; `stop_sharing`; `revoke_viewer`.
+/// - `capture_prepare`/`capture_cleanup` {lease_id, bundle_id}: the exact
+///   lease-bound keychain namespace used by protected captures. Prepare must
+///   run before credentials; cleanup runs after sign-out. Neither returns
+///   service names, accounts, identity values or secrets.
 /// - `relay_add` {name, urls, mode, secret_file, enabled?, priority?, id?}:
 ///   `secret_file` holds `{"secret":…}` or `{"username":…,"password":…}`.
 /// - `relay_delete` {id}; `relay_check` {id}.
@@ -33,19 +37,41 @@ import Foundation
 /// - `audit` {limit?}: the newest entries as History shows them.
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
-                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {
+                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?,
+                                captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)? = nil) {
         router?.register([
             .async("debug.device_hub") { [weak self] call in
                 guard let self else { return .null }
-                return await deviceHubDebug(call.params, settings: settings, openTab: openTab)
+                return await deviceHubDebug(call.params, settings: settings, openTab: openTab, captureCleanup: captureCleanup)
             },
         ])
     }
 
     func deviceHubDebug(_ params: [String: JSONValue], settings: MacScreenDevicesSettings?,
-                        openTab: @MainActor (MacScreenRecord, String?) -> String?) async -> JSONValue {
+                        openTab: @MainActor (MacScreenRecord, String?) -> String?,
+                        captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)?) async -> JSONValue {
         let action = params["action"]?.stringValue ?? "state"
         if action == "state" { return hubState }
+        if action == "capture_prepare" || action == "capture_cleanup" {
+            guard let leaseID = params["lease_id"]?.stringValue,
+                  let bundleID = params["bundle_id"]?.stringValue else {
+                return ["ok": .bool(false), "code": .string(DeviceHubCaptureCleanupResult.Code.bundleMismatch.rawValue),
+                        "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
+                        "hub_quiescent": .bool(false)]
+            }
+            guard let captureCleanup else {
+                return ["ok": .bool(false), "code": .string("capture_cleanup_unavailable"),
+                        "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
+                        "hub_quiescent": .bool(false)]
+            }
+            let phase: DeviceHubCaptureCleanupPhase = action == "capture_prepare" ? .prepare : .cleanup
+            let result = await captureCleanup(phase, leaseID, bundleID)
+            return ["ok": .bool(result.ok), "code": .string(result.code.rawValue),
+                    "identity_removed": .number(Double(result.identityRemoved)),
+                    "relays_removed": .number(Double(result.relaysRemoved)),
+                    "verified_absent": .bool(result.verifiedAbsent),
+                    "hub_quiescent": .bool(result.hubQuiescent)]
+        }
         guard let hub else { return ["error": "not signed in to a device hub"] }
         func scope(_ key: String) -> SessionScope? { params[key]?.stringValue.flatMap(SessionScope.init(rawValue:)) }
         func fail(_ error: any Error) -> JSONValue { ["error": .string((error as? DeviceHubError)?.description ?? "\(error)")] }
@@ -198,6 +224,7 @@ extension MacScreenPages {
 #else
 extension MacScreenPages {
     public func registerDeviceHubDebug(on router: ControlRouter?, settings: MacScreenDevicesSettings?,
-                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?) {}
+                                openTab: @escaping @MainActor (MacScreenRecord, String?) -> String?,
+                                captureCleanup: (@MainActor @Sendable (DeviceHubCaptureCleanupPhase, String, String) async -> DeviceHubCaptureCleanupResult)? = nil) {}
 }
 #endif

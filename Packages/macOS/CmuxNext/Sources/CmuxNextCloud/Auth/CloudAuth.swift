@@ -377,6 +377,19 @@ public final class CloudAuth {
 
     public func signOut() async { await browserSignIn.signOut() }
 
+    /// DEBUG-only proof and cleanup for the exact auth stores of a protected
+    /// capture. The probe runs off the main actor and never returns token data.
+    #if DEBUG || CMUX_BENCH_HOOKS
+    public func captureAuthCleanup(phase: CaptureAuthCleanupPhase, leaseID: String,
+                                   requestedBundleIdentifier: String) async -> CaptureAuthCleanupResult {
+        let configuration = configuration
+        return await Task.detached {
+            CaptureAuthPersistence().run(configuration: configuration, phase: phase, leaseID: leaseID,
+                                         requestedBundleIdentifier: requestedBundleIdentifier)
+        }.value
+    }
+    #endif
+
     /// Whether `url` is a sign-in callback this build accepts, in any form
     /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL
     /// routing leaves it to ``handleCallback(_:)``.
