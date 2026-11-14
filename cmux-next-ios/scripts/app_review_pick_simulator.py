@@ -8,7 +8,12 @@
 
 Exit 3 when the family has no device type or runtime on this machine.
 
+--fresh always creates the device, named for the run and family, and never
+reuses one: an owned Mac keeps its simulators between jobs, so a reused one
+could start signed in from an earlier run. The leg deletes it when it ends.
+
   app_review_pick_simulator.py --family ipad --print-udid
+  app_review_pick_simulator.py --family duo --print-udid --fresh
   app_review_pick_simulator.py --family iphone --print-destination
 """
 
@@ -35,13 +40,13 @@ def version(runtime: dict) -> tuple[int, ...]:
     return tuple(int(x) for x in str(runtime.get("version", "0")).split(".") if x.isdigit())
 
 
-def pick(family: str) -> str:
+def pick(family: str, fresh: bool = False) -> str:
     names = PREFERRED[family]
     runtimes = [
         r for r in simctl("runtimes")["runtimes"]
         if r.get("isAvailable", True) and r.get("platform", "iOS") == "iOS"
     ]
-    devices = simctl("devices", "available")["devices"]
+    devices = {} if fresh else simctl("devices", "available")["devices"]
     for name in names:
         for runtime in sorted(runtimes, key=version, reverse=True):
             for device in devices.get(runtime["identifier"], []):
@@ -56,7 +61,8 @@ def pick(family: str) -> str:
             supported = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
             if supported and dtype["identifier"] not in supported:
                 continue
-            created = f"cmux review gate {os.environ.get('GITHUB_RUN_ID', 'local')} {name}"
+            run = os.environ.get('GITHUB_RUN_ID', 'local')
+            created = f"cmux review gate {run} {family}" if fresh else f"cmux review gate {run} {name}"
             return subprocess.check_output(
                 ["xcrun", "simctl", "create", created, dtype["identifier"], runtime["identifier"]], text=True
             ).strip()
@@ -69,8 +75,9 @@ def main() -> int:
     out = parser.add_mutually_exclusive_group(required=True)
     out.add_argument("--print-udid", action="store_true")
     out.add_argument("--print-destination", action="store_true")
+    parser.add_argument("--fresh", action="store_true", help="create the device; never reuse one")
     args = parser.parse_args()
-    udid = pick(args.family)
+    udid = pick(args.family, fresh=args.fresh)
     print(udid if args.print_udid else f"platform=iOS Simulator,id={udid}")
     return 0
 

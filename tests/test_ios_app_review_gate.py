@@ -490,13 +490,13 @@ class AppReviewGateTests(unittest.TestCase):
         pick = next(step for step in jobs["runner"]["steps"] if step.get("id") == "pool")
         self.assertIn("--lane review-gate", pick["run"])
         self.assertIn('--called "$CALLED"', pick["run"])
-        # The steps the two legs share are written once (YAML anchors), so
-        # the legs cannot drift apart.
+        # The two legs' shared steps are copies (the pinned actionlint
+        # refuses YAML alias steps): they must not drift apart.
         names = [step.get("name") for step in walk["steps"]]
         for step in ipad["steps"]:
             if step.get("name") not in ("Agent reviewer pass", "Upload results"):
                 self.assertIn(step.get("name"), names)
-                self.assertIs(step, walk["steps"][names.index(step.get("name"))], step.get("name"))
+                self.assertEqual(step, walk["steps"][names.index(step.get("name"))], step.get("name"))
 
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
