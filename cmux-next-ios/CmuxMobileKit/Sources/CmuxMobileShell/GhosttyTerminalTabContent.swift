@@ -326,15 +326,20 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // shown in the grid lacks): its next host shows it at once while it attaches.
         // A tab cooled before it drew the Mac's output keeps the cached frame it
         // had; its blank page never goes over it, in memory or on disk.
-        // Its frame waits on disk: the live page is written now; a frame it was given came from
-        // disk (`host(for:in:)`) and is still there. Memory holds it only when there is no disk.
+        // Its frame waits on disk: the live page is written now, and a frame it was given is
+        // usually its file already (`host(for:in:)`). Memory holds it only when it is not on
+        // disk: no frame store, or a frame handed over from a placeholder whose save has not
+        // landed (written to disk only after live output, so a blank page never goes there).
         var frameState = "none"
         if let key, let frame = host.model.frameToKeep() {
-            frameState = frameStore == nil ? "in memory" : "on disk"
-            if let frameStore {
-                if host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: key) }
+            if let frameStore, host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) {
+                frameStore.save(data, for: key)
+                frameState = "on disk"
+            } else if let frameStore, FileManager.default.fileExists(atPath: frameStore.url(for: key).path) {
+                frameState = "on disk"
             } else {
                 lastFrames[key] = frame
+                frameState = "in memory"
             }
         }
         slots[id] = nil
