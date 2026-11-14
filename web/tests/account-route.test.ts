@@ -2572,6 +2572,26 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("the dashboard's delete action runs this route: cmux cleanup, the App Store unlink, then the Stack delete", async () => {
+    const { deleteAccountThroughCmux } = await import("../dashboard-app/lib/delete-account");
+    const browserSession = {
+      getAuthJson: async () => ({ accessToken: "access-token", refreshToken: "refresh-token" }),
+    };
+    // The browser's fetch, served by this route handler.
+    await deleteAccountThroughCmux(browserSession, async (url, init) =>
+      await DELETE(new Request(new URL(url, "https://cmux.test"), init)));
+
+    expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(deletedTables).toContain(devices);
+    const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);
+    expect(conditionParamValues(tokenDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    const subscriptionDelete = deletedWhere.find((entry) => entry.table === appleSubscriptions);
+    expect(conditionParamValues(subscriptionDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    expect(updatedRows.filter(({ table }) => table === appleTransactions).map(({ values }) => values))
+      .toContainEqual({ userId: "deleted-account" });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("deletes owned team and shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
