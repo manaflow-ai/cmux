@@ -15,8 +15,9 @@
 // the agent and its full report.
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
-// error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
-// it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
+// error" with the turning ring. A failed one acpmux can retry offers Retry, inline and in its ⋯
+// menu; one it cannot offers none, as the chat's agent already read the error (Leo, 2026-11-14:
+// "we maybe want to remove the "ask parent to retry" if we haven't already").
 // A refusal leaves a short note after the line until the row next changes.
 //
 // The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
@@ -39,7 +40,7 @@ import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { useResume } from "./ResumeControl";
-import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
+import { retryLabel, subagentRetry, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {
   subagentDisplayName,
@@ -68,8 +69,6 @@ const DONE_LABEL: Record<string, StringKey> = {
 /// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
 /// `spawn_subagent`): never a better name than the one a run reports.
 const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
-
-const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   // Only a sub-session's line reads the session list (its retry is on its own session row): the
@@ -264,7 +263,7 @@ function DoneLine({
       onClick={run}
     >
       {affordance === "button" && <Retry size={12} />}
-      {t(ACTION_LABEL[action])}
+      {t("retry.action")}
     </button>
   );
   return (
@@ -347,9 +346,9 @@ function DoneLine({
                   <Icon name="action.more" size={14} />
                 </MenuButton>
                 <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                  {/* The one Retry the row offers: acpmux's, or asking the chat's agent where acpmux can't. */}
+                  {/* The one Retry the row offers: acpmux's. */}
                   <MenuItem className="acpmux-quick-item" onSelect={run}>
-                    {t(ACTION_LABEL[action])}
+                    {t("retry.action")}
                   </MenuItem>
                 </MenuPopup>
               </Menu>

@@ -194,6 +194,11 @@ path = "tests/test_nightly_next_promotion_queue.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_push_slot_at_build.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that with the one job on a nightly-next loop run holds the push slot only in nightly-next-one (nightly-next-one-push, never cancelling), that the next run's notes start from the live feed's published source, and that nightly-next-one's end wakes main's tick; run python3 tests/test_nightly_next_push_slot_at_build.py yourself after changing nightly.yml's concurrency, nightly-next-one, wake-nightly-next-tick or the notes step (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_next_recovery.py"
 lane = "linux-guard"
 
@@ -357,6 +362,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_version.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_warm_checkout_borrows_mirror.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Runs the warm nightly-next builder's checkout step from nightly.yml on an empty slot beside a temp git mirror, and needs the slot to borrow a healthy mirror (borrow record and alternates) before its fetch and to leave an unhealthy one alone; run python3 tests/test_nightly_warm_checkout_borrows_mirror.py yourself after changing that step or glaeda's borrow record (about 1 s, git only, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_warm_checkout_sparse.py"

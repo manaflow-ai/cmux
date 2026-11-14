@@ -53,6 +53,8 @@ pub struct RowCfg {
     /// The viewer's reassembly deadline (`cmux-rd bench --deadline-ms`, default 200).
     pub deadline_ms: u64,
     pub seed: u64,
+    /// The H.264 encoder, for `codec` H.264.
+    pub h264: crate::H264Impl,
 }
 
 /// A one-direction link: a bottleneck of `mbps` with a FIFO queue, then a fixed
@@ -235,7 +237,11 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         threads: cfg.threads,
         screen_content: true,
     };
-    let Some(mut enc) = crate::open_encoder(cfg.codec, &enc_cfg)? else {
+    let opened = match cfg.codec {
+        Codec::H264 => crate::open_h264(cfg.h264, &enc_cfg)?,
+        codec => crate::open_encoder(codec, &enc_cfg)?,
+    };
+    let Some(mut enc) = opened else {
         return Err(format!("{} is not in this build", cfg.codec.wire_name()).into());
     };
     let Some(decoder) = crate::open_decoder(cfg.codec, u32::from(cfg.threads))? else {
@@ -443,6 +449,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
     let psnr_min = psnr.iter().copied().fold(f64::INFINITY, f64::min);
     Ok(json!({
         "codec": cfg.codec.wire_name(),
+        "label": if cfg.codec == Codec::H264 { cfg.h264.label() } else { cfg.codec.wire_name() },
         "encoder": enc.name(),
         "decoder": viewer.decoder.name(),
         "scene": cfg.scene.name(),
