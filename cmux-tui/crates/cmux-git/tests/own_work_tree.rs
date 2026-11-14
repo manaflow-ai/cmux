@@ -306,3 +306,120 @@ fn own_tree_open_opens_each_layout_that_git_makes_for_a_work_tree() {
     assert_eq!(top_folder(&module), module, "a submodule");
     assert_eq!(top_folder(&parent), parent, "the repository of a submodule");
 }
+
+/// Replaces the `.git` file that git made in `folder` by a link to `git_folder`.
+fn link_as_git_entry(folder: &Path, git_folder: &Path) {
+    let entry = folder.join(".git");
+    let _ = std::fs::remove_file(&entry);
+    std::os::unix::fs::symlink(git_folder, entry).expect("make a link");
+}
+
+/// A new repository in `folder` whose git folder is `store`, apart from the work tree.
+fn new_repository_with_its_git_folder_at(folder: &Path, store: &Path) {
+    let arguments = ["init", "--quiet", "--initial-branch=main", "--separate-git-dir", text(store)];
+    git(folder, &arguments);
+}
+
+/// A new repository whose git folder is `store`, apart from its work tree, and a new folder
+/// `name` in the scratch folder whose `.git` entry is a link to that git folder.
+fn folder_with_a_link_to_a_git_folder(scratch: &Scratch, name: &str, store: &Path) -> PathBuf {
+    let first = scratch.folder(&format!("{name}-first"));
+    new_repository_with_its_git_folder_at(&first, store);
+    let folder = scratch.folder(name);
+    link_as_git_entry(&folder, store);
+    folder
+}
+
+#[test]
+fn own_tree_open_refuses_a_git_folder_that_uses_the_common_folder_of_another_repository() {
+    let scratch = Scratch::new("common");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let common = format!("{}\n", text(&other.join(".git")));
+    // A git folder in the work tree.
+    let folder = scratch.folder("folder");
+    let inside = scratch.folder("folder/.git");
+    std::fs::write(inside.join("HEAD"), "ref: refs/heads/main\n").expect("write a file");
+    std::fs::write(inside.join("commondir"), &common).expect("write a file");
+    // A git folder apart from the work tree, and each of the two names the other.
+    let (second, apart) = (scratch.folder("second"), scratch.folder("apart"));
+    std::fs::write(apart.join("HEAD"), "ref: refs/heads/main\n").expect("write a file");
+    std::fs::write(apart.join("commondir"), &common).expect("write a file");
+    let record = format!("{}\n", text(&second.join(".git")));
+    std::fs::write(apart.join("gitdir"), record).expect("write a file");
+    let git_file = format!("gitdir: {}\n", text(&apart));
+    std::fs::write(second.join(".git"), git_file).expect("write a file");
+
+    let problem = refusal(&folder);
+    assert!(problem.contains("common folder"), "{problem}");
+    let problem = refusal(&second);
+    assert!(problem.contains("common folder"), "{problem}");
+
+    assert_eq!(top_folder(&other), other, "the other repository still opens");
+    let linked = linked_work_tree(&other, "linked");
+    assert_eq!(top_folder(&linked), linked, "a linked work tree uses its own repository's");
+}
+
+#[test]
+fn own_tree_open_opens_a_work_tree_whose_git_entry_is_a_link_to_its_own_git_folder() {
+    let scratch = Scratch::new("entry-link");
+    let project = scratch.folder("tree/project");
+    let store = scratch.folder("store").join("project.git");
+    new_repository_with_its_git_folder_at(&project, &store);
+    // The link is relative, as a tool for many repositories makes it.
+    link_as_git_entry(&project, Path::new("../../store/project.git"));
+    let below = scratch.folder("tree/project/below");
+
+    assert_eq!(top_folder(&project), project);
+    assert_eq!(top_folder(&below), project, "a folder below the top folder");
+}
+
+#[test]
+fn own_tree_open_refuses_a_git_entry_that_is_a_link_to_the_git_folder_of_another_work_tree() {
+    let scratch = Scratch::new("link-other");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let folder = scratch.folder("folder");
+    link_as_git_entry(&folder, &other.join(".git"));
+
+    let problem = refusal(&folder);
+
+    assert!(problem.contains("is a link"), "{problem}");
+    assert_eq!(top_folder(&other), other, "the other work tree still opens");
+}
+
+#[test]
+fn own_tree_open_refuses_a_git_entry_that_is_a_link_to_a_git_folder_that_names_a_work_tree() {
+    let scratch = Scratch::new("link-names");
+    // The git folder has the record of a linked work tree.
+    let main = scratch.0.join("main");
+    new_repository(&main);
+    let linked = linked_work_tree(&main, "linked");
+    let by_record = scratch.folder("by-record");
+    link_as_git_entry(&by_record, &main.join(".git/worktrees/linked"));
+    // The git folder has the `core.worktree` setting.
+    let store = scratch.0.join("store");
+    let by_setting = folder_with_a_link_to_a_git_folder(&scratch, "by-setting", &store);
+    git(&by_setting, &["config", "core.worktree", text(&by_setting)]);
+
+    let problem = refusal(&by_record);
+    assert!(problem.contains("is a link"), "{problem}");
+    let problem = refusal(&by_setting);
+    assert!(problem.contains("is a link"), "{problem}");
+
+    assert_eq!(top_folder(&linked), linked, "the recorded work tree still opens");
+}
+
+/// A limit of the open. A git folder that names no work tree does not say which folder it is
+/// for, so the open takes each folder whose `.git` entry is a link to it.
+#[test]
+fn own_tree_open_opens_each_folder_whose_git_entry_is_a_link_to_a_git_folder_of_no_work_tree() {
+    let scratch = Scratch::new("link-limit");
+    let store = scratch.0.join("store");
+    let first = folder_with_a_link_to_a_git_folder(&scratch, "first", &store);
+    let second = scratch.folder("second");
+    link_as_git_entry(&second, &store);
+
+    assert_eq!(top_folder(&first), first);
+    assert_eq!(top_folder(&second), second);
+}
