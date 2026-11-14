@@ -191,10 +191,13 @@ impl Manifest {
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the
     /// daemon answers the completions. `insert` is what the mention writes (the label when None).
     pub fn mention(self, prefix: &str, id: &str, label: &str, insert: Option<&str>) -> Self {
-        let mut item = json!({ "id": id, "label": label });
+        let mut item = Map::new();
+        item.insert("id".into(), json!(id));
+        item.insert("label".into(), json!(label));
         if let Some(insert) = insert {
-            item["insert"] = json!(insert);
+            item.insert("insert".into(), json!(insert));
         }
+        let item = Value::Object(item);
         let mut me = self.append_data("cmux.composer.mention/1", "items", item);
         if let Some(Value::Object(options)) = me
             .value
