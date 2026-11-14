@@ -463,6 +463,11 @@ public struct RootView: View {
         if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
             coordinator.accept(invite)
         }
+        // Test-only, as above: a cmux link (`cmux://tab/<id>`) the rig's resize leg opens at launch.
+        if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_OPEN_LINK"], let url = URL(string: text),
+           let opened = OpenedURL(url: url) {
+            open(opened)
+        }
         #endif
     }
 

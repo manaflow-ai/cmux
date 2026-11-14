@@ -423,6 +423,11 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if paired:
+                try:
+                    note(f"- resize: {resize_leg(rpc, simctl, a.udid, a.bundle_id, phone_env, a.out, note)}")
+                except Exception as error:  # verification only: never fails the pairing run
+                    note(f"- resize: ERROR {type(error).__name__}: {error}")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -578,6 +583,153 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
     return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {UPLOAD_BYTES:,} bytes, sha256 "
                         f"{want[1][:16]}..., in {took:.1f} s; stored at .../{os.path.relpath(stored, root)}; app footprint "
                         f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
+
+
+def daemon_request(sock_path, cmd, params=None, timeout=10):
+    """One request on its own connection to the tag's cmux-tui daemon; its reply's data."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(timeout)
+        conn.connect(sock_path)
+        conn.sendall((json.dumps({"id": "rz", "cmd": cmd, **(params or {})}) + "\n").encode())
+        buf = b""
+        while True:
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                raise OSError(f"{cmd}: connection closed")
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                reply = json.loads(line)
+                if reply.get("id") == "rz":
+                    if reply.get("ok") is False:
+                        raise OSError(f"{cmd}: {reply.get('error')}")
+                    return reply.get("data") or {}
+
+
+class RigMacViewer:
+    """A desktop view of one terminal at 120x40 on the tag's daemon, as a Mac pane is: the grid
+    the phone's claim narrows and its release gives back. Its output is read and dropped."""
+
+    def __init__(self, sock_path, surface, cols=120, rows=40):
+        self.conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.conn.connect(sock_path)
+        self.conn.sendall((json.dumps({"id": "i", "cmd": "set-client-info", "name": "rig-mac", "kind": "macos",
+                                       "device_kind": "mac", "device_name": "Rig Mac", "device_id": "rig-mac"}) + "\n"
+                           + json.dumps({"id": "a", "cmd": "attach-surface", "surface": surface,
+                                         "cols": cols, "rows": rows}) + "\n").encode())
+        self.thread = threading.Thread(target=self._drain, daemon=True)
+        self.thread.start()
+
+    def _drain(self):
+        try:
+            while self.conn.recv(1 << 20):
+                pass
+        except OSError:
+            pass
+
+    def close(self):
+        try:
+            self.conn.close()
+        except OSError:
+            pass
+
+
+def resize_leg(rpc, simctl, udid, bundle_id, phone_env, out, note):
+    """The paired phone and a 120x40 Mac view share one terminal under the Mac's default policy (Fit
+    the smallest viewer). Times, on the daemon's PTY grid: the phone opening it, the app sent to the
+    background for real (another app comes forward), back to the foreground, and the app killed while
+    on screen. The phone's screen is recorded throughout (resize-phone.mp4)."""
+    import glob as _glob, signal, tempfile
+    snap = rpc("snapshot.get")
+    sessions = (snap.get("topology") or {}).get("sessions") or []
+    name = next((s.get("session_name") for s in sessions if s.get("home")), None)
+    if not name:
+        return f"SKIPPED: no home session in snapshot.get ({str(snap)[:200]})"
+    uid = os.getuid()
+    candidates = [os.path.join(tempfile.gettempdir(), f"cmux-tui-{uid}", f"{name}.sock")]
+    candidates += _glob.glob(f"/var/folders/*/*/T/cmux-tui-{uid}/{name}.sock") + _glob.glob(f"/tmp/cmux-tui-{uid}/{name}.sock")
+    sock_path = next((c for c in candidates if os.path.exists(c)), None)
+    if not sock_path:
+        return f"SKIPPED: no daemon socket for session {name} ({candidates[:2]})"
+    script = ('trap \'printf "\\nSIGWINCH: grid is now %s\\n" "$(stty size)"\' WINCH; '
+              'for i in $(seq 1 12); do printf "%02d %s\\n" "$i" "$(printf "%0.s=" $(seq 1 110))"; done; '
+              'printf "grid at start: %s\\n" "$(stty size)"; while :; do sleep 0.2; done')
+    created = daemon_request(sock_path, "run", {"argv": ["/bin/sh", "-c", script], "new_workspace": True,
+                                                "name": "resize e2e", "cols": 120, "rows": 40})
+    surface, tab = created.get("surface"), created.get("tab_id")
+    if surface is None or not tab:
+        return f"SKIPPED: run gave no surface/tab_id ({created})"
+    viewer = RigMacViewer(sock_path, surface)
+
+    def grid():
+        try:
+            state = daemon_request(sock_path, "vt-state", {"surface": surface}, timeout=5)
+            return state.get("cols"), state.get("rows")
+        except (OSError, ValueError):
+            return None, None
+
+    def until(want, seconds):
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < seconds:
+            g = grid()
+            if want(g):
+                return time.monotonic() - t0, g
+            time.sleep(0.05)  # bounded poll of the daemon's grid; nothing pushes it to this script
+        return None, grid()
+
+    results = {"session": name, "surface": surface, "tab": tab}
+    video = os.path.join(out, "resize-phone.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    marks = []
+    t_rec = time.monotonic()
+
+    def mark(label):
+        marks.append((round(time.monotonic() - t_rec, 2), label))
+
+    try:
+        took, g = until(lambda g: g == (120, 40), 20)
+        results["mac_alone"] = g
+        mark("phone opens the terminal")
+        env = dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_OPEN_LINK=f"cmux://tab/{tab}")
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id], env=env, check=True, capture_output=True)
+        took, g = until(lambda g: g[0] is not None and g[0] < 120, 90)
+        results["phone_open"] = {"seconds": took, "grid": g}
+        phone_grid = g
+        time.sleep(3)  # let the page settle on screen (recording pace)
+        mark("app to the background")
+        subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True)
+        took, g = until(lambda g: g == (120, 40), 60)
+        results["background"] = {"seconds": took, "grid": g}
+        time.sleep(2)
+        mark("app back to the foreground")
+        subprocess.run(simctl + ["launch", udid, bundle_id], env=phone_env, capture_output=True)
+        took, g = until(lambda g: g == phone_grid, 30)
+        results["foreground"] = {"seconds": took, "grid": g}
+        time.sleep(3)
+        mark("app killed while on screen")
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        took, g = until(lambda g: g == (120, 40), 90)
+        results["killed"] = {"seconds": took, "grid": g}
+        mark("end")
+    finally:
+        rec.send_signal(signal.SIGINT)
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+        viewer.close()
+        results["marks"] = marks
+        with open(os.path.join(out, "resize-e2e.json"), "w") as f:
+            json.dump(results, f, indent=1)
+
+    def fmt(key):
+        r = results.get(key) or {}
+        return f"{r['seconds']:.2f} s" if r.get("seconds") is not None else f"not within the limit (grid {r.get('grid')})"
+    return (f"phone {phone_grid} opened in {fmt('phone_open')}; Mac 120x40 back after background in {fmt('background')}; "
+            f"phone grid back after foreground in {fmt('foreground')}; Mac back after a kill in {fmt('killed')}; "
+            f"recording resize-phone.mp4, timings resize-e2e.json")
 
 
 def step_tag(app):
