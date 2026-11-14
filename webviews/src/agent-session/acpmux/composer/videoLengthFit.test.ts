@@ -22,7 +22,10 @@ test("a length past the tile's edge does not fit", () => {
   expect(lengthFits(box(0, 0, 48, 64), box(10, 46, 37.5, 14))).toBe(false);
 });
 
-test("a queued tile's corner chip has no glyph apart: inside is enough", () => {
-  expect(lengthFits(box(0, 0, 64, 36), box(13, 17, 47, 15))).toBe(true);
-  expect(lengthFits(box(0, 0, 36, 36), box(-11, 17, 47, 15))).toBe(false);
+test("a queued tile's corner chip carries its glyph: inside and clear of the tile's centre", () => {
+  // 64 × 36 wide tile, the chip 12 tall 4 px up from the bottom: under the middle row (18).
+  expect(lengthFits(box(0, 0, 64, 36), box(12, 20, 48, 12))).toBe(true);
+  // The same chip 14 tall reaches the middle row: it would sit over the poster's centre.
+  expect(lengthFits(box(0, 0, 64, 36), box(12, 18, 48, 14))).toBe(false);
+  expect(lengthFits(box(0, 0, 36, 36), box(-11, 20, 47, 12))).toBe(false);
 });

@@ -20,7 +20,9 @@ export const LENGTH_EDGE = 2;
 export type Box = { left: number; top: number; right: number; bottom: number };
 
 /// Whether a length badge at `badge` reads in a tile at `tile`: wholly inside it, LENGTH_EDGE in, and
-/// clear of the play glyph at `glyph` (a tile whose badge carries its glyph has none apart).
+/// clear of the play glyph at `glyph`. A tile whose badge carries its glyph (a queued tile) has none
+/// apart: its badge stays clear of the tile's centre instead, so a length never sits over the
+/// poster's middle on a tile too small for the corner.
 export function lengthFits(tile: Box, badge: Box, glyph?: Box): boolean {
   // Half a pixel of rounding: a badge drawn at 4 px in measures 3.99 at some scales.
   const slack = 0.5;
@@ -30,7 +32,11 @@ export function lengthFits(tile: Box, badge: Box, glyph?: Box): boolean {
     badge.right <= tile.right - LENGTH_EDGE + slack &&
     badge.bottom <= tile.bottom - LENGTH_EDGE + slack;
   if (!inside) return false;
-  if (!glyph) return true;
+  if (!glyph) {
+    const x = (tile.left + tile.right) / 2;
+    const y = (tile.top + tile.bottom) / 2;
+    return badge.left > x || badge.right < x || badge.top > y || badge.bottom < y;
+  }
   return (
     badge.left >= glyph.right - slack ||
     badge.right <= glyph.left + slack ||

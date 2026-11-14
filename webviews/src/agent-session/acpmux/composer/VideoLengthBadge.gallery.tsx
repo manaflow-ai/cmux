@@ -62,6 +62,8 @@ const LOOKS = `
 [data-look="before"] .cv-user__video-length {
   display: block !important;
   white-space: normal;
+  /* The prompt text's wrap the old badge took on, which broke "0:32" over the glyph. */
+  overflow-wrap: anywhere;
   font-size: var(--text-detail);
   line-height: 1.4;
 }
