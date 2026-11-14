@@ -980,6 +980,9 @@
         "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
         "deleteConfirm": "Hesabı sil",
         "deleteError": "Hesap silinemedi. Tekrar deneyin.",
+        "deleteErrorSignedOut": "Oturumunuz sona erdi. Tekrar giriş yapın, ardından hesabınızı silin.",
+        "deleteErrorPending": "Hesabınız zaten siliniyor. Biraz sonra tekrar deneyin.",
+        "deleteErrorRetryable": "Hesap silme işlemi tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.",
         "deleteAppStoreTitle": "App Store aboneliğiniz yenilenmeye devam edecek",
         "deleteAppStoreBody": "cmux hesabınızı silmek App Store aboneliğinizi iptal etmez. Apple, App Store'da iptal edene kadar sizden ücret almaya devam eder.",
         "deleteAppStoreManage": "Aboneliği App Store'da yönet"

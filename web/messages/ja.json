@@ -1332,6 +1332,9 @@
         "deleteAcknowledge": "アカウントとそのデータが完全に削除されることを理解しました。",
         "deleteConfirm": "アカウントを削除",
         "deleteError": "アカウントを削除できませんでした。もう一度お試しください。",
+        "deleteErrorSignedOut": "セッションが終了しました。もう一度サインインしてからアカウントを削除してください。",
+        "deleteErrorPending": "アカウントはすでに削除処理中です。しばらくしてからもう一度お試しください。",
+        "deleteErrorRetryable": "アカウントの削除を完了できませんでした。接続を確認して、もう一度お試しください。",
         "deleteAppStoreTitle": "App Store のサブスクリプションは引き続き更新されます",
         "deleteAppStoreBody": "cmux アカウントを削除しても App Store のサブスクリプションは解約されません。App Store で解約するまで Apple からの請求は続きます。",
         "deleteAppStoreManage": "App Store でサブスクリプションを管理"

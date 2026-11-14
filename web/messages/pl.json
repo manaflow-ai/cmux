@@ -980,6 +980,9 @@
         "deleteAcknowledge": "Rozumiem, że moje konto i jego dane zostaną trwale usunięte.",
         "deleteConfirm": "Usuń konto",
         "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie.",
+        "deleteErrorSignedOut": "Twoja sesja wygasła. Zaloguj się ponownie, a następnie usuń konto.",
+        "deleteErrorPending": "Twoje konto jest już usuwane. Spróbuj ponownie za chwilę.",
+        "deleteErrorRetryable": "Nie udało się dokończyć usuwania konta. Sprawdź połączenie i spróbuj ponownie.",
         "deleteAppStoreTitle": "Twoja subskrypcja w App Store będzie nadal odnawiana",
         "deleteAppStoreBody": "Usunięcie konta cmux nie anuluje subskrypcji w App Store. Apple będzie pobierać opłaty, dopóki nie anulujesz jej w App Store.",
         "deleteAppStoreManage": "Zarządzaj subskrypcją w App Store"

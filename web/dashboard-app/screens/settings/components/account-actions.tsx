@@ -5,8 +5,8 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
 import { signOutOfDashboard } from "@/dashboard-app/lib/sign-out";
+import { AccountDeletionRequestError, deleteAccountThroughCmux, type AccountDeletionFailure } from "@/dashboard-app/lib/delete-account";
 import {
   ConfirmDialog,
   InlineError,
@@ -18,12 +18,19 @@ import {
 import { settingsAccountDeletionQuery, settingsOverviewQuery } from "@/dashboard-app/queries/settings";
 import { AppStoreSubscriptionWarning } from "./app-store-subscription-warning";
 
+const DELETE_ERROR_MESSAGE = {
+  signed_out: "deleteErrorSignedOut",
+  pending: "deleteErrorPending",
+  retryable: "deleteErrorRetryable",
+} as const satisfies Record<Exclude<AccountDeletionFailure, "failed">, string>;
+
 /** `/dashboard/settings/account`: billing link, sign out, delete account. */
 export function AccountActions() {
   const t = useTranslations("dashboard.settings.account");
   const app = useStackApp();
   const { project } = useSuspenseQuery(settingsOverviewQuery).data;
-  const user = useUser({ or: "redirect" });
+  // Signed-out visitors go to sign-in.
+  useUser({ or: "redirect" });
   const locale = useLocale();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runSignOut, signOutState] = useAsyncAction(t("signOutError"));
@@ -67,10 +74,17 @@ export function AccountActions() {
             confirmLabel={t("deleteConfirm")}
             errorMessage={t("deleteError")}
             confirmDisabled={deletionCheck.isFetching}
+            describeError={(error) =>
+              error instanceof AccountDeletionRequestError && error.reason !== "failed"
+                ? t(DELETE_ERROR_MESSAGE[error.reason])
+                : null}
             onConfirm={async () => {
-              await user.delete();
-              clearCoderouterOrganizationScope();
-              await app.redirectToHome();
+              // The cmux deletion route, as on iPhone: it runs the cmux cleanup
+              // and the App Store unlink, then deletes the sign-in account.
+              await deleteAccountThroughCmux(app);
+              // The account is gone; leave the way sign-out does. Ending the
+              // local session of a deleted user may fail, which is fine.
+              await signOutOfDashboard({ signOut: () => app.signOut().catch(() => undefined) }, locale);
             }}
           >
             {deletionCheck.data?.appStoreSubscriptionRenews ? (

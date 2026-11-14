@@ -980,6 +980,9 @@
         "deleteAcknowledge": "Jeg forstår, at min konto og dens data bliver slettet permanent.",
         "deleteConfirm": "Slet konto",
         "deleteError": "Kontoen kunne ikke slettes. Prøv igen.",
+        "deleteErrorSignedOut": "Din session er udløbet. Log ind igen, og slet derefter din konto.",
+        "deleteErrorPending": "Din konto er allerede ved at blive slettet. Prøv igen om et øjeblik.",
+        "deleteErrorRetryable": "Sletningen af kontoen kunne ikke gennemføres. Tjek din forbindelse, og prøv igen.",
         "deleteAppStoreTitle": "Dit App Store-abonnement fortsætter med at blive fornyet",
         "deleteAppStoreBody": "Sletning af din cmux-konto opsiger ikke dit App Store-abonnement. Apple bliver ved med at opkræve betaling, indtil du opsiger det i App Store.",
         "deleteAppStoreManage": "Administrer abonnement i App Store"

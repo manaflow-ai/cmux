@@ -1332,6 +1332,9 @@
         "deleteAcknowledge": "I understand my account and its data will be deleted permanently.",
         "deleteConfirm": "Delete account",
         "deleteError": "Could not delete the account. Try again.",
+        "deleteErrorSignedOut": "Your session ended. Sign in again, then delete your account.",
+        "deleteErrorPending": "Your account is already being deleted. Try again in a moment.",
+        "deleteErrorRetryable": "Account deletion couldn't finish. Check your connection and try again.",
         "deleteAppStoreTitle": "Your App Store subscription will keep renewing",
         "deleteAppStoreBody": "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store.",
         "deleteAppStoreManage": "Manage subscription in the App Store"

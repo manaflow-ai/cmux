@@ -980,6 +980,9 @@
         "deleteAcknowledge": "내 계정과 데이터가 영구적으로 삭제된다는 것을 이해했습니다.",
         "deleteConfirm": "계정 삭제",
         "deleteError": "계정을 삭제할 수 없습니다. 다시 시도하세요.",
+        "deleteErrorSignedOut": "세션이 종료되었습니다. 다시 로그인한 후 계정을 삭제하세요.",
+        "deleteErrorPending": "계정이 이미 삭제되는 중입니다. 잠시 후 다시 시도하세요.",
+        "deleteErrorRetryable": "계정 삭제를 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
         "deleteAppStoreTitle": "App Store 구독은 계속 갱신됩니다",
         "deleteAppStoreBody": "cmux 계정을 삭제해도 App Store 구독은 취소되지 않습니다. App Store에서 취소할 때까지 Apple이 계속 요금을 청구합니다.",
         "deleteAppStoreManage": "App Store에서 구독 관리"
