@@ -9,8 +9,9 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
   plan (Linux)      reads the state (the newest `perf-cron-state` artifact), picks the work: the next part of
                     the measurement in flight, else the newest feat-cmux-next commit whose cmux-tui tree is
                     published (a fleet build needs it) when it is newer than the last measured one (commits
-                    in between are skipped), else one bisect step of an open regression. Skips while a
-                    nightly or dev build waits for a Mac on GitHub.
+                    in between are skipped), else one bisect step of an open regression. While a nightly
+                    or dev build waits for a Mac on GitHub, a Mac part runs only on cmux20-bench (it runs no
+                    CI job); a measurement pinned to another host waits, and gives that host up after 2 h.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
                     then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
@@ -166,6 +167,15 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
+    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
+    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -188,11 +198,15 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
 ]
+# Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
+# here reads a higher p95 as worse.
+REPORT_ONLY_ROW_RE = re.compile(r"^terminal\.throughput\.")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -828,7 +842,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
     skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
                | set(version_changed(rows, base_rows)))
-    rows = {n: r for n, r in rows.items() if n not in skipped}
+    rows = {n: r for n, r in rows.items() if n not in skipped and not REPORT_ONLY_ROW_RE.match(base_row(n))}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -1075,7 +1089,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     bisect: {'sha', 'range': {good, bad}, 'rows': [row names]}: a measurable commit inside one group of regressed
     rows' culprit range (or None); the step measures only the parts of those rows.
     supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
-    back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
+    back the Mac parts of a measurement pinned to a host that runs CI jobs; any other goes to the bench host, and
+    the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
     (its scripts/measure/split-spring.sh is the reviewed one). mac_disabled: why no Mac part can run at all (no
     gateway runner label), or None: a tip measurement records its Mac parts as not run (so it is incomplete), and a
     bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
@@ -1107,9 +1122,17 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
     fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
-    if github_busy and fleet:
+    # A nightly or dev build waiting for a Mac holds back only a part that could take a Mac from it. The bench host
+    # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
+    # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
+    # at every tick, and no Mac part ran while the bench host could have taken each one.
+    bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
+                      and not host_avoided(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+    if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
+        if cur.get("host"):
+            cur.setdefault("host_asked_since", iso(t))  # ...but it does count for give_up_host: then the bench host
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
     if fleet and cur.get("host"):
@@ -1117,10 +1140,14 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
+    waits = ""
+    if github_busy and bench_only:
+        waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
+    elif github_busy and linux:
+        waits = f"; the Mac parts wait: {github_busy}"
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
-            "worker": (cur.get("host") or "") if fleet else "",
-            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})"
-                      + (f"; the Mac parts wait: {github_busy}" if github_busy and linux else "")}
+            "worker": (BENCH_WORKER if bench_only else cur.get("host") or "") if fleet else "",
+            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
 
 
 def bisect_midpoint(commits, measurable, skip=()):
@@ -1590,7 +1617,11 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
         elif need == "web-ui-growth":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
-        elif need in ("perf-gate", "launch"):
+        elif need == "terminal-throughput":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=terminal-throughput" in text
+        elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
