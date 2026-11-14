@@ -113,6 +113,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
         // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
         result.append(Self.processPerSitePageSchemes)
+        // One renderer per site put every chat in one renderer: one renderer crash or out-of-memory
+        // kill reloaded every open chat (Leo, 2026-11-14: "separate the health of the overall process
+        // from the falliability of crash prone bits"). The fork (cmux_process_per_site_main_frame_cap)
+        // puts a page in the oldest renderer of its site that holds fewer than this many pages, or a
+        // new one, and keeps it there, so a crash reloads at most that many chats. The cap keeps the
+        // origin, so the pages' localStorage and every origin check stay as they are; a group label in
+        // the host would have split the chat's localStorage by group. Older forks ignore the switch.
+        result.append(Self.processPerSitePageCap)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -192,6 +200,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork's switch: one renderer per site for cmux's first-party page scheme
     /// (`PageDescriptor.scheme`; `cmux-process-per-site-schemes`, chrome_content_browser_client_cef.cc).
     static let processPerSitePageSchemes = "cmux-process-per-site-schemes=cmux-page"
+
+    /// The most cmux pages one renderer holds: the size of the WebKit fallback's groups
+    /// (`WebProcessGroups.pagesPerProcess`, `PageOverlayProcess`), so both engines lose at most 8
+    /// pages to one process end. Each renderer past the first costs its base once per 8 pages.
+    static let pagesPerRenderer = 8
+
+    /// The fork's switch: at most ``pagesPerRenderer`` pages per renderer of a
+    /// ``processPerSitePageSchemes`` site (fork patch cmux_process_per_site_main_frame_cap).
+    static let processPerSitePageCap = "cmux-process-per-site-main-frame-cap=\(pagesPerRenderer)"
 
     static let chromePromptOffSwitches = [
         "no-first-run",
