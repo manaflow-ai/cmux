@@ -720,8 +720,10 @@ mod tests {
                     continue;
                 }
                 let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                // A test module in its own file (`mod tests;` beside its source) is a test module.
                 if !rel.ends_with(".rs")
                     || rel.ends_with("_tests.rs")
+                    || rel.ends_with("/tests.rs")
                     || rel.starts_with("store")
                     || allowed.contains(&rel.as_str())
                     || fixtures.iter().any(|f| rel.starts_with(f))

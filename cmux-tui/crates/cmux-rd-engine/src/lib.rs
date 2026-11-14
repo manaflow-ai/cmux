@@ -623,7 +623,8 @@ impl MediaEngine {
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
@@ -634,6 +635,9 @@ impl MediaEngine {
                     break;
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    if let Ok((header, _)) = DatagramHeader::decode(d) {
+                        self.cc.on_retransmitted(header.transport_seq);
+                    }
                     out.datagrams.push(d.clone());
                     budget -= 1;
                 }
@@ -673,7 +677,12 @@ impl MediaEngine {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);
                 if let Some(datagrams) = state.history.get(&state.last_frame) {
-                    out.datagrams.extend(datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK).cloned());
+                    for d in datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK) {
+                        if let Ok((header, _)) = DatagramHeader::decode(d) {
+                            self.cc.on_retransmitted(header.transport_seq);
+                        }
+                        out.datagrams.push(d.clone());
+                    }
                 }
                 continue;
             }
