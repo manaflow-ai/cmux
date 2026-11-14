@@ -189,6 +189,34 @@ class RollingRuleTests(unittest.TestCase):
                                         starts=[retry], window_minutes=5)
             self.assertFalse(go, reason)
 
+    def test_a_run_waiting_in_its_leave_slot_step_does_not_hold(self):
+        """Run 43558081148 of a22a4eb1 (created 04:43:49Z on 2026-11-14) waited 23 min in the push group behind
+        86dc299b's build, started at 05:06 with 20 newer feat-cmux-next commits, and built the old head (it
+        failed; its retry built a22a4eb1 again: 60.9 min from landing to the feed). On feat-cmux-next such a
+        stale run waits in resolve's "Leave the build slot to a newer nightly-next push" step for a promotion,
+        before any build job starts (resolve-leave-build-slot.sh). A run in that step builds nothing yet and
+        leaves once nightly-next moves, so it is no holder: promote the newest buildable commit."""
+        def resolve(step_status: str) -> dict:
+            out = job("resolve-nightly-cmux-tui-client", "in_progress", 1, "ultra")
+            out["steps"] = [{"name": "Checkout build ref", "status": "completed", "conclusion": "success"},
+                            {"name": "Leave the build slot to a newer nightly-next push", "status": step_status, "conclusion": None}]
+            return out
+        stale = run(43558081148, 25, head_sha=HEAD)
+        waiting = [job("decide", "completed", 2, "r"), resolve("in_progress"),
+                   job("nightly-next-one", "queued", 0.1)]
+        go, reason = decide(head_runs=[stale], jobs={43558081148: waiting}, waited_minutes=24)
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+        with self.subTest("past the step, building: it holds"):
+            past = [job("decide", "completed", 2, "r"), resolve("completed"),
+                    job("nightly-next-one", "in_progress", 0.1, "mac")]
+            go, reason = decide(head_runs=[stale], jobs={43558081148: past}, waited_minutes=24)
+            self.assertFalse(go, reason)
+        with self.subTest("another build running beside it still holds"):
+            go, reason = decide(head_runs=[stale, run(9, 30, head_sha="e" * 40)],
+                                jobs={43558081148: waiting}, waited_minutes=24)
+            self.assertFalse(go, reason)
+
     def test_evaluate_promotes_past_a_retry_of_the_head(self):
         """The same tick through evaluate's one listing (retries are dispatches in it)."""
         retry = run(43440656795, 1.7, event="workflow_dispatch", display_title="Retry nightly-next (2 of 2)",
