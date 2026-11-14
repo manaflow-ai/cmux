@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import os
 
@@ -19,13 +20,12 @@ enum SettingsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
             ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
-        registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
-        registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
-        // Showing the Settings tab is local and immediate: the effect is done on this turn.
-        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
-            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
+        SettingsCustomizationActions().bind(into: registry, effect: { route, focus in
+            try context.services.settingsWindow.show(section: nil, focus: focus, route: route)
             return .done
         })
+        registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
+        registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)

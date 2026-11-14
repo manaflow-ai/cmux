@@ -138,7 +138,7 @@ extension SettingsSchema {
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: ["toasts.showHidden"]
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]
-        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
+        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme", "palette.openCmuxSettingsFile"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
         case .development: []
