@@ -200,6 +200,32 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func outputNotYetReleasedStillCountsAfterTheStreamEnds() async throws {
+        let pipe = Pipe()
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-stall-reader-test",
+            maxPendingChunks: 8,
+            maxPendingBytes: 4096,
+            onOverflow: { Issue.record("process output reader overflowed") }
+        )
+        reader.attach(to: pipe.fileHandleForReading)
+        defer {
+            reader.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        try pipe.fileHandleForWriting.write(contentsOf: Data("%begin 1 2 1\n%end 1 2 1\n".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        // Take every chunk up to the end of the stream, releasing none, the way a probe reply sits
+        // between the reader and an ingest that has not run yet.
+        var taken = 0
+        for await _ in reader.stream { taken += 1 }
+        #expect(taken > 0)
+        #expect(reader.hasUndeliveredOutput,
+                "output the consumer has not released is undelivered even after the pipe has ended")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func anIdleConnectionWhoseProbeGoesUnansweredReconnects() async throws {
         let harness = try await connect(answering: false)
         defer { finish(harness) }
