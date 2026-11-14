@@ -310,9 +310,9 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     const what =
       (data.reason as string | undefined) ??
       [
-        data.changedAttribute && `attr ${data.changedAttribute}`,
-        data.changedClass && `class ${data.changedClass}`,
-        data.changedPseudo && `pseudo ${data.changedPseudo}`,
+        data.changedAttribute && `attr ${String(data.changedAttribute)}`,
+        data.changedClass && `class ${String(data.changedClass)}`,
+        data.changedPseudo && `pseudo ${String(data.changedPseudo)}`,
         data.changedId && `id`,
         data.invalidationSet && "set",
       ]
