@@ -239,12 +239,26 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var hostReloadToken: UInt64 = 0
     @State private var snapshotCache = CMUXSidebarSnapshotCache()
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    /// Minimal mode drops the strip unless it carries access state the user must see.
+    private var showsExtensionControlStrip: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) != .minimal
+            || effectiveGrant?.needsAdditionalApproval == true
+    }
+
+    private var titlebarInset: CGFloat {
+        showsExtensionControlStrip ? 0 : SidebarWorkspaceScrollInsets.workspaceList.top
+    }
 
     var body: some View {
         Group {
             if let identity {
                 VStack(alignment: .leading, spacing: 0) {
-                    extensionControlStrip(activeIdentity: identity)
+                    if showsExtensionControlStrip {
+                        extensionControlStrip(activeIdentity: identity)
+                    }
                     if let effectiveGrant, shouldShowAccessBanner(identity: identity, effectiveGrant: effectiveGrant) {
                         extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                     }
@@ -287,6 +301,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         blockedExtensionView(reason: blockedManifestReason)
                     }
                 }
+                .padding(.top, titlebarInset)
             } else if isLoading {
                 VStack(spacing: 10) {
                     ProgressView()
