@@ -15,7 +15,18 @@
 //! - a hold of the session state lock or the registry lock longer than
 //!   [`crate::diagnostics::LOCK_STALL_THRESHOLD`] (kind `lock`, with the holder's
 //!   source site and thread),
-//! - the daemon's start (kind `start`).
+//! - the daemon's start (kind `start`),
+//! - a restart of the session's journal plugin that its supervisor scheduled (kind
+//!   `plugin_restart`: the restarts since the daemon's start, the failures in a row and the wait
+//!   before the next launch; no plugin id and no exit text).
+//!
+//! Repeats: equal failed requests (the same name, error code and client kind) are one run. The
+//! first record of a run is written at once. Each next one inside `repeats::REPEAT_WINDOW_MS` of
+//! the run's last line is counted and not written; at the end of that window the newest of them
+//! is written with `"repeats":N`, the number of records that line stands for. A line with no
+//! `repeats` stands for one record. The writer follows `repeats::RUNS` runs; one more key ends the
+//! oldest run and writes its count. A request with no error is never counted. The counts that
+//! wait when the daemon stops are not written.
 //!
 //! Privacy: a record holds a command or operation name, numeric and public ids,
 //! durations, sizes and an error code. The allow-list is `fields::ID_KEYS` and the
@@ -30,7 +41,9 @@
 //! skims its line once for the allow-listed keys. A record is handed to the
 //! `mux-slow-log` thread with a `try_send` on a bounded queue: a full queue
 //! drops the record and counts it, the request never waits. The writer has no
-//! timer and no fsync: with no slow or failed request it writes nothing.
+//! period and no fsync: with no slow or failed request it writes nothing and
+//! waits with no time-out. Only while a count of repeats waits, its wait for the
+//! next record ends at the end of that run's window.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -351,6 +364,12 @@ enum Entry {
         waited: Duration,
     },
     Start(u64, StartInfo),
+    PluginRestart {
+        at_ms: u64,
+        restarts: u64,
+        failures: u32,
+        delay: Duration,
+    },
     #[cfg(test)]
     Flush(SyncSender<()>),
 }
@@ -507,8 +526,9 @@ impl RequestLog {
     /// The line of a restart of the session's journal plugin that its supervisor scheduled:
     /// the `restarts` since the daemon's start, the `failures` in a row and the `delay` before
     /// the next launch. Numbers only.
-    pub(crate) fn plugin_restart(&self, _restarts: u64, _failures: u32, _delay: Duration) {
-        // Not written yet.
+    pub(crate) fn plugin_restart(&self, restarts: u64, failures: u32, delay: Duration) {
+        let at_ms = crate::startup_timings::unix_now_ms();
+        self.submit(Entry::PluginRestart { at_ms, restarts, failures, delay });
     }
 }
 
@@ -682,6 +702,14 @@ impl Writer {
                     info.registry_bytes,
                     info.registry_wal_bytes,
                     SLOW_REQUEST_THRESHOLD.as_millis(),
+                );
+            }
+            Entry::PluginRestart { at_ms, restarts, failures, delay } => {
+                open_line(line, "plugin_restart", at_ms);
+                let _ = writeln!(
+                    line,
+                    ",\"restarts\":{restarts},\"failures\":{failures},\"delay_ms\":{}}}",
+                    delay.as_millis(),
                 );
             }
             #[cfg(test)]

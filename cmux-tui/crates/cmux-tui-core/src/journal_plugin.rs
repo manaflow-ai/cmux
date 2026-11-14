@@ -302,6 +302,8 @@ struct SupervisorState {
     child: Option<JournalPluginChild>,
     restart_at: Option<Instant>,
     failures: u32,
+    /// The restarts since the daemon started (`JournalPluginRestart::restarts`).
+    restarts: u64,
     child_started_at: Option<Instant>,
     started: bool,
     stopping: bool,
@@ -536,14 +538,18 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                 Ok(Some(status)) => {
                     eprintln!("cmux-tui: journal plugin exited with {status}");
                     let (exited_generation, child_started_at) = mark_child_exit(&mut state, false);
-                    note_child_failure(&mut state, Instant::now(), child_started_at);
+                    let restart = note_child_failure(&mut state, Instant::now(), child_started_at);
                     let exit_handler = state.exit_handler.clone();
+                    let restart_handler = state.restart_handler.clone();
                     let plugin_id = state.options.as_ref().map(|options| options.id.clone());
                     drop(state);
                     if let (Some(handler), Some(plugin_id), Some(generation)) =
                         (exit_handler, plugin_id, exited_generation)
                     {
                         handler(&plugin_id, generation);
+                    }
+                    if let Some(handler) = restart_handler {
+                        handler(restart);
                     }
                     continue;
                 }
@@ -563,14 +569,18 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                 Err(error) => {
                     eprintln!("cmux-tui: cannot inspect journal plugin: {error}");
                     let (exited_generation, child_started_at) = mark_child_exit(&mut state, true);
-                    note_child_failure(&mut state, Instant::now(), child_started_at);
+                    let restart = note_child_failure(&mut state, Instant::now(), child_started_at);
                     let exit_handler = state.exit_handler.clone();
+                    let restart_handler = state.restart_handler.clone();
                     let plugin_id = state.options.as_ref().map(|options| options.id.clone());
                     drop(state);
                     if let (Some(handler), Some(plugin_id), Some(generation)) =
                         (exit_handler, plugin_id, exited_generation)
                     {
                         handler(&plugin_id, generation);
+                    }
+                    if let Some(handler) = restart_handler {
+                        handler(restart);
                     }
                     continue;
                 }
@@ -611,7 +621,12 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             }
             Err(error) => {
                 eprintln!("cmux-tui: journal plugin failed to start: {error}");
-                note_child_failure(&mut state, Instant::now(), None);
+                let restart = note_child_failure(&mut state, Instant::now(), None);
+                let restart_handler = state.restart_handler.clone();
+                drop(state);
+                if let Some(handler) = restart_handler {
+                    handler(restart);
+                }
             }
         }
     }
@@ -742,11 +757,10 @@ fn note_child_failure(
         state.failures = 0;
     }
     state.failures = state.failures.saturating_add(1);
+    state.restarts = state.restarts.saturating_add(1);
     let delay = restart_delay(state.failures);
     state.restart_at = Some(now + delay);
-    // The total of the restarts is not counted yet, and the supervisor does not call the
-    // restart handler yet.
-    JournalPluginRestart { restarts: 0, failures: state.failures, delay }
+    JournalPluginRestart { restarts: state.restarts, failures: state.failures, delay }
 }
 
 fn restart_delay(failures: u32) -> Duration {

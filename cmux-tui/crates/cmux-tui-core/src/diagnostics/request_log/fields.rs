@@ -106,6 +106,12 @@ impl Label {
         CLIENT_WORDS.contains(&text).then(|| Self::copied(text.as_bytes()))
     }
 
+    /// The kind word of a connection whose kind is the session's journal plugin
+    /// (`ClientKind::Plugin`): the daemon's own word, not a text of the client.
+    pub(crate) fn plugin() -> Option<Self> {
+        Self::token("plugin")
+    }
+
     /// The 16 hex digits that end a session folder's name (`<name>-<hash>`). The name before them
     /// is the person's own text when the daemon was started with `--session NAME`: not written.
     pub(crate) fn session_hash(folder: &str) -> Option<Self> {
