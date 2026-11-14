@@ -153,9 +153,11 @@ struct AppWebPaneTests {
     }
 
     @Test func aLocalReloadEventNamesItsApp() {
+        typealias Wire = CmuxNextDaemon.JSONValue
         let decode = AppsWireDecoding()
-        #expect(decode.event(name: "apps-changed", payload: CmuxNextDaemon.JSONValue.object(["revision": 3, "transaction": "local-reload", "app": "local/web-pane"]))
-            == .changed(revision: 3, app: "local/web-pane"))
-        #expect(decode.event(name: "apps-changed", payload: CmuxNextDaemon.JSONValue.object(["revision": 4, "app": "local/web-pane"])) == .changed(revision: 4))
+        let reload: Wire = .object(["revision": .number(3), "transaction": .string("local-reload"), "app": .string("local/web-pane")])
+        #expect(decode.event(name: "apps-changed", payload: reload) == .changed(revision: 3, app: "local/web-pane"))
+        let other: Wire = .object(["revision": .number(4), "app": .string("local/web-pane")])
+        #expect(decode.event(name: "apps-changed", payload: other) == .changed(revision: 4))
     }
 }
