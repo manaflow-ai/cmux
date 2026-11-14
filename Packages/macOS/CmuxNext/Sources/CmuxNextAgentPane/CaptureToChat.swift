@@ -76,8 +76,8 @@ public struct CaptureToChat: Sendable {
             let pick: ScreenshotToChat.Pick
             do {
                 pick = try ScreenshotToChat.pick(from: call.params)
-            } catch {
-                throw ControlError.invalidParams(error.message)
+            } catch let bad as ScreenshotToChat.BadRegion {
+                throw ControlError.invalidParams(bad.message)
             }
             switch await capture.run(pick) {
             case .taken(let file, let bytes):
