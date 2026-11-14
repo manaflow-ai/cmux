@@ -139,7 +139,7 @@ impl Supervisor {
     /// `apps.settings.list`: every installed app whose manifest declares settings, with the
     /// schema to draw and the values it runs with.
     pub(super) fn settings_list(&self) -> Value {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let apps: Vec<Value> = inner
             .catalog
             .packages
@@ -167,7 +167,7 @@ impl Supervisor {
         origin: Origin,
     ) -> Result<Value, ApiError> {
         let settings = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let package = inner
                 .catalog
                 .packages
@@ -183,7 +183,7 @@ impl Supervisor {
             ..SetOp::default()
         };
         self.set(client, op)?;
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let values = inner
             .catalog
             .packages
