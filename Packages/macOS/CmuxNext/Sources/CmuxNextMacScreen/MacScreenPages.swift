@@ -65,6 +65,11 @@ public final class MacScreenPages {
         get { hubBox.configured }
         set { hubBox.configured = newValue }
     }
+    /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
+    var hubStartupError: String? {
+        get { hubBox.startupError }
+        set { hubBox.startupError = newValue }
+    }
     /// The hub as views observe it.
     let hubBox = MacScreenHubBox()
     /// Scopes a person chose for a device on the home page, until its tab asks the hub.
