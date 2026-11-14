@@ -62,8 +62,9 @@ pub(in crate::cli) struct Sources<H, R> {
 /// row is refused even while the hub still lists the machine (revocation reaches the hub
 /// later). The hub's list only says a machine is up; when the account's list cannot be read, a
 /// machine the hub lists is refused as unverified (`chat_target.unverified`). This check is the
-/// client's and only advisory: the hub has to refuse a revoked machine itself. A name matches without regard to case, and the machine
-/// carries its own spelling on (`--on STUDIO` starts on `studio`).
+/// client's and only advisory: the hub has to refuse a revoked machine itself. A name matches
+/// without regard to case, and the machine carries its own spelling on (`--on STUDIO` starts on
+/// `studio`).
 pub(in crate::cli) fn resolve<H, R>(
     selector: &str,
     sources: Sources<H, R>,
@@ -95,11 +96,14 @@ where
         // started on; else only `joined:ID` is ours to refuse.
         Err(reason) => {
             if let Some(host) = listed(selector).filter(|_| by_id.is_none()) {
-                return Some(Ok(JoinedMachine {
-                    id: None,
-                    name: host.clone(),
-                    host: host.clone(),
-                }));
+                return Some(Err(refusal(
+                    "chat_target.unverified",
+                    format!(
+                        "{host} could not be verified against your account: your joined machines could not be read ({reason})"
+                    ),
+                    "sign in to cmux (`cmux login`), then run this again; `cmux machine list` shows your machines",
+                    json!({"host": host}),
+                )));
             }
             return by_id.map(|id| {
                 Err(refusal(
@@ -398,15 +402,23 @@ where
     A: FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value>,
 {
     let deadline = Instant::now() + limit;
-    // WITHOUT THE FIX (#38355 review 3): each call gets the whole limit.
-    let mut call = |words: &[&str], stdin: Option<&str>| acp(words, stdin, limit);
-    let enqueued = call(steps.words, None)?;
+    let mut call = |words: &[&str], stdin: Option<&str>| match deadline
+        .checked_duration_since(Instant::now())
+        .filter(|left| !left.is_zero())
+    {
+        Some(left) => acp(words, stdin, left),
+        None => Err(error("acpmux.timeout", "the start's deadline passed", true)),
+    };
+    let enqueued = call(steps.words, None).map_err(|e| late(e, || not_taken(limit, None)))?;
     let receipt = wait_started(&enqueued, deadline, limit, poll, &mut call)?;
     let Some(prompt) = steps.prompt else { return Ok((receipt, None)) };
     let id = prompt_id();
     let words = send_words(steps.target, &id);
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let sent = call(&words, Some(prompt))?;
+    let sent = call(&words, Some(prompt)).map_err(|e| {
+        let what = format!("{} started, but its first prompt", steps.target);
+        late(e, || unconfirmed(&what, steps.target, &id, limit))
+    })?;
     Ok((receipt, Some(sent)))
 }
 
@@ -436,12 +448,16 @@ where
                     false,
                 ));
             }
-            Settled::Pending if Instant::now() >= deadline => {
-                return Err(not_taken(limit, Some(&id)));
+            Settled::Pending => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(not_taken(limit, Some(&id)));
+                }
+                std::thread::sleep(poll.min(left));
             }
-            Settled::Pending => std::thread::sleep(poll),
         }
-        receipt = call(&["session", "receipt", &id, "--json"], None)?;
+        receipt = call(&["session", "receipt", &id, "--json"], None)
+            .map_err(|e| late(e, || not_taken(limit, Some(&id))))?;
     }
 }
 
@@ -488,10 +504,7 @@ fn unconfirmed(what: &str, target: &str, prompt_id: &str, limit: Duration) -> Va
 /// A prompt id for one send (`acpmux send --prompt-id`): acpmux and the hub deliver an id once,
 /// so a send acpmux tries again is never a second prompt.
 fn prompt_id() -> String {
-    let mut bytes = [0u8; 16];
-    let _ = getrandom::fill(&mut bytes);
-    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("cmux-chat-{hex}")
+    format!("cmux-chat-{}", uuid::Uuid::new_v4().simple())
 }
 
 /// `acp send TARGET -`'s words, the prompt on stdin, through the hub when only the hub reaches
@@ -500,8 +513,9 @@ fn prompt_id() -> String {
 /// `--wait` asks a question the hub's send refuses). `--no-steer`: it queues behind a running
 /// turn, as a person's send does.
 pub(in crate::cli) fn send_words(target: &str, prompt_id: &str) -> Vec<String> {
-    let _ = prompt_id;
-    ["send", target, "-", "--wait", "--json"].map(str::to_owned).to_vec()
+    ["send", target, "-", "--no-wait", "--no-steer", "--prompt-id", prompt_id, "--json"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 /// `acp send TARGET -` with the prompt ([`send_words`]); the answer is acpmux's delivery
@@ -562,16 +576,19 @@ pub(in crate::cli) fn run_acp(
     let mut child = command
         .spawn()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot run cmux acp: {e}"), true))?;
-    // WITHOUT THE FIX (#38355 review 1): the prompt is written before the bound starts.
-    if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        let _ = pipe.write_all(text.as_bytes());
-    }
+    let stdin_pipe = child.stdin.take();
     // The prompt is written and both pipes are read on threads this scope owns, so the wait is
     // the only thing bounded: a child that never reads its stdin cannot hold a prompt larger
     // than a pipe (about 64 KiB) past the limit (#38355 review), and a full pipe never stalls
     // the child. At the limit the child's whole group is ended (it leads one), its pipes close
     // and the writer and the readers end with it.
     let finished = std::thread::scope(|scope| {
+        let writer = stdin.zip(stdin_pipe).map(|(text, mut pipe)| {
+            scope.spawn(move || {
+                // Its end closes when the thread does: the child reads to the end of the prompt.
+                let _ = pipe.write_all(text.as_bytes());
+            })
+        });
         let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
             scope.spawn(move || {
                 let mut bytes = Vec::new();
@@ -586,6 +603,9 @@ pub(in crate::cli) fn run_acp(
         let status = child.wait_timeout(limit);
         if !matches!(status, Ok(Some(_))) {
             drop(child);
+        }
+        if let Some(writer) = writer {
+            let _ = writer.join();
         }
         (status, stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default())
     });
