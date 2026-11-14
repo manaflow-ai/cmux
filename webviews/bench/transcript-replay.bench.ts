@@ -307,7 +307,17 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     }
     if (!event.name.endsWith("InvalidationTracking")) continue;
     const data = event.args?.data ?? {};
-    const what =
+    // A subtree invalidation names the classes and attributes its invalidation set matched: which one
+    // flipped on the node, so the whole thread restyled.
+    const sets = (data.invalidationList as { classes?: string[]; attributes?: string[]; id?: string }[] | undefined)
+      ?.flatMap((set) => [
+        ...(set.classes ?? []).map((name) => `.${name}`),
+        ...(set.attributes ?? []).map((name) => `[${name}]`),
+        ...(set.id ? [`#${set.id}`] : []),
+      ])
+      .slice(0, 4)
+      .join(" ");
+    const why =
       (data.reason as string | undefined) ??
       [
         data.changedAttribute && `attr ${String(data.changedAttribute)}`,
@@ -318,6 +328,7 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
       ]
         .filter(Boolean)
         .join(",");
+    const what = [why, sets].filter(Boolean).join(" ");
     const node = String(data.nodeName ?? "").slice(0, 60);
     const key = `${event.name.replace("InvalidationTracking", "")}: ${what || "?"} @ ${node}`;
     reasons.set(key, (reasons.get(key) ?? 0) + 1);
