@@ -76,7 +76,8 @@ public struct MachineAgentSessions: Sendable {
 
     /// Folds an older daemon's journal: every record at the first read, then the records after the cursor.
     /// A failed read (a restarted daemon refuses the cursor of its last session) drops the fold, so the next
-    /// read starts at the first record again.
+    /// read starts at the first record again. Until that read the machine has no complete list: the empty
+    /// fold is not the daemon's answer.
     public mutating func read(journal socketPath: String) async throws {
         let cursor = generation.map { (generation: $0, sequence: fold.cursor) }
         do {
@@ -91,6 +92,7 @@ public struct MachineAgentSessions: Sendable {
         } catch {
             fold = AgentSessionFold(machine: machine)
             generation = nil
+            isComplete = false
             throw error
         }
     }
