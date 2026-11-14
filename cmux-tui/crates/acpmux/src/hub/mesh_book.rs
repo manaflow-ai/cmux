@@ -144,7 +144,7 @@ impl Hub {
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
     /// stops.
-    pub(crate) fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
+    pub fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
     }
 

@@ -2409,6 +2409,8 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
 mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;
