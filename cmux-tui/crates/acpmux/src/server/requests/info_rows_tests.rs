@@ -239,16 +239,24 @@ fn batch_hub(closed: usize) -> (Arc<Hub>, Vec<String>) {
     (hub, keys)
 }
 
-/// One round of 40 batches of `keys` on `hub`: each one's wall time and reply bytes.
+/// One round of 40 reads of `keys`' rows on `hub`, each asking again for a reply's `rest` as a
+/// caller does: each read's wall time and reply bytes.
 async fn batch_round(hub: &Arc<Hub>, keys: &[String]) -> (Vec<u128>, Vec<u128>) {
     let (mut times, mut bytes) = (Vec::new(), Vec::new());
     for _ in 0..40 {
         let started = Instant::now();
-        let (reply, len) =
-            call(hub, method::MUX_INFO, json!({"sessionIds": keys, "row": true})).await;
+        let (mut ask, mut rows, mut read) = (keys.to_vec(), 0, 0);
+        while !ask.is_empty() {
+            let (reply, len) =
+                call(hub, method::MUX_INFO, json!({"sessionIds": ask, "row": true})).await;
+            let reply = reply.unwrap();
+            rows += reply["rows"].as_array().unwrap().len();
+            read += len;
+            ask = serde_json::from_value(reply["rest"].clone()).unwrap();
+        }
         times.push(started.elapsed().as_nanos());
-        assert_eq!(reply.unwrap()["rows"].as_array().unwrap().len(), 100);
-        bytes.push(len as u128);
+        assert_eq!(rows, 100);
+        bytes.push(read as u128);
     }
     (times, bytes)
 }
