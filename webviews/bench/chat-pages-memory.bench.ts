@@ -251,8 +251,15 @@ try {
       const dom = (await pages[0]!.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
       console.log(`  dom (page 0): ${JSON.stringify(dom)}`);
       let nodes = 0;
-      for (const { page } of pages) nodes += await page.evaluate(() => document.getElementsByTagName("*").length);
-      console.log(`  elements (all pages): ${nodes}`);
+      let rows = 0;
+      for (const { page } of pages) {
+        const counts = await page
+          .evaluate(() => [document.getElementsByTagName("*").length, document.querySelectorAll(".acpmux-row").length])
+          .catch(() => [0, 0]);
+        nodes += counts[0]!;
+        rows += counts[1]!;
+      }
+      console.log(`  elements (all pages): ${nodes}, transcript rows drawn: ${rows}`);
     }
     return { renderers: pids.length, mb, heap };
   };
@@ -318,6 +325,13 @@ try {
         await setHidden(page, true);
         hiddenPages.add(page);
       }
+      // HIDDEN_FREEZE=1: then frozen, as the app freezes a hidden chat after browser.freezeHiddenTabs (30 s). DevTools'
+      // freeze hides the page to Chromium first (CEFTab+Freeze.swift), so its compositor lets its tiles go.
+      if (process.env.HIDDEN_FREEZE === "1") {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+        for (const { cdp } of pages.slice(0, -1))
+          await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
+      }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     const idle = await measureIdle(
@@ -366,7 +380,8 @@ try {
     );
   }
   if (process.env.HIDDEN === "1" && hiddenPages.size) {
-    const { page } = pages[0]!;
+    const { page, cdp } = pages[0]!;
+    if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
     const start = await page.evaluate(() => performance.now());
     await setHidden(page, false);
     hiddenPages.delete(page);
