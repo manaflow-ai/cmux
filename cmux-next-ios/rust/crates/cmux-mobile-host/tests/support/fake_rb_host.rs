@@ -167,7 +167,7 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                             let o = engine.on_datagram(&payload, true, now());
                             for event in &o.inject {
                                 if let InputEvent::Service { bytes, .. } = event {
-                                    let event: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);
+                                    let event: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                                     out.extend(rb(json!({"t": "rb.tooltip", "text": event.to_string()})));
                                 }
                             }

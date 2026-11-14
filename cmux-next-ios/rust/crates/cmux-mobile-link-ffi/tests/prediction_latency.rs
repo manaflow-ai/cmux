@@ -290,11 +290,11 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
             prediction.sent(bytes.clone(), now);
             let after = layout_signature(&prediction.layout(now, screen.cursor_column, COLUMNS));
             let index = keys.len();
-            let echoed = remote.mode == Mode::Shell && bytes != [b'\r'];
+            let echoed = remote.mode == Mode::Shell && bytes != *b"\r";
             let shown_at = (before != after && echoed).then(|| next_frame(now));
             keys.push(Key { bytes: bytes.clone(), typed_at: now, shown_at, echoed });
             events.push((up.arrival(now, &mut rng), Event::KeyArrives(index)));
-            if bytes == [b'\r'] {
+            if bytes == *b"\r" {
                 waiting_for_output_of = Some(index);
             }
             next_key += 1;

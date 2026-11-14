@@ -37,6 +37,7 @@ uuid.workspace = true
 [dev-dependencies]
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+cmux-rd-engine.workspace = true
 sha2 = "0.10"
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
