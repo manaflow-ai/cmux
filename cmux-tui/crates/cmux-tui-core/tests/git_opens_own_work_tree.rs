@@ -326,15 +326,25 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
             assert_eq!(before.len(), after.len(), "{operation} of `{layout}` removed an entry");
         }
     }
-    // A checkpoint operation makes the folders of the daemon's checkpoint store, in the state
-    // folder, before the open. The store gets no file for a folder that is refused.
-    let stores = folders_with_the_name(&top.join("state"), "git-checkpoints");
-    assert!(!stores.is_empty(), "the checkpoint store is not found below the state folder");
-    for store in stores {
-        let mut kept = entries(&store);
-        kept.retain(|_, (state, _)| !state.starts_with("folder"));
-        assert!(kept.is_empty(), "the checkpoint store has {:?}", kept.keys());
-    }
+    // The daemon keeps its checkpoint store in the state folder. The store gets no file for a
+    // folder that is refused.
+    let files_of_the_store = || {
+        let mut files = Vec::new();
+        for store in folders_with_the_name(&top.join("state"), "git-checkpoints") {
+            let mut kept = entries(&store);
+            kept.retain(|_, (state, _)| !state.starts_with("folder"));
+            files.extend(kept.into_keys());
+        }
+        files
+    };
+    let files = files_of_the_store();
+    assert!(files.is_empty(), "the checkpoint store has {files:?}");
+    // The control: the store gets a file for a folder that is opened. So the search above
+    // reads the place where a checkpoint operation writes.
+    let opened = top.join("opened");
+    new_repository(&opened);
+    let reply = client.reply("git.checkpoint.list", &opened, json!({}));
+    assert!(!files_of_the_store().is_empty(), "the checkpoint store has no file after {reply}");
 }
 
 #[test]
