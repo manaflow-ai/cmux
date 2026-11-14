@@ -153,6 +153,19 @@ try {
     build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
   });
+  // CSS=inline: the page's stylesheets as one inline <style>, as the page shipped them before; else linked
+  // files the memory cache keeps (Cache-Control), as the shipped page links pane.css (build-agent-pane-web.sh).
+  if (process.env.CSS === "inline") {
+    const index = path.join(out, "index.html");
+    const html = fs
+      .readFileSync(index, "utf8")
+      .replace(
+        /<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g,
+        (_, href: string) => `<style>${fs.readFileSync(path.join(out, href), "utf8")}</style>`,
+      );
+    fs.writeFileSync(index, html);
+  }
+  const cssHeaders: Record<string, string> = process.env.CSS === "inline" ? {} : { "cache-control": "max-age=3600" };
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -161,7 +174,8 @@ try {
       if (pathname === "/empty")
         return new Response("<!doctype html><title>empty</title>", { headers: { "content-type": "text/html" } });
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
-      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+      if (!(await file.exists())) return new Response("not found", { status: 404 });
+      return new Response(file, { headers: pathname.endsWith(".css") ? cssHeaders : {} });
     },
   });
   releases.push(() => statics.stop(true));
@@ -297,6 +311,18 @@ try {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => hide });
       document.dispatchEvent(new Event("visibilitychange"));
     }, hidden);
+  // HIDDEN_MINIMIZE=1: each hidden chat's window is minimized as well, so Chromium itself counts the page hidden
+  // (WasHidden: its compositor turns invisible), as a cmux page whose window is ordered out.
+  const browserCdp = await browser.newBrowserCDPSession();
+  const setMinimized = async (cdp: CDPSession, minimized: boolean) => {
+    if (process.env.HIDDEN_MINIMIZE !== "1") return;
+    const { targetInfo } = await cdp.send("Target.getTargetInfo");
+    const { windowId } = await browserCdp.send("Browser.getWindowForTarget", { targetId: targetInfo.targetId });
+    await browserCdp.send("Browser.setWindowBounds", {
+      windowId,
+      bounds: { windowState: minimized ? "minimized" : "normal" },
+    });
+  };
   const hiddenPages = new Set<Page>();
   const warmLoads: number[] = [];
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
@@ -320,8 +346,9 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     for (const { page } of pages) await settledAt(page).catch(() => undefined);
     if (process.env.HIDDEN === "1") {
-      for (const { page } of pages.slice(0, -1)) {
+      for (const { page, cdp } of pages.slice(0, -1)) {
         if (hiddenPages.has(page)) continue;
+        await setMinimized(cdp, true);
         await setHidden(page, true);
         hiddenPages.add(page);
       }
@@ -383,6 +410,7 @@ try {
     const { page, cdp } = pages[0]!;
     if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
     const start = await page.evaluate(() => performance.now());
+    await setMinimized(cdp, false);
     await setHidden(page, false);
     hiddenPages.delete(page);
     const shown = await page.waitForFunction(

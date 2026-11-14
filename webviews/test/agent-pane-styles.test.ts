@@ -1,4 +1,4 @@
-// The agent pane's bundle drops CSS: build-agent-pane-web.sh writes the page's one <style> from the
+// The agent pane's bundle drops CSS: build-agent-pane-web.sh writes the page's one sheet (pane.css) from the
 // sheets the dev server's entry imports (bundle.mjs --css-inputs, in import order). A sheet a
 // component imports but the page leaves out ships no rules, so in the app the component renders
 // unstyled while the dev server (which loads imports) looks right.
@@ -9,11 +9,13 @@
 // scripts/cmux-next/build-agent-pane-web.sh first).
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import postcss from "postcss";
 import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
+import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 
 setDefaultTimeout(180_000);
 
@@ -22,6 +24,8 @@ const page = path.resolve(
   webviews,
   "../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
 );
+/** The page's one sheet, linked beside it. */
+const sheet = path.join(path.dirname(page), "pane.css");
 const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
@@ -63,7 +67,7 @@ describe.skipIf(!built)("agent pane page", () => {
       expect(sheets).toContain("src/ui/ghost.css");
       // Shared Button chrome must ship in the real pane, not only the gallery's ui.css.
       expect(sheets).toContain("src/ui/controls.css");
-      const style = normalize(fs.readFileSync(page, "utf8"));
+      const style = normalize(fs.readFileSync(sheet, "utf8"));
       const missing = sheets.filter((sheet) => !style.includes(normalize(shipped(path.join(webviews, sheet)))));
       expect(missing).toEqual([]);
     } finally {
@@ -71,11 +75,31 @@ describe.skipIf(!built)("agent pane page", () => {
     }
   });
 
-  // A sheet's own @import never loads in the page: mid-stylesheet the browser drops it, and the
-  // page's CSP loads no style file. changes.css imported git.css that way, so the changes view's
+  // Each chat page of the renderer parsed its own copy of a 1.9 MB <style> and kept its text, and its
+  // drawn copy parsed it once more: about 7 MB a chat page (bench/chat-pages-memory.bench.ts CSS=inline).
+  // A linked file is parsed once a renderer and shared by every page that links it.
+  test("links its sheet and the copy's, inlining neither", () => {
+    const html = fs.readFileSync(page, "utf8");
+    expect(html).not.toMatch(/<style\b/);
+    expect(html).toMatch(/style-src 'self' 'unsafe-inline'/);
+    // Each linked by its content, so the page host lets Chromium keep it (cmux_page_path.h).
+    const hash = (file: string) =>
+      createHash("sha256")
+        .update(fs.readFileSync(path.join(path.dirname(page), file)))
+        .digest("hex")
+        .slice(0, 16);
+    expect(html).toContain(
+      `<link rel="stylesheet" id="cmux-pane-styles" href="pane.css?h=${hash("pane.css")}" data-copy="pane-copy.css?h=${hash("pane-copy.css")}" />`,
+    );
+    const css = fs.readFileSync(sheet, "utf8");
+    expect(fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8")).toBe(snapshotCss(css));
+  });
+
+  // A sheet's own @import never loads in the page: mid-stylesheet the browser drops it (the page's
+  // sheets are joined into one pane.css). changes.css imported git.css that way, so the changes view's
   // Commit, Push and commit form shipped unstyled.
   test("inlines what its sheets @import, and carries no @import of its own", () => {
-    const style = normalize(fs.readFileSync(page, "utf8"));
+    const style = normalize(fs.readFileSync(sheet, "utf8"));
     expect(style.match(/^@import .*$/gm) ?? []).toEqual([]);
     const git = normalize(shipped(path.join(webviews, "src/agent-session/acpmux/changes/git.css")));
     expect(style.includes(git)).toBe(true);
