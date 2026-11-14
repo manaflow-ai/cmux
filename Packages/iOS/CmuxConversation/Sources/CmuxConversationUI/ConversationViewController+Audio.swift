@@ -22,6 +22,26 @@ extension ConversationViewController: AudioMessageCellDelegate {
         store.addObserver { [weak self] _ in self?.audioComposer.noteConversationChanged() }
     }
 
+    /// Keeps the composer's unsent recording in `store` under `key` (the
+    /// conversation's): it survives the app leaving the foreground and being
+    /// ended there, and the next screen for `key` opens with it in review.
+    /// Nil turns keeping off.
+    public func useAudioDrafts(_ store: ConversationAudioDraftStore?, key: String?) {
+        audioComposer.useDrafts(store, key: key)
+    }
+
+    /// Takes the composer's recording for the screen that replaces this one:
+    /// a running one stops into its review; this composer goes back to text.
+    public func takeAudioDraft() -> ConversationAudioDraft? {
+        guard isViewLoaded else { return nil }
+        return audioComposer.takeDraft()
+    }
+
+    /// Opens a recording taken from the screen this one replaces, in its review.
+    public func restoreAudioDraft(_ draft: ConversationAudioDraft) {
+        audioComposer.restore(draft)
+    }
+
     /// Messages plays the next recording when it directly follows the one
     /// that finished and both came from someone else.
     func audioMessage(after messageID: String) -> ConversationMessage? {
@@ -72,6 +92,12 @@ final class ConversationAudioComposer {
     private var noticeTask: Task<Void, Never>?
     /// Paces the notices (injected for tests).
     var clock: any Clock<Duration> = ContinuousClock()
+    /// Where the host keeps unsent recordings, and this conversation's key there.
+    private(set) var drafts: ConversationAudioDraftStore?
+    private(set) var draftKey: String?
+    /// The store's generation when this recording began: after a sign-out
+    /// (``ConversationAudioDraftStore/removeAll()``) it is never saved again.
+    private var draftGeneration: Int?
     /// A press this long records; a shorter tap shows the hold hint.
     static let holdDuration: TimeInterval = 0.2
     /// How long Messages leaves "Tap and hold to record and send audio" up.
@@ -100,6 +126,93 @@ final class ConversationAudioComposer {
         hold.minimumPressDuration = Self.holdDuration
         button.addGestureRecognizer(hold)
         noteConversationChanged()
+        NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
+    }
+
+    // MARK: Kept recordings
+
+    /// Keeps this conversation's unsent recording in `store` under `key`, and
+    /// opens the one kept there before (a relaunch) when nothing records now.
+    func useDrafts(_ store: ConversationAudioDraftStore?, key: String?) {
+        guard store !== drafts || key != draftKey else { return }
+        // A recording held now moves to the new key: the old one must not bring it back.
+        if isActive { forgetDraft() }
+        drafts = store
+        draftKey = key
+        if isActive {
+            keepDraft()
+            return
+        }
+        guard let store, let key else { return }
+        Task { [weak self] in
+            guard let draft = await store.load(key: key) else { return }
+            guard let self, self.drafts === store, self.draftKey == key, !self.isActive else { return }
+            self.restore(draft)
+        }
+    }
+
+    /// The app left the foreground. A running recording stops into its review
+    /// (as the stop button would), so the person decides what happens to it
+    /// when they come back instead of the phone recording out of sight; the
+    /// review is kept on disk in case the app is ended there.
+    @objc private func appDidEnterBackground() {
+        if recorder?.state == .recording { stopToReview() }
+        // Playback in the review pauses, as the play button would.
+        if reviewPlayer?.isPlaying == true { toggleReviewPlayback() }
+        guard let drafts, keepDraft() else { return }
+        // The write finishes before the app is suspended.
+        let application = UIApplication.shared
+        // (A write of a few hundred KB; it ends long before the system's expiry.)
+        let task = application.beginBackgroundTask(withName: "cmux.audio-draft")
+        Task {
+            await drafts.flush()
+            if task != .invalid { application.endBackgroundTask(task) }
+        }
+    }
+
+    /// The recording, for the screen that replaces this one (a rebuild on a
+    /// new store): a running one stops into its review first. This composer
+    /// goes back to text without throwing the recording away.
+    func takeDraft() -> ConversationAudioDraft? {
+        guard isActive else { return nil }
+        if recorder?.state == .recording { stopToReview() }
+        stopReviewPlayer()
+        let draft = recorder?.draft
+        // The receiving screen keeps it under its own key (which may differ).
+        forgetDraft()
+        recorder?.cancel()
+        dismiss()
+        return draft
+    }
+
+    /// Opens `draft` in its review, as it was when it was kept.
+    func restore(_ draft: ConversationAudioDraft) {
+        guard !isActive, let controller else { return }
+        controller.loadViewIfNeeded()
+        guard let recorder = ConversationAudioRecorder(restoring: draft) else { return }
+        hideNotice(animated: false)
+        self.recorder = recorder
+        draftGeneration = drafts?.generation
+        flow.handle(.restore)
+        field.update(levels: recorder.levels, time: recorder.duration)
+        field.setReview(playing: false, progress: 0, time: recorder.duration, duration: recorder.duration)
+        show(in: controller, stage: .review)
+        keepDraft()
+    }
+
+    /// Saves the recording in review; false when there is none or nowhere to keep it.
+    @discardableResult
+    private func keepDraft() -> Bool {
+        guard let drafts, let key = draftKey, let draft = recorder?.draft, draftGeneration == drafts.generation else { return false }
+        drafts.save(draft, key: key, generation: draftGeneration)
+        return true
+    }
+
+    /// The recording was sent or thrown away: nothing to bring back.
+    private func forgetDraft() {
+        guard let drafts, let key = draftKey else { return }
+        drafts.save(nil, key: key)
     }
 
     static var holdHint: String {
@@ -167,6 +280,7 @@ final class ConversationAudioComposer {
             case .discard:
                 stopReviewPlayer()
                 recorder?.cancel()
+                forgetDraft()
                 dismiss()
             case .sendRecording: sendRecording()
             }
@@ -181,6 +295,8 @@ final class ConversationAudioComposer {
         if stage == .review, let recorder {
             field.update(levels: recorder.levels, time: recorder.duration)
             field.setReview(playing: false, progress: 0, time: recorder.duration, duration: recorder.duration)
+            // A screen opened for this conversation later finds it.
+            keepDraft()
         }
         if before == nil {
             guard let controller else { return }
@@ -204,6 +320,7 @@ final class ConversationAudioComposer {
         let recorder = ConversationAudioRecorder()
         recorder.syntheticTranscript = Self.syntheticPhrases.randomElement()
         self.recorder = recorder
+        draftGeneration = drafts?.generation
         field.update(levels: [], time: 0)
         startTask = Task { [weak self] in
             do {
@@ -253,6 +370,7 @@ final class ConversationAudioComposer {
         guard let recorder, let controller else { return dismiss() }
         stopReviewPlayer()
         guard let recorded = recorder.finish() else { return dismiss() }
+        forgetDraft()
         let replyTo = controller.replyTarget?.id
         dismiss()
         // A reply stays in its open thread, as a typed one does.

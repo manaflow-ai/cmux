@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxConversationCore
 import CmuxConversationUI
 import Foundation
 import SwiftUI
@@ -58,6 +59,31 @@ import UIKit
         #expect(rebuilt.isFirstResponder, "the rebuilt screen kept the keyboard")
     }
 
+    /// The user, 2026-11-11: "ios chief recorded audio in composer bar disappears
+    /// when i background the app and return". Back in the foreground the screen is
+    /// rebuilt on a new store; the recording in review goes with it, and the old
+    /// screen's composer is back to text.
+    @Test func aScreenRebuiltOnANewStoreKeepsTheRecordedClip() throws {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = UIHostingController(rootView: NavigationStack { ChiefConversationScreen(session: session) })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; session.store.stop() }
+
+        // This window's screen (the static `shown` may still name an earlier test's).
+        let first = try #require(drain { container(in: window) })
+        let samples = (0 ..< 3 * ConversationWAV.sampleRate).map { sin(Float($0) * 0.05) * 0.5 }
+        let draft = ConversationAudioDraft(wav: ConversationWAV.encode(samples), levels: Array(repeating: 0.5, count: 60))
+        first.conversation.restoreAudioDraft(draft)
+        try #require(drain { reviewSend(in: first.view) }, "the review shows on the first screen")
+
+        session.use(ChiefOfflineBackend())
+        let rebuilt = try #require(drain { container(in: window).flatMap { $0 === first ? nil : $0 } },
+                                   "the screen is rebuilt on the new store")
+        #expect(drain { reviewSend(in: rebuilt.view) } != nil, "the recording's review moved to the rebuilt screen")
+        #expect(first.conversation.takeAudioDraft() == nil, "the old screen gave it up")
+    }
+
     /// A Chief screen that was never focused gets no keyboard from a rebuild.
     @Test func aRebuildNeverRaisesTheKeyboardUnasked() throws {
         let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
@@ -72,6 +98,25 @@ import UIKit
         let rebuilt = try #require(drain { composer(in: window).flatMap { $0 === first ? nil : $0 } })
         for _ in 0 ..< 20 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         #expect(!rebuilt.isFirstResponder, "no keyboard the person did not ask for")
+    }
+
+    /// The Chief screen whose composer is in `window`.
+    private func container(in window: UIWindow) -> ChiefConversationContainer? {
+        var responder: UIResponder? = composer(in: window)
+        while let current = responder {
+            if let container = current as? ChiefConversationContainer { return container }
+            responder = current.next
+        }
+        return nil
+    }
+
+    /// The review strip's send button, when it shows (in the field, not faded out).
+    private func reviewSend(in view: UIView) -> UIView? {
+        guard let send = view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.recording.send" }),
+              send.window != nil, send.alpha > 0.5,
+              let field = view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.recording" }),
+              field.alpha > 0.5 else { return nil }
+        return send
     }
 
     private func composer(in window: UIWindow) -> UITextView? {
