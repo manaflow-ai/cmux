@@ -55,6 +55,19 @@ struct VMClientReadCoalescingTests {
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.values.reduce(0, +) == 1)
     }
+
+    @Test("Machine-list transport uses the shared read budget")
+    func machineListTransportUsesSharedReadBudget() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+
+        _ = try await fixture.client.listPage()
+
+        let timeout = try #require(await CloudRefreshURLProtocol.requestTimeouts()["/api/vm"]?.first)
+        #expect(timeout == 30, "A list transport must use the coordinator's 30-second budget, got \(timeout)")
+    }
+
     @Test("A hidden panel cancels its list and cannot start stats from a late result")
     func hiddenPanelCancelsFollowupWork() async throws {
         let fixture = try await CloudRefreshFixture.make()
