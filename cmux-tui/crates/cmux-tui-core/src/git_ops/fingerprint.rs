@@ -22,7 +22,7 @@ use cmux_git::run::{self, GitFailure};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
-use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp, git_failed, open_failed};
+use super::{MAX_SMALL_OUTPUT_BYTES, OpenError, Repository, clamp, git_failed, open_failed};
 use crate::resource::ResourceError;
 
 mod content;
@@ -242,7 +242,8 @@ impl WorkTree<'_> {
 
     /// The commit a checked-out submodule is on: the listing says only that
     /// it is not the recorded one. `checkout` is a real folder of the work
-    /// tree; git runs there by its path.
+    /// tree. It is opened as each other folder is (`Repository::open`), and
+    /// git runs in what the open gives.
     fn submodule_head(&mut self, checkout: &Path) -> Result<Vec<u8>, ResourceError> {
         // With no `.git` there, git would answer for the repository above.
         if !checkout.join(".git").exists() {
@@ -252,16 +253,20 @@ impl WorkTree<'_> {
             return Ok(b"submodule past the bound".to_vec());
         }
         self.submodules = self.submodules.saturating_add(1);
+        let submodule = match Repository::open(checkout) {
+            Ok(submodule) => submodule,
+            Err(OpenError::NotARepository) => return Ok(b"submodule none".to_vec()),
+            // The open does not take the folder: a state of the checkout,
+            // which stays until the checkout changes.
+            Err(OpenError::Git(GitFailure::Exit(_))) => {
+                return Ok(b"submodule not opened".to_vec());
+            }
+            // git did not run or did not end: no digits, as below.
+            Err(OpenError::Git(failure)) => return Err(git_failed(OPERATION, &failure)),
+        };
         let arguments = ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"];
-        let overrides = &self.repository.overrides;
         let mut token = b"submodule ".to_vec();
-        match run::run_git_within(
-            checkout,
-            overrides,
-            &arguments,
-            MAX_SMALL_OUTPUT_BYTES,
-            run::DEADLINE,
-        ) {
+        match submodule.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
             Ok(output) => token.extend_from_slice(&output.stdout),
             // No commit there: a state of the checkout, which stays until
             // the checkout changes.
