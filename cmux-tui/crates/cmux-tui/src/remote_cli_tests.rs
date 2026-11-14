@@ -2679,8 +2679,8 @@ fn exec_exit_status_maps_code_signal_and_unknown() {
 
 #[test]
 fn exec_exit_status_reaches_run_without_a_message() {
-    let error: anyhow::Error = exec_cp::ExitWith { code: 3, error: None }.into();
-    assert_eq!(error.downcast_ref::<exec_cp::ExitWith>().map(|exit| exit.code), Some(3));
+    let error: anyhow::Error = ExitWith { code: 3, error: None }.into();
+    assert_eq!(error.downcast_ref::<ExitWith>().map(|exit| exit.code), Some(3));
     // A parse failure is a local failure: 255, like ssh.
     let args = words(&["remote-exec", "box", "ls"]);
     assert_eq!(run(&args, "usage", || panic!("exec must not load TUI config")), 255);
