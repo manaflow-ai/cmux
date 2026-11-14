@@ -46,6 +46,7 @@ import path from "node:path";
 import { chromium } from "./browsers";
 import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import { installFoldProbe, measureToggle } from "../test/support/foldFrameReport";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
 import { perfRow as printRow, TARGET_MS, type PerfRow } from "./perfRow";
@@ -72,6 +73,9 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `PROBE=1` counts, per burst record, geometry reads, forced layouts and row renders (BurstResult `probe`), with a
+/// DevTools trace on: its time is not a clean measurement, its counts are.
+const PROBE = process.env.PROBE === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -294,6 +298,7 @@ async function openPage(ctx: Ctx, log: ReplayLog, served: number, status: string
   const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
   await page.addInitScript(instrument, start);
   await installPaintedFrames(page);
+  if (PROBE) await installFoldProbe(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
   if (PROFILE) await cdp.send("Profiler.enable");
@@ -371,6 +376,17 @@ type BurstResult = {
   totalMs?: Map<string, number>;
   /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
   dom?: { elements: number; mounted: number; animations: number };
+  /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
+  /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
+  /// elements one pass touched. Work per update that follows the rows in view shows here.
+  probe?: {
+    reads: number;
+    forced: number;
+    rowRenders: number;
+    contentRenders: number;
+    layoutObjects: number;
+    styled: number;
+  };
 };
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
@@ -490,21 +506,46 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
         if (PROFILE) await cdp.send("Profiler.start");
         const taskBefore = await metric(cdp, "TaskDuration");
         const windowStart = await page.evaluate(() => performance.now());
-        for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
-          const event = log.events[index]!;
-          await clockTo(page, event.at);
-          play!.served = event.seq;
-          emit(event);
-          await paint(page, 1);
-        }
-        await paint(page, 2);
-        const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
+        const playBurst = async () => {
+          for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
+            const event = log.events[index]!;
+            await clockTo(page, event.at);
+            play!.served = event.seq;
+            emit(event);
+            await paint(page, 1);
+          }
+        };
         const records = burst.toSeq - burst.fromSeq + 1;
+        let probe: BurstResult["probe"];
+        if (PROBE) {
+          await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+          const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
+          const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+            string,
+            number
+          >;
+          const sum = (prefix: string) =>
+            Object.entries(renders).reduce((total, [name, count]) => total + (name.startsWith(prefix) ? count : 0), 0);
+          const per = (value: number) => Math.round((value / records) * 100) / 100;
+          probe = {
+            reads: per(cost.reads),
+            forced: per(cost.forcedLayouts ?? 0),
+            rowRenders: per(sum("row:")),
+            contentRenders: per(sum("content:")),
+            layoutObjects: cost.layoutObjectsMax ?? 0,
+            styled: cost.styleElementsMax ?? 0,
+          };
+        } else {
+          await playBurst();
+          await paint(page, 2);
+        }
+        const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
         const dom = await domSize(page);
         bursts.push({
           dom,
+          ...(probe ? { probe } : {}),
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -818,6 +859,11 @@ if (import.meta.main) {
             `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
               (burst.dom
                 ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : "") +
+              (burst.probe
+                ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
+                  `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
