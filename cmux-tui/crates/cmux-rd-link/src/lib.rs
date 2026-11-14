@@ -404,10 +404,10 @@ impl Link {
     /// Packets to send now, on the current path: handshake messages and their
     /// retries, control records and their retransmissions, acks and probe replies.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Vec<u8>>, LinkError> {
-        if self.poll_handshake_timers(now_us)? {
-            if let Some((packet, _)) = &self.last_handshake {
-                self.out.push_back(packet.clone());
-            }
+        if self.poll_handshake_timers(now_us)?
+            && let Some((packet, _)) = &self.last_handshake
+        {
+            self.out.push_back(packet.clone());
         }
         if self.is_established() {
             for (seq, record) in self.control_out.due(now_us) {
