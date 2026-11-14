@@ -262,6 +262,7 @@ struct AgentCursorTail {
         let fx = -(Double(velocity.dx) * dragScale + Double(acceleration.dx) * inertiaScale)
         let fy = -(Double(velocity.dy) * dragScale + Double(acceleration.dy) * inertiaScale)
         // Stretch on a spring toward a speed-dependent length.
+        let stretchBefore = stretch
         let stretchTarget = tuning.stretchMax * speed / (speed + tuning.stretchHalfSpeed)
         stretchSpeed += (-(stretch - stretchTarget) * tuning.stretchSpring - stretchSpeed * tuning.stretchFriction) * h
         stretch = min(max(stretch + stretchSpeed * h, -0.08), 0.25)
@@ -323,15 +324,33 @@ struct AgentCursorTail {
                 spins[i] = max(spins[i], spins[i - 1])
             }
         }
-        // Never into the pointer: a step that would put a point inside it is undone.
-        Self.writePoints(angles: angles, stretch: stretch, into: &scratchPoints)
-        for k in 1...n where Self.pointerContains(scratchPoints[k]) {
+        // Never into the pointer: a step that would put a point inside it is undone, and if the
+        // pose it returns to is inside too, the tail eases toward its rest pose (never inside)
+        // until it is out.
+        if insidePointer() {
             for i in 0..<n {
                 angles[i] = scratchAngles[i]
                 spins[i] = 0
             }
-            break
+            stretch = stretchBefore
+            stretchSpeed = 0
+            var tries = 0
+            while insidePointer(), tries < 40 {
+                for i in 0..<n { angles[i] += (Self.rest.absolute[i] - angles[i]) * 0.2 }
+                stretch *= 0.8
+                tries += 1
+            }
+            if insidePointer() {
+                for i in 0..<n { angles[i] = Self.rest.absolute[i] }
+                stretch = 0
+            }
         }
+    }
+
+    private mutating func insidePointer() -> Bool {
+        Self.writePoints(angles: angles, stretch: stretch, into: &scratchPoints)
+        for k in 1...Self.segmentCount where Self.pointerContains(scratchPoints[k]) { return true }
+        return false
     }
 
     // MARK: Output
