@@ -1436,7 +1436,7 @@ async fn a_cut_a_crash_stopped_between_segments_skips_no_record() {
 
 /// Whether `session`'s inbox holds message `prompt_id`, for its next turn to take.
 fn inbox_holds(session: &Session, prompt_id: &str) -> bool {
-    let inbox = session.inbox.lock().unwrap();
+    let inbox = session.inbox();
     inbox.items.iter().any(|i| i.prompt_id == prompt_id)
 }
 
@@ -1475,7 +1475,7 @@ async fn withdrawn_during_a_hold_then_crashed(rules: u8) -> (bool, Vec<String>, 
     // the inbox runs again from nothing at `rules`, the kept withdrawal still not stored.
     let loaded = inbox_holds(&reopened, "m1");
     {
-        let mut inbox = reopened.inbox.lock().unwrap();
+        let mut inbox = reopened.inbox();
         inbox.items.clear();
         inbox.removed.clear();
     }
