@@ -40,7 +40,9 @@ pub use disk_usage::{
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
 pub use long_connections::LongConnectionsFull;
-pub use terminal_seats::{HostSeat, HostSeating, SeatedTerminal, TerminalSeat};
+pub use terminal_seats::{
+    HostSeat, HostSeating, KeptHost, KeptHostSeat, SeatedTerminal, TerminalSeat,
+};
 mod hook_queue;
 pub(crate) mod request_log;
 mod write_path;

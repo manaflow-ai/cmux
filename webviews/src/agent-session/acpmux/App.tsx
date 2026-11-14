@@ -436,6 +436,7 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
+  closeTurnRuns,
   ACTIVITY_LINE,
   DATE,
   THINKING,
@@ -443,6 +444,7 @@ import {
   openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
+  turnInsideIds,
   hiddenRowFolds,
   WORKING,
   type TurnView,
@@ -454,8 +456,6 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
-  closeTurnRuns,
-  turnInsideIds,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
@@ -472,6 +472,7 @@ import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
+  switchForks,
   forkRefusal,
   forkToTarget,
   forksAnyTurn,
@@ -480,7 +481,6 @@ import {
   messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
-  switchForks,
   withSendPromptAgain,
 } from "./conversation/messageMenu";
 import { actOnReportedImage } from "./conversation/imageMenuActions";
@@ -549,7 +549,6 @@ import {
   cloudPageRefusal,
   cloudRunsHere,
   cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -561,6 +560,7 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -630,19 +630,19 @@ import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFol
 import {
   callsToHold,
   foldsToHold,
+  lastTurnWorkedKeys,
   linedCallOf,
   oneKeyPerMessageRun,
+  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
-  rowsToHold,
   withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { HarnessUpdatesContext, useHarnessUpdateList } from "./harnessUpdateList";
 import { Notice, NoticeSlot } from "./NoticeSlot";
-import { createPaneToasts, paneNotices } from "./paneToasts";
+import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
 import { RulesNotice } from "./RulesNotice";
@@ -659,11 +659,11 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
-  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
   lostRetryDelay,
+  hostSelfRetrying,
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -1833,7 +1833,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
   const [toastTop, setToastTop] = useState<HTMLDivElement | null>(null);
   const notices = useMemo(
-    () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts }),
+    () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
@@ -2108,6 +2108,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The finished runs that came back between rows a reader scrolled up had in view, kept out of the
   /// rows until the view follows again (conversation/turnEndHold.ts `rowsToHold`).
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
+  /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
+  /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
@@ -3054,6 +3057,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const asked = heldRuns.current.asked === true;
       if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
         heldRuns.current = { session: shownSessionId, keys: new Set() };
+      if (heldWorked.current.session !== shownSessionId || (!viewNow && heldWorked.current.keys.size > 0))
+        heldWorked.current = { session: shownSessionId, keys: new Set() };
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -3083,14 +3088,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       foldsSeen.current = { session: shownSessionId, folds };
       if (heldFolds.current.session !== shownSessionId)
         heldFolds.current = { session: shownSessionId, keys: new Set() };
-      let turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+      // The open folds with what a turn's end holds: the reader's held folds and a deferred Worked for.
+      const heldOpen = () =>
+        heldWorked.current.keys.size === 0
+          ? heldFolds.current.keys
+          : new Set([...heldFolds.current.keys, ...heldWorked.current.keys]);
+      let turns = shape(withHeldFolds(folds, heldOpen()));
       const inView = ownChange ? null : transcriptInView.current?.();
       if (inView) {
-        const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds);
+        const worked = new Set<string>();
+        const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+        if (worked.size > 0) {
+          heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
+          turns = shape(withHeldFolds(folds, heldOpen()));
+        }
         if (held.length > 0) {
           const kept = heldFolds.current.keys;
           heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...held]) };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
           // One key per message run, the one its line closes by (turnEndHold.ts): the line and its
           // rows draw the same with it alone.
           const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
@@ -3103,7 +3118,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const back = asked ? [] : rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
         if (back.length > 0) {
           heldRuns.current = { session: shownSessionId, keys: new Set([...heldRuns.current.keys, ...back]) };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -3113,19 +3128,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // line and finished) goes back to the line, out of its run as before, so it never reads
       // nowhere: in neither its run nor the line. Shaped from every row only while one is held.
       if (snapshot.isWorking && heldCalls.current.keys.size > 0) {
-        const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldFolds.current.keys)).rows);
+        const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldOpen())).rows);
         if (again !== undefined && heldCalls.current.keys.has(again)) {
           const keys = new Set(heldCalls.current.keys);
           keys.delete(again);
           heldCalls.current = { ...heldCalls.current, keys };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
           lined = linedCallOf(turns.rows);
         }
       }
       const letGo = viewNow ? callsToHold(heldCalls.current.lined, lined, heldCalls.current.keys) : undefined;
       if (letGo !== undefined) {
         heldCalls.current = { ...heldCalls.current, keys: new Set([...heldCalls.current.keys, letGo]) };
-        turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+        turns = shape(withHeldFolds(folds, heldOpen()));
         lined = linedCallOf(turns.rows);
       }
       heldCalls.current.lined = lined;
@@ -4914,10 +4929,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runHereSend.current = true;
     sandbox.setMode("persistent");
   };
-  /// The card's "Start without a folder" start, until it opens or is dismissed: its Retries go without a folder too.
-  const cloudHomeStart = useRef(false);
+  /// The folder the latest Cloud send named (the card's "Start without a folder", or its project): Retry
+  /// repeats this exact folder, even when a New Tab pick changed from project A to project B.
+  const cloudRetryFolder = useRef<ReturnType<typeof cloudStartFolder> | undefined>(undefined);
   const dismissCloudFailure = () => {
-    cloudHomeStart.current = false;
+    cloudRetryFolder.current = undefined;
     setCloudStart(undefined);
   };
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
@@ -5169,7 +5185,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A folder the host refused before binding the compose's reservation: that machine is given back now.
       if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
         cloudReservation.returned(request.reservationKey);
-      if (answer.ok) cloudHomeStart.current = false;
+      if (answer.ok) cloudRetryFolder.current = undefined;
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -5313,8 +5329,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         here: setSubagentView,
         title: subagentTitleRef.current.title(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
-        // Seed a new pane from this chat's kept tail before its own attach answers.
-        beforeOpen: () => directClient.current?.handOverCurrentTail(),
+        // Seed a new pane from this chat's kept tail before its own attach answers: carried on the
+        // pane's request, so the host holds it before it decides how the pane opens (#36650).
+        beforeOpen: () => directClient.current?.tailHandOver(),
         mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
       }),
     [autoOpenSubagents],
@@ -6464,7 +6481,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A Retry keeps the start's own folder: a start the too-big card sent without a folder retries without one, never
   /// from the composer's folder the preflight refused (Codex review F2 on #40957).
   const retryCloudStart = () => {
-    if (cloudHomeStart.current) cloudFolderOnce.current = { home: true };
+    if (cloudRetryFolder.current) cloudFolderOnce.current = cloudRetryFolder.current;
     sendStartPrompt();
   };
   /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
@@ -6473,7 +6490,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
   const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
     cloudFolderOnce.current = folder;
-    cloudHomeStart.current = "home" in folder;
     sendStartPrompt();
   };
   /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
@@ -6811,7 +6827,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Only a chat followed at its latest row lets go of its oldest records (direct.ts `shedOlderHeld`).
     directClient.current?.setFollowing(following);
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
-    if (following && (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0)) releaseCalls();
+    // An ended turn's Worked for held open over what they read closes there too.
+    if (
+      following &&
+      (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0 || heldWorked.current.keys.size > 0)
+    )
+      releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
@@ -11402,6 +11423,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
+    // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
+    // their click: it was never their open fold.
+    if (heldWorked.current.keys.has(id)) {
+      const keys = new Set(heldWorked.current.keys);
+      keys.delete(id);
+      heldWorked.current = { ...heldWorked.current, keys };
+      releaseCalls();
+      return;
+    }
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
     if (isWorkedFold(id)) {
@@ -12317,11 +12347,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
+                const folder = once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+                // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
+                cloudRetryFolder.current = folder;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...(once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd)),
+                    ...folder,
                     ...heldPick(composerSnapshot),
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
@@ -13264,12 +13297,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           cwd: string | undefined,
                           model: string | undefined,
                           attachments: ComposerAttachment[],
-                        ) =>
-                          sendToCloud(
+                        ) => {
+                          const folder = cloudStartFolder(cwd);
+                          // New Tab sends use this callback directly, so record their complete folder too.
+                          // Otherwise Retry would reuse the pane's previous folder.
+                          cloudRetryFolder.current = folder;
+                          return sendToCloud(
                             text,
                             attachments,
                             {
-                              ...cloudStartFolder(cwd),
+                              ...folder,
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               ...cloudSendAgent(
@@ -13279,7 +13316,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               ),
                             },
                             true,
-                          ),
+                          );
+                        },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow

@@ -1,0 +1,21 @@
+{
+  "id": "agent-chat-attach-screen-recording",
+  "priority": "P1",
+  "title": "A real macOS screen recording, named as macOS names it (a narrow no-break space before PM), attaches to a new agent chat: the chat opens and stays drawn, its video tile or file chip shows, and app health never reloads or restarts the page",
+  "why": "Leo, 2026-11-11: \"i tried uploading this video to my nightly app and it just made the screen blank\" (Screen Recording 2026-11-10 at 4.21.16 PM.mov, 2112x720 H.264, U+202F before PM). No journey attached a real screen recording before. That night the busy agent chat missed its beats, app health reloaded it and then killed its renderer 2 s later while the reload was still loading, twice, and the pane stayed blank; a reloaded page now gets PAGE_BOOT_MS (30 s) to boot, and a preview that throws falls back to the file chip (AttachmentPreviewBoundary). The fixture is a real screen recording made on the lease (screencapture -v), or an ffmpeg H.264 clip at 2112x720 where screen recording is not allowed; the name carries U+202F.",
+  "source": "Leo-Ask-Trace: ask-2fa9c4d1bb",
+  "budget_seconds": 240,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-attach-recording"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "D=$(mktemp -d) && F=\"$D/Screen Recording 2026-11-10 at 4.21.16$(printf '\\342\\200\\257')PM.mov\" && (screencapture -x -v -V 3 \"$F\" >/dev/null 2>&1 || ffmpeg -loglevel error -f lavfi -i testsrc2=size=2112x720:rate=30 -t 9 -c:v libx264 -pix_fmt yuv420p \"$F\") && test -s \"$F\" && echo fixture-${nonce}-ok", "enter": true, "mark": "fixture"},
+    {"do": "expect", "title": "the screen recording is on disk, named with U+202F", "since": "fixture", "timeout": 60,
+     "all": [{"daemon_line": "fixture-${nonce}-ok"}]},
+    {"do": "type", "text": "cmux chat --name jr-attach-${nonce} --attach \"$F\" --json --prompt 'Reply with the single word ok.' | grep -q '\"state\":\"accepted\"' && echo attached-${nonce}-ok", "enter": true, "mark": "attach"},
+    {"do": "expect", "title": "the chat took the recording", "since": "attach", "timeout": 60,
+     "all": [{"daemon_line": "attached-${nonce}-ok"}]},
+    {"do": "wait", "seconds": 40, "title": "longer than a stuck page's 10 s, a reload's 30 s boot wait and a backoff: a page app health repairs would show by now"},
+    {"do": "expect", "title": "app health never repaired a page: no part is stuck, repairing or failed", "timeout": 10,
+     "all": [{"app_rpc": {"method": "debug.health", "path": "worst", "equals": "healthy"}}]}
+  ]
+}
