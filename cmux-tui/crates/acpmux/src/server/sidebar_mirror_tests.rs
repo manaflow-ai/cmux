@@ -302,8 +302,10 @@ fn serve(v2: Arc<V2>, daemon_id: &'static str) -> (DuplexStream, tokio::task::Jo
         let (in_tx, _in_rx) = mpsc::channel(16);
         let (last, _last_rx) = oneshot::channel();
         let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
+        // A v1 hub with no book tee: the connection serves no chat stream, only the list.
+        let v1 = memory_hub();
         if let Some(upgrade) = read_lines(rd, in_tx, last, limits, Some(&v2)).await {
-            let _ = upgrade.serve(wr, &v2, daemon_id.to_owned()).await;
+            let _ = upgrade.serve(wr, &v1, &v2, daemon_id.to_owned()).await;
         }
     });
     (client, task)

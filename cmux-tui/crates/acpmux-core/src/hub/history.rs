@@ -57,6 +57,8 @@ pub(super) struct PeerHistory {
     last: u64,
     tail: usize,
     used: usize,
+    /// Ops encoded in peer form: one per local change, whatever the number of peers.
+    encodes: u64,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -557,11 +559,16 @@ impl PeerHistory {
             last: start,
             tail: 0,
             used: 0,
+            encodes: 0,
         }
     }
 
     pub(super) fn last_seq(&self) -> u64 {
         self.last
+    }
+
+    pub(super) fn encodes(&self) -> u64 {
+        self.encodes
     }
 
     pub(super) fn can_resume(&self, cursor: u64) -> bool {
@@ -610,6 +617,7 @@ impl PeerHistory {
     }
 
     fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
+        self.encodes += 1;
         if bytes.len() > self.bytes.len() {
             self.clear(self.last);
             return Err(io::Error::other("peer list op exceeds history byte capacity"));
