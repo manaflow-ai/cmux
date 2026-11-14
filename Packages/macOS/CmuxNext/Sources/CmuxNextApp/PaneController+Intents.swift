@@ -152,7 +152,7 @@ extension PaneController {
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
             return newTerminalTabNow(command, agent: agent, intent: intent, window: window,
-                                     selectHere: selectHere, homePlacement: homePlacement, insertion: insertion, then: then)
+                                     selectHere: selectHere, insertion: insertion, homePlacement: homePlacement, then: then)
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
         services.registry.track(Task { [services, daemon] in
