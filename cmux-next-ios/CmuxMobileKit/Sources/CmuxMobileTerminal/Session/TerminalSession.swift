@@ -182,6 +182,11 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// The app is leaving for the background or coming back with its claim
+    /// kept: a claimed size is reported again now, so the Mac's size lease
+    /// runs from this moment (its 45 s match the phone's background grace).
+    /// Sessions without a Mac ignore it.
+    func renewSizeClaim()
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -198,8 +203,15 @@ public protocol TerminalSession: AnyObject {
     /// The reader scrolled up to the oldest row the screen holds: a session
     /// that attached with the latest screen first brings older rows (a Mac
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
-    /// scrolls there; the session decides. Others ignore it.
-    func loadOlderHistory()
+    /// scrolls there; the session decides. Others ignore it. Returns whether
+    /// it asked (a mirror reset and a longer replay follow).
+    @discardableResult
+    func loadOlderHistory() -> Bool
+    /// Before the first attach: the screen will put a reader back on a row
+    /// `rows` rows above the end (a tab back from the warm set,
+    /// ``TerminalScrollPlace``), so a session that attaches with the latest
+    /// screen first asks for at least that much history at once. Others ignore it.
+    func requestHistoryRows(_ rows: Int)
 }
 
 extension TerminalSession {
@@ -220,13 +232,18 @@ extension TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {}
 
+    public func renewSizeClaim() {}
+
     public func noteInteraction() {}
 
     public var clearsHistory: Bool { false }
 
     public func clearHistory() async throws {}
 
-    public func loadOlderHistory() {}
+    @discardableResult
+    public func loadOlderHistory() -> Bool { false }
+
+    public func requestHistoryRows(_ rows: Int) {}
 
     public var hostGridOwnerName: String? { nil }
 }
