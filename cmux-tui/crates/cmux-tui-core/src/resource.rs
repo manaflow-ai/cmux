@@ -416,6 +416,12 @@ pub enum ResourceOperation {
     AgentMessageRelease,
     #[serde(rename = "agent.message.unsend")]
     AgentMessageUnsend,
+    #[serde(rename = "chat.list")]
+    ChatList,
+    #[serde(rename = "chat.mark_read")]
+    ChatMarkRead,
+    #[serde(rename = "chat.pin")]
+    ChatPin,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
