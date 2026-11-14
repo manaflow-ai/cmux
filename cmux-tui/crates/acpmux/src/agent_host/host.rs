@@ -991,6 +991,7 @@ impl Started {
 /// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
 /// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
 /// None only if even the note cannot be encoded.
+#[cfg(test)]
 fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
     encode_entry_at(h, entry, None, max)
 }
