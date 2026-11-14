@@ -3125,12 +3125,33 @@ fn list_workspaces_reply_text(
 
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    let mut workspaces = mux.with_state(|state| tree_nodes(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
     workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
+}
+
+/// The nodes of the whole tree (tree_json.rs).
+fn tree_nodes(state: &State, decorations: &TreeDecorations) -> Value {
+    #[cfg(test)]
+    if crate::workspace_registry::registry_connection::current_thread_holds_state() {
+        TREES_BUILT_UNDER_STATE_LOCK.with(|built| built.set(built.get().saturating_add(1)));
+    }
+    workspaces_json(state, decorations)
+}
+
+#[cfg(test)]
+thread_local! {
+    static TREES_BUILT_UNDER_STATE_LOCK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Test seam: the `list-workspaces` trees whose nodes this thread built while it held the mux
+/// state lock.
+#[cfg(test)]
+fn trees_built_under_state_lock_on_this_thread() -> u64 {
+    TREES_BUILT_UNDER_STATE_LOCK.with(std::cell::Cell::get)
 }
 
 /// Remove the socket file (call on clean shutdown).

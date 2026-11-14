@@ -9,9 +9,11 @@
 //!   result, and used it only for a value that fails.
 //! - `list-workspaces` read the git HEAD of each terminal's directory in the reply when its
 //!   cached value was older than 2 seconds: one file-system walk for each directory.
+//! - `list-workspaces` built the nodes of its tree with the mux state lock held: each request
+//!   that needs the state waited for the whole build.
 //!
-//! Each test here counts (texts, parses, allocations, git reads), so a loaded host does not
-//! change its result. No test asserts a time.
+//! Each test here counts (texts, parses, allocations, git reads, holds of the state lock), so a
+//! loaded host does not change its result. No test asserts a time.
 //!
 //! The session is the one a daemon has: a registry that is a file, with the journal writer
 //! thread, and each terminal in a directory of its own below a test repository.
@@ -484,5 +486,77 @@ fn a_v2_reply_has_the_bytes_of_the_reply_made_from_its_text() {
         lines[0], lines[3],
         "a connection without the capabilities reads the conversation tab as another kind"
     );
+    session.end();
+}
+
+#[test]
+fn a_list_workspaces_tree_is_built_with_no_state_lock_held() {
+    let session = Session::of("list-counts-nodes-lock", 6);
+    let mux = &session.mux;
+    let locks = crate::mux::state_locks_taken_on_this_thread();
+    let held = trees_built_under_state_lock_on_this_thread();
+    let tree = list_workspaces_tree(mux).unwrap();
+    let locks = crate::mux::state_locks_taken_on_this_thread() - locks;
+    let held = trees_built_under_state_lock_on_this_thread() - held;
+    assert_eq!(tree["workspaces"].as_array().map(Vec::len), Some(6), "the tree of the session");
+    assert_eq!(
+        (locks, held),
+        (1, 0),
+        "the tree of a list-workspaces reply took the state lock {locks} times and built its \
+         nodes {held} times with the lock held"
+    );
+    session.end();
+}
+
+/// The tree of a `list-workspaces` reply was built in two holds of the state lock: the walks of
+/// its decorations, then its nodes. It is now built from one copy of the state, with no lock
+/// held. Each connection gets the same bytes from the two.
+#[test]
+fn a_list_workspaces_reply_has_the_bytes_of_the_tree_built_under_the_state_lock() {
+    let session = Session::of("list-counts-equal-tree", 6);
+    session.add_conversation_tab();
+    session.give_directories(&[session.repository("repository", "main")]);
+    let mux = &session.mux;
+    let render = Arc::new(RenderService::new());
+    let declared: [&[&str]; 2] = [&[], &TAB_CAPABILITIES];
+    for capabilities in declared {
+        let connection = Connection::open(mux, &render, capabilities);
+        let reply = connection.list(mux);
+        assert_eq!(reply.matches("\"git_branch\":\"main\"").count(), 6, "{}", start_of(&reply));
+        assert_eq!(
+            reply.contains("\"kind\":\"conversation\""),
+            !capabilities.is_empty(),
+            "capabilities {capabilities:?}"
+        );
+
+        // A connection with the same history, so the same lines written before its read.
+        let reference = Connection::open(mux, &render, capabilities);
+        let lines_written = reference.writer.lines_written();
+        let decorations = mux.tree_decorations();
+        let mut tree = mux.with_state(|state| workspaces_json(state, &decorations));
+        let (registry_id, generation) = mux.registry_identity();
+        tree["registry_id"] = json!(registry_id);
+        tree["generation"] = json!(generation);
+        tree["terminal_revision"] = json!(mux.terminal_registry_revision().unwrap());
+        if let Some(lines) = lines_written {
+            tree["lines_written_before_read"] = json!(lines);
+        }
+        let response = Response {
+            id: Some(json!(1)),
+            ok: true,
+            data: Some(tree),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        };
+        assert!(responses::send_response_with_details(
+            &reference.writer,
+            response,
+            None,
+            None,
+            None
+        ));
+        assert_eq!(reply, reference.reply(), "capabilities {capabilities:?}");
+    }
     session.end();
 }
