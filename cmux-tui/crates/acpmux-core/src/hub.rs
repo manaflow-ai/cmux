@@ -11,6 +11,7 @@ use acpmux_book::index::{
 };
 use arc_swap::ArcSwap;
 use serde::Serialize;
+use serde::ser::Error as _;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -447,11 +448,10 @@ struct PeerRow<'a>(&'a Summary);
 
 impl Serialize for PeerRow<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if let Some(raw) = self.0.peer_form.as_ref() {
-            raw.serialize(serializer)
-        } else {
-            self.0.serialize(serializer)
-        }
+        let Some(raw) = self.0.peer_form.as_ref() else {
+            return Err(S::Error::custom("local row has no producer peer form"));
+        };
+        raw.serialize(serializer)
     }
 }
 
@@ -1000,7 +1000,10 @@ impl Hub {
                 true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                None,
+                Some(&crate::wire::ListFilter {
+                    origin: Some("local".into()),
+                    ..Default::default()
+                }),
             )
             .map_err(|error| self.page_error(error))?;
         let window = crate::wire::Window {
@@ -1052,7 +1055,10 @@ impl Hub {
                 false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
-                None,
+                Some(&crate::wire::ListFilter {
+                    origin: Some("local".into()),
+                    ..Default::default()
+                }),
             )
             .map_err(|error| self.page_error(error))?;
         let reply = crate::wire::PageResult {
