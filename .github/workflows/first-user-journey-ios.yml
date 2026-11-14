@@ -15,7 +15,9 @@ run-name: >-
 #
 # A schedule fires only from the default branch's copy of a workflow. That
 # copy (main) has no cmux-next-ios, so its scheduled run only dispatches this
-# workflow on feat-cmux-next, where the journey runs.
+# workflow on feat-cmux-next, where the journey runs. It runs on no pull
+# request (the pull-request job budget in ci/steps.toml only goes down): try
+# a change with `gh workflow run first-user-journey-ios.yml --ref BRANCH`.
 on:
   schedule:
     - cron: "23 7 * * *"
@@ -25,28 +27,62 @@ on:
         description: App source to walk (branch, tag or SHA); empty is this ref
         required: false
         default: ""
-  pull_request:
-    paths:
-      - "cmux-next-ios/UITests/FirstUserJourneyUITests.swift"
-      - "cmux-next-ios/scripts/first_user_journey_report.py"
-      - ".github/workflows/first-user-journey-ios.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: first-user-journey-ios-${{ github.event.pull_request.number || inputs.ref || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: first-user-journey-ios-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: write # the default branch's scheduled run starts feat-cmux-next's
     outputs:
       walk: ${{ steps.route.outputs.walk }}
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # The macOS pool the walk runs on (scripts/ci/ios_runner_pool.py, the
+      # one-simulator lane ios-screenshots.yml uses): an owned Mac with an
+      # iOS simulator when CI_IOS_OWNED allows, else MACOS_RUNNER_IOS; a
+      # re-run takes retry_runs_on.
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane screenshots \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
       - id: route
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,7 +103,7 @@ jobs:
     if: needs.route.outputs.walk == 'true'
     name: Walk the first-user journey (iPhone simulator)
     # No secret in this job: the mock account (DEBUG) stands in for sign-in.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.route.outputs.retry_runs_on || needs.route.outputs.runs_on) }}
     timeout-minutes: 75
     steps:
       - name: Result paths
@@ -79,7 +115,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -165,7 +201,7 @@ jobs:
       - name: Write results.json and summary.md
         if: always()
         env:
-          BUILD: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          BUILD: ${{ inputs.ref || github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -183,7 +219,7 @@ jobs:
           # results.json and summary.md at the artifact root.
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
       - name: Remove the run's simulator
         if: always()
         run: |
