@@ -776,12 +776,20 @@ public final class LiveCoordinator {
                                                    lastShown: lastShown, now: now, pinned: touched)
         let decision = MacLinkPolicy.Decision(linked: macDecision.linked + cloudDecision.linked,
                                               nextExpiry: [macDecision.nextExpiry, cloudDecision.nextExpiry].compactMap(\.self).min())
+        var heldWanted = false
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             cancelPendingClose(session)
             session.name = mac.name
+            if mac.isCloud, !session.link.phase.isConnected,
+               cloudDropHolds[mac.id] != nil || cloudStaleHolds[mac.id] != nil {
+                heldWanted = true
+            }
             session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.isOnline)))
         }
+        // A held Cloud machine is wanted again (shown, opened): its hold lifts only on a list read,
+        // so ask for one now rather than at the next (idle) poll.
+        if heldWanted { onCloudHoldsWaiting?(false) }
         for (id, session) in sessions where !decision.linked.contains(id) && session.link.target != nil {
             log.info("link to \(session.name, privacy: .private) idle: closing it")
             closeLink(session)
@@ -839,10 +847,11 @@ public final class LiveCoordinator {
     @ObservationIgnored var orphanedTerminals: [String: [MacSession.WeakTerminal]] = [:]
 
     /// Closes a Mac's link and forgets its session.
-    func closeSession(_ id: String) {
+    func closeSession(_ id: String, keepsTerminals: Bool = true) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         let live = session.terminals.filter { $0.session != nil }
-        if !live.isEmpty, !stopped { orphanedTerminals[id, default: []] += live }
+        if !live.isEmpty, !stopped, keepsTerminals { orphanedTerminals[id, default: []] += live }
+        if !keepsTerminals { orphanedTerminals[id] = nil }
         session.attachesAtClose = Dictionary(live.compactMap { weak in
             weak.session.map { (ObjectIdentifier($0), $0.attachIdentity) }
         }, uniquingKeysWith: { first, _ in first })

@@ -509,11 +509,15 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.closeLink(session)
         await settle { session.link.target == nil }
 
-        // Wanted again on the old list: not dialed.
+        // Wanted again on the old list: not dialed, and a read is asked for now (review round 16:
+        // it waited for the idle poll, up to a minute, with the terminal in "connecting").
+        var asks = 0
+        live.onCloudHoldsWaiting = { _ in asks += 1 }
         live.applyCloudMachines([machine(.running)])
         live.applyLinks()
         await drain()
         #expect(cloud.dials(vm) == 1, "dialed again on a list read before the close")
+        #expect(asks >= 1, "a held machine wanted again never asked for a read")
         // A read after the close says it runs: dialed now.
         live.applyCloudMachines([machine(.running)], fromRead: true)
         await settle { cloud.dials(vm) == 2 && store.macConnection[vm] == .connected }

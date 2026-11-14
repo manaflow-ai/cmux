@@ -78,7 +78,8 @@ extension LiveCoordinator {
         for gone in before.subtracting(ids) {
             // Its open pages close, as a removed Mac's do (a workspace on Workspaces or Settings).
             onMacRemoved?(gone)
-            closeSession(gone)
+            // Gone from the list (deleted): no later session takes its terminals.
+            closeSession(gone, keepsTerminals: false)
             store.replaceWorkspaces(macID: gone, with: [])
             store.macData[gone] = nil
             lastShown[gone] = nil
@@ -136,6 +137,9 @@ extension LiveCoordinator {
     /// and link dial it now. The old one may be in `signedOut`, which never dials again.
     public func retryCloud(_ machineID: String) {
         cloudRefusals[machineID] = nil
+        // The person asked: no quick-drop wait from before (a read still decides it runs).
+        cloudHoldNotBefore[machineID] = nil
+        cloudQuickDrops[machineID] = nil
         closeSession(machineID)
         publishCloudMachines()
         touch(machineID)
@@ -160,9 +164,12 @@ extension LiveCoordinator {
     /// claim their sizes again.
     func closeLink(_ session: MacSession) {
         // The phone closes it (once per close, not per apply while it releases): the machine may
-        // idle-pause unseen, so a new dial waits for a list read begun after now.
+        // idle-pause unseen, so a new dial waits for a list read begun after now. A refused
+        // machine dials again only on Retry (the person's own ask), so its close holds nothing.
         guard session.isCloud, session.link.phase.isConnected, session.link.target != nil else {
-            if session.isCloud, session.link.target != nil { holdCloudListStale([session.macID]) }
+            if session.isCloud, session.link.target != nil, cloudRefusals[session.macID] == nil {
+                holdCloudListStale([session.macID])
+            }
             session.pendingClose = nil
             return session.link.send(.target(nil))
         }

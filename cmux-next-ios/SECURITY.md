@@ -191,15 +191,19 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   recovery gave up (about two resume windows, 20 s, after a drop that never
   comes back), ends; the phone dials a new one with a new grant. A network
   handoff that comes back inside that window resumes, with no new grant and
-  no platform ask: a resume uses only the dial's own ticket, and past it the
-  session ends instead (any carrier ask starts a machine cmux paused by itself,
-  so a resume must not wake one that idle-paused under the session). After a
+  no platform ask: a resume uses only the dial's own ticket (valid about 4.5
+  minutes after the dial), and past it the session ends instead (any carrier
+  ask starts a machine cmux paused by itself, so a resume must not wake one that
+  idle-paused under the session). A handoff later in a session therefore costs
+  a full redial and terminal reattach after the next machine read. After a
   drop, a failed dial, a close the phone made, or the app's return from the
   background, the phone dials a machine again only after a machine read begun
   since then shows it running; its retries never ask the platform on an older
   list. A carrier that keeps dropping right after it connects waits longer each
-  time (up to two minutes), so a failing daemon is not kept awake. A return to the foreground probes a live session rather
-  than replacing it, for the same reason.
+  time (up to two minutes), so a failing daemon is not kept awake; the person
+  opening the machine or tapping Retry skips that wait. A return to the
+  foreground probes a live session rather than replacing it, for the same
+  reason.
 - **Which role.** The grant carries the platform's `vmk` claim; the machine's
   session host stamps it on every stream (`carrier-role`) before the phone's
   bytes, so the daemon sees the person's own role, never one the phone names.

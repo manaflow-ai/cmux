@@ -714,7 +714,11 @@ extension LiveCoordinator {
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
-        if isCloud(macID: macID) { touchedCloud = macID }
+        if isCloud(macID: macID) {
+            touchedCloud = macID
+            // The person opened it: no quick-drop wait (a read still decides it runs).
+            cloudHoldNotBefore[macID] = nil
+        }
         // A held machine opened: read the list now (its hold lifts only on a read).
         if cloudDropHolds[macID] != nil || cloudStaleHolds[macID] != nil { onCloudHoldsWaiting?(false) }
         applyLinks()
