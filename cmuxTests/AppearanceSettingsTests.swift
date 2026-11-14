@@ -402,6 +402,59 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark), .dark)
     }
 
+    /// The appearance mode reaches SwiftUI roots through the environment only.
+    /// A root that also wrote the window's appearance re-entered AppKit on
+    /// macOS 15: the write made `NSThemeFrame` re-float its titlebar views,
+    /// which re-added the hosting view, whose `viewDidMoveToWindow` wrote the
+    /// appearance again until AttributeGraph aborted with "child already
+    /// attached to new parent" (CMUXTERM-MACOS-G71, 3ZF8). `NSApp.appearance`
+    /// already carries the mode to every window.
+    func testAppearanceRootInjectsColorSchemeWithoutWritingWindowAppearance() {
+        final class SchemeBox { var schemes: [ColorScheme] = [] }
+        struct Probe: View {
+            let box: SchemeBox
+            @Environment(\.colorScheme) private var colorScheme
+            var body: some View {
+                box.schemes.append(colorScheme)
+                return Color.clear.frame(width: 40, height: 20)
+            }
+        }
+
+        for mode in [AppearanceMode.dark, .light] {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+
+            let contentBox = SchemeBox()
+            window.contentView = NSHostingView(
+                rootView: Probe(box: contentBox).cmuxAppearanceColorScheme(mode.rawValue)
+            )
+            let accessoryBox = SchemeBox()
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.layoutAttribute = .trailing
+            accessory.view = NSHostingView(
+                rootView: Probe(box: accessoryBox).cmuxAppearanceColorScheme(mode.rawValue)
+            )
+            window.addTitlebarAccessoryViewController(accessory)
+
+            window.contentView?.layoutSubtreeIfNeeded()
+            accessory.view.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+            let expected: ColorScheme = mode == .dark ? .dark : .light
+            XCTAssertEqual(contentBox.schemes.last, expected, "content root sees \(mode)")
+            XCTAssertEqual(accessoryBox.schemes.last, expected, "titlebar root sees \(mode)")
+            XCTAssertNil(window.appearance, "a SwiftUI root must not write the window appearance (\(mode))")
+            XCTAssertNil(window.contentView?.superview?.appearance, "theme frame appearance stays inherited (\(mode))")
+            XCTAssertNil(accessory.view.appearance, "titlebar hosting view appearance stays inherited (\(mode))")
+        }
+    }
+
     func testSelectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() {
         let suiteName = "AppearanceSettingsTests.SelectDark.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
