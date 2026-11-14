@@ -41,7 +41,10 @@ jobs:
 
       - name: Build the Windows host
         working-directory: cmux-tui/crates/cmux-rd-host
-        run: cargo build --release --locked --no-default-features --features bench
+        run: |
+          cargo build --release --locked --no-default-features --features bench
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --release --locked --no-default-features --features bench optional_4k_mode
 
       - name: Capture and encode a real desktop sample
         working-directory: cmux-tui/crates/cmux-rd-host
@@ -71,6 +74,11 @@ jobs:
                   --width $size[0] --height $size[1] --duration-s 10 --codec openh264
                 if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
                 $result = $json | ConvertFrom-Json
+                if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
+                  Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
+                  Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
+                  break
+                }
                 if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
                   throw 'Loopback did not prove a decoded frame in the viewer'
                 }

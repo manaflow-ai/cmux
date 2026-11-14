@@ -9,8 +9,8 @@ use openh264::formats::YUVSource;
 use serde_json::json;
 use windows_sys::Win32::Graphics::Gdi::{
     ChangeDisplaySettingsW, EnumDisplaySettingsW, GdiFlush, GetPixel, StretchDIBits,
-    CDS_FULLSCREEN, CDS_TEST, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_PELSHEIGHT, DM_PELSWIDTH,
-    ENUM_CURRENT_SETTINGS,
+    CDS_FULLSCREEN, CDS_TEST, DEVMODEW, DISP_CHANGE_BADMODE, DISP_CHANGE_SUCCESSFUL, DM_PELSHEIGHT,
+    DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, PeekMessageW, TranslateMessage, MSG,
@@ -20,7 +20,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 struct DesktopMode(DEVMODEW);
 
 impl DesktopMode {
-    fn set(width: u32, height: u32) -> Res<Self> {
+    fn set(width: u32, height: u32) -> Res<Option<Self>> {
         // SAFETY: DEVMODEW is initialized with the required size and filled by Windows.
         let mut original: DEVMODEW = unsafe { zeroed() };
         original.dmSize = size_of::<DEVMODEW>() as u16;
@@ -40,6 +40,9 @@ impl DesktopMode {
         requested.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
         // Test before changing the runner's temporary desktop; never persist a registry setting.
         let tested = unsafe { ChangeDisplaySettingsW(&requested, CDS_TEST) };
+        if optional_4k_mode_unavailable(width, height, tested) {
+            return Ok(None);
+        }
         if tested != DISP_CHANGE_SUCCESSFUL {
             return Err(format!("Windows display cannot provide {width}x{height}: ChangeDisplaySettingsW(CDS_TEST)={tested}; current={}x{}", original.dmPelsWidth, original.dmPelsHeight).into());
         }
@@ -58,7 +61,7 @@ impl DesktopMode {
             )
             .into());
         }
-        Ok(restore)
+        Ok(Some(restore))
     }
 }
 
@@ -176,7 +179,18 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
     if !matches!((width, height), (1920, 1080) | (3840, 2160)) || !(2..=30).contains(&duration) {
         return Err("loopback requires 1920x1080 or 3840x2160 and --duration-s 2..30".into());
     }
-    let _mode = DesktopMode::set(width, height)?;
+    let Some(_mode) = DesktopMode::set(width, height)? else {
+        println!(
+            "{}",
+            json!({
+                "platform": "windows", "size": "3840x2160", "status": "not_measured",
+                "reason": "no_display_mode", "message": "4K: not measured, no display mode",
+                "first_frame_ms": null, "fps": null, "encode_ms": null,
+                "loopback_ok": false
+            })
+        );
+        return Ok(());
+    };
     let viewer = ViewerWindow::new(width, height)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let address = listener.local_addr()?;
@@ -359,4 +373,23 @@ fn measure(
         "steady_frames":steady_frames, "frames":frames, "encoded_bytes":bytes,
         "distinct_presented_colors":colors.len(), "decode_ms":distribution(&decode_ms),
         "present_ms":distribution(&present_ms), "loopback_ok":true}))
+}
+
+// Only an unsupported optional resolution is unmeasured. A failure to change a
+// supported mode, a failed capture, or any missing 1080p mode remains an error.
+fn optional_4k_mode_unavailable(width: u32, height: u32, result: i32) -> bool {
+    (width, height) == (3840, 2160) && result == DISP_CHANGE_BADMODE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_4k_mode_does_not_hide_product_or_required_mode_failures() {
+        assert!(optional_4k_mode_unavailable(3840, 2160, DISP_CHANGE_BADMODE));
+        assert!(!optional_4k_mode_unavailable(1920, 1080, DISP_CHANGE_BADMODE));
+        assert!(!optional_4k_mode_unavailable(3840, 2160, DISP_CHANGE_SUCCESSFUL));
+        assert!(!optional_4k_mode_unavailable(3840, 2160, -1));
+    }
 }
