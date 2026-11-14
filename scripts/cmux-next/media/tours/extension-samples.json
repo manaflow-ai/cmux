@@ -41,7 +41,27 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/weather >/dev/null && cp {repo}/examples/extensions/weather/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/weather/cmux-app.json > \"$D/cmux-app.json\" && echo saved weather\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/weather >/dev/null && cp {repo}/examples/extensions/weather/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/weather/cmux-app.json > \"$D/cmux-app.json\" && echo saved weather\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "World clock: first render (examples/extensions/world-clock/src/main.ts packed, built only on cmux-extension-sdk, as the customize app)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Samples",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/world-clock >/dev/null && cp {repo}/examples/extensions/world-clock/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/world-clock/cmux-app.json > \"$D/cmux-app.json\" && echo saved world-clock\r"
       ],
       "wait": 6
     },
@@ -61,7 +81,7 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/recent-prs >/dev/null && cp {repo}/examples/extensions/recent-prs/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/recent-prs/cmux-app.json > \"$D/cmux-app.json\" && echo saved recent-prs\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/recent-prs >/dev/null && cp {repo}/examples/extensions/recent-prs/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/recent-prs/cmux-app.json > \"$D/cmux-app.json\" && echo saved recent-prs\r"
       ],
       "wait": 6
     },
@@ -81,7 +101,7 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/agent-pet >/dev/null && cp {repo}/examples/extensions/agent-pet/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/agent-pet/cmux-app.json > \"$D/cmux-app.json\" && echo saved agent-pet\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/agent-pet >/dev/null && cp {repo}/examples/extensions/agent-pet/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/agent-pet/cmux-app.json > \"$D/cmux-app.json\" && echo saved agent-pet\r"
       ],
       "wait": 6
     },
@@ -101,7 +121,7 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/agent-standup >/dev/null && cp {repo}/examples/extensions/agent-standup/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/agent-standup/cmux-app.json > \"$D/cmux-app.json\" && echo saved agent-standup\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/agent-standup >/dev/null && cp {repo}/examples/extensions/agent-standup/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/agent-standup/cmux-app.json > \"$D/cmux-app.json\" && echo saved agent-standup\r"
       ],
       "wait": 6
     },
@@ -121,7 +141,7 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/workspace-notes >/dev/null && cp {repo}/examples/extensions/workspace-notes/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/workspace-notes/cmux-app.json > \"$D/cmux-app.json\" && echo saved workspace-notes\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/workspace-notes >/dev/null && cp {repo}/examples/extensions/workspace-notes/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/workspace-notes/cmux-app.json > \"$D/cmux-app.json\" && echo saved workspace-notes\r"
       ],
       "wait": 6
     }
