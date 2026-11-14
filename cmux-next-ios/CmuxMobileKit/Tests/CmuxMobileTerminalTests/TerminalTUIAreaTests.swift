@@ -1,6 +1,7 @@
 #if os(iOS) && DEBUG
 import CmuxMobileArtifacts
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import CmuxMobileTerminal
@@ -48,6 +49,33 @@ import UIKit
     /// The demo's tab insets (`TerminalDemoRoot`): TabsKit's status bar area
     /// and floating toolbar.
     static let tabInsets = UIEdgeInsets(top: 62, left: 0, bottom: 90, right: 0)
+
+    /// A workspace tab as the app shows it: `TerminalTabPage` in SwiftUI,
+    /// TabsKit's insets set by its representable (the demo's
+    /// `-CmuxMobileTerminalDemoEmbedded`). `hostGrid`: the Mac's grid is
+    /// `30x12` and a full-screen app runs in it (the demo's host grid TUI).
+    static func openTab(hostGrid: Bool) async throws -> Page {
+        let tui = TUISession()
+        let grid = hostGrid ? TerminalHostGridDemoSession(spec: "30x12,tui") : nil
+        let session: any TerminalSession = grid ?? tui
+        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "tui")
+        let host = TerminalTabHost(model: model)
+        let insets = EdgeInsets(top: tabInsets.top, leading: 0, bottom: tabInsets.bottom, trailing: 0)
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = UIHostingController(rootView: TerminalTabPage(host: host, insets: insets, isInteractive: true))
+        window.makeKeyAndVisible()
+        let screen = host.controller
+        try await TerminalPredictionInputTests.waitUntil(5) { screen.started }
+        try #require(screen.started, "the tab page never started its session")
+        if grid == nil { tui.enterTUI() }
+        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
+        try #require(model.isTUI, "the tab never showed the full-screen app")
+        // The demo's frames land; SwiftUI may lay the page out again.
+        try await Task.sleep(for: .milliseconds(500)) // test: the page's layout passes settle
+        screen.view.setNeedsLayout()
+        screen.view.layoutIfNeeded()
+        return Page(screen: screen, session: tui, window: window)
+    }
 
     static func open(_ chrome: TerminalChrome) async throws -> Page {
         let session = TUISession()
@@ -114,6 +142,27 @@ import UIKit
         try Self.expectFits(page, "tab, keyboard up", areaTop: Self.tabInsets.top)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "tab, keyboard down again", areaTop: Self.tabInsets.top)
+    }
+
+    @Test func aFullScreenAppInATabPageStartsInsideTheTerminalArea() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let page = try await Self.openTab(hostGrid: false)
+        defer { page.close() }
+        try Self.expectFits(page, "tab page, keyboard down", areaTop: Self.tabInsets.top)
+        Self.keyboard(page, height: 336)
+        try Self.expectFits(page, "tab page, keyboard up", areaTop: Self.tabInsets.top)
+        Self.keyboard(page, height: 0)
+        try Self.expectFits(page, "tab page, keyboard down again", areaTop: Self.tabInsets.top)
+    }
+
+    /// The fleet capture's state: the Mac's 30x12 grid, a full-screen app, in a tab.
+    @Test func aHostGridAppInATabPageStartsInsideTheTerminalArea() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let page = try await Self.openTab(hostGrid: true)
+        defer { page.close() }
+        try Self.expectFits(page, "host grid tab page, keyboard down", areaTop: Self.tabInsets.top)
     }
 
     @Test func aFullScreenAppStandaloneStartsInsideTheTerminalArea() async throws {
