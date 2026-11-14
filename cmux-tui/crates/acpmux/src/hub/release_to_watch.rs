@@ -14,6 +14,11 @@
 //!   and the SAME chat becomes a watch of its own transcript from the transcript's current end.
 //!   So nothing the chat already shows is read again, and what the terminal appends shows once.
 //!   The open chat keeps its history and scroll: no new tab, no reload.
+//! - The chat stays writable (Leo, 2026-11-14, on the chat writable in both directions: "this
+//!   is obviously what we need"). `resume-here` names its own process (`terminalPid`, checked
+//!   against the kernel's peer pid), which becomes the harness; the watch records it
+//!   (`Watching::terminal`) and tags the chat `via: terminal`, and the chat's prompts go into
+//!   that harness (`bridge.rs`) while it runs.
 //! - The answer is the chat's summary (with `watching`) and `resume {argv, cwd, env}`: the
 //!   harness's own resume command (`claude --resume ID`, `codex resume ID`), the folder it runs
 //!   in, and the store variable the chat's profile sets (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
@@ -71,15 +76,31 @@ impl Drop for Releasing<'_> {
 impl Hub {
     /// `_acpmux/release_to_watch`: waits until `session` is idle, then stops its harness and makes
     /// it watch its own transcript (module docs).
+    /// `terminal`: the process of the terminal that takes the conversation (`acpmux resume-here`,
+    /// which becomes the harness): the chat's prompts go into that harness while it runs
+    /// (`bridge.rs`), instead of the chat turning View Only.
     pub async fn release_to_watch(
         self: &Arc<Self>,
         session: &Arc<Session>,
+        terminal: Option<u32>,
     ) -> Result<Value, RpcError> {
         let (family, id) = self.releasable(session).await?;
         if session.meta().watching.is_some() {
             if let Some(live) = self.live_holder(session, &family, &id).await? {
                 return Err(RpcError::invalid_params(live.refusal(&family, &id))
                     .with_data(json!({"reason": "adopt.live", "details": live.details(&family)})));
+            }
+            if let Some(pid) = terminal {
+                let (_, root) = self.harness_transcript(session, &family, &id).await?;
+                // Under the watch's turn gate: a watched batch writes its state back whole.
+                let _turn = session.turn_lock.lock().await;
+                if let Some(w) =
+                    session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching.as_mut()
+                {
+                    w.terminal = Some(driver(pid, root));
+                }
+                self.save_meta(session);
+                self.mark_terminal_driven(session, &family);
             }
             return Ok(self.released(session, &family, &id).await);
         }
@@ -95,7 +116,7 @@ impl Hub {
         loop {
             // Subscribed before the look, so a record that comes between them still wakes it.
             let mut events = self.subscribe();
-            let look = self.try_release(session, &family, &id).await?;
+            let look = self.try_release(session, &family, &id, terminal).await?;
             let wait_lock = match look {
                 Look::Released(answer) => return Ok(answer),
                 Look::Locked => true,
@@ -169,6 +190,7 @@ impl Hub {
         session: &Arc<Session>,
         family: &str,
         id: &str,
+        terminal: Option<u32>,
     ) -> Result<Look, RpcError> {
         let Ok(_turn) = session.turn_lock.try_lock() else { return Ok(Look::Locked) };
         let Ok(using) = session.harness_use.try_write() else { return Ok(Look::Busy("starting")) };
@@ -189,7 +211,7 @@ impl Hub {
             return Ok(Look::Busy("unadopted_host"));
         }
         // The transcript the watch follows; none yet refuses with nothing stopped.
-        let (file, _) = self.harness_transcript(session, family, id).await?;
+        let (file, root) = self.harness_transcript(session, family, id).await?;
         // Ended as the idle pass ends it: the record and the conversation id stay.
         if has_child {
             self.detach_child(session).await;
@@ -206,10 +228,20 @@ impl Hub {
             tokio::task::spawn_blocking(move || transcript_end(&start, codex))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?;
-        let watching =
-            Watching { family: family.to_owned(), file, offset, codex_items, open: None };
+        let watching = Watching {
+            family: family.to_owned(),
+            file,
+            offset,
+            codex_items,
+            open: None,
+            terminal: terminal.map(|pid| driver(pid, root)),
+            queued: Vec::new(),
+        };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
+        if terminal.is_some() {
+            self.mark_terminal_driven(session, family);
+        }
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has `watching`.
         self.append(
             session,
@@ -219,6 +251,16 @@ impl Hub {
         );
         self.start_watch(session);
         Ok(Look::Released(self.released(session, family, id).await))
+    }
+
+    /// Tags `session` as a chat whose prompts go into the terminal that runs its conversation: a
+    /// client keeps its composer on and shows no View Only banner (webviews `bridgedWatch`). The
+    /// tags only say so; what lets a prompt through is the daemon's own `Watching::terminal`.
+    fn mark_terminal_driven(&self, session: &Session, family: &str) {
+        let mut tags = serde_json::Map::new();
+        tags.insert("bridge".into(), json!(family));
+        tags.insert(TERMINAL_TAG.into(), json!(TERMINAL_TAG_VALUE));
+        self.set_tags(session, Some(&tags), &[], None);
     }
 
     /// The answer of a release: the summary and the harness's resume command.
@@ -287,6 +329,15 @@ impl Hub {
             .await
             .map_err(|e| RpcError::internal(e.to_string()))
     }
+}
+
+/// The tag a terminal-driven chat carries (`mark_terminal_driven`), and its value.
+pub(crate) const TERMINAL_TAG: &str = "via";
+pub(crate) const TERMINAL_TAG_VALUE: &str = "terminal";
+
+/// The binding of terminal process `pid` (its start time read now) whose conversation is in `store`.
+fn driver(pid: u32, store: std::path::PathBuf) -> crate::store::TerminalDriver {
+    crate::store::TerminalDriver { pid, started: crate::adopt_live::pid_start_ms(pid), store }
 }
 
 /// The harness's own command that resumes `family` conversation `id` in a terminal.
