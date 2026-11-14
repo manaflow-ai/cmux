@@ -455,30 +455,40 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
   await idle(page);
   // The index has answered (or its delay passed) and the rail has settled.
   await page.waitForTimeout(600);
-  // Two older pages, each landing once the transcript reaches its top. The client reads pages ahead of the
-  // reader (direct.ts readOlderAhead, #42298), so the second page lands from what it already read, with no new
-  // daemon read: a page has landed when the transcript grew above the view by more than a screen.
-  const height = () =>
+  // Older pages, read as the transcript reaches its top, until it holds the chat's first prompt (at most two).
+  // The client reads pages ahead of the reader and asks again by itself while the view sits at the top
+  // (direct.ts readOlderAhead, #42298), so a page can land with no new daemon read and the 1,000-turn fixture
+  // can be whole after one scroll: a page has landed on a new read or when the transcript grew above the view
+  // by more than a screen, and the loading is over once the first prompt is held.
+  const view = () =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll");
-      return node ? { scroll: node.scrollHeight, view: node.clientHeight } : { scroll: 0, view: 0 };
+      const whole = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].some(
+        (bubble) => bubble.textContent?.trim() === "Question 1",
+      );
+      return node ? { scroll: node.scrollHeight, view: node.clientHeight, whole } : { scroll: 0, view: 0, whole };
     });
-  for (let pages = 0; pages < 2; pages += 1) {
+  let landedPages = 0;
+  for (; landedPages < 2; landedPages += 1) {
     const reads = eventReads();
-    const before = await height();
+    const before = await view();
     await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll");
       if (!node) return;
       node.scrollTop = 0;
       node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
     });
-    const landed = async () => eventReads() > reads || (await height()).scroll > before.scroll + before.view;
+    const landed = async () => eventReads() > reads || (await view()).scroll > before.scroll + before.view;
     const deadline = Date.now() + 15_000;
     while (!(await landed()) && Date.now() < deadline) await page.waitForTimeout(50);
-    if (!(await landed()))
+    if (!(await landed())) {
+      // Nothing left to read: the pages before (and what they read ahead) hold the whole chat.
+      await idle(page);
+      if (landedPages > 0 && (await view()).whole) break;
       throw new Error(
-        `No older page landed (page ${pages + 1}, ${eventReads()} events reads, height ${before.scroll})`,
+        `No older page landed (page ${landedPages + 1}, ${eventReads()} events reads, height ${before.scroll})`,
       );
+    }
     await idle(page);
   }
   await page.waitForTimeout(300);
@@ -506,6 +516,7 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
     lengthGapPx: Math.max(Math.abs(last.height - first.height), Math.abs(last.prompts - first.prompts) * 10),
     promptGap: Math.abs(last.prompts - first.prompts),
     shiftPx: shift,
+    landedPages,
   };
 }
 
