@@ -418,7 +418,7 @@ struct GapSource {
     reads: Arc<AtomicU64>,
     stamp: Arc<AtomicU64>,
     flip_after: Arc<AtomicU64>,
-    first_gate: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
+    first_gate: Arc<Mutex<Option<Receiver<()>>>>,
     progress: Option<mpsc::Sender<u64>>,
 }
 impl source::RawSource for GapSource {
@@ -467,8 +467,8 @@ struct GapFixture {
     reads: Arc<AtomicU64>,
     stamp: Arc<AtomicU64>,
     flip_after: Arc<AtomicU64>,
-    gate: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
-    progress: mpsc::Receiver<u64>,
+    gate: Arc<Mutex<Option<Receiver<()>>>>,
+    progress: Receiver<u64>,
 }
 fn gap_fixture(book: &Path, raw: &[u8]) -> GapFixture {
     let lines = Arc::new(raw.split_inclusive(|b| *b == b'\n').map(Vec::from).collect::<Vec<_>>());
