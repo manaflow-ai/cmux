@@ -57,7 +57,7 @@ fn keeper(
             home.display()
         ));
     }
-    let socket = tunnel_keeper::default_socket().ok_or("no workspace state directory")?;
+    let socket = hub_socket(state_dir).ok_or("this link is not on its app's state directory")?;
     let exe = std::env::current_exe().map_err(|_| "this cmux binary's path is unknown")?;
     let launcher = ProcessHubLauncher::new(exe)?;
     // Made on first need: a link of a machine that never joins writes no key.
@@ -75,6 +75,21 @@ fn keeper(
         jitter: tunnel_keeper::jitter,
         on_event: Arc::new(log_event),
     })
+}
+
+/// The hub socket of the app whose link state directory is `state_dir`:
+/// `<workspace state dir>/carrier/tunnel.sock`, where that app's dial looks
+/// (`carrier::ssh::default_hub`). The app's link lives at
+/// `<workspace state dir>/link` (`state::default_dir`), so the socket is found
+/// from it, never from this process's environment: launchd starts `serve`
+/// without the app's `CMUX_TUI_STATE_DIR`, which a Nightly or tagged build sets
+/// to its own directory. None for a link on any other state directory.
+pub(super) fn hub_socket(state_dir: &Path) -> Option<PathBuf> {
+    if state_dir.file_name()? != "link" {
+        return None;
+    }
+    let socket = state_dir.parent()?.join("carrier").join("tunnel.sock");
+    cmux_unix_socket::fits(&socket).then_some(socket)
 }
 
 fn canonical(path: &Path) -> PathBuf {

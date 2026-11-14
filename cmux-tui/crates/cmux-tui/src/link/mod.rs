@@ -476,8 +476,17 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
     // Shared with the Cloud tunnel (`carrier_tunnel.rs`), which keeps only a weak handle.
     let key = Arc::new(key);
-    tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(serve(state, &key, session_socket, owner, ready, served, watch));
+    // A blocking call still running (the Cloud tunnel's `auth.token` ask, up to 30 s) is not
+    // waited for: `link stop` gives the link 10 s (`ensure::STOP_BUDGET`). The hub it may have
+    // started ends with this process (`wg hub --exit-with-parent`).
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN);
+    result
 }
+
+/// How long the ended link waits for its runtime's blocking calls.
+const RUNTIME_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
 fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {

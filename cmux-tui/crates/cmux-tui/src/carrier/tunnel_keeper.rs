@@ -121,7 +121,7 @@ impl Default for KeeperTiming {
 pub(crate) struct Keeper {
     pub joined: JoinedSource,
     pub token: TokenSource,
-    /// The hub's socket ([`default_socket`] for real use).
+    /// The hub's socket: where the app's dial looks (`<workspace state dir>/carrier/tunnel.sock`).
     pub socket: PathBuf,
     pub launcher: Arc<dyn HubLauncher>,
     /// The VM API origin; `None` derives it from the platform origin
@@ -131,11 +131,6 @@ pub(crate) struct Keeper {
     /// The retry delay for a ceiling (full jitter).
     pub jitter: fn(Duration) -> Duration,
     pub on_event: Arc<dyn Fn(&KeeperEvent) + Send + Sync>,
-}
-
-/// `<workspace state dir>/carrier/tunnel.sock`, the socket the dial reads.
-pub(crate) fn default_socket() -> Option<PathBuf> {
-    super::ssh::default_hub()
 }
 
 /// The session's full-jitter draw, as `carrier tunnel` uses.
@@ -187,7 +182,7 @@ impl Keeper {
                 Ok(plan) => plan,
                 Err(why) => {
                     self.emit(KeeperEvent::Unstarted(why));
-                    tokio::time::sleep(self.timing.unavailable_wait).await;
+                    self.wait_unless_rejoined(self.timing.unavailable_wait, &joined).await;
                     continue;
                 }
             };
@@ -201,7 +196,7 @@ impl Keeper {
                 Err(error) => {
                     self.emit(KeeperEvent::Unstarted(error.to_string()));
                     restarts = restarts.saturating_add(1);
-                    self.wait(self.restart_delay(restarts)).await;
+                    self.wait_unless_rejoined(self.restart_delay(restarts), &joined).await;
                     continue;
                 }
             };
@@ -221,7 +216,9 @@ impl Keeper {
                         _ => self.restart_delay(restarts),
                     };
                     self.emit(KeeperEvent::Ended(status));
-                    self.wait(delay).await;
+                    if self.wait_unless_rejoined(delay, &joined).await {
+                        restarts = 0;
+                    }
                 }
             }
         }
@@ -231,9 +228,24 @@ impl Keeper {
         (self.on_event)(&event);
     }
 
-    async fn wait(&self, delay: Duration) {
+    /// Waits `delay` before the next start for `joined`, looking at the join every
+    /// [`KeeperTiming::check_every`]: a device that left, or joined another team or
+    /// platform, ends the wait at once (its wait was the old join's, a team with no
+    /// mesh's 30 minutes included). True when the join changed.
+    async fn wait_unless_rejoined(&self, delay: Duration, joined: &Joined) -> bool {
         self.emit(KeeperEvent::Waiting(delay));
-        tokio::time::sleep(delay).await;
+        let until = tokio::time::Instant::now() + delay;
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= until {
+                return false;
+            }
+            tokio::time::sleep(until.saturating_duration_since(now).min(self.timing.check_every))
+                .await;
+            if !self.joined_now().is_some_and(|now| now.same_device(joined)) {
+                return true;
+            }
+        }
     }
 
     /// The wait before start number `restarts` (1-based): the floor doubling

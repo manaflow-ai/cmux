@@ -28,6 +28,20 @@ fn an_install_key_file_that_is_not_one_is_refused_never_replaced() {
     assert!(load_or_create_install_key(&link).is_err(), "a symlink is never followed");
 }
 
+/// The hub goes where the app's own dial looks, whichever build's state directory
+/// the link is on (launchd gives `serve` no `CMUX_TUI_STATE_DIR`).
+#[test]
+fn the_hub_socket_is_beside_the_links_own_state_directory() {
+    let nightly = Path::new("/Users/me/Library/Application Support/cmux-tui-nightly/sessions/link");
+    assert_eq!(
+        hub_socket(nightly),
+        Some(PathBuf::from(
+            "/Users/me/Library/Application Support/cmux-tui-nightly/sessions/carrier/tunnel.sock"
+        ))
+    );
+    assert_eq!(hub_socket(Path::new("/tmp/some-link-state")), None, "not an app's link");
+}
+
 #[test]
 fn a_token_goes_only_to_the_platform_of_the_deployment_that_issued_it() {
     use cmux_cloud_environment as env;

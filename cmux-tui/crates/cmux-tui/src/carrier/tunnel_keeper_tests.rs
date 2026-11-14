@@ -158,6 +158,8 @@ struct World {
     platform: Arc<Fake>,
     hubs: Arc<Hubs>,
     joined: Arc<AtomicBool>,
+    /// The device joins `team_2` instead of `team_1`.
+    other_team: Arc<AtomicBool>,
     signed_in: Arc<AtomicBool>,
     asks: Arc<AtomicUsize>,
     events: tokio::sync::mpsc::UnboundedReceiver<KeeperEvent>,
@@ -212,13 +214,15 @@ async fn world_attaching(joined: bool, signed_in: bool, attach: Option<Reply>) -
         Arc::new(AtomicBool::new(signed_in)),
         Arc::new(AtomicUsize::new(0)),
     );
+    let other_team = Arc::new(AtomicBool::new(false));
     let joined_source: JoinedSource = {
-        let (flag, platform_origin) = (Arc::clone(&joined_flag), platform_origin.clone());
+        let (flag, other, platform_origin) =
+            (Arc::clone(&joined_flag), Arc::clone(&other_team), platform_origin.clone());
         Arc::new(move || {
             Ok(flag.load(Ordering::SeqCst).then(|| Joined {
                 machine_id: "machine_1".into(),
                 name: "leo-mac".into(),
-                team: "team_1".into(),
+                team: if other.load(Ordering::SeqCst) { "team_2" } else { "team_1" }.into(),
                 platform: platform_origin.clone(),
                 wg_private: wg_private.clone(),
                 install: Arc::clone(&install),
@@ -228,7 +232,7 @@ async fn world_attaching(joined: bool, signed_in: bool, attach: Option<Reply>) -
     let token: TokenSource = {
         let (flag, asks) = (Arc::clone(&signed_flag), Arc::clone(&asks));
         Arc::new(move |team: &str, _platform: &str| {
-            assert_eq!(team, "team_1");
+            assert!(team == "team_1" || team == "team_2", "{team}");
             let n = asks.fetch_add(1, Ordering::SeqCst);
             if flag.load(Ordering::SeqCst) {
                 Ok(Zeroizing::new(format!("person-token-{n}")))
@@ -263,6 +267,7 @@ async fn world_attaching(joined: bool, signed_in: bool, attach: Option<Reply>) -
         platform,
         hubs,
         joined: joined_flag,
+        other_team,
         signed_in: signed_flag,
         asks,
         events,
@@ -395,7 +400,7 @@ async fn a_supervisor_that_gives_up_starts_again_after_a_doubling_wait() {
 }
 
 #[tokio::test]
-async fn a_team_without_a_provider_mesh_waits_long_before_asking_again() {
+async fn a_team_without_a_provider_mesh_waits_long_and_joining_another_team_ends_the_wait() {
     let mut world = world_attaching(true, true, Some((200, json!({"mesh_id": null})))).await;
     let event = world.until(|e| matches!(e, KeeperEvent::Waiting(_))).await;
     assert_eq!(event, KeeperEvent::Waiting(Duration::from_secs(3600)));
@@ -403,6 +408,15 @@ async fn a_team_without_a_provider_mesh_waits_long_before_asking_again() {
         world.seen.contains(&KeeperEvent::Ended(TunnelStatus::Unavailable(tunnel::NO_MESH.into())))
     );
     assert_eq!(world.ssh(), Err(Absent::Tunnel));
+
+    // Joining another team ends the old team's long wait at once.
+    let started = world.seen.iter().filter(|e| **e == KeeperEvent::Started).count();
+    world.platform.answer("/attach", vec![mesh_only(), enrolled(&world.wg_public)]);
+    world.other_team.store(true, Ordering::SeqCst);
+    world.until(|e| *e == KeeperEvent::Ready).await;
+    let restarted = world.seen.iter().filter(|e| **e == KeeperEvent::Started).count();
+    assert_eq!(restarted, started + 1, "{:?}", world.seen);
+    assert_eq!(world.ssh(), Ok(()));
 }
 
 #[test]
