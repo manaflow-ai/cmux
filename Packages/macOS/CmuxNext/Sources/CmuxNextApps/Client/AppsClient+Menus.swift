@@ -1,15 +1,18 @@
-public import AppKit
-import CmuxNextDesign
+import Foundation
 
 /// `contributes.menus`: the rows apps add to cmux's own right-click menus. A
 /// menu reads them from the install mirror each time it opens, so a saved
 /// manifest (`apps-changed`, which lists again) shows on the next right-click
-/// with no relaunch.
+/// with no relaunch. Each row is a registry row running `app.menu.run` (the App
+/// builds it), so the menu, the CLI and MCP run one path.
 extension AppsClient {
     /// One app's row in a menu.
     public struct MenuRow: Sendable, Hashable {
         public var app: String
         public var item: AppMenuItem
+
+        /// The row's identifier in a menu (`app-menu:<app>#<item>`).
+        public var identifier: String { "app-menu:\(app)#\(item.id)" }
     }
 
     /// The rows visible apps (installed, enabled, not hidden) add to `target`'s menu: by
@@ -26,41 +29,22 @@ extension AppsClient {
         }.map { MenuRow(app: $0.0, item: $0.2) }
     }
 
-    /// `target`'s app rows as menu items for a right-click on `kind` `id` (a workspace, tab or
-    /// terminal). A click runs the row's op with the person's origin; a refusal goes to the app's log.
-    public func menuItems(for target: AppMenuItem.Target, kind: String, id: String) -> [NSMenuItem] {
-        menuRows(for: target).map { row in
-            let click = MenuClick { [weak self] in self?.runMenuRow(row, kind: kind, id: id) }
-            let item = NSMenuItem(title: row.item.title.resolved(), action: #selector(MenuClick.click), keyEquivalent: "")
-            item.target = click
-            item.representedObject = click // the item keeps its target alive
-            item.image = NSImage.menuSymbol(row.item.symbol ?? "puzzlepiece.extension")
-            item.identifier = NSUserInterfaceItemIdentifier("app-menu:\(row.app)#\(row.item.id)")
-            return item
+    /// Visible app `app`'s row `item` (any menu), nil when no visible app has it now.
+    public func menuRow(app: String, item: String) -> MenuRow? {
+        guard isListed, let record = apps.first(where: { $0.id == app && $0.isVisible }),
+              let row = record.manifest.menuItems.first(where: { $0.id == item }) else { return nil }
+        return MenuRow(app: record.id, item: row)
+    }
+
+    /// Runs `row`'s op on the right-clicked `kind` `id` (`args.target`) with `origin`; a refusal goes
+    /// to the app's log and is returned.
+    public func runMenuRow(_ row: MenuRow, kind: String, id: String, origin: AppOrigin) async -> AppsClientError? {
+        do throws(AppsClientError) {
+            _ = try await run(app: row.app, op: row.item.op, args: row.item.arguments(kind: kind, id: id), origin: origin)
+            return nil
+        } catch {
+            appendLog(row.app, level: "error", message: "\(row.item.op): \(error.description)", date: Date())
+            return error
         }
     }
-
-    private func runMenuRow(_ row: MenuRow, kind: String, id: String) {
-        let args = row.item.arguments(kind: kind, id: id)
-        // task-owner: one menu click's apps-run; nothing waits on it
-        Task { [weak self] in
-            do throws(AppsClientError) {
-                _ = try await self?.run(app: row.app, op: row.item.op, args: args, origin: .user)
-            } catch {
-                self?.appendLog(row.app, level: "error", message: "\(row.item.op): \(error.description)", date: Date())
-            }
-        }
-    }
-}
-
-/// A menu item's click handler (an `NSMenuItem` target is weak; the item holds this).
-@MainActor
-private final class MenuClick: NSObject {
-    private let action: () -> Void
-
-    init(_ action: @escaping () -> Void) {
-        self.action = action
-    }
-
-    @objc func click() { action() }
 }

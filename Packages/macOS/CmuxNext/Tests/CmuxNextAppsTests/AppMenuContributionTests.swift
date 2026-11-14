@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 @testable import CmuxNextApps
 import Testing
 
@@ -12,6 +12,7 @@ import Testing
         var revision: UInt64 = 1
         var menus: AppJSON = []
         var hidden = false
+        var refuses = false
         var runs: [(app: String, op: String, args: AppJSON, origin: AppOrigin)] = []
 
         func start() {}
@@ -29,6 +30,7 @@ import Testing
         func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) {}
         func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
             runs.append((app, op, args, origin))
+            if refuses { throw AppsTransportError(message: "refused") }
             return .null
         }
         func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { [] }
@@ -53,7 +55,7 @@ import Testing
     }
 
     private static func titles(_ client: AppsClient, _ target: AppMenuItem.Target) -> [String] {
-        client.menuItems(for: target, kind: "workspace", id: "ws1").map(\.title)
+        client.menuRows(for: target).map { $0.item.title.resolved() }
     }
 
     @Test func eachMenuListsItsOwnRowsInOrder() async {
@@ -103,19 +105,38 @@ import Testing
         #expect(Self.titles(client, .workspace).isEmpty)
     }
 
-    @Test func aClickRunsTheOpOnTheRightClickedObjectAsThePerson() async throws {
+    @Test func aRowRunsTheOpOnTheRightClickedObjectAsThePerson() async throws {
         let transport = Transport()
         transport.menus = [Self.row("copy", "workspace", "Copy Branch")]
         let client = await Self.started(transport)
-        let item = try #require(client.menuItems(for: .workspace, kind: "workspace", id: "ws1").first)
-        let target = try #require(item.target as? NSObject)
-        let action = try #require(item.action)
-        target.perform(action, with: item)
-        await Self.settle(client)
+        let row = try #require(client.menuRow(app: "local/branchy", item: "copy"))
+        #expect(row.identifier == "app-menu:local/branchy#copy")
+        let refusal = await client.runMenuRow(row, kind: "workspace", id: "ws1", origin: .user)
+        #expect(refusal == nil)
         #expect(transport.runs.count == 1)
         #expect(transport.runs.first?.app == "local/branchy")
         #expect(transport.runs.first?.op == "local.branchy.copy_branch")
         #expect(transport.runs.first?.origin == .user)
         #expect(transport.runs.first?.args == ["format": "short", "target": ["kind": "workspace", "id": "ws1"]])
+    }
+
+    @Test func aRefusedRunGoesToTheAppsLog() async throws {
+        let transport = Transport()
+        transport.menus = [Self.row("copy", "workspace", "Copy Branch")]
+        transport.refuses = true
+        let client = await Self.started(transport)
+        let row = try #require(client.menuRow(app: "local/branchy", item: "copy"))
+        let refusal = await client.runMenuRow(row, kind: "tab", id: "t1", origin: .user)
+        #expect(refusal != nil)
+        #expect(client.logs["local/branchy"]?.last?.message.hasPrefix("local.branchy.copy_branch: ") == true)
+    }
+
+    @Test func onlyAVisibleAppsRowIsFoundByID() async {
+        let transport = Transport()
+        transport.menus = [Self.row("copy", "workspace", "Copy Branch")]
+        transport.hidden = true
+        let client = await Self.started(transport)
+        #expect(client.menuRow(app: "local/branchy", item: "copy") == nil)
+        #expect(client.menuRow(app: "local/other", item: "copy") == nil)
     }
 }
