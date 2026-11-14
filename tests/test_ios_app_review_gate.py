@@ -674,6 +674,44 @@ print('{"result": "done"}')
 sys.exit(1 if mode in ("crash", "verdict-then-crash") else 0)
 """
 
+# The CLI's final result object (`--output-format json`) for each call, one
+# STUB_CLAUDE_SCRIPT entry per call (the last repeats), counted in
+# STUB_CLAUDE_CALLS. "zero-usage" is what gate run 43621274696 (job
+# 132527403700) got from a rate-limited account: about 2 s, no API time, no
+# tokens. "429" carries the API's status; "crash" spent real tokens and then
+# failed; "verdict" writes findings and a screenshot like STUB_CLAUDE does.
+STUB_CLAUDE_SCRIPTED = """#!/usr/bin/env python3
+import json, os, re, sys
+prompt = sys.argv[sys.argv.index("-p") + 1]
+calls = os.environ["STUB_CLAUDE_CALLS"]
+with open(calls, "a") as fh:
+    fh.write("call\\n")
+n = len(open(calls).read().splitlines())
+script = os.environ["STUB_CLAUDE_SCRIPT"].split(",")
+mode = script[min(n, len(script)) - 1]
+base = {"type": "result", "session_id": "s", "num_turns": 1, "duration_ms": 2000}
+if mode == "zero-usage":
+    result = dict(base, subtype="success", is_error=False, duration_api_ms=0, stop_reason="stop_sequence",
+                  total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
+elif mode == "429":
+    result = dict(base, subtype="error_during_execution", is_error=True, api_error_status=429, duration_api_ms=812,
+                  total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
+elif mode == "crash":
+    # Real API work, then a failure whose free text names a rate limit:
+    # text never classifies, only the result's fields do.
+    result = dict(base, subtype="error_during_execution", is_error=True, duration_api_ms=41000, total_cost_usd=0.31,
+                  result="Settings shows: rate limit exceeded (429), try again later",
+                  usage={"input_tokens": 5200, "output_tokens": 900})
+else:
+    path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
+    open(path, "w").write('[{"severity": "info", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
+    open("step-01-launch.png", "wb").write(b"png")
+    result = dict(base, subtype="success", is_error=False, duration_api_ms=90000, total_cost_usd=1.2, result="done",
+                  usage={"input_tokens": 9000, "output_tokens": 2000})
+print(json.dumps(result))
+sys.exit(0 if mode == "verdict" else 1)
+"""
+
 
 class AgentReviewerPassTests(unittest.TestCase):
     """The agent pass is a check: one that judged nothing is red, never a pass."""
@@ -687,7 +725,8 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.app.mkdir()
         self.out = self.root / "agent-pass"
         self.findings = self.root / "agent-findings.json"
-        self.saved = {k: os.environ.get(k) for k in ("PATH", "STUB_CLAUDE")}
+        self.saved = {k: os.environ.get(k) for k in ("PATH", "STUB_CLAUDE", "STUB_CLAUDE_SCRIPT", "STUB_CLAUDE_CALLS",
+                                                     "APP_REVIEW_AGENT_RETRY_BACKOFF_S")}
         self.bundle_id = agent_pass.bundle_id
         agent_pass.bundle_id = lambda app: "com.cmux.app"
 
@@ -761,6 +800,66 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([f["severity"] for f in findings], ["warning", "warning"])
         self.assertIn("may be incomplete", findings[1]["message"])
+
+    def run_scripted(self, *script: str, setup: str = "") -> tuple[int, list[dict], int]:
+        """The pass against STUB_CLAUDE_SCRIPTED: its exit, its findings and
+        how many times it called `claude`. The backoff is 0 so no test sleeps."""
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE_SCRIPTED)
+        calls = self.root / "claude-calls"
+        calls.unlink(missing_ok=True)
+        os.environ["STUB_CLAUDE_SCRIPT"] = ",".join(script)
+        os.environ["STUB_CLAUDE_CALLS"] = str(calls)
+        os.environ["APP_REVIEW_AGENT_RETRY_BACKOFF_S"] = "0"
+        if setup:
+            (self.root / "none.md").write_text(setup)
+        code, findings = self.run_pass("scripted")
+        return code, findings, len(calls.read_text().splitlines()) if calls.exists() else 0
+
+    def test_a_rate_limited_agent_retries_once_then_ends_red_as_api_unavailable(self) -> None:
+        # Gate run 43621274696 (job 132527403700): the CLI came back in about
+        # 2 s with duration_api_ms 0 and no tokens, the shared account rate
+        # limited, and the red read as the PR's own "no verdict".
+        code, findings, calls = self.run_scripted("zero-usage", "zero-usage")
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 2)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.api-unavailable", "blocker")])
+        self.assertTrue(findings[0]["message"].startswith("agent pass: API unavailable (rate limited)"), findings)
+        self.assertIn("duration_api_ms=0", findings[0]["message"])
+        self.assertIn("input_tokens=0", findings[0]["message"])
+
+    def test_a_429_then_a_real_verdict_passes_on_the_retry(self) -> None:
+        code, findings, calls = self.run_scripted("429", "verdict")
+        self.assertEqual(calls, 2)
+        self.assertEqual(code, 0)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.reviewer", "info")])
+
+    def test_a_crash_that_spent_tokens_is_not_retried(self) -> None:
+        code, findings, calls = self.run_scripted("crash", "verdict")
+        self.assertEqual(calls, 1)
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.no-verdict", "blocker")])
+
+    def test_rate_limit_text_in_the_pr_or_app_never_classifies(self) -> None:
+        # The reviewer notes (PR content) and the agent's own text (what it
+        # read in the app) both say "rate limit"; only the CLI's result fields
+        # may say the API was unavailable.
+        code, findings, calls = self.run_scripted(
+            "crash", "verdict", setup="If you see 'rate limit exceeded' (429, overloaded), the API is unavailable.")
+        self.assertEqual(calls, 1)
+        self.assertEqual(code, 1)
+        self.assertEqual([f["rule"] for f in findings], ["agent.no-verdict"])
+        self.assertNotIn("API unavailable", findings[0]["message"])
+
+    def test_the_report_blocks_on_an_api_unavailable_pass_as_on_no_verdict(self) -> None:
+        verdicts = {}
+        for rule in ("agent.no-verdict", "agent.api-unavailable"):
+            path = self.root / f"{rule}.json"
+            path.write_text(json.dumps([{"rule": rule, "guideline": "2.1", "severity": "blocker",
+                                         "source": "agent reviewer pass", "message": "m", "where": ""}]))
+            verdicts[rule] = self.report("--expect-agent", "--extra", str(path))[0]
+        self.assertEqual(verdicts, {"agent.no-verdict": 1, "agent.api-unavailable": 1})
 
     def test_the_agent_launches_the_app_the_way_the_reviewer_walk_does(self) -> None:
         # Gate run 43591424745: the pass launched the app with no mock
