@@ -33,8 +33,44 @@ recoveries; neither encoder set off scene-change IDRs in these rows.
   within 1.3 fps of OpenH264's except typing at 2% bursty (24.1 against 29.8); it spends 0.8-4x
   OpenH264's bitrate.
 - Verdict: the macOS host keeps VideoToolbox, its default already (`cmux-rd-host/src/host.rs`,
-  `DEFAULT_CODEC`). No switch lands; OpenH264 stays on Linux and Windows hosts, where Media
-  Foundation is the next encoder to measure the same way.
+  `DEFAULT_CODEC`). No switch lands; OpenH264 stays on Linux and Windows hosts (Media Foundation
+  rows below).
+
+## Media Foundation H.264 against OpenH264 (Windows host)
+
+Run 43628916550 of the `cmux-codecs Windows bench` workflow, at ae97c3fc65f, on a 4-vCPU Windows
+Server 2025 CI VM with no GPU and with the Server-Media-Foundation feature installed. With no
+hardware encoder present, every `h264-mf` row reported "no Hardware H.264 encoder MFT". These
+rows are Windows' software H.264 MFT (`h264-mf-sw`, "H264 Encoder MFT"), constrained baseline,
+CBR, low-latency mode. Both encoders' output was decoded by OpenH264.
+
+| scene | loss | on-time fps OpenH264 / MF sw | text PSNR dB OpenH264 / MF sw | media Mbps OpenH264 / MF sw | IDRs per 300 frames OpenH264 / MF sw | encode ms p50 OpenH264 / MF sw |
+|---|---|---|---|---|---|---|
+| page | 0% | 17.5 / 29.1 | 31.4 / 20.8 | 9.0 / 3.1 | 1 / 1 | 7.0 / 4.1 |
+| page | 2% | 13.8 / 27.9 | 31.4 / 20.7 | 8.7 / 3.2 | 1 / 1 | 1.1 / 4.0 |
+| page | 2% bursty | 15.7 / 25.1 | 31.5 / 21.4 | 8.7 / 3.7 | 2 / 3 | 6.8 / 4.2 |
+| scroll | 0% | 29.7 / 29.5 | 40.8 / 31.1 | 1.5 / 2.0 | 1 / 1 | 9.6 / 4.0 |
+| scroll | 2% | 29.1 / 28.7 | 40.8 / 34.9 | 1.5 / 2.3 | 1 / 1 | 9.8 / 3.5 |
+| scroll | 2% bursty | 28.5 / 26.6 | 40.7 / 39.2 | 1.7 / 4.3 | 2 / 1 | 10.1 / 4.0 |
+| drag | 0% | 29.4 / 29.9 | 41.4 / 43.1 | 1.5 / 1.0 | 1 / 1 | 8.3 / 3.6 |
+| drag | 2% | 28.4 / 29.1 | 41.2 / 42.9 | 1.5 / 1.1 | 1 / 1 | 8.2 / 3.6 |
+| drag | 2% bursty | 27.9 / 28.0 | 41.0 / 43.1 | 1.7 / 1.3 | 2 / 2 | 8.2 / 3.7 |
+| typing | 0% | 29.8 / 29.8 | 40.0 / 42.0 | 0.3 / 0.8 | 1 / 1 | 6.9 / 3.6 |
+| typing | 2% | 28.8 / 28.3 | 38.1 / 42.2 | 0.8 / 1.3 | 4 / 3 | 6.9 / 3.9 |
+| typing | 2% bursty | 29.8 / 28.5 | 40.0 / 42.1 | 0.3 / 1.1 | 1 / 2 | 7.6 / 3.6 |
+
+- Page scene: the software MFT skips no frames and reaches 25.1-29.1 on-time fps against
+  OpenH264's 13.8-17.5. But it spends only 3.1-3.7 Mbps of a target near 9 Mbps, so its pages come
+  out 10.1-10.7 dB lower in text PSNR (about 21 dB, which leaves text hard to read).
+- Scroll: equal on-time fps (26.6-29.5 against 28.5-29.7), but text PSNR is 1.5-9.7 dB lower at a
+  higher bitrate.
+- Drag and typing: on-time fps within 1.3 of OpenH264's. Text PSNR is 1.7-4.1 dB higher. Drag uses
+  less bitrate; typing uses 1.6-3.7x OpenH264's.
+- Encoding takes 3.5-4.2 ms per frame (p50), against OpenH264's 6.9-10.1 ms in the rows without page skips, on the same 4 vCPUs.
+- Verdict: the Windows host keeps OpenH264. The software MFT trades the page-scene frame skips for
+  pages too blurred to read, and it loses on scroll. `mediafoundation::hardware_or` (a hardware MFT,
+  else OpenH264) is ready for a host to call, but it stays unused until a machine with a GPU
+  encoder produces `h264-mf` rows. The same workflow runs them on a runner that has one.
 
 ## VP9 and AV1 against H.264 (#43051, #43115)
 

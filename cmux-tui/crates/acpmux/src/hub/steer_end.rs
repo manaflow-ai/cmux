@@ -144,6 +144,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                     return Err(super::turns::stopped_before_prompt());
                 }
                 *unwritten = None;
+                drop(unwritten);
+                // The person's steer that queued while this turn was starting goes in now
+                // (`queue.rs` `QueuedPrompt::steer_on_start`): it waits for the handoff this
+                // prompt holds, so it reaches the agent after it.
+                session.queue_moved.notify_waiters();
             }
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
