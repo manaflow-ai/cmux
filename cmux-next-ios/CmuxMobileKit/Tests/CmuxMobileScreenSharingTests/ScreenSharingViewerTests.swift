@@ -136,7 +136,7 @@ import Testing
         #expect(ends.calls.isEmpty)
     }
 
-    /// conn-quiet (Leo, 2026-11-14: "shut the fuck up"): a dropped stream reattaches over its
+    /// conn-quiet (Leo, 2026-11-14: "shut the f*** up"): a dropped stream reattaches over its
     /// last frame with no card, no failed flash and no layout jump until the notice bound.
     @Test func aDroppedStreamSaysNothingUnderTheNoticeBoundAndKeepsItsLayout() throws {
         let (service, _) = makeService()
