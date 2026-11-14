@@ -6,7 +6,9 @@
 //! bytes (`{"call": "subscribe_mirror" | "want", "request": ...}`, `{"call": "connected" |
 //! "disconnected"}`); `{"feed": [start, end]}`, the step's daemon bytes in the `.bytes` file;
 //! `{"change": ...}`, one `acpmux_client_next_change` output, in order; `{"send": base64}`, one
-//! `acpmux_client_take_send` output, in order. The fallback stream ends with `{"v1": {"request":
+//! `acpmux_client_take_send` output of the live run, in order. The sends are a record, not a
+//! claim: credit follows when changes are taken, so the same bytes in other pieces may send
+//! other frames; the changes are the same in every piece size. The fallback stream ends with `{"v1": {"request":
 //! ..., "reply": [start, end]}}` lines: v1's requests on the same socket and the bytes answering
 //! each, which the client never reads.
 //!
@@ -92,7 +94,8 @@ fn replay(bytes: &[u8], steps: &[Step], chunk: usize) {
         let mut changes = ffi.changes();
         changes.extend(ffi.feed(&bytes[step.range.0..step.range.1], chunk));
         assert_eq!(changes, step.changes, "step {} in pieces of {chunk} bytes", step.name);
-        assert_eq!(ffi.sends(), step.sends, "step {} sends, pieces of {chunk} bytes", step.name);
+        // Drained as a transport drains them; their frames depend on the piece size (above).
+        ffi.sends();
     }
 }
 
