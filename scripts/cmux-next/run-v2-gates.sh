@@ -2,6 +2,8 @@
 set -o pipefail
 set -u
 
+: "${V2_GATE_OUT:?V2_GATE_OUT must name the shared nightly measures file}"
+
 # One list owns the nightly gate run. Cargo reuses the first test build for each
 # crate while the filters below launch every gate that writes a registry row.
 failed=0
@@ -39,6 +41,7 @@ run_acpmux_test() {
 # acpmux-book (release)
 book_gates() {
   run_book god_vs_small
+  run_book translate::bench::god_vs_small
   run_book kin_table_change_gate
   run_book sibling_insert_gate
   run_book family_page_gate

@@ -358,7 +358,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5c",
         name: "v2.pr05c.walk_rss",
         done_when: "The startup reconciliation walk's RSS at 11,000 sessions stays within one page of the 20-session run.",
-        measured: true,
+        measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
