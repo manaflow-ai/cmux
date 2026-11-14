@@ -1,4 +1,4 @@
-// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
 // faster/percievably load faster / whatever it takes / desktop gui, ios, remote, cloud, etc".
 //
 // A daemon restart or an update's handoff drops every page's link for a few seconds. The pages here said

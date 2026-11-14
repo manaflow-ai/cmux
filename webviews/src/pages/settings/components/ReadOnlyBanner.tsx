@@ -16,7 +16,7 @@ export function ReadOnlyBanner({ reason = "disconnected" }: { reason?: "disconne
 /** The page's read-only banner, if any. A lost link says so only once it lasts (ui/lasting.ts): a
  *  daemon restart or an update's handoff drops it for a few seconds and the values on the page stay
  *  as they were, so the person has nothing to do (Leo, 2026-11-14: "i also want all our connectivity
- *  stuff to shut the fuck up"). It dropped in at once on every restart. */
+ *  stuff to shut the f*** up"). It dropped in at once on every restart. */
 export function ReadOnlyNotice({
   connected,
   loaded,
