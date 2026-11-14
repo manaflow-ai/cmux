@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43646671819",
+  "recorded_at": "2026-11-14T22:21:40Z",
+  "reason": "cmux-tui babcb18cd895 changes the image's cmux-tui (pinned 58c10930cccb)",
+  "dry_run": false,
+  "cmux_tui": "babcb18cd895e15decacedb6300d029d44409da2",
+  "fixes": [
+    {
+      "sha": "babcb18cd895e15decacedb6300d029d44409da2",
+      "mergedAt": "2026-11-14T13:48:35-08:00",
+      "subject": "cmux device list: a peer down a day is offline with how to remove it; short-lived pool machines fold to one line (#43276)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T22:21:40Z",
+    "snapshot_id": "sh-544385b48585441f861f18548bc2dab9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43646671819): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "225a1bd8c4fe74b4762787b48d583b807ae1bd4c",
+    "image": "cloud-native-auto-babcb18c-43646671819-1",
+    "revision": "ci-43646671819-1",
+    "at": "2026-11-14T22:21:40Z"
+  },
+  "rolled_back": false
+}
