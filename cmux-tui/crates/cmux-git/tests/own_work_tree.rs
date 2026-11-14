@@ -186,8 +186,15 @@ fn own_tree_open_refuses_a_work_tree_whose_top_folder_has_another_git_folder_or_
     assert_eq!(top_folder(&outer), outer, "the repository above still opens");
 }
 
+/// Whether a problem text names no command to run, and says to ask the person. A problem
+/// text says what is refused and why.
+fn names_no_command(problem: &str) -> bool {
+    let command = ["git config", "git worktree", "run `", "$("];
+    !command.iter().any(|part| problem.contains(part)) && problem.contains("ask the person")
+}
+
 #[test]
-fn own_tree_open_names_the_command_for_a_work_tree_whose_git_folder_names_no_work_tree() {
+fn own_tree_open_says_what_is_wrong_and_no_command_for_a_git_folder_that_names_no_work_tree() {
     let scratch = Scratch::new("separate");
     let (folder, store) = (scratch.folder("folder"), scratch.0.join("store"));
     git(&folder, &["init", "--quiet", "--initial-branch=main", "--separate-git-dir", text(&store)]);
@@ -195,13 +202,12 @@ fn own_tree_open_names_the_command_for_a_work_tree_whose_git_folder_names_no_wor
     let problem = refusal(&folder);
 
     assert!(problem.contains("do not name each other"), "{problem}");
-    assert!(problem.contains("git config core.worktree"), "{problem}");
-    git(&folder, &["config", "core.worktree", text(&folder)]);
-    assert_eq!(top_folder(&folder), folder, "the work tree opens after the command");
+    assert!(problem.contains(": the git folder names no work tree"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
 }
 
 #[test]
-fn own_tree_open_names_the_command_for_a_linked_work_tree_that_was_moved_with_no_git() {
+fn own_tree_open_says_what_is_wrong_and_no_command_for_a_linked_work_tree_moved_with_no_git() {
     let scratch = Scratch::new("moved");
     let main = scratch.0.join("main");
     new_repository(&main);
@@ -212,9 +218,10 @@ fn own_tree_open_names_the_command_for_a_linked_work_tree_that_was_moved_with_no
     let problem = refusal(&moved);
 
     assert!(problem.contains("do not name each other"), "{problem}");
-    assert!(problem.contains("git worktree repair"), "{problem}");
+    assert!(problem.contains(": the git folder has the record of a work tree at"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
     git(&moved, &["worktree", "repair"]);
-    assert_eq!(top_folder(&moved), moved, "the work tree opens after the command");
+    assert_eq!(top_folder(&moved), moved, "the work tree opens after git repaired its record");
 }
 
 /// git prints two folders on a line each, and a name can have a line break. An answer that

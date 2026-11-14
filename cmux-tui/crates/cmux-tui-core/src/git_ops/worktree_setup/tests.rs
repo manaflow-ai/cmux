@@ -1,4 +1,5 @@
-//! Tests of a worktree's setup: its output, its environment, its stops and its ports file.
+//! Tests of a worktree's setup: its output, its environment, its stops, its ports file and the
+//! files that it writes in a git folder.
 
 use super::*;
 
@@ -109,4 +110,121 @@ fn a_setup_stops_when_its_run_is_cancelled_without_a_signal() {
     assert!(matches!(outcome, Outcome::Exited(None)));
     assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
     fs::remove_dir_all(root).unwrap();
+}
+
+/// A new folder with a folder `git-folder` in it, which has a link at `name`. The link leads to
+/// `elsewhere/file` in the new folder, a file that is not there.
+#[cfg(unix)]
+fn folder_with_a_link_in_its_git_folder_at(name: &str) -> PathBuf {
+    let mut bytes = [0_u8; 6];
+    getrandom::fill(&mut bytes).unwrap();
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let top = std::env::temp_dir().join(format!("cmux-setup-link-{hex}"));
+    fs::create_dir_all(top.join("git-folder")).unwrap();
+    fs::create_dir_all(top.join("elsewhere")).unwrap();
+    fs::create_dir_all(top.join("root")).unwrap();
+    std::os::unix::fs::symlink(top.join("elsewhere/file"), top.join("git-folder").join(name))
+        .unwrap();
+    top
+}
+
+/// Whether a write made the file that the link of [`folder_with_a_link_in_its_git_folder_at`]
+/// leads to.
+#[cfg(unix)]
+fn made_elsewhere(top: &Path) -> bool {
+    fs::symlink_metadata(top.join("elsewhere/file")).is_ok()
+}
+
+/// The place of a setup in a folder of [`folder_with_a_link_in_its_git_folder_at`].
+#[cfg(unix)]
+fn place_in(top: &Path) -> Place {
+    Place { root: top.join("root"), main_root: None, git_dir: top.join("git-folder") }
+}
+
+/// The ports file is written under a second name that then takes its name. A link at the
+/// second name is not followed: the write stays in the git folder.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_ports_file_is_not_written_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at("cmux-worktree-ports.json.partial");
+    let (git_dir, root, other) = (top.join("git-folder"), top.join("root"), top.join("other"));
+    let (own, next) = (root.to_str().unwrap(), other.to_str().unwrap());
+    let ports = json!({own: 40_000, next: 40_010});
+    fs::write(git_dir.join("cmux-worktree-ports.json"), ports.to_string()).unwrap();
+
+    removed(&git_dir, &root);
+
+    assert!(!made_elsewhere(&top), "the write followed the link");
+    assert_eq!(ports::lookup(&git_dir, &root), None, "the ports of the work tree went back");
+    assert_eq!(ports::lookup(&git_dir, &other), Some(40_010), "the other work tree has its ports");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// The status file is written as the ports file is.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_status_is_not_written_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at("cmux-setup.json.partial");
+    let git_dir = top.join("git-folder");
+    let status = Status { state: "running".into(), ..Status::default() };
+
+    let written = write_status(&git_dir.join(STATUS_FILE), &status);
+
+    assert!(!made_elsewhere(&top), "the write followed the link");
+    assert!(written.is_ok(), "{written:?}");
+    assert_eq!(read_status(&git_dir).map(|status| status.state), Some("running".to_string()));
+    fs::remove_dir_all(top).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn own_tree_the_run_lock_is_not_made_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at(LOCK_FILE);
+
+    let lock = hold(&top.join("git-folder"));
+
+    assert!(!made_elsewhere(&top), "the open followed the link");
+    assert!(lock.is_none(), "a link is the lock of no run");
+    fs::remove_dir_all(top).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_log_is_not_written_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at(LOG_FILE);
+    let mut status = Status::default();
+
+    run(&place_in(&top), &Recipe::default(), &mut status, &Run::default(), None);
+
+    assert!(!made_elsewhere(&top), "the open followed the link");
+    assert_eq!(status.state, "failed", "a setup with no log does not go on");
+    fs::remove_dir_all(top).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn own_tree_a_teardown_log_is_not_written_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at(LOG_FILE);
+
+    let reply = teardown(&place_in(&top), Some("touch ran"));
+
+    assert!(!made_elsewhere(&top), "the open followed the link");
+    assert_eq!(reply, None, "a teardown with no log does not run");
+    assert!(!top.join("root/ran").exists(), "the teardown ran");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A removal tells the setup of another session host to stop by a marker file.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_stop_marker_is_not_written_through_a_link() {
+    let top = folder_with_a_link_in_its_git_folder_at(CANCEL_FILE);
+    // The status of a setup that this session host did not start.
+    let status = r#"{"state":"running","started_ms":1}"#;
+    fs::write(top.join("git-folder").join(STATUS_FILE), status).unwrap();
+
+    stop(&place_in(&top));
+
+    assert!(!made_elsewhere(&top), "the write followed the link");
+    fs::remove_dir_all(top).unwrap();
 }
