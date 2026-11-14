@@ -719,6 +719,7 @@ keys=(
   CLAUDE_CODE_USE_BEDROCK
   CLAUDE_CODE_USE_VERTEX
   CLAUDE_CONFIG_DIR
+  CLAUDE_SECURESTORAGE_CONFIG_DIR
   CLOUD_ML_REGION
 )
 for key in "${keys[@]}"; do
@@ -778,6 +779,7 @@ exit 0
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
                 "CLAUDE_CONFIG_DIR",
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
                 "CLOUD_ML_REGION",
             ):
                 env.pop(ambient_key, None)
@@ -2770,6 +2772,42 @@ def test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures:
     expect(real_argv == ["hello"], f"hooks-disabled auth env: expected passthrough args, got {real_argv}", failures)
 
 
+def test_empty_claude_account_env_is_unset_before_exec(failures: list[str]) -> None:
+    # A cmux pane cannot unset a variable, only set it to "". An empty
+    # CLAUDE_CONFIG_DIR makes Claude report a relative configDirectory, so the
+    # wrapper must turn empty account env into a real unset on every exec path.
+    empty = {"CLAUDE_CONFIG_DIR": "", "CLAUDE_SECURESTORAGE_CONFIG_DIR": ""}
+    cases = [
+        ("live socket", {}),
+        ("hooks disabled", {"hooks_disabled": True}),
+        ("outside cmux", {"in_cmux": False}),
+        ("stale socket", {"socket_state": "stale"}),
+        ("subcommand passthrough", {"argv": ["mcp", "list"]}),
+        ("resume", {"argv": ["--resume", "00000000-0000-4000-8000-000000000000"]}),
+    ]
+    for label, kwargs in cases:
+        kwargs = dict(kwargs)
+        argv = kwargs.pop("argv", ["hello"])
+        code, auth_env, _argv, stderr = run_wrapper_auth_env(
+            argv=argv, inherited_env=dict(empty), **kwargs
+        )
+        expect(code == 0, f"empty account env ({label}): wrapper exited {code}: {stderr}", failures)
+        for key in empty:
+            expect(
+                auth_env.get(key) == "__UNSET__",
+                f"empty account env ({label}): expected {key} unset, got {auth_env.get(key)!r}",
+                failures,
+            )
+
+    code, auth_env, _argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env={"CLAUDE_CONFIG_DIR": "/tmp/x", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/tmp/y"},
+    )
+    expect(code == 0, f"set account env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/x", f"set account env: CLAUDE_CONFIG_DIR changed: {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("CLAUDE_SECURESTORAGE_CONFIG_DIR") == "/tmp/y", f"set account env: CLAUDE_SECURESTORAGE_CONFIG_DIR changed: {auth_env.get('CLAUDE_SECURESTORAGE_CONFIG_DIR')!r}", failures)
+
+
 def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
     expected: dict[str, str] = {}
 
@@ -3933,6 +3971,7 @@ def main() -> int:
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
+    test_empty_claude_account_env_is_unset_before_exec(failures)
     test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures)
     test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures)

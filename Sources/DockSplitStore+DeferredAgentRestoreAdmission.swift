@@ -145,7 +145,9 @@ extension DockSplitStore {
                 startupInput = nil
                 claim = nil
             }
-            guard let startupInput, !startupInput.isEmpty else {
+            // A pane switched to another Claude account resumes with the keys it cleared unset.
+            guard let startupInput = startupInput.map({ terminal.claudeAccountEnvironment?.restoreStartupInput($0) ?? $0 }),
+                  !startupInput.isEmpty else {
                 cancelDeferredAgentResumeRestore(
                     panelId: panelId,
                     restore: restore,

@@ -71,6 +71,7 @@ struct SettingsRowAnchorResolutionTests {
         "chief.harness",
         "chief.model",
         "automation.agentAutoResume",
+        "automation.claudeAccountAutoSwitch",
         "automation.claudeBinaryPath",
         "automation.claudeCodeIntegration",
         "automation.piIntegration",

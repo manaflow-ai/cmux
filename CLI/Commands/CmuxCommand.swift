@@ -142,6 +142,7 @@ struct CmuxCommand: AsyncParsableCommand {
             OMXCommand.self,
             OMCCommand.self,
             AgentHibernationCommand.self,
+            ClaudeAccountCommand.self,
             CoderouterCommand.self,
             VMAgentShortFormCommand.self,
             CodexTeamsWatchCommand.self,
