@@ -59,9 +59,11 @@ fn meta(id: &str, name: &str, status: &str, at: u64, tags: Value) -> crate::stor
     .unwrap()
 }
 
-/// Serves `hub` on a new socket. With the v2 list, the tee fills its index from `hub`, and this
-/// waits until it holds `rows` rows.
-async fn serve(hub: Arc<Hub>, serves: Serves, rows: usize) -> Daemon {
+/// Serves a new hub on a new socket, `seed` giving it its rows (and their count). With the v2
+/// list, the tee is started first and fills its index from the hub, and this waits until it
+/// holds that many rows.
+async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
+    let hub = memory_hub();
     let v2 = match serves {
         Serves::NoV2 => None,
         Serves::ListOff | Serves::List => {
@@ -82,10 +84,13 @@ async fn serve(hub: Arc<Hub>, serves: Serves, rows: usize) -> Daemon {
             Some(v2)
         }
     };
+    let rows = seed(&hub);
     if let Some(v2) = &v2 {
-        let deadline = Instant::now() + Duration::from_secs(120);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while v2.hub.snapshot().len() < rows {
-            assert!(Instant::now() < deadline, "the tee did not fill the index");
+            let held: Vec<String> =
+                v2.hub.snapshot().iter().map(|row| row.key().chat_id.to_string()).collect();
+            assert!(Instant::now() < deadline, "the tee holds {} of {rows} rows: {held:?}", held.len());
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
@@ -172,9 +177,7 @@ async fn callers(daemon: &Daemon, v2: bool) -> Vec<(&'static str, String)> {
 /// v1, on one daemon: the recorded run prints each pair.
 #[tokio::test]
 async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
-    let hub = memory_hub();
-    let rows = fixture(&hub);
-    let daemon = serve(hub, Serves::List, rows).await;
+    let daemon = serve(Serves::List, fixture).await;
     // The live rows: nine here and the peer's one.
     let live_text = 10.to_string();
     let now = crate::store::now_ms();
@@ -240,13 +243,36 @@ async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
     assert!(more["nextCursor"].is_string(), "{more}");
 }
 
-/// A daemon without v2, and one with v2 and `list` off: each caller runs its v1 path.
+/// A daemon without v2, one with v2 and `list` off, and one whose v2 list lacks the rows of the
+/// hub machine it lists (no `listHubRows`, decision 210): each caller runs its v1 path, and
+/// prints the hub machine's chat as v1 does.
 #[tokio::test]
 async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
-    for serves in [Serves::NoV2, Serves::ListOff] {
-        let hub = memory_hub();
-        let rows = fixture(&hub);
-        let daemon = serve(hub, serves, rows).await;
+    for (serves, hub_machine) in
+        [(Serves::NoV2, false), (Serves::ListOff, false), (Serves::List, true)]
+    {
+        let seed = |hub: &Hub| {
+            let rows = fixture(hub);
+            if hub_machine {
+                let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+                let row = crate::mesh::BookSession {
+                    name: "joined".into(),
+                    session_id: "m-joined".into(),
+                    host: "machine-b".into(),
+                    daemon_id: "inst_b".into(),
+                    harness: "claude".into(),
+                    state: "idle".into(),
+                    last_seen_at: crate::store::now_ms(),
+                };
+                hub.set_mesh_book(hosts, vec![row]);
+            }
+            rows
+        };
+        let daemon = serve(serves, seed).await;
+        if hub_machine {
+            let listed = ls(&daemon, &["--json"], true, 0).await;
+            assert!(listed.contains("m-joined"), "the hub machine's chat is listed: {listed}");
+        }
         let source = Via::List(daemon.path.clone()).open(&daemon.client).await.unwrap();
         assert!(source.is_none(), "no list source on this daemon");
         for ((name, v1), (_, through)) in
@@ -261,9 +287,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
 /// `--limit 2`, then `--cursor` with what it printed: no row twice and none skipped.
 #[tokio::test]
 async fn a_limit_then_its_cursor_read_every_row_once() {
-    let hub = memory_hub();
-    let rows = fixture(&hub);
-    let daemon = serve(hub, Serves::List, rows).await;
+    let daemon = serve(Serves::List, fixture).await;
     let now = crate::store::now_ms();
     let whole: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
     let ids = |v: &Value| -> Vec<String> {
@@ -328,7 +352,10 @@ async fn counted(target: PathBuf) -> Counted {
 
 /// A hub with 20 live chats and `closed` closed ones beside them, served with the v2 list.
 async fn gate_daemon(closed: usize) -> Daemon {
-    let hub = memory_hub();
+    serve(Serves::List, |hub| gate_rows(hub, closed)).await
+}
+
+fn gate_rows(hub: &Hub, closed: usize) -> usize {
     let now = crate::store::now_ms();
     for n in 0..20_u64 {
         let tags = json!({"area": "acpmux"});
@@ -337,7 +364,7 @@ async fn gate_daemon(closed: usize) -> Daemon {
     for n in 0..closed as u64 {
         hub.insert_test_session(meta(&format!("closed-{n:05}"), &format!("closed-{n}"), "closed", now - 60_000 - n, json!({})));
     }
-    serve(hub, Serves::List, 20 + closed).await
+    20 + closed
 }
 
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes

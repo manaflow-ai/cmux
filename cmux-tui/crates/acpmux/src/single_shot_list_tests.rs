@@ -179,6 +179,24 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("tui/run.rs", "method::MUX_WATCH", 2, "7b part three: the TUI's watch"),
 ];
 
+/// v1 while a hub machine is listed (decision 210): the one read that says whether the daemon
+/// lists a hub machine whose rows its v2 list lacks, before a command's walk. Deleted with the
+/// status read before row 13.
+const V1_WHILE_HUB_LISTED: &[(&str, &str, &str)] = &[(
+    "cli/list_read.rs",
+    "const HOSTS_READ: &str = \"_acpmux/peers\";",
+    "v1 while a hub machine is listed: deleted with the status read before row 13",
+)];
+
+#[test]
+fn the_hub_machines_read_is_named_once() {
+    let files = crate_sources();
+    for (file, text, why) in V1_WHILE_HUB_LISTED {
+        let found = files.iter().find(|(rel, _)| rel == file).map(|(_, source)| source.matches(text).count());
+        assert_eq!(found, Some(1), "src/{file} names `{text}` once ({why})");
+    }
+}
+
 /// The uses in `files` (`(path from src/, text)`) that `named` does not hold, one line each.
 fn unnamed_v1_list_uses(
     files: &[(String, String)],

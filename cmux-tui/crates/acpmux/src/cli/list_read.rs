@@ -2,7 +2,8 @@
 //! its own socket and asks for the upgrade naming `list` as that socket's first request
 //! (`acpmux_client::tokio_list`); the v1 `Client` it already holds has sent requests and cannot
 //! be upgraded. The daemon is the one reader of `acpmux.v2`: on its old answer (method not
-//! found, or `list` not in the setting), or a daemon that lists no `info-rows-v1`, [`open`]
+//! found, or `list` not in the setting), a daemon that lists no `info-rows-v1`, or one that
+//! lists a hub machine while its v2 list holds none of their rows (decision 210), [`Via::open`]
 //! gives `None` and the caller runs its v1 path whole. Each v1 path is a named fallback in
 //! `single_shot_list_tests.rs`.
 //!
@@ -39,32 +40,72 @@ pub(crate) struct Source {
 
 /// How a list caller reads the session list.
 pub(crate) enum Via {
-    /// The v2 list on the socket at this path, or the caller's v1 path when its daemon has no
-    /// list surface or rows by key.
+    /// The v2 list on the socket the caller's client is connected to, or the caller's v1 path
+    /// when its daemon has no list surface or rows by key.
+    Daemon,
+    /// The same, on the socket at this path.
     List(std::path::PathBuf),
     /// The caller's v1 path.
     V1,
 }
 
 impl Via {
-    /// The v2 list of this home's daemon (`config::socket_path`), the one the CLI's client is
-    /// connected to.
+    /// The v2 list of the daemon the caller's client is connected to.
     pub(crate) fn daemon() -> Self {
-        Self::List(crate::config::socket_path())
+        Self::Daemon
     }
 
     /// The list source `client`'s daemon serves this way, or `None` for the v1 path.
     pub(crate) async fn open(self, client: &Arc<Client>) -> Result<Option<Source>> {
+        self.open_knowing(client, None).await
+    }
+
+    /// [`Via::open`] for a caller that read the daemon's `peers` already (`_acpmux/status`'s):
+    /// they say whether a hub machine is listed, with no read of their own.
+    pub(crate) async fn open_knowing(
+        self,
+        client: &Arc<Client>,
+        peers: Option<&[Value]>,
+    ) -> Result<Option<Source>> {
         match self {
-            Self::List(path) => open_at(&path, client).await,
+            Self::Daemon => open_at(&client.socket().to_path_buf(), client, peers).await,
+            Self::List(path) => open_at(&path, client, peers).await,
             Self::V1 => Ok(None),
         }
     }
 }
 
-/// [`open`] on the socket at `path`, the one `client` is connected to.
-pub(crate) async fn open_at(path: &std::path::Path, client: &Arc<Client>) -> Result<Option<Source>> {
-    if !client.daemon_lists(crate::capabilities::INFO_ROWS) {
+/// The `initialize` feature of a daemon whose v2 list holds the hub machines' rows (row 5h).
+pub(crate) const HUB_ROWS: &str = "listHubRows";
+
+/// The read that says whether a hub machine is listed: the cheapest v1 read naming the hosts.
+/// v1 while a hub machine is listed: deleted with this read before row 13.
+const HOSTS_READ: &str = "_acpmux/peers";
+
+/// Whether `client`'s daemon lists a hub machine (`via: hub`) whose rows its v2 list lacks:
+/// never when it names [`HUB_ROWS`]; else from `peers`, or one `_acpmux/peers` read. A machine
+/// that joins after this read and before the walk is missed by that one command.
+async fn hub_rows_missing(client: &Client, peers: Option<&[Value]>) -> Result<bool> {
+    if client.daemon_lists(HUB_ROWS) {
+        return Ok(false);
+    }
+    let via_hub = |peers: &[Value]| peers.iter().any(|peer| peer["via"] == "hub");
+    if let Some(peers) = peers {
+        return Ok(via_hub(peers));
+    }
+    let reply = client.request(HOSTS_READ, json!({})).await?;
+    Ok(reply.get("peers").and_then(Value::as_array).is_some_and(|peers| via_hub(peers)))
+}
+
+/// The v2 list source on the socket at `path`, the one `client` is connected to, or `None` for
+/// the caller's v1 path: a daemon without the list surface or `info-rows-v1`, or one that lists
+/// a hub machine whose rows its v2 list lacks ([`hub_rows_missing`]).
+async fn open_at(
+    path: &std::path::Path,
+    client: &Arc<Client>,
+    peers: Option<&[Value]>,
+) -> Result<Option<Source>> {
+    if !client.daemon_lists(crate::capabilities::INFO_ROWS) || hub_rows_missing(client, peers).await? {
         return Ok(None);
     }
     let stream = local_stream::connect(path)

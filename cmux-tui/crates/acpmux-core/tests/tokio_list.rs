@@ -85,10 +85,11 @@ fn refusing_pages(hub: Arc<Hub>) -> Halves {
         }
         to_client.write_all(&line).await.unwrap();
         pump(&mut from_daemon, &mut to_client, |value| {
-            if value["method"] == "page" && value.get("code").is_some() {
-                if let Some(error) = value.as_object_mut() {
-                    error.remove("sid");
-                }
+            if value["method"] == "page"
+                && value.get("code").is_some()
+                && let Some(error) = value.as_object_mut()
+            {
+                error.remove("sid");
             }
         })
         .await;
@@ -351,9 +352,9 @@ async fn a_closed_row_of_a_down_peer_read_by_key_is_stale() {
     let (hub, writer) = Hub::new(SummaryIndex::new());
     let hub = Arc::new(hub);
     tokio::spawn(writer.run());
-    hub.submit(row("here", "idle", 20)).unwrap();
-    hub.origin("peer-b", OriginState::Stale, 5).unwrap();
-    let mut old = row("old", "closed", 3);
+    hub.submit(row("here", "idle", base() + 20)).unwrap();
+    hub.origin("peer-b", OriginState::Stale, base()).unwrap();
+    let mut old = row("old", "closed", base() + 3);
     old.origin = "peer-b".into();
     hub.submit(old).unwrap();
     settle(&hub, |index| index.iter().count() == 2).await;

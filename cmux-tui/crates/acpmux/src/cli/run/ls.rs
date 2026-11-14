@@ -233,8 +233,11 @@ pub(crate) async fn output(
         .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
     // `--cursor` is a v1 read kept; it moves before the v1 list is deleted. The compact view
     // needs the closed count: a status without it means the v1 path.
+    let known_peers = status_read
+        .as_ref()
+        .and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
     let source = if !one_page && (!compact || closed_listed.is_some()) {
-        via.open(client).await?
+        via.open_knowing(client, known_peers.as_deref()).await?
     } else {
         None
     };
