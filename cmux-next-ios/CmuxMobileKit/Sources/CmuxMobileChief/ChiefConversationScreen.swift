@@ -273,6 +273,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func installSendGate() {
         guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
         else { return }
+        removeSendWithEffect(from: button)
         var actions: [UIAction] = []
         button.enumerateEventHandlers { action, _, event, _ in
             if event == .touchUpInside, let action { actions.append(action) }
@@ -283,6 +284,17 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         for action in actions { button.removeAction(action, for: .touchUpInside) }
         button.addAction(UIAction { [weak self] _ in self?.sendTapped() }, for: .touchUpInside)
         updateAvailability()
+    }
+
+    /// Chief has no Send with effect (the user, 2026-11-11: "it's irrelevant"): the
+    /// package's long press on Send, which opens Messages' Bubble/Screen effect
+    /// picker, is taken off the button, so a press of any length is a send.
+    /// The package itself stays byte-identical to its upstream
+    /// (scripts/check-tabskit-sync.sh), so the host removes the gesture.
+    private func removeSendWithEffect(from button: UIButton) {
+        for recognizer in button.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
+            button.removeGestureRecognizer(recognizer)
+        }
     }
 
     private func sendTapped() {
@@ -346,8 +358,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     /// The package's first-load spinner never ends while Chief is unavailable:
-    /// hidden while the bar says why. The effect long-press on Send would
-    /// also clear and drop: off until Chief takes sends.
+    /// hidden while the bar says why.
     private func updateAvailability() {
         let unavailable: Bool
         if case .unavailable? = session.barItem { unavailable = true } else { unavailable = false }
@@ -361,9 +372,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         // Chief connects: off until it takes sends (the text field and its gated Send stay).
         gatedViews.record?.isEnabled = sends
         gatedViews.plus?.isEnabled = sends
-        for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
-            recognizer.isEnabled = sends
-        }
     }
 
     /// With the Mac offline (the Mac Chief on its cloud copy), the bar's Ask
