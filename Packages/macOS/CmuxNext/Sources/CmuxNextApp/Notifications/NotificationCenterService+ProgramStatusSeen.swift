@@ -47,7 +47,7 @@ extension NotificationCenterService {
     /// whether they hold an unread notification.
     func viewedFacts(_ store: DaemonStore) -> ViewedTabsFacts {
         ViewedTabsFacts(revision: viewedRevision,
-                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread) })
+                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread, attention: $0.attention.map { "\($0.atMs) \($0.requestID ?? "")" }) })
     }
 
     /// The tabs shown in a key window while cmux is active: each window's
@@ -56,7 +56,7 @@ extension NotificationCenterService {
     func viewedTabs(_ store: DaemonStore) -> [TabModel] {
         guard let services, services.appActiveSource() else { return [] }
         return services.windows.controllers.compactMap { controller in
-            guard controller.focus.state.windowKey, let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
+            guard ownsKey(controller), let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
                   let pane = resolved.pane, let content = controller.content, let model = content.paneModel(key: pane),
                   content.daemon.store.pane(model.handle) === model else { return nil }
             return model.tabs.first { $0.id == id }

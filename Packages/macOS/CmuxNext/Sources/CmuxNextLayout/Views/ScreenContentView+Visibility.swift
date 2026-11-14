@@ -41,7 +41,10 @@ extension ScreenContentView {
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,
-                readByEntry: isFocused && context.model.attentionReadByEntry.contains(pane),
+                // Not gated on focus: a click into an agent chat's Chromium page reads the pane
+                // before the page's focus reaches the layout (cmux#42210), and the set names only
+                // the panes the person went into.
+                readByEntry: context.model.attentionReadByEntry.contains(pane),
                 focused: isFocused, flashesFocus: flashes,
                 animated: animated
             )

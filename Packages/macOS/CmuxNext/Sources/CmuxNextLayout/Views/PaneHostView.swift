@@ -249,7 +249,7 @@ final class PaneHostView: NSView, RestingPlacement {
     /// What its ring and dim were last placed from (`LayoutRootView.syncOverlay`).
     var overlaySyncKey: PaneOverlaySyncKey?
     /// The chrome state last applied (`setChrome`); nil before the first.
-    private var chromeInputs: PaneChromeInputs?
+    private(set) var chromeInputs: PaneChromeInputs?
 
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).

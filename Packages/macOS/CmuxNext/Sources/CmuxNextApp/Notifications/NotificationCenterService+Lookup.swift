@@ -42,8 +42,10 @@ extension NotificationCenterService {
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, services.appActiveSource() else { return false }
-        return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
+        return services.windows.controllers.contains { ownsKey($0) && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
+    /// `c`'s window is key, or a window it owns is: a Chromium page (an agent chat) takes the key from it (cmux#42210).
+    func ownsKey(_ c: WindowController) -> Bool { _ = viewedRevision; return c.focus.state.windowKey || services?.keyWindowSource().flatMap { services?.windows.owner(of: $0) } === c }
 
     static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
         // The store's index: every keystroke looks its tab up here (noteTyping), so no walk over every tab.
@@ -179,8 +181,7 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // A viewed tab reads its notifications at once, so a ring only blinked (a mark or needs-you stays).
-                if shown.hasUnread, !shown.markedUnread, shown.attention == nil, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
+                if readsOnSight(shown) { continue }
                 // A chat that is thinking, on any machine, rings nothing (Leo, 2026-11-06). One whose turn ended rings
                 // until the person goes into it, only with the opt-in agent chat ring (`notifications.attention.agentChats`).
                 if let chat = shown.agentSession, AgentTurnStateStore.shared.isWorking(chat, isChatMachine: { self.services?.machines.machineID(peer: $0) == key.machine }) { continue }
@@ -228,15 +229,15 @@ extension NotificationCenterService {
     /// The bit an agent's attention ring carries, apart from manual marks.
     static let attentionRingBase: UInt64 = 1 << 62
 
-    /// Of the panes in `removed` (their mark just went away), those read because
-    /// the person went into them: their ring blinks out. Forgets the entry
-    /// reads of every tab in `workspace`, so a later mark starts clean.
+    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
+    func readsOnSight(_ t: TabModel) -> Bool { let p = NotificationPolicy(prefs: preferences); return (t.hasUnread || t.attention != nil) && !t.markedUnread && (!t.hasUnread || p.clears(.focus, for: source(of: t))) && (t.attention == nil || p.clears(.focus, for: .agent)) && isViewed(t.id) }
+    /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
+    /// ring is read on sight, maybe before `interacted(.focus)`): their ring blinks out. Forgets `workspace`'s entry reads.
     func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
-        guard !entryReads.isEmpty else { return [] }
+        guard case let onSight = !removed.isEmpty && DesignSettings.shared.attention.flashesOnEntry(.focus), !entryReads.isEmpty || onSight else { return [] }
         var entered: Set<LayoutPaneID> = []
         for pane in workspace.screens.flatMap(\.panes) {
-            let read = pane.tabs.contains { entryReads.contains($0.id) }
-            if read, removed.contains(LayoutPaneID(pane.id)) { entered.insert(LayoutPaneID(pane.id)) }
+            if removed.contains(LayoutPaneID(pane.id)), pane.tabs.contains(where: { entryReads.contains($0.id) || onSight && readsOnSight($0) }) { entered.insert(LayoutPaneID(pane.id)) }
             for tab in pane.tabs { entryReads.remove(tab.id) }
         }
         return entered
