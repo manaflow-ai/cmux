@@ -266,3 +266,163 @@ fn fold_group_crc_is_reused_only_within_the_same_request() {
         assert_eq!(window.refused, [1], "the previous request's check must not be reused");
     }
 }
+
+/// What a read costs: its searches and steps in `folds.idx`, and its bytes from the segments.
+mod read_costs {
+    use crate::folds::Folds;
+    use crate::log::{
+        Anchor, Edge, Log, MAX_FRAME_BYTES, MAX_PAGE_BYTES, RECORD_OVERHEAD, RawRange,
+        SEGMENT_HEADER_LEN, Side, Window,
+    };
+    use crate::testkit::{
+        REPLY, TURN_ROWS, folded_turns, ids, open, text, texts, turn_group, turn_group_text,
+    };
+
+    type Read = Box<dyn Fn(&mut Log, &Folds) -> Window>;
+
+    /// The texts a reply carries in its own buffer.
+    fn carried(window: &Window) -> Vec<Vec<u8>> {
+        assert_eq!(window.at.len(), window.rows.len());
+        window.at.iter().map(|range| window.bytes.get(range.clone()).unwrap().to_vec()).collect()
+    }
+
+    fn reply(turn: u64) -> u64 {
+        turn_group(turn) + TURN_ROWS - 1
+    }
+
+    /// Fold-aware reads near the end of a book whose last turn is `last`.
+    fn fold_reads(last: u64) -> Vec<(&'static str, Read)> {
+        let two_turns = 2 * (RECORD_OVERHEAD + turn_group_text(last).len())
+            + 2 * (RECORD_OVERHEAD + REPLY.len());
+        let window = |anchor: Anchor, rows: usize| -> Read {
+            Box::new(move |log: &mut Log, folds: &Folds| {
+                log.read_window(anchor, rows, MAX_FRAME_BYTES, Some(folds), &[]).unwrap()
+            })
+        };
+        let page = |edge: Edge, bytes: usize, fold: Option<u64>| -> Read {
+            Box::new(move |log: &mut Log, folds: &Folds| {
+                log.read_page(edge, bytes, fold, Some(folds), &[]).unwrap()
+            })
+        };
+        vec![
+            ("end", window(Anchor::End, 16)),
+            ("before", window(Anchor::Row { id: reply(last - 3), side: Side::Before }, 6)),
+            ("after", window(Anchor::Row { id: reply(last - 6), side: Side::After }, 6)),
+            ("around", window(Anchor::Row { id: reply(last - 4), side: Side::Around }, 8)),
+            (
+                "around a hidden row",
+                window(Anchor::Row { id: turn_group(last - 4) + 1, side: Side::Around }, 8),
+            ),
+            ("page before", page(Edge::Before(turn_group(last - 1)), two_turns, None)),
+            ("page after", page(Edge::After(reply(last - 5)), two_turns, None)),
+            (
+                "fold page",
+                page(Edge::After(turn_group(last - 2)), MAX_PAGE_BYTES, Some(turn_group(last - 2))),
+            ),
+        ]
+    }
+
+    #[test]
+    fn one_fold_search_a_read_and_the_same_steps_at_both_sizes() {
+        const LAST: u64 = 999;
+        let home = tempfile::tempdir().unwrap();
+        let (mut small, small_folds) = folded_turns(&home.path().join("small"), LAST - 9, 10);
+        let (mut large, large_folds) = folded_turns(&home.path().join("large"), 0, LAST + 1);
+        for (name, read) in fold_reads(LAST) {
+            let mut seen = Vec::new();
+            for (log, folds) in [(&mut small, &small_folds), (&mut large, &large_folds)] {
+                let before = folds.stats();
+                let window = read(log, folds);
+                let after = folds.stats();
+                assert_eq!(after.searches - before.searches, 1, "{name}: one search a read");
+                assert!(!window.rows.is_empty() && window.refused.is_empty(), "{name}");
+                let cost = (
+                    after.search_reads - before.search_reads,
+                    after.entry_reads - before.entry_reads,
+                );
+                seen.push((ids(&window.rows), carried(&window), cost));
+            }
+            assert_eq!(seen.first(), seen.get(1), "{name}: the same rows, texts and steps");
+        }
+        // The end is in memory: a window there reads one entry a turn it steps back over.
+        let before = large_folds.stats();
+        let window =
+            large.read_window(Anchor::End, 16, MAX_FRAME_BYTES, Some(&large_folds), &[]).unwrap();
+        let after = large_folds.stats();
+        let expected: Vec<u64> =
+            (LAST - 7..=LAST).flat_map(|turn| [turn_group(turn), reply(turn)]).collect();
+        assert_eq!(ids(&window.rows), expected);
+        assert_eq!(after.search_reads - before.search_reads, 0);
+        assert_eq!(after.entry_reads - before.entry_reads, 7);
+        for (row, text) in window.rows.iter().zip(carried(&window)) {
+            if row.row_id == reply((row.row_id - 1) / TURN_ROWS) {
+                assert_eq!(text, REPLY);
+            } else {
+                assert_eq!(text, turn_group_text((row.row_id - 1) / TURN_ROWS));
+            }
+        }
+    }
+
+    /// Asserts a reply read each of its records once and nothing else (the segment's head is
+    /// the slack), and carries the same texts [`Log::fill`] reads.
+    fn read_once(log: &mut Log, name: &str, read: impl FnOnce(&mut Log) -> Window) {
+        let before = log.stats().bytes_read;
+        let window = read(log);
+        let bytes_read = log.stats().bytes_read - before;
+        let records: u64 =
+            window.rows.iter().map(|row| u64::from(row.len) + RECORD_OVERHEAD as u64).sum();
+        assert!(!window.rows.is_empty() && window.refused.is_empty(), "{name}");
+        assert!(
+            bytes_read <= records + SEGMENT_HEADER_LEN,
+            "{name}: read {bytes_read} bytes for {records} bytes of records"
+        );
+        assert_eq!(carried(&window), texts(log, &window.rows).0, "{name}");
+    }
+
+    #[test]
+    fn a_reply_reads_each_record_once() {
+        let home = tempfile::tempdir().unwrap();
+        for rows in [100u64, 3_000] {
+            let (mut log, _) = open(&home.path().join(format!("plain-{rows}")));
+            let file = log.append_raw_file(b"fixture/plain.ndjson").unwrap();
+            for id in 1..=rows {
+                log.append_settled(id, 1, RawRange { file, off: id, len: 1 }, &text(id)).unwrap();
+            }
+            log.sync().unwrap();
+            let middle = rows / 2;
+            read_once(&mut log, "window end", |log| {
+                log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, None, &[]).unwrap()
+            });
+            read_once(&mut log, "window around", |log| {
+                let anchor = Anchor::Row { id: middle, side: Side::Around };
+                log.read_window(anchor, 400, MAX_FRAME_BYTES, None, &[]).unwrap()
+            });
+            read_once(&mut log, "page before", |log| {
+                log.read_page(Edge::Before(rows + 1), MAX_PAGE_BYTES, None, None, &[]).unwrap()
+            });
+            read_once(&mut log, "page after", |log| {
+                log.read_page(Edge::After(middle), MAX_PAGE_BYTES, None, None, &[]).unwrap()
+            });
+        }
+        for turns in [10u64, 1_000] {
+            let (mut log, folds) =
+                folded_turns(&home.path().join(format!("folded-{turns}")), 0, turns);
+            let max = reply(turns - 1);
+            read_once(&mut log, "folded window end", |log| {
+                log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap()
+            });
+            read_once(&mut log, "folded page before", |log| {
+                log.read_page(Edge::Before(max + 1), MAX_PAGE_BYTES, None, Some(&folds), &[])
+                    .unwrap()
+            });
+            read_once(&mut log, "folded page after", |log| {
+                log.read_page(Edge::After(0), MAX_PAGE_BYTES, None, Some(&folds), &[]).unwrap()
+            });
+            let group = turn_group(turns / 2);
+            read_once(&mut log, "open fold page", |log| {
+                log.read_page(Edge::After(group), MAX_PAGE_BYTES, Some(group), Some(&folds), &[])
+                    .unwrap()
+            });
+        }
+    }
+}

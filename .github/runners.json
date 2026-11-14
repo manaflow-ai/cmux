@@ -391,6 +391,10 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-tui-build-package.yml#build": "rust-darwin-release-build",
+    "cmux-rd-windows.yml#live-macos-viewer": {
+      "class": "macos-runtime-tests",
+      "picker_followup": "landed in #42833/#42911 with runs-on on vars.MACOS_RUNNER_IOS (a Mac on the CI tailnet); take it from a picker job's output (cmuxterm-hq#10846)"
+    },
     "cmux-tui.yml#macos": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"

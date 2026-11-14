@@ -559,7 +559,8 @@ impl Supervisor {
     }
 
     /// Records a daemon event subscription when the grant can read the
-    /// stream's family (`agent.changed` needs what `agent.list` needs).
+    /// stream's declared `reads` op (`theme.changed` needs what `settings.get` needs), or a
+    /// provider stream's family (`agent_cli.changed` needs what `agent_cli.list` needs).
     fn subscribe_locked(
         &self,
         inner: &mut Inner,

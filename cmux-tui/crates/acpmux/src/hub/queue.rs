@@ -1354,19 +1354,40 @@ impl Hub {
     /// nothing else is rebuilt (its inbox, agent pairs, branch and move state are live already).
     pub(super) fn restore_queue_only(&self, session: &Arc<Session>, only: Option<&str>) {
         // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
-        // chat's threads stay readable.
+        // chat's threads stay readable. A log load reads it apart (`Session::inbox`); an import
+        // or a move takes what this log has that it does not hold now.
         if only.is_none() {
             self.restore_inbox(session);
+            session.inbox_loaded.store(true, Ordering::Release);
         }
+        self.restore_queue_after(session, only, None);
+    }
+
+    /// [`Self::restore_queue`] of the records past a restore point's seq, from what the point
+    /// carries (`restore_point.rs`); none: the whole log. Returns what a restore point at the end
+    /// of this read carries, when the read ended quiet: nothing waits, no prompt left the queue
+    /// for a turn that has not started, no inbox digest holds messages, no move or agent pair is
+    /// under way. Then a later record depends on nothing else this read learned.
+    pub(super) fn restore_queue_after(
+        &self,
+        session: &Arc<Session>,
+        only: Option<&str>,
+        from: Option<(u64, &QueueCarry)>,
+    ) -> Option<QueueCarry> {
         if session.meta().status == SessionStatus::Closed {
-            return;
+            return None;
         }
+        let after = from.map_or(0, |(seq, _)| seq);
+        let carried = from.map(|(_, carry)| carry);
         let mut waiting = queue_waiting::Waiting::default();
-        let mut order = queue_waiting::Order::default();
-        let mut held: std::collections::HashSet<String> = Default::default();
+        let mut order: queue_waiting::Order =
+            carried.and_then(|c| serde_json::from_value(c.order.clone()).ok()).unwrap_or_default();
+        let mut held: std::collections::HashSet<String> =
+            carried.map(|c| c.held.iter().cloned().collect()).unwrap_or_default();
         // Of those, the ones whose hold let them go by themselves (`queue_paused` `retrying`): a
         // record without the field, from an older daemon, held every prompt for Resume.
-        let mut retrying: std::collections::HashSet<String> = Default::default();
+        let mut retrying: std::collections::HashSet<String> =
+            carried.map(|c| c.retrying.iter().cloned().collect()).unwrap_or_default();
         // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
         // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
         let mut approved: HashMap<String, Value> = Default::default();
@@ -1379,10 +1400,14 @@ impl Hub {
         let mut unstarted = lost_start::Unstarted::default();
         let mut direct = unstarted_prompt::Unstarted::default();
         let mut digests = queue_waiting::Digests::default();
-        let mut branch = session.meta().git_branch;
-        // And what was changed here but is not in the journal yet (`kept_unstored`).
+        let mut branch = match carried {
+            Some(c) => c.git_branch.clone(),
+            None => session.meta().git_branch,
+        };
+        // Past the restore point, and what was changed here but is not in the journal yet
+        // (`kept_unstored`).
         let scanned =
-            self.scan_kinds_and_kept(session, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+            self.scan_kinds_after_and_kept(session, after, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
@@ -1552,6 +1577,13 @@ impl Hub {
                 }
                 true
             });
+        let mut quiet = only.is_none()
+            && scanned.is_ok()
+            && pair_records.is_empty()
+            && moving.is_none()
+            && unstarted.settled()
+            && digests.settled();
+        let carry_branch = branch.clone();
         if only.is_none() {
             if scanned.is_ok() {
                 self.restore_git_branch(session, branch);
@@ -1562,7 +1594,9 @@ impl Hub {
         }
         // Accepted direct prompts whose turn never started go back first (`unstarted_prompt.rs`).
         if scanned.is_ok() && only.is_none() {
-            for e in self.requeue_unstarted(session, direct.finish()) {
+            let left = direct.finish();
+            quiet &= left.is_empty();
+            for e in self.requeue_unstarted(session, left) {
                 order.prioritize_restart(e.msg.get("promptId").unwrap_or(&Value::Null));
                 waiting.push(e);
             }
@@ -1573,7 +1607,12 @@ impl Hub {
         });
         let mut waiting = waiting.into_records();
         if scanned.is_err() || waiting.is_empty() {
-            return;
+            return (quiet && waiting.is_empty()).then(|| QueueCarry {
+                git_branch: carry_branch,
+                held: held.into_iter().collect(),
+                retrying: retrying.into_iter().collect(),
+                order: serde_json::to_value(&order).unwrap_or_default(),
+            });
         }
         // The last reorder holds (a prompt that left the queue for its turn went back ahead of
         // it); a prompt queued after it keeps its place at the end.
@@ -1706,6 +1745,7 @@ impl Hub {
             self.append(session, "mux", "queue_restored", json!({}));
         }
         tracing::info!(session = %session.id, queued = restored_count, "restored queued prompts");
+        None
     }
 
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any
@@ -1840,6 +1880,18 @@ pub(super) fn closing(session: &Session) -> bool {
 pub(super) fn closing_error() -> RpcError {
     RpcError::invalid_params("the session is closing or closed: it takes no prompt")
         .with_data(json!({"reason": "session.closing", "closing": true}))
+}
+
+/// What a queue restore that ended quiet carries into the next one (`Hub::restore_queue_after`,
+/// `restore_point.rs`): the branch, the held prompts and the order. Every other part of the read
+/// was empty at that seq.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QueueCarry {
+    pub(crate) git_branch: Option<String>,
+    pub(crate) held: Vec<String>,
+    pub(crate) retrying: Vec<String>,
+    pub(crate) order: Value,
 }
 
 /// The `queue_removed` record of `removed`, with the fields of `why`.
