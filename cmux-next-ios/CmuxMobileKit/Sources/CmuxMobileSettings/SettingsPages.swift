@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
 import CmuxSpinner
+import StoreKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -26,6 +27,10 @@ struct AccountPage: View {
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
     @State private var confirmsDeletion = false
+    /// Apple's subscription page while the App Store warning is up.
+    @State private var renewingSubscription: URL?
+    /// Delete Account was tapped and the pre-delete check is in flight.
+    @State private var checkingDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
     /// The sign-in glyph grows with Dynamic Type like the other row icons.
@@ -87,17 +92,17 @@ struct AccountPage: View {
             }
             Section {
                 Button(role: .destructive) {
-                    confirmsDeletion = true
+                    Task { await askBeforeDeleting() }
                 } label: {
                     HStack {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
-                        if deleting {
+                        if deleting || checkingDeletion {
                             Spacer()
                             CmuxSpinner()
                         }
                     }
                 }
-                .disabled(deleting)
+                .disabled(deleting || checkingDeletion)
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
                 Text("Permanently deletes your account and data across all cmux apps.")
@@ -115,11 +120,56 @@ struct AccountPage: View {
         } message: {
             Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
         }
+        // Deleting the account does not cancel an App Store subscription
+        // (Guideline 5.1.1(v)): Apple keeps charging until it is cancelled in
+        // the App Store. This alert stands in for the confirmation above, so
+        // its Delete Account deletes.
+        .alert(
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your App Store subscription will keep renewing", bundle: .module)),
+            isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
+            presenting: renewingSubscription
+        ) { manageURL in
+            Button(String(localized: "mobile.account.deleteAppStore.manage", defaultValue: "Manage Subscription", bundle: .module)) {
+                Task { await manageSubscription(fallback: manageURL) }
+            }
+            Button("Delete Account", role: .destructive) { Task { await delete() } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store. Deleting your account also signs you out everywhere and can't be undone.", bundle: .module))
+        }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deletionError ?? "")
         }
+    }
+
+    /// Delete Account: asks the cmux service whether an App Store
+    /// subscription will keep renewing, then shows the App Store warning or
+    /// the plain confirmation (``AccountDeletionPrompt``).
+    private func askBeforeDeleting() async {
+        checkingDeletion = true
+        let check = await auth.accountDeletionCheck()
+        checkingDeletion = false
+        switch AccountDeletionPrompt(check: check) {
+        case .appStoreSubscriptionWarning(let manageURL): renewingSubscription = manageURL
+        case .confirmation: confirmsDeletion = true
+        }
+    }
+
+    /// Apple's own subscription sheet; Apple's subscriptions page when
+    /// StoreKit cannot show it (no window scene, no App Store account).
+    private func manageSubscription(fallback: URL) async {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        if let scene {
+            do {
+                try await StoreKit.AppStore.showManageSubscriptions(in: scene)
+                return
+            } catch {}
+        }
+        await UIApplication.shared.open(fallback)
     }
 
     private func delete() async {
