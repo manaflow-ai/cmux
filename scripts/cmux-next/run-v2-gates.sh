@@ -82,6 +82,7 @@ acpmux_lib_gates() {
   run_acpmux_lib walk_rss_gate
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
+  run_acpmux_lib sidebar_mirror_connect_gate
   run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off

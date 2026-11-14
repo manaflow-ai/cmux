@@ -226,7 +226,7 @@ impl Form {
     }
 }
 
-pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
+pub(crate) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<Summary> {
     let value = hub.session_list_summary(session);
     let row = value.as_object().ok_or_else(|| invalid("v1 summary is not an object"))?;
     let meta = session.meta();
