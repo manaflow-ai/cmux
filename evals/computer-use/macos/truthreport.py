@@ -190,6 +190,64 @@ def build(arms, agent_dirs, out, videos):
     return text
 
 
+def repros(rows, outcomes=("FP", "FN", "SIDE")):
+    """Every FP / FN / SIDE grouped by (app, action, scene), with one minimal repro each."""
+    groups = defaultdict(list)
+    for r in rows:
+        if r["outcome"] in outcomes:
+            groups[(r["outcome"], r["app"], r["action"], r["scene"])].append(r)
+    out = []
+    for (oc, app, act, scene), rs in sorted(groups.items()):
+        r = rs[0]
+        reps = sorted(x["rep"] for x in rs)
+        sc = r.get("scored_call") or {}
+        obs = [c["tool"] for c in r.get("calls", []) if c is not sc and c.get("t0", 0) < sc.get("t0", 0)]
+        raw = sc.get("result") or ""
+        import re
+        keep = {k: m.group(1) for k in ("evidence", "route", "note", "code", "error")
+                for m in [re.search(r'"%s"\s*:\s*"((?:[^"\\]|\\.)*)"' % k, raw)] if m}
+        res = json.dumps(keep) if keep else raw[:300]
+        evs = [e for e in r.get("events", []) if e.get("kind") == "state"]
+        inputs = [e for e in r.get("events", []) if e.get("kind") == "input" and e.get("t", 0) >= sc.get("t0", 0)]
+        tw = r.get("target_window") or {}
+        out.append({
+            "outcome": oc, "app": app, "action": act, "scene": scene, "reps": reps, "claim": r["claim"], "truth": r["truth"],
+            "call": {"name": sc.get("tool"), "arguments": sc.get("args")}, "result": res[:400],
+            "before": obs, "window": f"{tw.get('title')!r} (window {tw.get('wid')}), "
+                                       + ("behind the frontmost, key Person window that is typing" if scene == "bg"
+                                          else "frontmost and key"),
+            "oracle": r.get("detail"), "events": [f"{e.get('win')}/{e.get('el')} {e.get('what')}={e.get('value', e.get('len'))} via {e.get('via')}"
+                                                 for e in evs[:5]],
+            "effect_ms": [x.get("effect_ms") for x in rs], "side_effects": r.get("side_effects"),
+            "inputs": input_summary(inputs) if app == "lab" else None,
+        })
+    return out
+
+
+EVT = {"1": "mouseDown", "2": "mouseUp", "3": "rightMouseDown", "4": "rightMouseUp", "6": "mouseDragged", "10": "keyDown",
+       "22": "scrollWheel"}
+
+
+def input_summary(inputs):
+    """What input the fixture process itself received for the action (its NSEvent monitor)."""
+    if not inputs:
+        return "the app received no input event"
+    c = Counter((EVT.get(e.get("type"), e.get("type")), "window " + repr(e.get("win")) if e.get("win") else "no window")
+                for e in inputs)
+    return "the app received " + ", ".join(f"{n} {k} ({w})" for (k, w), n in c.items())
+
+
+def repro_md(items):
+    lines = []
+    for it in items:
+        lines.append(f"- **{it['outcome']}** {it['app']} `{it['action']}` ({it['scene']}, reps {it['reps']}): claim `{it['claim']}`, "
+                     f"truth `{it['truth']}`. Window: {it['window']}. Before it: {', '.join(it['before']) or 'nothing'}.\n"
+                     f"  Call: `{json.dumps(it['call'])}`\n  Result: `{it['result'][:300]}`\n  Oracle: {it['oracle']}"
+                     + (f"; events {it['events']}" if it["events"] else "") + (f"; effect at {it['effect_ms']} ms" if any(it['effect_ms']) else "")
+                     + (f"; input: {it['inputs']}" if it.get("inputs") else ""))
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="ins", action="append", required=True, help="ARM_LABEL=path/to/truth.jsonl (repeatable)")
@@ -206,3 +264,90 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ------------------------------------------------------------------ HTML (self-contained)
+
+CSS = """
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--line:#d2d2d7;--code:#f5f5f7;--acc:#0A84FF;--bad:#cf222e;--ok:#1a7f37}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1c1e;--fg:#f5f5f7;--mut:#a1a1a6;--line:#3a3a3c;--code:#2c2c2e;--bad:#f85149;--ok:#3fb950}}
+:root[data-theme="dark"]{--bg:#1c1c1e;--fg:#f5f5f7;--mut:#a1a1a6;--line:#3a3a3c;--code:#2c2c2e;--bad:#f85149;--ok:#3fb950}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;margin:0 auto;padding:24px 16px 80px;max-width:1180px}
+h1{font-size:26px}h2{font-size:20px;margin-top:36px;border-bottom:1px solid var(--line);padding-bottom:4px}h3{font-size:16px;margin-top:24px}
+.tw{overflow-x:auto;margin:8px 0}table{border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600;white-space:nowrap}code{font:12.5px ui-monospace,SFMono-Regular,monospace;background:var(--code);padding:1px 4px;border-radius:4px;word-break:break-word}
+pre{background:var(--code);padding:10px;border-radius:8px;overflow-x:auto;font:12px ui-monospace,monospace}li{margin:6px 0}
+video{width:100%;max-width:1100px;border:1px solid var(--line);border-radius:8px;background:#000}figure{margin:16px 0}figcaption{color:var(--mut);font-size:13px}
+.mut{color:var(--mut)}
+"""
+
+
+def _inline(t):
+    import re
+    t = html.escape(t)
+    t = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', t)
+    return t
+
+
+def md_to_html(md):
+    out, lines, i = [], md.splitlines(), 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith("```"):
+            j = i + 1
+            buf = []
+            while j < len(lines) and not lines[j].startswith("```"):
+                buf.append(lines[j])
+                j += 1
+            out.append("<pre>" + html.escape("\n".join(buf)) + "</pre>")
+            i = j + 1
+            continue
+        if ln.startswith("|") and i + 1 < len(lines) and set(lines[i + 1].replace("|", "").strip()) <= set("-: "):
+            head = [c.strip() for c in ln.strip("|").split("|")]
+            rows = []
+            j = i + 2
+            while j < len(lines) and lines[j].startswith("|"):
+                rows.append([c.strip() for c in lines[j].strip().strip("|").replace("\\|", "│").split("|")])
+                j += 1
+            out.append("<div class=tw><table><tr>" + "".join(f"<th>{_inline(h)}</th>" for h in head) + "</tr>" +
+                       "".join("<tr>" + "".join(f"<td>{_inline(c).replace(chr(0x2502), '|')}</td>" for c in r) + "</tr>" for r in rows) +
+                       "</table></div>")
+            i = j
+            continue
+        m = len(ln) - len(ln.lstrip("#"))
+        if 0 < m <= 4 and ln[m:m + 1] == " ":
+            out.append(f"<h{m}>{_inline(ln[m + 1:])}</h{m}>")
+        elif ln.lstrip().startswith(("- ", "* ")):
+            items = []
+            while i < len(lines) and (lines[i].lstrip().startswith(("- ", "* ")) or (lines[i].startswith("  ") and items)):
+                if lines[i].lstrip().startswith(("- ", "* ")):
+                    items.append(lines[i].lstrip()[2:])
+                else:
+                    items[-1] += "\n" + lines[i].strip()
+                i += 1
+            out.append("<ul>" + "".join("<li>" + "<br>".join(_inline(x) for x in it.split("\n")) + "</li>" for it in items) + "</ul>")
+            continue
+        elif ln.strip():
+            out.append(f"<p>{_inline(ln)}</p>")
+        i += 1
+    return "\n".join(out)
+
+
+def render_html(md_path, out_path, videos, title):
+    md = open(md_path).read()
+    body = md_to_html(md)
+    vids = []
+    for spec in videos:
+        cap, path = spec.split("=", 1)
+        b64 = base64.b64encode(open(path, "rb").read()).decode()
+        vids.append(f"<figure><video controls preload=metadata src='data:video/mp4;base64,{b64}'></video><figcaption>{html.escape(cap)}</figcaption></figure>")
+    page = (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>{body}")
+    if vids:
+        page += "<h2>Videos</h2>" + "".join(vids)
+    page += "</body></html>"
+    with open(out_path, "w") as f:
+        f.write(page)
+    return out_path
