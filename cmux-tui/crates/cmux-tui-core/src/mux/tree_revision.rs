@@ -103,7 +103,9 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::PairingResolved { .. }
         | MuxEvent::MachineUsageChanged(_)
         | MuxEvent::StashChanged { .. }
-        | MuxEvent::TasksChanged(_) => false,
+        | MuxEvent::TasksChanged(_)
+        // `chat.list`'s own index (mux/chat_index.rs), not a list-workspaces field.
+        | MuxEvent::ChatsChanged { .. } => false,
         MuxEvent::SurfaceResized { .. }
         | MuxEvent::SurfaceExited(..)
         | MuxEvent::ProgramStatusChanged { .. }
