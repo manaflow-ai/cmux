@@ -390,6 +390,7 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
@@ -1592,6 +1593,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats made before it read their inboxes through it from now on (`Session::inbox`).
+            for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
+                let _ = session.hub_ref.set(Arc::downgrade(&hub));
+            }
             // A copy's write tells the records of prompts it put on disk: their deliveries keep
             // them as proof (`open_delivery.rs`). Only a runtime-backed hub has peers to copy;
             // one built outside Tokio keeps a unique Arc, so a test can set fields first.
@@ -2069,7 +2074,10 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
-            inbox: StdMutex::new(inbox::Inbox::default()),
+            inbox_state: StdMutex::new(inbox::Inbox::default()),
+            inbox_loaded: AtomicBool::new(false),
+            inbox_load: StdMutex::new(()),
+            hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -2089,6 +2097,9 @@ impl Hub {
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
+        if let Some(hub) = self.hub_ref.get() {
+            let _ = session.hub_ref.set(hub.clone());
+        }
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         // Its pull requests wait for a review verdict (`review_queue.rs`).
