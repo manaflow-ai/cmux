@@ -1,0 +1,44 @@
+[package]
+name = "cmux-app-core-prototype"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "CMUX-570 measurement: the app C ABIs and CLI in one Rust link"
+
+# Kept outside the shipping workspaces until the installed app comparison
+# and launch/CLI smoke establish which packaging mode should ship.
+[workspace]
+
+[lib]
+name = "cmux_core"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+cmux-app-ffi = { path = "../../crates/cmux-app-ffi" }
+cmux-tui = { path = "../../crates/cmux-tui" }
+
+# Dependency workspaces do not propagate their patches to this link.
+# Keep the CLI's keyboard-event and transport behavior identical.
+[patch.crates-io]
+crossterm = { path = "../../vendor/crossterm" }
+terminput-crossterm = { path = "../../vendor/terminput-crossterm" }
+smoltcp = { path = "../../vendor/smoltcp" }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+lto = "fat"
+
+# Match the shipped CLI's package override; dependency workspace profiles
+# do not propagate into this standalone experiment.
+[profile.release.package.cmux-tui]
+opt-level = "z"
+codegen-units = 1
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
