@@ -158,16 +158,17 @@ impl Fixture {
         self.writer.apply(summary).unwrap();
     }
 
-    /// The daemon after a restart: a new list hub holding this hub's local rows and none of its
-    /// history, so a cursor from before it is past its head.
-    fn restarted(&self) -> (Arc<V2>, HubWriter) {
+    /// Restarts the daemon: a new list hub holding the local rows and none of the old hub's
+    /// history (so a cursor from before it is past its head), and no other machine's rows.
+    /// Later edits go to it.
+    fn restart(&mut self) {
         let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
-        let v2 = Arc::new(V2::new(hub, writer));
-        let mut writer = v2.take_writer().unwrap();
-        for id in self.sessions.keys() {
-            writer.apply(self.summary(id)).unwrap();
+        self.v2 = Arc::new(V2::new(hub, writer));
+        self.writer = self.v2.take_writer().unwrap();
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        for id in &ids {
+            self.publish(id);
         }
-        (v2, writer)
     }
 }
 

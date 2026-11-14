@@ -178,36 +178,26 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     let mut fx = fixture();
     // 19 local rows and one of another machine's: the window holds 20.
     fx.add_peer_row("peer-a", "peer-chat");
-    // The closed chats the turn store holds, and a live chat open in a tab.
-    let mut wanted = fx.wanted.clone();
-    wanted.push(key(&fx.summary("chat-05")));
+    // A live chat open in a tab, wanted so its row stays through its close.
+    //
+    // At most one key is wanted when a walk finishes: the client re-queues its wanted keys from
+    // a hash map then (`finish_mirror_walk`), so two or more are read in an order that changes
+    // from run to run, and the recording would too. The 8 closed keys are the gate's.
+    let tab = vec![key(&fx.summary("chat-05"))];
 
     let mut rec = Recorder::new();
     rec.call(json!({"call": "subscribe_mirror", "request": mirror_request()}));
-    rec.call(json!({"call": "want", "request": want_request(&wanted)}));
     rec.call(json!({"call": "connected"}));
     rec.run.connect(fx.v2.clone(), "fixture-daemon");
-    let step = rec.step("connect", connected_whole(&wanted)).await;
+    let step = rec.step("connect", connected_whole(&[])).await;
     let window = step.changes.iter().find(|change| change.get("rows").is_some()).unwrap();
     assert_eq!(window["rows"].as_array().unwrap().len(), 20, "the first window");
 
+    rec.call(json!({"call": "want", "request": want_request(&tab)}));
+    rec.step("want", |changes| any_names(changes, "chat-05")).await;
+
     fx.edit("chat-03", |meta| meta.title = Some("chat-03: renamed".into()));
     rec.step("summary", |changes| any_names(changes, "chat-03")).await;
-
-    let archived = crate::store::Tag { value: "1".into(), expires_at: None };
-    fx.edit("parent", |meta| {
-        meta.tags.insert("archived".into(), archived);
-    });
-    // The parent leaves the live view; the mirror holds it only for its child, and such a parent
-    // is not handed to the caller (the design doc, "The list's clients" 2). What the sidebar
-    // gets is its child again, now with no `spawnedBy`.
-    let unlisted = |change: &Value| {
-        names(change, "child") && rows(change).iter().all(|row| row.get("spawnedBy").is_none())
-    };
-    rec.step("parent-archived", |changes| changes.iter().any(unlisted)).await;
-    // The tee's fan-out to the child, as after a parent's mark.
-    fx.publish("child");
-    rec.step("child-after-parent", |_| true).await;
 
     fx.edit("chat-05", |meta| meta.status = crate::store::SessionStatus::Closed);
     rec.step("wanted-closed", |changes| any_names(changes, "chat-05")).await;
@@ -223,12 +213,13 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     rec.call(json!({"call": "disconnected"}));
     rec.run.drop_socket().await;
     // The other machine's row is not in the restarted daemon's list.
-    let (restarted, restarted_writer) = fx.restarted();
+    fx.restart();
     rec.call(json!({"call": "connected"}));
-    rec.run.connect(restarted, "fixture-daemon-restarted");
+    rec.run.connect(fx.v2.clone(), "fixture-daemon-restarted");
     let step = rec
         .step("restart", |changes| {
             has_kind(changes, "whole")
+                && any_names(changes, "chat-05")
                 && changes
                     .iter()
                     .any(|change| kind(change) == Some("gone") && change["why"] == "missed")
@@ -236,8 +227,23 @@ async fn the_sidebar_mirror_stream_is_recorded() {
         .await;
     let gone = step.changes.iter().find(|change| kind(change) == Some("gone")).unwrap();
     assert_eq!(gone["chatId"], "peer-chat", "a peer's dropped row arrives as gone missed");
+    assert!(any_names(&step.changes, "chat-05"), "the tab's closed chat is read again");
+
+    let archived = crate::store::Tag { value: "1".into(), expires_at: None };
+    fx.edit("parent", |meta| {
+        meta.tags.insert("archived".into(), archived);
+    });
+    // The parent leaves the live view; the mirror holds it only for its child, and such a parent
+    // is not handed to the caller (the design doc, "The list's clients" 2). What the sidebar
+    // gets is its child again, now with no `spawnedBy`.
+    let unlisted = |change: &Value| {
+        names(change, "child") && rows(change).iter().all(|row| row.get("spawnedBy").is_none())
+    };
+    rec.step("parent-archived", |changes| changes.iter().any(unlisted)).await;
+    // The tee's fan-out to the child, as after a parent's mark.
+    fx.publish("child");
+    rec.step("child-after-parent", |_| true).await;
     rec.run.drop_socket().await;
-    drop(restarted_writer);
 
     let bytes = rec.run.bytes.clone();
     for chunk in [usize::MAX, 7, 1] {
@@ -247,6 +253,24 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     assert!(bytes.len() + lines.len() < MAX_FIXTURE_BYTES, "{} + {}", bytes.len(), lines.len());
     check_or_bless("mirror.bytes", &bytes);
     check_or_bless("mirror.jsonl", &lines);
+}
+
+/// Every `sessionReceipt.generation` in `value`.
+fn receipt_generations(value: &Value, out: &mut std::collections::BTreeSet<u64>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(generation) = map
+                .get("sessionReceipt")
+                .and_then(|receipt| receipt.get("generation"))
+                .and_then(Value::as_u64)
+            {
+                out.insert(generation);
+            }
+            map.values().for_each(|value| receipt_generations(value, out));
+        }
+        Value::Array(items) => items.iter().for_each(|value| receipt_generations(value, out)),
+        _ => {}
+    }
 }
 
 /// Reads from `socket` until a line answers `id`, then until it is quiet; returns the bytes.
@@ -336,7 +360,23 @@ async fn the_method_not_found_stream_is_recorded() {
         socket.write_all(line.as_bytes()).await.unwrap();
         // This run's id and list epoch are the only bytes that differ from run to run.
         let reply = String::from_utf8(v1_reply(&mut socket, Some(id)).await).unwrap();
-        let reply = reply.replace(&run_id, "fixture-run").replace(&epoch, "fixture-epoch");
+        let mut reply = reply.replace(&run_id, "fixture-run").replace(&epoch, "fixture-epoch");
+        // So are the connection's id and nonce in `initialize`'s person challenge, and the
+        // process's start in each row's session receipt.
+        let mut generations = std::collections::BTreeSet::new();
+        for line in reply.clone().lines() {
+            let Ok(value) = serde_json::from_str::<Value>(line) else { continue };
+            receipt_generations(&value, &mut generations);
+            let Some(challenge) = value.pointer("/result/personChallenge") else { continue };
+            for field in ["connection", "nonce"] {
+                if let Some(text) = challenge.get(field).and_then(Value::as_str) {
+                    reply = reply.replace(text, &format!("fixture-{field}"));
+                }
+            }
+        }
+        for generation in generations {
+            reply = reply.replace(&format!("\"generation\":{generation}"), "\"generation\":1");
+        }
         let start = bytes.len();
         bytes.extend_from_slice(reply.as_bytes());
         let request: Value = serde_json::from_str(&line).unwrap();
