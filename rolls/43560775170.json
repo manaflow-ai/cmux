@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43560775170",
+  "recorded_at": "2026-11-14T05:24:02Z",
+  "reason": "cmux-tui fae5e8d13b02 changes the image's cmux-tui (pinned 1a47d4dabef1)",
+  "dry_run": false,
+  "cmux_tui": "fae5e8d13b027e3301dd1e6be77f96c7c2cc1f3e",
+  "fixes": [
+    {
+      "sha": "fae5e8d13b027e3301dd1e6be77f96c7c2cc1f3e",
+      "mergedAt": "2026-11-13T22:53:47-06:00",
+      "subject": "acpmux-core: the Path import of two hub test files has the cfg of its users"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:24:02Z",
+    "snapshot_id": "sh-a9de52563197449283bfea76511272c2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43560775170): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d9ca9381d3ce5bb0e95aa3ba0e69d1a156220b95",
+    "image": "cloud-native-auto-fae5e8d1-43560775170-1",
+    "revision": "ci-43560775170-1",
+    "at": "2026-11-14T05:24:02Z"
+  },
+  "rolled_back": false
+}
