@@ -10,7 +10,8 @@ use acpmux_client::ffi::{
     ACPMUX_CLIENT_ABI_VERSION, ACPMUX_CLIENT_OK, Bytes, acpmux_client_abi_version,
     acpmux_client_bytes_free, acpmux_client_connected, acpmux_client_disconnected,
     acpmux_client_free, acpmux_client_new, acpmux_client_next_change, acpmux_client_received,
-    acpmux_client_subscribe_mirror, acpmux_client_take_send, acpmux_client_want,
+    acpmux_client_subscribe_mirror, acpmux_client_take_send, acpmux_client_unwant,
+    acpmux_client_want,
 };
 use acpmux_core::hub::HubWriter;
 use acpmux_core::life::V2;
@@ -237,6 +238,10 @@ impl Ffi {
 
     pub(super) fn want(&mut self, request: &Value) {
         self.request(acpmux_client_want, request);
+    }
+
+    pub(super) fn unwant(&mut self, request: &Value) {
+        self.request(acpmux_client_unwant, request);
     }
 
     pub(super) fn sends(&mut self) -> Vec<Vec<u8>> {

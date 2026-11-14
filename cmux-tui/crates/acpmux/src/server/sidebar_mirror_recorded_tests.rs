@@ -3,7 +3,7 @@
 //! made, so Swift hands the same bytes to the same calls and must get the same changes.
 //!
 //! Each `.jsonl` line is one of: `{"step": name}`; a call the client made before the step's
-//! bytes (`{"call": "subscribe_mirror" | "want", "request": ...}`, `{"call": "connected" |
+//! bytes (`{"call": "subscribe_mirror" | "want" | "unwant", "request": ...}`, `{"call": "connected" |
 //! "disconnected"}`); `{"feed": [start, end]}`, the step's daemon bytes in the `.bytes` file;
 //! `{"change": ...}`, one `acpmux_client_next_change` output, in order; `{"send": base64}`, one
 //! `acpmux_client_take_send` output of the live run, in order. The sends are a record, not a
@@ -46,6 +46,7 @@ fn apply(ffi: &mut Ffi, call: &Value) {
             assert_eq!(sid, json!({"sid": SID}));
         }
         Some("want") => ffi.want(&call["request"]),
+        Some("unwant") => ffi.unwant(&call["request"]),
         Some("connected") => ffi.connected(),
         Some("disconnected") => ffi.disconnected(),
         other => panic!("no such call: {other:?}"),
@@ -229,6 +230,9 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     assert_eq!(gone["chatId"], "peer-chat", "a peer's dropped row arrives as gone missed");
     assert!(any_names(&step.changes, "chat-05"), "the tab's closed chat is read again");
 
+    // The tab closes, so the parent below is the only key the mirror reads.
+    rec.call(json!({"call": "unwant", "request": want_request(&tab)}));
+
     let archived = crate::store::Tag { value: "1".into(), expires_at: None };
     fx.edit("parent", |meta| {
         meta.tags.insert("archived".into(), archived);
@@ -255,21 +259,37 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     check_or_bless("mirror.jsonl", &lines);
 }
 
-/// Every `sessionReceipt.generation` in `value`.
-fn receipt_generations(value: &Value, out: &mut std::collections::BTreeSet<u64>) {
-    match value {
-        Value::Object(map) => {
-            if let Some(generation) = map
-                .get("sessionReceipt")
-                .and_then(|receipt| receipt.get("generation"))
-                .and_then(Value::as_u64)
-            {
-                out.insert(generation);
+/// The values in v1's replies that differ from run to run, wherever they sit: each person
+/// challenge's connection id and nonce, and each session receipt's generation.
+#[derive(Default)]
+struct PerRun {
+    challenge: std::collections::BTreeMap<String, &'static str>,
+    generations: std::collections::BTreeSet<u64>,
+}
+
+impl PerRun {
+    fn collect(&mut self, value: &Value) {
+        match value {
+            Value::Object(map) => {
+                if let Some(challenge) = map.get("personChallenge") {
+                    for field in ["connection", "nonce"] {
+                        if let Some(text) = challenge.get(field).and_then(Value::as_str) {
+                            self.challenge.insert(text.to_owned(), field);
+                        }
+                    }
+                }
+                if let Some(generation) = map
+                    .get("sessionReceipt")
+                    .and_then(|receipt| receipt.get("generation"))
+                    .and_then(Value::as_u64)
+                {
+                    self.generations.insert(generation);
+                }
+                map.values().for_each(|value| self.collect(value));
             }
-            map.values().for_each(|value| receipt_generations(value, out));
+            Value::Array(items) => items.iter().for_each(|value| self.collect(value)),
+            _ => {}
         }
-        Value::Array(items) => items.iter().for_each(|value| receipt_generations(value, out)),
-        _ => {}
     }
 }
 
@@ -363,18 +383,16 @@ async fn the_method_not_found_stream_is_recorded() {
         let mut reply = reply.replace(&run_id, "fixture-run").replace(&epoch, "fixture-epoch");
         // So are the connection's id and nonce in `initialize`'s person challenge, and the
         // process's start in each row's session receipt.
-        let mut generations = std::collections::BTreeSet::new();
-        for line in reply.clone().lines() {
-            let Ok(value) = serde_json::from_str::<Value>(line) else { continue };
-            receipt_generations(&value, &mut generations);
-            let Some(challenge) = value.pointer("/result/personChallenge") else { continue };
-            for field in ["connection", "nonce"] {
-                if let Some(text) = challenge.get(field).and_then(Value::as_str) {
-                    reply = reply.replace(text, &format!("fixture-{field}"));
-                }
+        let mut found = PerRun::default();
+        for line in reply.lines() {
+            if let Ok(value) = serde_json::from_str::<Value>(line) {
+                found.collect(&value);
             }
         }
-        for generation in generations {
+        for (text, field) in found.challenge {
+            reply = reply.replace(&text, &format!("fixture-{field}"));
+        }
+        for generation in found.generations {
             reply = reply.replace(&format!("\"generation\":{generation}"), "\"generation\":1");
         }
         let start = bytes.len();
