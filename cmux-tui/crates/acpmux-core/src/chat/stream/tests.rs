@@ -872,3 +872,23 @@ fn a_window_asked_past_the_bound_holds_the_bound() {
         assert!(window.has_before);
     });
 }
+
+#[test]
+fn held_text_is_cut_only_where_each_piece_decodes_on_its_own() {
+    let b = char::from(92);
+    let mut text = format!("ab{b}\"c{b}u00e9{b}ud83d{b}ude42").into_bytes();
+    text.extend_from_slice("é🙂x".as_bytes());
+    for max in 1..=text.len() + 1 {
+        let mut rest = text.as_slice();
+        let mut decoded = String::new();
+        while !rest.is_empty() {
+            let cut = text_cut(rest, max);
+            assert!(cut > 0, "a cut at {max} made no progress");
+            let (piece, after) = rest.split_at(cut);
+            let piece = std::str::from_utf8(piece).expect("a cut inside a character");
+            decoded.push_str(&serde_json::from_str::<String>(&format!("\"{piece}\"")).unwrap());
+            rest = after;
+        }
+        assert_eq!(decoded, "ab\"cé🙂é🙂x", "max {max}");
+    }
+}
