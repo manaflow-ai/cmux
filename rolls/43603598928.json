@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43603598928",
+  "recorded_at": "2026-11-14T14:23:39Z",
+  "reason": "cmux-tui 79aec7983902 changes the image's cmux-tui (pinned ecb753c86589)",
+  "dry_run": false,
+  "cmux_tui": "79aec7983902d889dd95926bc6ce36541bb7c904",
+  "fixes": [
+    {
+      "sha": "79aec7983902d889dd95926bc6ce36541bb7c904",
+      "mergedAt": "2026-11-14T05:52:35-08:00",
+      "subject": "cmux-tui: a journal filter can name 256 kinds, so the daemon serves the screen detector's stream again"
+    },
+    {
+      "sha": "c9c9c8b802aad46ff7df238acf9f853e727add2d",
+      "mergedAt": "2026-11-14T05:49:17-08:00",
+      "subject": "ci: the acpmux tests job runs the v2 gate registry's tests (#43060)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T14:23:39Z",
+    "snapshot_id": "sh-def4ed63623c488d860616159ed9b1e9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43603598928): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "75552be92827d06cca1427ebb9fceca549c51fbb",
+    "image": "cloud-native-auto-79aec798-43603598928-1",
+    "revision": "ci-43603598928-1",
+    "at": "2026-11-14T14:23:39Z"
+  },
+  "rolled_back": false
+}
