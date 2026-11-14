@@ -736,6 +736,30 @@ try {
           (values.layoutShift ?? 0).toFixed(4),
         ].join(" | "),
       );
+    if (mode === "down") {
+      // How long after acpmux answers again the page finds it (its retry wait, hostRetry.ts) and has its chat
+      // back: the socket that opened, and its attach answered, less when acpmux came back. p50 and p95.
+      const pct = (values: number[], share: number) =>
+        values.length
+          ? [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!
+          : null;
+      const after = (pick: (r: Round) => number | null) =>
+        numbers(rounds, (r) => {
+          const at = pick(r);
+          return at === null ? null : at - r.acpmuxUpMs;
+        });
+      const socket = after((r) => r.socketOpenedMs);
+      const attach = after((r) => r.attachAnsweredMs);
+      console.log(
+        `relink after acpmux up (${DOWN_MS} ms down): socket p50 ${ms(pct(socket, 0.5))} ms, p95 ${ms(pct(socket, 0.95))} ms; chat attached p50 ${ms(pct(attach, 0.5))} ms, p95 ${ms(pct(attach, 0.95))} ms (n=${rounds.length})`,
+      );
+      json.relink = {
+        socketP50: pct(socket, 0.5),
+        socketP95: pct(socket, 0.95),
+        attachP50: pct(attach, 0.5),
+        attachP95: pct(attach, 0.95),
+      };
+    }
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
