@@ -41,12 +41,9 @@ final class MacConversationLoader {
     static var staleTitle: String { String(localized: "Not connected to your Mac") }
     /// The bar's line under it: what is shown and what happens to a send.
     static var staleReason: String {
-        String(localized: "Showing the last messages. What you send waits until it reconnects.")
+        String(localized: "What you send waits until it reconnects.")
     }
-    /// The same over a conversation this phone kept nothing of.
-    static var staleReasonNothingKept: String {
-        String(localized: "Its messages load when it reconnects. What you send waits until then.")
-    }
+
 
     func retry(macID: String?, reconnect: ((String) async -> Void)?, refresh: (@MainActor () async -> Void)? = nil) async {
         if let macID { await reconnect?(macID) }
@@ -95,7 +92,8 @@ final class MacConversationLoader {
     static func markStale(_ session: ChiefSession, tryAgain: (@MainActor () -> Void)?) {
         session.unavailableTitle = staleTitle
         session.reconnect = tryAgain
-        session.status = session.lastMessage == nil ? staleReasonNothingKept : staleReason
+        // One line whether or not kept messages are in yet (they can still be loading off the main thread).
+        session.status = staleReason
     }
 
     private static func clearStale(_ session: ChiefSession) {

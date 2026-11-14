@@ -652,12 +652,14 @@ public final class MacHomeFeed {
     /// The conversation as this phone last saw it, shown while its channel opens
     /// (``session(for:)`` waits on the Mac's list): a session on no backend whose store shows
     /// the kept messages (in this turn when read this run, else once read off the main thread).
-    /// The open session when there is one; nil when nothing can be kept (no account or Mac).
+    /// The open session when there is one; nil when nothing can be kept (no account or Mac),
+    /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
+    /// first open failed, so its screen never falls back to a full-screen error.
     /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
-    public func keptSession(for route: MacConversationRoute) -> ChiefSession? {
+    public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
-        // Nothing kept on disk still opens the conversation (its title and composer, empty).
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
+        guard key != nil || orEmpty else { return nil }
         let identity = ChiefIdentity(chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
         let info = ConversationInfo(id: route.conversationID, title: route.title, kind: .direct,
                                     participants: [identity.me, identity.chief])

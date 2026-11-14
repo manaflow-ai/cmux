@@ -145,6 +145,16 @@ import Testing
         #expect(shown.lastMessage?.id == "m3")
         #expect(shown.unavailableTitle == MacHomeFeed.keptTitle)
         #expect(feed.keptSession(for: route) === shown)
+    }
+
+    @Test func nothingKeptGivesNoSessionUnlessAnEmptyOneIsAsked() {
+        // New Message keeps its blank page (nil); a failed open asks for an empty session instead.
+        let feed = MacHomeFeed(rowsCache: nil, transcripts: nil, accountID: { nil })
+        let route = MacConversationRoute(conversationID: "c-none", chief: nil, title: "Nothing kept")
+        #expect(feed.keptSession(for: route) == nil)
+        let empty = feed.keptSession(for: route, orEmpty: true)
+        #expect(empty != nil)
+        #expect(empty?.lastMessage == nil)
 
         let live = try await feed.session(for: route)
         #expect(live === shown)

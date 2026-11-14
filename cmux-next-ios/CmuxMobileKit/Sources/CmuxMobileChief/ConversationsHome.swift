@@ -439,8 +439,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // No visible title (user feedback): the grid sits right under the
         // toolbar. The title still names the screen for VoiceOver and the back menu.
         .navigationTitle("Home")
-        // No visible title (user feedback): the grid sits right under the
-        // toolbar. The title still names the screen for VoiceOver and the back menu.
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar {
@@ -1072,7 +1070,7 @@ struct MacConversationScreen: View {
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
         .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
                              hasRows: feed.rows != nil, homeProblem: feed.problem)) {
-            if loader.session == nil { kept = feed.keptSession(for: route) }
+            if loader.session == nil { kept = feed.keptSession(for: route, orEmpty: true) }
             // A dropped link keeps the open conversation on screen with its bar's Try Again
             // (CMUX-30), never a full-screen error over the transcript and the composer.
             await loader.load({ try await feed.session(for: route) }, fallback: kept, tryAgain: { [loader, feed, macID, reconnect] in
