@@ -50,13 +50,10 @@ enum AppCommandPalette {
                                                                                                           origin: .user))
                                }))
         }
-        // "Open <App> Overlay": a palette pick is the person's gesture, the only way an overlay opens.
-        let overlays = services.apps.overlays.offered.map { offer in
+        let overlays = services.apps.overlays.offered.map { offer in // "Open <App> Overlay": the person's pick is the gesture
             PaletteItem(id: "overlay:\(offer.app)", title: offer.title, subtitle: offer.app, symbol: "macwindow.on.rectangle", keywords: [offer.app, "overlay"],
                         primary: PaletteCommand(id: "open", title: AppsAppStrings.run, symbol: "return", effect: .perform { [weak services] in
-                            guard let services, let window = services.windows.active?.window else { return }
-                            try? services.apps.overlays.open(offer.app, in: window, origin: .user)
-                        }))
+                            try? services?.apps.overlays.open(offer.app, in: services?.windows.active?.window, origin: .user) }))
         }
         return opens + overlays + entries(services.apps).map { item($0, services) }
     }

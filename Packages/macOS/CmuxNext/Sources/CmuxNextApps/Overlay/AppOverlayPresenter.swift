@@ -77,13 +77,13 @@ public final class AppOverlayPresenter {
                height: max(0, min(overlay.size.height, bounds.height - 2 * margin)))
     }
 
-    /// Opens `app`'s overlay in `window` for the person's gesture (`origin` user).
-    public func open(_ app: String, in window: NSWindow, origin: AppOrigin) throws(Refusal) {
+    /// Opens `app`'s overlay in `window` (nil: refused, no window) for the person's gesture (`origin` user).
+    public func open(_ app: String, in window: NSWindow?, origin: AppOrigin) throws(Refusal) {
         let record = client.app(app)
         if let refusal = Self.refusal(record, origin: origin) { throw refusal }
         guard let record, let overlay = record.manifest.presentation?.overlay,
               let implementation = AppMountSurface.overlay.implementation(of: record, id: nil) else { throw .undeclared }
-        guard window.contentView != nil else { throw .noWindow }
+        guard let window, window.contentView != nil else { throw .noWindow }
         close(in: window)
         let mount = client.mount(app, implementation: implementation, surface: AppMountSurface.overlay.rawValue, origin: .user)
         let scene = mount.makeView()

@@ -44,7 +44,7 @@ This page decides only which kind a surface is.
 | sidebar-card | native | card veil | Update Ready, notices, Now Playing |
 | native-overlay | native | real glass | the floating native surfaces that exist today: palette, toasts, find bars, HUDs (which-key, zoom), drag ghosts, browser bubbles and cards, Chief pet, permission request, notifications panel, Home sheets. **A closed set.** |
 | material-source | native | real glass | the shared glass itself and the hosts built on it: `Glass`, `GlassPanelView`, `OverlaySurface`, tooltip, hover card, find pill, shortcut chip |
-| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names |
+| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names, and the glass card an app overlay (`presentation.overlay`) draws its scene on |
 | debug | native | real glass | Debug fixtures and playgrounds, never shipped |
 
 What the rule means in practice:
