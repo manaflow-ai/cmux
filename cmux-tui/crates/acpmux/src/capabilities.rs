@@ -28,6 +28,10 @@ pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 /// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
 pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 
+/// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
+/// `closedListed` (`server/requests/info.rs` `rows`).
+pub const INFO_ROWS: &str = "info-rows-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -96,6 +100,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
+    // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
+    // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
+    // daemon without this id gets its v1 list read.
+    Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list

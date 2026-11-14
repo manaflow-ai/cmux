@@ -147,6 +147,12 @@ impl Hub {
         book.rows.values().map(|(_, r)| r).filter(|r| keep(r)).cloned().collect()
     }
 
+    /// The hub row listed under `key` (`HOST/ID`).
+    pub(super) fn mesh_book_row(&self, key: &str) -> Option<Arc<RemoteSession>> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.rows.get(key).map(|(_, row)| row.clone())
+    }
+
     /// The machines the hub lists for this person, as `peers` lists an ssh peer: connected, with
     /// their session count and newest heartbeat.
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {

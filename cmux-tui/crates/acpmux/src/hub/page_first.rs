@@ -244,6 +244,45 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// The rows `keys` name, as `_acpmux/sessions` writes them with `with_tools`: this daemon's
+    /// session by its id ([`Hub::own_row_text`], a closed one from its cached bytes), a peer's
+    /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
+    /// `None` for a key that names no row. Only the rows asked for are built, whatever the
+    /// list's size (`_acpmux/info` with `sessionIds`, agent service v2 row 7b).
+    pub(crate) fn rows_by_key(&self, keys: &[String], with_tools: bool) -> Vec<Option<Arc<str>>> {
+        let mut states = None;
+        let remote = self.remote_sessions.read();
+        keys.iter()
+            .map(|key| {
+                if let Some(session) = self.session_by_id(key) {
+                    return Some(self.own_row_text(&session, with_tools));
+                }
+                if !key.contains('/') {
+                    return None;
+                }
+                let row = remote.get(key.as_str()).cloned().or_else(|| self.mesh_book_row(key))?;
+                let states = states.get_or_insert_with(|| self.peer_link_states());
+                Some(super::peers::listed_remote_text(&row, states, with_tools).into())
+            })
+            .collect()
+    }
+
+    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's closed
+    /// sessions and the peers' and hub machines' mirrored ones, read from their status with no
+    /// row built (`ls`'s hidden line, beside a read of the live view). `sessions` is this
+    /// daemon's, as the caller already holds them (`Hub::status` walks them once).
+    pub(crate) fn closed_listed(&self, sessions: &[Arc<Session>]) -> usize {
+        let own = sessions
+            .iter()
+            .filter(|session| session.read_meta(|m| m.status == SessionStatus::Closed))
+            .count();
+        let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
+        let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
+        own + peers + self.mesh_book_rows(closed).len()
+    }
+}
+
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
 /// few of them out without a second read.
 pub(super) const WINDOW_ROOM: usize = 64;
