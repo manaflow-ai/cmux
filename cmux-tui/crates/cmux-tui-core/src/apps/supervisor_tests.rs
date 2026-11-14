@@ -51,7 +51,16 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
+            ToHost::Init { settings, .. } => {
+                send(FromHost::Ready { runtime: "scripted".into() });
+                // An app with settings reports the values it loaded with.
+                if settings.as_object().is_some_and(|s| !s.is_empty()) {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("init-settings {settings}"),
+                    });
+                }
+            }
             ToHost::Mount { mount, export, ctx } => {
                 // `timeout`: the render runs past its entry deadline, every time.
                 if ctx["timeout"] == true {
@@ -155,6 +164,11 @@ fn scripted_app_host() {
             ToHost::Settings { values } => {
                 if let Some(barrier) = values["test_event_barrier"].as_str() {
                     send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                } else {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("settings {values}"),
+                    });
                 }
             }
             ToHost::Unmount { .. } => {}
@@ -1037,6 +1051,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_settings_tests.rs"]
+mod extension_settings;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
