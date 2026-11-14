@@ -21,7 +21,13 @@
 // codex mode"). Until the host's value comes, the launch's copy shows (a page opened after a pick in
 // this launch draws it from its first frame); once it came, the host's value wins.
 import { useSyncExternalStore } from "react";
-import { changeChatDisplay, COMPOSER_LOOK_KEY, pickedDisplayValue, subscribeChatDisplay } from "./chatDisplay";
+import {
+  changeChatDisplay,
+  COMPOSER_LOOK_KEY,
+  notePickedElsewhere,
+  pickedDisplayValue,
+  subscribeChatDisplay,
+} from "./chatDisplay";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -73,7 +79,11 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
     // A null key is the storage cleared (localStorage.clear()): the look is back to the default.
-    if (event.key === KEY || event.key === null) listener();
+    if (event.key !== KEY && event.key !== null) return;
+    // Another page's pick is the newest: it stands over the host's last value until the host's push.
+    if (event.key === KEY && (event.newValue === "claude" || event.newValue === "codex"))
+      notePickedElsewhere(COMPOSER_LOOK_KEY, event.newValue);
+    listener();
   };
   globalThis.addEventListener?.("storage", onStorage);
   // The host's value came or changed (a pick in another pane, Settings, an edit of the file).

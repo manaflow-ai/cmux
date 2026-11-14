@@ -520,6 +520,15 @@ export function pickedDisplayValue(key: (typeof PICKED_KEYS)[number]): unknown {
   if (!received) return undefined;
   return raw[key] ?? null;
 }
+/// Another page of this launch picked (its `storage` event): this page shows the pick at once, as the
+/// host's push of it will say, without writing it again (that page's write does). `null` is the default.
+export function notePickedElsewhere(key: (typeof PICKED_KEYS)[number], value: unknown): void {
+  if (!received) return;
+  const next = { ...raw };
+  if (value === null || value === undefined) delete next[key];
+  else next[key] = value;
+  setChatDisplay(next);
+}
 /// Tests: the page starts again as a new page does, with no `display` value yet.
 export function resetChatDisplayForTests(): void {
   for (const pending of unsent.values()) clearTimeout(pending);

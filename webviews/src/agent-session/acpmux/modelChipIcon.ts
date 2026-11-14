@@ -8,7 +8,13 @@
 // persistent, so a choice kept only there was lost at every restart, as the composer's look was
 // (composerLook.ts). Until the host's value comes, the launch's copy shows; once it came, it wins.
 import { useSyncExternalStore } from "react";
-import { changeChatDisplay, MODEL_CHIP_ICON_KEY, pickedDisplayValue, subscribeChatDisplay } from "./chatDisplay";
+import {
+  changeChatDisplay,
+  notePickedElsewhere,
+  MODEL_CHIP_ICON_KEY,
+  pickedDisplayValue,
+  subscribeChatDisplay,
+} from "./chatDisplay";
 
 const STORAGE_KEY = "cmux.acpmux.modelChipIcon";
 
@@ -52,6 +58,8 @@ function subscribe(listener: () => void) {
   const changed = (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY && event.key !== null) return;
     on = stored();
+    // Another page's pick is the newest: it stands over the host's last value until the host's push.
+    if (event.key === STORAGE_KEY) notePickedElsewhere(MODEL_CHIP_ICON_KEY, on ? null : false);
     listener();
   };
   globalThis.addEventListener?.("storage", changed);

@@ -11,7 +11,13 @@
 // agent pages' store is not persistent, so a choice kept only there was lost at every restart, as
 // the composer's look was (composerLook.ts). Until the host's value comes, the launch's copy holds.
 import { useSyncExternalStore } from "react";
-import { changeChatDisplay, pickedDisplayValue, QUEUEING_KEY, subscribeChatDisplay } from "./chatDisplay";
+import {
+  changeChatDisplay,
+  notePickedElsewhere,
+  pickedDisplayValue,
+  QUEUEING_KEY,
+  subscribeChatDisplay,
+} from "./chatDisplay";
 
 const STORAGE_KEY = "cmux.acpmux.queueing";
 
@@ -55,6 +61,8 @@ function subscribe(listener: () => void) {
   const changed = (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY && event.key !== null) return;
     on = stored();
+    // Another page's pick is the newest: it stands over the host's last value until the host's push.
+    if (event.key === STORAGE_KEY) notePickedElsewhere(QUEUEING_KEY, on ? null : false);
     listener();
   };
   globalThis.addEventListener?.("storage", changed);
