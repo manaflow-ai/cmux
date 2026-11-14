@@ -4,24 +4,50 @@ export type TranscriptMessage = {
 };
 
 export class TranscriptLineParser {
-  private pending = "";
+  // Keep chunks separate until a complete line is available. Repeatedly
+  // splitting one growing string makes a long line streamed in small chunks
+  // quadratic in both work and allocation.
+  private pendingParts: string[] = [];
+  private pendingLength = 0;
 
   constructor(private readonly onMessage: (message: TranscriptMessage) => void) {}
 
   feed(chunk: string): void {
     if (!chunk) return;
-    this.pending += chunk;
-    const lines = this.pending.split(/\r?\n/);
-    this.pending = lines.pop() ?? "";
-    for (const line of lines) {
-      this.parseLine(line);
+
+    let lineStart = 0;
+    for (let index = 0; index < chunk.length; index += 1) {
+      if (chunk.charCodeAt(index) !== 10) continue;
+      this.appendPendingPart(chunk.slice(lineStart, index));
+      this.emitPendingLine();
+      lineStart = index + 1;
     }
+
+    this.appendPendingPart(chunk.slice(lineStart));
   }
 
   finish(): void {
-    const finalLine = this.pending;
-    this.pending = "";
-    this.parseLine(finalLine);
+    this.emitPendingLine();
+  }
+
+  private appendPendingPart(part: string): void {
+    if (!part) return;
+    this.pendingParts.push(part);
+    this.pendingLength += part.length;
+  }
+
+  private emitPendingLine(): void {
+    if (this.pendingLength === 0) {
+      this.pendingParts = [];
+      return;
+    }
+
+    const line = this.pendingParts.length === 1
+      ? this.pendingParts[0]
+      : this.pendingParts.join("");
+    this.pendingParts = [];
+    this.pendingLength = 0;
+    this.parseLine(line);
   }
 
   private parseLine(line: string): void {
