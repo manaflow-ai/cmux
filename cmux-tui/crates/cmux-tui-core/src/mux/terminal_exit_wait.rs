@@ -101,7 +101,7 @@ impl Mux {
                 );
                 let mut result =
                     terminal_output_read_result(cut.text.clone(), 0, cut.end, true, true);
-                result["recovery"] = serde_json::json!(epoch);
+                result["recovery"] = serde_json::json!(epoch.as_ref());
                 return Ok(result);
             }
             anyhow::ensure!(
@@ -117,7 +117,7 @@ impl Mux {
         );
         if let Some((epoch, gap, _, _)) = current {
             if recovery.is_some() {
-                result["recovery"] = serde_json::json!(epoch);
+                result["recovery"] = serde_json::json!(epoch.as_ref());
             } else if gap && result["snapshot"] != true {
                 result["complete"] = serde_json::json!(false);
             }

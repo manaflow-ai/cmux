@@ -217,7 +217,7 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    let recovery = optional_string(&request.fields, "recovery")?;
+    let recovery = super::optional_string(&request.fields, "recovery")?;
     mux.terminal_output_read_with_recovery(&terminal_id, after, max_bytes, recovery.as_deref())
         .map_err(|error| {
             // Journal failures can contain SQLite paths, trigger text, and other
