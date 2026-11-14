@@ -117,7 +117,7 @@ describe("backfill", () => {
     expect(f.store.notifications.size).toBe(1);
   });
 
-  test("the first run starts at Apple's retention limit in week-long windows, each starting at the last one's end minus the overlap", async () => {
+  test("the first run starts at Apple's retention limit in day-long windows, each starting at the last one's end minus the overlap", async () => {
     await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
     // A notification already in the ledger does not narrow the first window:
     // anything Apple gave up on before it is what the backfill is for.
@@ -146,7 +146,7 @@ describe("backfill", () => {
     ]);
     let runs = 0;
     let complete = false;
-    while (!complete && runs < 200) {
+    while (!complete && runs < 600) {
       f.clock = new Date(NOW.getTime() + runs * HOUR / 2);
       requests = [];
       const result = await history.backfillAppleNotifications(f.deps(), { pagesPerSource: 1 });
@@ -157,7 +157,8 @@ describe("backfill", () => {
       runs += 1;
     }
     expect(complete).toBe(true);
-    expect(runs).toBeLessThan(80);
+    // Two runs per one-day window, 178 windows, plus the windows that open while it catches up.
+    expect(runs).toBeLessThan(400);
   });
 
   test("never asks for more than Apple's 180 days", () => {
@@ -186,20 +187,41 @@ describe("backfill", () => {
 
   test("a payload that stays unverifiable for a day of runs is counted as rejected so the history moves on", async () => {
     caughtUp();
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
+    const stuck = "00000000-0000-4000-a000-0000000000ff";
+    f.serverApi = historyApi([{ signedPayloads: [missedRenewal(stuck), missedRenewal()] }]);
+    const real = f.deps().verifier;
+    const oneStuck = {
+      ...real,
+      verifyNotification: async (payload: string) => {
+        const decoded = await real.verifyNotification(payload);
+        if (decoded.notificationUUID === stuck) throw new AppleVerificationError("retryable");
+        return decoded;
+      },
+    };
+    for (let run = 0; run < history.APPLE_HISTORY_MAX_RETRYABLE_RUNS; run += 1) {
+      await history.backfillAppleNotifications(f.deps({ verifier: oneStuck }));
+    }
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.retryableRuns).toBe(history.APPLE_HISTORY_MAX_RETRYABLE_RUNS);
+    const result = await history.backfillAppleNotifications(f.deps({ verifier: oneStuck }));
+    expect(result.sources.find((source) => source.environment === "Production" && source.bundleId === BUNDLE))
+      .toMatchObject({ complete: true, error: null, notifications: { rejected: 1 } });
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ retryableRuns: 0 });
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime());
+  });
+
+  test("a page where nothing verifies is an outage: it keeps stalling past the cap", async () => {
+    caughtUp();
     f.serverApi = historyApi([{ signedPayloads: [missedRenewal()] }]);
     const outage = {
       ...f.deps().verifier,
       verifyNotification: async () => { throw new AppleVerificationError("retryable"); },
     };
-    for (let run = 0; run < history.APPLE_HISTORY_MAX_RETRYABLE_RUNS; run += 1) {
+    for (let run = 0; run <= history.APPLE_HISTORY_MAX_RETRYABLE_RUNS; run += 1) {
       await history.backfillAppleNotifications(f.deps({ verifier: outage }));
     }
-    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.retryableRuns).toBe(history.APPLE_HISTORY_MAX_RETRYABLE_RUNS);
-    const result = await history.backfillAppleNotifications(f.deps({ verifier: outage }));
-    expect(result.sources.find((source) => source.environment === "Production" && source.bundleId === BUNDLE))
-      .toMatchObject({ complete: true, error: null, notifications: { rejected: 1 } });
-    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ retryableRuns: 0 });
-    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime());
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.retryableRuns).toBe(history.APPLE_HISTORY_MAX_RETRYABLE_RUNS + 1);
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime() - 2 * HOUR);
   });
 
   test("a notification already in the ledger is left to the retry job and its backoff", async () => {
@@ -249,7 +271,7 @@ describe("backfill", () => {
     expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ paginationToken: null });
   });
 
-  test("a window that started at the retention limit can still be resumed for a day", async () => {
+  test("a window that started at the retention limit can still be resumed a day later", async () => {
     f.serverApi = historyApi([
       { signedPayloads: [], hasMore: true, paginationToken: "page-1" },
       { signedPayloads: [], hasMore: false },
