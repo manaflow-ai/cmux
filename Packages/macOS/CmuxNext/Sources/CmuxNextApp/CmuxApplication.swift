@@ -91,7 +91,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
-        guard BrowserPinchPolicy.allows(event) else { return }
+        guard event.cmuxAllowsPinchZoom else { return }
         if let inputDispatch { inputDispatch.dispatching(event) { route(event) } } else { route(event) }
     }
 

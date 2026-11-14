@@ -2,18 +2,21 @@ public import AppKit
 
 /// Pinch zoom belongs to browser documents, including their separate Chromium input windows.
 @MainActor
-public enum BrowserPinchPolicy {
-    public static func allows(_ event: NSEvent) -> Bool {
-        guard event.type == .magnify else { return true }
-        guard let window = event.window else { return false }
-        return allows(in: window, at: event.locationInWindow)
+extension NSEvent {
+    public var cmuxAllowsPinchZoom: Bool {
+        guard type == .magnify else { return true }
+        guard let window else { return false }
+        return window.cmuxAllowsPinchZoom(at: locationInWindow)
     }
+}
 
-    public static func allows(in window: NSWindow, at point: NSPoint) -> Bool {
-        for tab in CEFRuntime.shared.tabsByBrowser.values where tab.isPageWindow(window) {
+@MainActor
+extension NSWindow {
+    public func cmuxAllowsPinchZoom(at point: NSPoint) -> Bool {
+        for tab in CEFRuntime.shared.tabsByBrowser.values where tab.isPageWindow(self) {
             return tab.pageThemeSurface == nil
         }
-        guard let content = window.contentView else { return false }
+        guard let content = contentView else { return false }
         var view = content.hitTest(content.convert(point, from: nil))
         while let current = view {
             if current is WebKitWebView { return true }

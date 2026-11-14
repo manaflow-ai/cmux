@@ -13,7 +13,7 @@ struct BrowserPinchPolicyTests {
         window.contentView = content
         let browser = WebKitWebView(frame: NSRect(x: 200, y: 0, width: 200, height: 200))
         content.addSubview(browser)
-        #expect(BrowserPinchPolicy.allows(in: window, at: NSPoint(x: 300, y: 100)))
-        #expect(!BrowserPinchPolicy.allows(in: window, at: NSPoint(x: 100, y: 100)))
+        #expect(window.cmuxAllowsPinchZoom(at: NSPoint(x: 300, y: 100)))
+        #expect(!window.cmuxAllowsPinchZoom(at: NSPoint(x: 100, y: 100)))
     }
 }
