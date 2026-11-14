@@ -31,6 +31,8 @@ pub(crate) mod list_gate;
 #[cfg(test)]
 #[path = "agent_session_list_gate_tests.rs"]
 mod list_gate_tests;
+#[path = "agent_session_list_source.rs"]
+pub(crate) mod list_source;
 #[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
