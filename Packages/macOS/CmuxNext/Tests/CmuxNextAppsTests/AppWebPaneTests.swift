@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApps
+import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -141,8 +142,8 @@ struct AppWebPaneTests {
 
     @Test func aLocalReloadEventNamesItsApp() {
         let decode = AppsWireDecoding()
-        #expect(decode.event(name: "apps-changed", payload: ["revision": 3, "transaction": "local-reload", "app": "local/web-pane"])
+        #expect(decode.event(name: "apps-changed", payload: CmuxNextDaemon.JSONValue.object(["revision": 3, "transaction": "local-reload", "app": "local/web-pane"]))
             == .changed(revision: 3, app: "local/web-pane"))
-        #expect(decode.event(name: "apps-changed", payload: ["revision": 4, "app": "local/web-pane"]) == .changed(revision: 4))
+        #expect(decode.event(name: "apps-changed", payload: CmuxNextDaemon.JSONValue.object(["revision": 4, "app": "local/web-pane"])) == .changed(revision: 4))
     }
 }
