@@ -351,13 +351,14 @@ impl H264Encoder for OpenH264 {
         {
             return;
         }
-        if current.iBitrate
-            == i64::from(self.kbps).saturating_mul(1000).min(i64::from(c_int::MAX)) as c_int
+        if current.iBitrate == (self.kbps as f32 * 1000.0) as c_int
             && u64::from(kbps.abs_diff(self.kbps)) * 20 < u64::from(self.kbps)
         {
             return;
         }
-        let requested = (kbps * 1000) as c_int;
+        // ALL distributes the target through f32 even with one spatial layer.
+        // Quantize both target and caps alike so rounding cannot exceed the cap.
+        let requested = (kbps * 1000) as f32 as c_int;
         // ALL updates the aggregate maximum only. The active layer's maximum
         // otherwise stays at startup bitrate and rejects every upward retarget.
         // Setters mutate before validating: read the actual target, first make
