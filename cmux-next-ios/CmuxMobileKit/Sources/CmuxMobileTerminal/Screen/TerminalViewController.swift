@@ -723,6 +723,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer on the first frame (Codex QA F8).
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        // The keyboard may have come or gone while the page was away.
+        settleKeyboardLift()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         outputSinceProbe = true
         updateDocument()
         applyScroll()
@@ -1062,6 +1066,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             view.layoutIfNeeded()
             keyBarClip.alpha = 1
             keyboardDidChange()
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        // A rotation with a hardware keyboard posts no keyboard notification:
+        // settle the keyboard's lift against the new layout once it lands.
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self else { return }
+            settleKeyboardLift()
+            view.setNeedsLayout()
         }
     }
 
@@ -3052,17 +3067,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return visible == onScreen
     }
 
+    /// Records how far the keyboard lifts the composer stack now. Only a page
+    /// in a window has a settled layout: `dockChanged()` from viewDidLoad runs
+    /// before the page has a window or its final insets, and its gap read as
+    /// a keyboard lift. A page back in a window, or after a rotation, settles
+    /// again: the keyboard may have come or gone while it was away (a hide
+    /// after a tab switch posts did-hide to a page with no window), and a
+    /// rotation with a hardware keyboard posts no keyboard notification.
+    private func settleKeyboardLift() {
+        guard view.window != nil else { return }
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+    }
+
     @objc private func keyboardDidChange() {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
-        // Only a page on screen has a settled layout: `dockChanged()` from
-        // viewDidLoad runs before the page has a window or its final insets,
-        // and its gap read as a keyboard lift.
-        if view.window != nil {
-            tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
-        }
+        settleKeyboardLift()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
