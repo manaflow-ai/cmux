@@ -1814,10 +1814,12 @@ mod tests {
             "{:?}",
             aligned.iter().map(|at| at.duration_since(start)).collect::<Vec<_>>()
         );
+        // On the beat, within the timer wheel's 1 ms resolution.
         for at in &aligned {
-            assert_eq!(
-                crate::keepalive::next_beat(*at - Duration::from_millis(1), crate::keepalive::BEAT),
-                *at
+            let beat = crate::keepalive::next_beat(*at - Duration::from_millis(1), crate::keepalive::BEAT);
+            assert!(
+                beat <= *at && at.duration_since(beat) < Duration::from_millis(1),
+                "{at:?} is not on {beat:?}"
             );
         }
     }
