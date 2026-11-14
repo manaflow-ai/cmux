@@ -1128,49 +1128,6 @@ if [[ "$mode" == energy ]]; then
   label_ticks=()
   [[ -z "$base_app" ]] || sides=(base head)
   rusage=cmux-next-ios/verify/energy_rusage.py
-  # Every way this Mac has to read a process's wakeups and energy, over one window, side by side:
-  # ps, proc_pid_rusage (what the table uses), top, and an xctrace Activity Monitor recording.
-  # The head's first rep of each case runs it after its sampled window; energy/probe-RUN/ keeps it.
-  energy_probe() {
-    local run=$1 pid=$2 d="$en/probe-$1" rp tp schema
-    mkdir -p "$d"
-    {
-      echo "== probe $run (pid $pid)"
-      echo "-- ps"
-      ps -o pid,%cpu,rss,time,command -p "$pid" 2>&1 | cut -c1-160 || true
-      echo "-- proc_pid_rusage (one reading)"
-      python3 -I "$rusage" once "$pid" 2>&1 || true
-    } >"$d/probe.txt"
-    python3 -I "$rusage" sample "$pid" 12 "$d/rusage.jsonl" >/dev/null 2>&1 &
-    rp=$!
-    top -l 13 -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$d/top.txt" 2>&1 &
-    tp=$!
-    perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --attach "$pid" \
-      --time-limit 10s --output "$d/am.trace" --no-prompt >"$d/xctrace-record.txt" 2>&1 ||
-      echo "-- xctrace record --attach exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    if [[ ! -d "$d/am.trace" ]]; then
-      perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --all-processes \
-        --time-limit 10s --output "$d/am.trace" --no-prompt >>"$d/xctrace-record.txt" 2>&1 ||
-        echo "-- xctrace record --all-processes exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
-    fi
-    wait "$rp" 2>/dev/null || true
-    wait "$tp" 2>/dev/null || true
-    {
-      echo "-- proc_pid_rusage over the window (energy_summary.py; top beside it)"
-      python3 -I cmux-next-ios/verify/energy_summary.py "$d/rusage.jsonl" "$d/top.txt" "$pid" "probe-$run" probe 2>&1 || true
-      if [[ -d "$d/am.trace" ]]; then
-        perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" --toc >"$d/toc.xml" 2>&1 || true
-        echo "-- xctrace tables: $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sort -u | tr '\n' ' ')"
-        for schema in $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sed 's/schema="//; s/"$//' | sort -u | grep -i -E 'activity-monitor|process|energy|wake'); do
-          perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" \
-            --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" >"$d/$schema.xml" 2>&1 || continue
-          python3 -I "$rusage" xctrace-rows "$d/$schema.xml" "$pid" 2>&1 | head -n 20 || true
-        done
-        rm -rf "$d/am.trace"
-      fi
-    } >>"$d/probe.txt" 2>&1
-    cut -c1-400 "$d/probe.txt"
-  }
   # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
   # sampled window (first rep, each side), summarized per main-thread symbol by
   # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
@@ -1275,7 +1232,6 @@ if [[ "$mode" == energy ]]; then
           label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
         fi
         if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
-        [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
         kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
@@ -1287,7 +1243,7 @@ if [[ "$mode" == energy ]]; then
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   for line in ${label_ticks[@]+"${label_ticks[@]}"}; do note "$line"; done
-  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples and probes: energy/"
+  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
   [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi
 

@@ -672,13 +672,26 @@
 .cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
   opacity: 0;
 }
-.cv-user__actions .cv-message-footer-row > .cv-user__pending-state {
+/* Four classes: the age's rule (.cv-user__time, later in this file) is three and made this slot
+   inline-block, so its flex centring and gap never applied: the clock sat on the words' baseline,
+   2px from them (Leo, 2026-11-14: "this is misaligned"). The clock is centred on the words' line
+   box and one icon-label gap (--cv-row-icon-gap, as every transcript row) from them. */
+.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state {
   display: inline-flex;
   align-items: center;
-  gap: var(--grid-half-step);
+  gap: var(--cv-row-icon-gap);
   margin: 0;
+  padding-inline: 0;
   color: var(--cv-text-muted);
+  line-height: var(--cv-footer-control-slot);
   user-select: none;
+}
+/* The age's hidden width-keeper (.cv-user__time::before) would be a flex item here, and a gap. */
+.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state::before {
+  content: none;
+}
+.cv-user__pending-state > svg {
+  flex: none;
 }
 /* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
    aria-label still names it. Variant C (`"dim"`): the words, and the bubble's text muted until it lands. */
@@ -7987,4 +8000,26 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+
+/* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is
+   misaligned"). The row hangs under the bubble out of flow, anchored right; with a bubble the body
+   becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
+   anchored right and as wide as its words when they are wider than the bubble's text. */
+.cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
+  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
+  display: block;
+  position: relative;
+  align-self: flex-end;
+  max-width: 70%;
+}
+.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
+  max-width: none;
+}
+.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
+  right: calc(-1 * var(--cv-action-inset));
+  width: max-content;
+  min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
+  justify-content: flex-start;
 }

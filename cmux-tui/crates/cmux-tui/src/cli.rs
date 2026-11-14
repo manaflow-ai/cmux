@@ -135,10 +135,11 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
+pub(crate) use auth_token::app_token;
+#[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
-#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
 
@@ -262,6 +263,8 @@ const REMOTE_COMMANDS: &[&str] = &[
     "dial-tcp",
     "browser-proxy",
     "rpc",
+    "remote-exec",
+    "remote-cp",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -285,6 +288,8 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "dial-tcp" => Some("dial-tcp"),
         "browser-proxy" => Some("browser-proxy"),
         "rpc" => Some("rpc"),
+        "exec" => Some("remote-exec"),
+        "cp" => Some("remote-cp"),
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
