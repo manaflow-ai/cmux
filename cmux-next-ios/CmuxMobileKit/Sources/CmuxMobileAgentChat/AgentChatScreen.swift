@@ -611,19 +611,7 @@ struct AgentChatEmptyState: View {
 struct AgentChatLoadingState: View {
     let store: AgentChatStore
 
-    /// What the loading state says. Connecting first: a chat whose start is over but whose Mac
-    /// dropped (a task that never left the phone) waits on the link, not on its agent.
-    static func text(_ store: AgentChatStore) -> String {
-        if store.summary.status == .disconnected || store.isOffline && !store.awaitsFirstPrompt {
-            return "Connecting to \(store.summary.macName)…"
-        }
-        return store.isStarting || store.awaitsFirstPrompt ? startingText(store.summary) : "Loading chat…"
-    }
-
-    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
-    static func startingText(_ summary: AgentSessionSummary) -> String {
-        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
-    }
+    static func text(_ store: AgentChatStore) -> String { store.loadingText }
 
     var body: some View {
         VStack(spacing: 12) {

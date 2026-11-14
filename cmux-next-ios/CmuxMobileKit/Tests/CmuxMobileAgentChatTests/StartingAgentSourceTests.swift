@@ -36,8 +36,8 @@ import Testing
     /// Live run 9 (New Agent Chat): the Mac's default agent is not named yet; its placeholder
     /// tab is "Agent Chat", which is not an agent's name.
     @Test func theDefaultAgentIsNotNamed() {
-        #expect(AgentChatLoadingState.startingText(summary(harness: "claude", agent: "Claude")) == "Starting Claude…")
-        #expect(AgentChatLoadingState.startingText(summary(harness: "", agent: "Agent Chat")) == "Starting chat…")
+        #expect(AgentChatStore.startingText(summary(harness: "claude", agent: "Claude")) == "Starting Claude…")
+        #expect(AgentChatStore.startingText(summary(harness: "", agent: "Agent Chat")) == "Starting chat…")
     }
 
     @Test func aSendWhileStartingComesBackWithWhy() async {
@@ -83,9 +83,9 @@ import Testing
         }
         let source = Dropped()
         let store = AgentChatStore(source: source)
-        #expect(AgentChatLoadingState.text(store) == "Starting Claude…")
+        #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
-        #expect(AgentChatLoadingState.text(store) == "Connecting to Mac…")
+        #expect(store.loadingText == "Connecting to Mac…")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {

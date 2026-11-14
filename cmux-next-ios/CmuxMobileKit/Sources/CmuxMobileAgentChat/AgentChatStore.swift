@@ -1809,3 +1809,19 @@ private final class EarlierHistorySource: AgentSessionSource {
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
     func send(_ intent: AgentClientIntent) {}
 }
+
+extension AgentChatStore {
+    /// What the chat's loading state says. Connecting first: a chat whose start is over but
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    public var loadingText: String {
+        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+            return "Connecting to \(summary.macName)…"
+        }
+        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
+    public static func startingText(_ summary: AgentSessionSummary) -> String {
+        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+}
