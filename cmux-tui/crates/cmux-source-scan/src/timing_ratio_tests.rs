@@ -296,6 +296,26 @@ fn filtersets_match_as_nextest_reads_them() {
     assert!(parse_filter("not binary_id(/[/) | test(=a)").is_err());
 }
 
+// Review of cmux#41693, F2: `test(/\)/)` is a valid filter (a regex for a literal `)`); the
+// string unescaping turned its `\)` into an unmatched `)`, and the scan stopped on a good config.
+#[test]
+fn a_regex_filter_keeps_its_escapes() {
+    let t = |name: &str| TestId { name: name.into(), ..TestId::default() };
+    let eval = |f: &str, name: &str| eval_filter_text(f, &t(name));
+    assert_eq!(eval(r"test(/\)/)", "case_(paren)"), Some(true), "an escaped ) is a literal )");
+    assert_eq!(eval(r"test(/\)/)", "case_paren"), Some(false));
+    assert_eq!(eval(r"test(/^a\(b\)$/)", "a(b)"), Some(true));
+    assert_eq!(eval(r"test(/a\.b/)", "axb"), Some(false), "an escaped . is a literal .");
+    assert_eq!(eval(r"test(/a\/b/)", "a/b"), Some(true), r"\/ is a /, as nextest reads it");
+    let co = Checkout::demo(
+        PRELUDE,
+        Some(
+            "[[profile.default.overrides]]\nfilter = 'test(/\\)/)'\nthreads-required = 'num-test-threads'\n",
+        ),
+    );
+    assert!(scan(&co.0, &[]).is_ok(), "a valid escaped regex is no configuration error");
+}
+
 fn eval_filter_text(text: &str, t: &TestId) -> Option<bool> {
     eval_filter(&parse_filter(text).expect("parses"), t)
 }

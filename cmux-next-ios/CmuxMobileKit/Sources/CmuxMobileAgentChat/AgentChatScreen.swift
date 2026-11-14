@@ -115,7 +115,7 @@ public final class AgentChatSurface {
             do {
                 targets = try await store.source.handoffTargets()
             } catch {
-                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return UserFacingError.message(error)
             }
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
             guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }

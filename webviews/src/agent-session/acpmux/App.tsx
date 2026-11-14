@@ -646,6 +646,7 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
+import { liveAutoResume, stuckNotice, turnPhase } from "./turnPhase";
 import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -4574,6 +4575,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
+  useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -12011,9 +12014,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
-  const stuckDiagnosis =
-    snapshot.summary?.loopEpisode?.diagnosis ||
-    (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined);
+  // The live turn's notices read one phase (turnPhase.ts): never "stuck" beside "Reconnecting…",
+  // never a resumed attempt's line under a turn that ended.
+  const liveTurnPhase = turnPhase(snapshot);
+  const stuckDiagnosis = stuckNotice(liveTurnPhase, snapshot.summary, t("stuck.silentDiagnosis"));
   // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
   // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
   // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
@@ -12059,7 +12063,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
           <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
-        <Notice id="import-error" tier="error" when={importError}>
+        <Notice id="import-error" tier="error" when={!showNewTab && importError}>
           <p className="acpmux-composer-remote-note" role="alert">
             {importError}
           </p>
@@ -12173,7 +12177,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
-        {!showNewTab && <AutoResumeNotice state={snapshot.autoResume} />}
+        {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}

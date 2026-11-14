@@ -859,7 +859,8 @@ jobs:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone).
+    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
+    # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
     # actions: read: the base's webview test history is an artifact of its newest push.
     permissions:
@@ -908,6 +909,8 @@ jobs:
       - name: Use the merge parent as the base
         id: head
         run: |
+          # The job's clock, for the compare step's replay budget (the checkout before it is in REPLAY_RESERVE).
+          date +%s > "$RUNNER_TEMP/job-started"
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
           cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
@@ -1019,7 +1022,10 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
-      # the job's verdict is the last step's.
+      # the job's verdict is the last step's. A red the base passed is replayed there again, at most
+      # two more times (base_again) and only its files, until the base fails it: one passing replay of a
+      # test that flaps called it the change's (cmux#41254, run 43006460063: attempt 2's replay
+      # passed the webkit stream-row overlap test, attempt 3's failed it).
       - name: Run base reds and compare
         id: base
         continue-on-error: true
@@ -1028,6 +1034,12 @@ jobs:
           HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
           BASE_RESULTS: ${{ runner.temp }}/base-results.json
           KNOWN_REPLAY: ${{ steps.history.outputs.replay }}
+          # The base replays after the first share one budget: this job's timeout-minutes (keep the two equal) less
+          # the time gone and REPLAY_RESERVE seconds for the head re-run (its setup, up to 11 min, and one file at
+          # the runner's 900 s ceiling) and the verdict. #41414 review: three replays of a 900 s file plus the
+          # head re-run came to 60 minutes inside a 55-minute job, cut with no verdict.
+          JOB_TIMEOUT_MINUTES: "55"
+          REPLAY_RESERVE: "1700"
           CMUX_NEXT_STYLE_GUARDS: warn
           CMUX_WEB_TEST_JOBS: "1"
           CMUX_WEB_TEST_RETRIES: "0"
@@ -1078,9 +1090,54 @@ jobs:
             --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky"
           sort -u "$flaky" -o "$flaky"
           if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
+          # Replay the files of the reds the base passed again, until it fails them, at most base_again times. None when
+          # the history answered every red (replay=0): this base has no install, bundles or browsers then. A replay
+          # starts only when its files' limits (one job, no retries) fit the budget left; one that does not fit is not
+          # run, and its reds stay the change's, not replayed (never excused). No clock reads as no time left.
+          again=() base_again=2
+          : "${JOB_TIMEOUT_MINUTES:=0}" "${REPLAY_RESERVE:=0}"  # unset: no budget, no further replay
+          started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
+          [[ "$started" =~ ^[0-9]+$ ]] || started=0
+          if [ "${KNOWN_REPLAY:-}" != "0" ]; then
+            for n in $(seq 1 "$base_again"); do
+              python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
+                > "$RUNNER_TEMP/base-again-files" || : > "$RUNNER_TEMP/base-again-files"
+              # A file the base does not have (a new test file red on the head) cannot replay there: its reds stay the
+              # change's. Unfiltered, the limit read below failed on it under -e -o pipefail and ended the step before
+              # the verdict (#41414 review); the first replay's own filter above keeps it out of that run the same way.
+              while IFS= read -r file; do
+                if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
+                  printf '%s\n' "$file"
+                elif [ -n "$file" ]; then
+                  echo "not on the base, the change's own, not replayed: $file" >&2
+                fi
+              done < "$RUNNER_TEMP/base-again-files" > "$RUNNER_TEMP/base-again-present"
+              mv "$RUNNER_TEMP/base-again-present" "$RUNNER_TEMP/base-again-files"
+              [ -s "$RUNNER_TEMP/base-again-files" ] || break
+              left=$(( JOB_TIMEOUT_MINUTES * 60 - REPLAY_RESERVE - ($(date +%s) - started) )) need=0
+              while IFS= read -r file; do
+                limit="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
+                declared="$(head -n 20 "$file" 2>/dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1 || :)"
+                if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
+                if [ "$limit" -gt 900 ]; then limit=900; fi
+                need=$(( need + limit ))
+              done < "$RUNNER_TEMP/base-again-files"
+              if [ "$need" -gt "$left" ]; then
+                echo "the replay budget (${left}s left) cannot fit another base replay (${need}s); the change's own, not replayed:"
+                sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
+                break
+              fi
+              echo "replaying on the base again ($n of $base_again):"; sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
+              CMUX_WEB_TEST_FILES="$(cat "$RUNNER_TEMP/base-again-files")" \
+                CMUX_WEB_TEST_RESULTS="$RUNNER_TEMP/base-again-$n.json" \
+                env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
+                bash "$runner/run-webviews-tests.sh" || true
+              again+=(--base-again "$RUNNER_TEMP/base-again-$n.json")
+            done
+          fi
           status=0
-          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
-          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" \
+          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
+          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
             > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
           # At most 25 from any one head shard, the cap each head shard's own base check held.
           echo "rerun=$([ "$status" -ne 0 ] && python3 "$runner/webviews_test_history.py" rerun-fits "$RUNNER_TEMP/head-rerun-files" \
@@ -1135,7 +1192,11 @@ jobs:
             CMUX_WEB_TEST_RESULTS="$HEAD_RERUN" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
             bash "$runner/run-webviews-tests.sh" || true
-          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$RUNNER_TEMP/flaky-on-base" \
+          again=()
+          for found in "$RUNNER_TEMP"/base-again-*.json; do
+            [ -e "$found" ] && again+=(--base-again "$found")
+          done
+          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$RUNNER_TEMP/flaky-on-base" "${again[@]}" \
             --head-rerun "$HEAD_RERUN" "$HEAD_RESULTS" "$BASE_RESULTS"
 
       - name: Fail on the change's own reds

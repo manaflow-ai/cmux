@@ -1,0 +1,189 @@
+name: cmux-next iPhone What's New clips
+
+# The What's New clips of iPhone highlights (release-notes/next/clips/ID.json with "app": "iphone";
+# scripts/cmux-next/media/whats-new-clips.py). The media workflow's nightly tour (cmux-next-media.yml)
+# records the Mac ones on a media Mac, which has no iOS simulator runtime, and plans only those
+# (`plan --app mac`). On the same nightly-next push this workflow plans the iPhone ones, records each on a
+# fleet simulator step (scripts/ci/cmux-next-ios-sim.sh clips: the app at the tip and, for an
+# improvement, at the commit before its highlight, on one simulator; the controller's simulator class
+# keeps one simulator per Mac), and publishes them to whats-new/ID/clip-auto-ROLE.webp the way the media
+# workflow does (publish-auto, privacy-checked frame by frame). Best effort: a clip that fails is left out
+# and the next nightly plans it again.
+#
+# Its own workflow, with no pull_request trigger, so it adds no job a pull request can start. The record
+# job is a thin cmux-ci client on the build-fleet gateway runner (vars.CI_EVAL_STEP_GATEWAY), as the eval
+# workflows are; with the variable unset nothing runs.
+
+on:
+  push:
+    branches: [nightly-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-iphone-clips-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan the iPhone clips
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/media/whats-new-clips.py
+            scripts/cmux-next/media/tour.py
+            release-notes/next/highlights
+            release-notes/next/clips
+          sparse-checkout-cone-mode: false
+
+      # As the media workflow's route job plans its clips (the same window, limit and published check).
+      - name: Plan
+        id: plan
+        env:
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          echo "count=0" >> "$GITHUB_OUTPUT"
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] && [[ "$BASE" != 0000000000000000000000000000000000000000 ]] \
+            || { echo "no previous tip ($BASE); no clips"; exit 0; }
+          head_time="$(git show -s --format=%ct "$HEAD")"
+          git fetch --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
+          python3 scripts/cmux-next/media/whats-new-clips.py plan --app iphone --base "$BASE" --head "$HEAD" \
+            --out "$RUNNER_TEMP/clips-plan.json" --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr
+          echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "count=$(python3 scripts/cmux-next/media/whats-new-clips.py count --plan "$RUNNER_TEMP/clips-plan.json" --app iphone)" >> "$GITHUB_OUTPUT"
+
+  record:
+    name: Record on a fleet simulator
+    needs: plan
+    if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    outputs:
+      clips: ${{ steps.record.outputs.count }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/cmux-next/media/whats-new-clips.py
+          sparse-checkout-cone-mode: false
+
+      - name: Record
+        id: record
+        env:
+          CLIPS_PLAN: ${{ needs.plan.outputs.plan }}
+          HEAD: ${{ github.sha }}
+        # Every failure is handled where it happens: one clip's failed step must not drop the others.
+        run: |
+          set +e
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          out="${RUNNER_TEMP:?}/media/whats-new-clips"
+          mkdir -p "$out"
+          count=0
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=What's New clip::$client is not installed on runner $RUNNER_NAME; no iPhone clips"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
+          while read -r id roles before; do
+            [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,79}$ ]] || continue
+            args=(--arg clips --arg "id=$id" --arg "roles=$roles")
+            [ "$before" = - ] || args+=(--arg "base=$before")
+            log="$RUNNER_TEMP/iphone-$id.log"
+            "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" --timeout 7200 \
+              --artifact artifacts/ios-sim/whats-new-clips.zip "${args[@]}" 2>&1 | tee "$log"
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+            zip="$RUNNER_TEMP/iphone-$id.zip"
+            # A step with one failed role still uploads the other's clip (--failed).
+            if [ -z "$step" ] || ! { "$client" artifact "$step" "$zip" || "$client" artifact --failed "$step" "$zip"; }; then
+              echo "::warning title=What's New clip::$id: the simulator step ${step:-(none)} returned no clips"
+              continue
+            fi
+            unzip -oq "$zip" -d "$RUNNER_TEMP/iphone-$id" && [ -d "$RUNNER_TEMP/iphone-$id/whats-new-clips" ] \
+              && cp -R "$RUNNER_TEMP/iphone-$id/whats-new-clips/." "$out/" && count=$((count + 1)) \
+              || echo "::warning title=What's New clip::$id: no clips folder in the step's artifact"
+          done < <(python3 scripts/cmux-next/media/whats-new-clips.py iphone-runs --plan "$RUNNER_TEMP/clips-plan.json")
+          cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the clips for the publish job
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-iphone-clips
+          path: ${{ runner.temp }}/media/whats-new-clips
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # As cmux-next-media.yml's whats-new-clips job: rendered on Linux, published through the privacy-checked
+  # action in the pr-media environment (which admits nightly-next).
+  publish:
+    name: Publish the iPhone clips
+    needs: record
+    if: ${{ !cancelled() && needs.record.outputs.clips != '' && needs.record.outputs.clips != '0' }}
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    environment: pr-media
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/media/whats-new-clips.py
+            scripts/cmux-next/media/tour.py
+            release-notes/next/clips
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-iphone-clips
+          path: ${{ runner.temp }}/media/whats-new-clips
+
+      - name: Install the clip encoder
+        timeout-minutes: 4
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          if ! command -v img2webp >/dev/null || ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends webp ffmpeg >/dev/null
+          fi
+
+      - name: Publish the clips
+        uses: ./.github/actions/pr-media-publish
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            clips="$RUNNER_TEMP/media/whats-new-clips"
+            python3 scripts/cmux-next/media/whats-new-clips.py publish-auto \
+              --plan "$clips/plan.json" --results "$clips" | tee -a "$GITHUB_STEP_SUMMARY"
