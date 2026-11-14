@@ -153,7 +153,8 @@ impl Ring {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let path = dir.join(format!(".ring-{}-{}", std::process::id(), random_hex(8)?));
+            let tag = random_hex(8).map_err(std::io::Error::other)?;
+            let path = dir.join(format!(".ring-{}-{tag}", std::process::id()));
             let file = crate::home_fs::OpenOptions::new()
                 .read(true)
                 .write(true)
