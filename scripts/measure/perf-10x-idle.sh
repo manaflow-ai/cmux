@@ -17,7 +17,7 @@
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # release=MINUTES (with one agents= count): agents.hiddenChats.discard on after MINUTES; the released
 # chats sampled as released-N, then 10 of them shown again and timed (PERF-IDLE-RESTORE).
-# attribute=1: also name what wakes the app and the Chromium GPU process in each window
+# attribute=1 (or attribute=KIND,KIND: those process kinds, default app,cef-gpu): also name what wakes the app and the Chromium GPU process in each window
 # (bench_memory.py --attribute: thread CPU, the debug.wakeups ledger and main run loop timers, live
 # pages, a stack sample after the window), as PERF-ATTR lines.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
@@ -35,6 +35,7 @@ for arg in "$@"; do
     purge=1) purge=(--purge-hidden) ;;
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
     attribute=1) attribute=(--attribute) ;;
+    attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done

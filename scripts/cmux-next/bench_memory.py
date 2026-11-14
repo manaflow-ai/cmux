@@ -286,15 +286,13 @@ class Attribution:
     reset at the start; its main run loop's timers at the end) and live pages (`debug.cef_pages`);
     after it, a short stack `sample` of both."""
 
-    KINDS = ("app", "cef-gpu")
-
-    def __init__(self, app: "App", app_pid: int, bundle: str):
-        self.app, self.app_pid, self.bundle = app, app_pid, bundle
+    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu")):
+        self.app, self.app_pid, self.bundle, self.kinds = app, app_pid, bundle, kinds
         self.before: dict = {}
         self.started = 0.0
 
     def pids(self) -> dict:
-        return {pid: kind for pid, (kind, _cmd) in owned(self.app_pid, self.bundle).items() if kind in self.KINDS}
+        return {pid: kind for pid, (kind, _cmd) in owned(self.app_pid, self.bundle).items() if kind in self.kinds}
 
     def start(self):
         self.app.call("debug.wakeups", {"reset": True}, timeout=30)
@@ -1008,6 +1006,8 @@ def main():
                         help="with --measure: name what wakes the app and the GPU process in each window "
                              "(thread CPU, debug.wakeups ledger and run loop timers, live pages, a stack sample); "
                              "PERF-ATTR lines")
+    parser.add_argument("--attribute-kinds", default="app,cef-gpu",
+                        help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1042,7 +1042,8 @@ def main():
 
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
-        attribution = Attribution(app, app_pid, bundle) if args.attribute and args.measure > 0 else None
+        kinds = tuple(kind for kind in args.attribute_kinds.split(",") if kind)
+        attribution = Attribution(app, app_pid, bundle, kinds) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
