@@ -42,8 +42,10 @@ import Testing
         #expect(await eventually { feed.rows?.count == 4 })
         #expect(feed.rows?.map(\.id) == read.rows?.map(\.id))
         #expect(feed.isShowingKeptRows)
+        // A launch's kept rows say nothing while the Mac's list is on its way (conn-quiet: no
+        // spinner over content under the quiet bound).
         #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
-                                  macsMayExist: true, searching: false, failing: false) == .updating)
+                                  macsMayExist: true, searching: false, failing: false) == .none)
 
         // The Mac answers: its list, no longer the kept one.
         await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
