@@ -48,7 +48,18 @@ jobs:
         id: dispatch
         run: |
           set -euo pipefail
-          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" --jq .sha)"
+          # One refused read must not turn the push run red with no verdict (run
+          # 43618862433): each call gets 5 tries a minute apart. A dispatch whose
+          # reply was lost and is sent again makes at most one extra gate run.
+          ghr() {
+            for try in 1 2 3 4 5; do
+              gh api "$@" && return 0
+              echo "::warning::gh api $1 failed (try $try of 5)" >&2
+              [[ $try -lt 5 ]] && sleep 60
+            done
+            return 1
+          }
+          sha="$(ghr "repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve feat-cmux-next: $sha" >&2; exit 1; }
           # A main push does not change the code the gate judges, so pushes while
           # feat-cmux-next stays put share one gate run: the newest not-cancelled
@@ -58,14 +69,14 @@ jobs:
           # The repository's run list, matched on each run's workflow path: the
           # gate's file exists only on feat-cmux-next, not in this branch's
           # .github/workflows.
-          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
+          run_id="$(ghr "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&branch=feat-cmux-next&head_sha=$sha&per_page=100" \
             --jq '[.workflow_runs[] | select(.path == ".github/workflows/ios-review-gate.yml" and .actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
           if [[ -z "$run_id" ]]; then
             # return_run_details: the reply names the run this dispatch made, so a
             # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
             # judges its own head, which is the run's head_sha, the key the lookup
             # above reuses it by, even when feat-cmux-next moved since $sha.
-            run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
+            run_id="$(ghr -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
               -f ref=feat-cmux-next -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
               -F return_run_details=true --jq .workflow_run_id)"
           fi
