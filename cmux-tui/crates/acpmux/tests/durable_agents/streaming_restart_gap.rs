@@ -9,7 +9,9 @@ use super::*;
 fn ticks(daemon: &Daemon, session: &str) -> usize {
     let tick = |e: &Value| {
         e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
-            && e["msg"]["params"]["update"]["content"]["text"].as_str().is_some_and(|t| t.starts_with("tick"))
+            && e["msg"]["params"]["update"]["content"]["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("tick"))
     };
     daemon.events(session).iter().filter(|e| tick(e)).count()
 }
@@ -46,7 +48,10 @@ async fn a_streaming_turn_logs_new_output_within_seconds_after_a_restart_with_a_
     let took = started.elapsed();
     let got = ticks(&daemon, &session);
     assert!(alive(harness_pid), "the agent died across the restart");
-    eprintln!("streaming restart gap: {got} ticks logged ({before} before), {:.1} s after the start", took.as_secs_f64());
+    eprintln!(
+        "streaming restart gap: {got} ticks logged ({before} before), {:.1} s after the start",
+        took.as_secs_f64()
+    );
     assert!(
         got >= want && took < Duration::from_secs(10),
         "the next daemon logged {} new words in {:.1} s (want {} within 10 s): the adopted turn's live output waited",

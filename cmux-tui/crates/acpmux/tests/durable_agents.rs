@@ -45,6 +45,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/streaming_restart_gap.rs"]
 mod streaming_restart_gap;
+#[path = "durable_agents/streaming_restart_rounds.rs"]
+mod streaming_restart_rounds;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 #[path = "durable_agents/unread_store.rs"]
