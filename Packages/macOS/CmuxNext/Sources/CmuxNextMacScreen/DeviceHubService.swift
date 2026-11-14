@@ -230,11 +230,11 @@ public final class DeviceHubService {
         let namespace = CaptureKeychainNamespace()
         switch phase {
         case .prepare:
-            return await Task.detached(priority: .utility) {
+            return await Task.detached(priority: .utility) { [bundleIdentifier, loginKeychain] in
                 namespace.prepare(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
             }.value
         case .cleanup:
-            return await Task.detached(priority: .utility) {
+            return await Task.detached(priority: .utility) { [bundleIdentifier, loginKeychain] in
                 namespace.cleanup(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
             }.value
         }
