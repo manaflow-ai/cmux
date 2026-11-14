@@ -242,6 +242,18 @@
         "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && cp {repo}/samples/apps/showcase-standup/main.js \"$D/main.js\" && sed 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' {repo}/samples/apps/showcase-standup/cmux-app.v2.json > \"$D/cmux-app.json\" && echo saved showcase-standup\r"
       ],
       "wait": 6
+    },
+    {
+      "title": "Settings > Customize > Examples: the ten examples with source links and install commands",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=customizationExamples"
+      ],
+      "wait": 4,
+      "optional": "Settings may open on another section"
     }
   ]
 }
