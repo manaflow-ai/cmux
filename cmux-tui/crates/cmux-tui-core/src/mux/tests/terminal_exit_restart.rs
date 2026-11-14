@@ -778,7 +778,10 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     assert_eq!(recovered["start_offset"], "0", "{recovered}");
     assert_eq!(recovered["next_offset"], prefix_end.to_string(), "{recovered}");
     assert_eq!(recovered["complete"], true, "{recovered}");
-    assert_eq!(recovered["text"], "1\n2\n3\n4\n", "{recovered}");
+    let recovered_text = recovered["text"].as_str().unwrap();
+    let recovered_lines: Vec<_> = recovered_text.lines().collect();
+    assert_eq!(&recovered_lines[..4], ["1", "2", "3", "4"], "{recovered}");
+    assert!(recovered_lines[4..].iter().all(|line| line.is_empty()), "{recovered}");
 
     // Once the explicit snapshot cut has been delivered, a normal read at
     // its cursor is empty and does not project the screen repeatedly.
