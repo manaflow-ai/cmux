@@ -496,12 +496,15 @@ mod tests {
             &["exec", "hi", "--worktree"],
             &["exec", "hi", "--ignore-user-config"],
             &["hi", "--remote", "ws://127.0.0.1:1"],
+            &["resume"],
+            &["hi"],
+            &["exec", "--trust", "fix the bug"],
         ] {
             let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
+            // Quiet: not asked, nothing said, whether or not the person has
+            // a cmux entry at all.
             assert!(calls.is_empty(), "{args:?}");
-            // Said once: the person's own cmux server stays on for this launch.
-            assert_eq!(said.len(), 1, "{args:?}: {said:?}");
-            assert!(said[0].starts_with("cmux: "), "{said:?}");
+            assert!(said.is_empty(), "{args:?}: {said:?}");
             assert!(
                 !settings.iter().any(|s| s.contains("enabled=false")),
                 "{args:?}: {settings:?}"
@@ -510,17 +513,72 @@ mod tests {
         }
     }
 
-    /// An entry with a url is never turned off, and the person is told.
+    /// In an untrusted project with its own `.codex/config.toml`, whose
+    /// `cmux` entry would load after the trust prompt and merge with the
+    /// switch, Codex is not asked and nothing is turned off or said.
     #[test]
-    fn a_url_entry_is_kept_and_said() {
+    fn an_untrusted_projects_config_turns_nothing_off_quietly() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (home, project) = (root.join("codex"), root.join("proj"));
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "").unwrap();
+        let asked = RefCell::new(0);
+        let resolve = |_: &Path, _: &OsStr, _: &Path, _: &ConfigArgs| {
+            *asked.borrow_mut() += 1;
+            found("/opt/cmux")
+        };
+        let getenv = |name: &str| match name {
+            "CODEX_HOME" => Some(home.clone().into_os_string()),
+            "CMUX_TUI_TERMINAL_ID" => Some(OsString::from("term_1")),
+            _ => None,
+        };
+        let mut said = Vec::new();
+        let args = os(&["fix the bug"]);
+        let launch = |cwd: &Path, said: &mut Vec<String>| {
+            mcp_settings(
+                &McpLaunch {
+                    args: &args,
+                    codex: Path::new("/real/codex"),
+                    path: OsStr::new("/usr/bin:/bin"),
+                    cwd,
+                    executable: Path::new("/A/cmux"),
+                    socket: Path::new("/tmp/s.sock"),
+                },
+                AgentsCmuxMcp::On,
+                &resolve,
+                &getenv,
+                &mut |line| said.push(line.to_owned()),
+            )
+        };
+        let settings = launch(&project, &mut said);
+        assert_eq!(*asked.borrow(), 0);
+        assert!(said.is_empty(), "{said:?}");
+        assert!(!settings.iter().any(|s| s.to_string_lossy().contains("enabled=false")));
+        // Trusted: asked, and another cmux's entry is turned off.
+        std::fs::write(
+            home.join("config.toml"),
+            format!("[projects.\"{}\"]\ntrust_level = \"trusted\"\n", project.display()),
+        )
+        .unwrap();
+        let settings = launch(&project, &mut said);
+        assert_eq!(*asked.borrow(), 1);
+        assert!(settings.iter().any(|s| s.to_string_lossy() == "mcp_servers.cmux.enabled=false"));
+    }
+
+    /// An entry with a url is never turned off, and nothing is said: it is
+    /// no cmux CLI, so it counts as the person's own.
+    #[test]
+    fn a_url_entry_is_kept_quietly() {
         let http = CodexEntry::Found(serde_json::json!({
             "name": "cmux", "enabled": true,
             "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
         }));
         let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], http);
         assert!(!settings.iter().any(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
-        assert_eq!(said.len(), 1, "{said:?}");
-        assert!(said[0].starts_with("cmux: "), "{said:?}");
+        assert!(said.is_empty(), "{said:?}");
     }
 
     /// `enabled=false` only for another cmux's entry Codex reported; an
@@ -534,9 +592,8 @@ mod tests {
         assert!(!settings.contains(&off), "{settings:?}");
         let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], CodexEntry::Unknown);
         assert!(!settings.contains(&off), "{settings:?}");
-        // One line, the shim's own (structure, not wording).
-        assert_eq!(said.len(), 1, "{said:?}");
-        assert!(said[0].starts_with("cmux: ") && said[0].contains("Codex"), "{said:?}");
+        // The one line for a probe without an answer, the catalog's own.
+        assert_eq!(said, [crate::localization::catalog().agent_wrapper.codex_mcp_unknown]);
         assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
     }
 }
