@@ -332,10 +332,9 @@ impl H264Encoder for OpenH264 {
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
-        let kbps = kbps.max(100);
-        if kbps.abs_diff(self.kbps) * 20 < self.kbps {
-            return;
-        }
+        // The codec's level 5.2 maximum is 288 Mbit/s. Above it the max
+        // setter silently lowers its cap before the target setter validates.
+        let kbps = kbps.clamp(100, 288_000);
         let set = match self.vtbl().SetOption {
             Some(f) => f,
             None => return,
@@ -352,7 +351,13 @@ impl H264Encoder for OpenH264 {
         {
             return;
         }
-        let requested = kbps.saturating_mul(1000).min(c_int::MAX as u32) as c_int;
+        if current.iBitrate
+            == i64::from(self.kbps).saturating_mul(1000).min(i64::from(c_int::MAX)) as c_int
+            && u64::from(kbps.abs_diff(self.kbps)) * 20 < u64::from(self.kbps)
+        {
+            return;
+        }
+        let requested = (kbps * 1000) as c_int;
         // ALL updates the aggregate maximum only. The active layer's maximum
         // otherwise stays at startup bitrate and rejects every upward retarget.
         // Setters mutate before validating: read the actual target, first make
