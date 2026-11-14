@@ -12,9 +12,6 @@ import CmuxNextWakeups
 @Observable
 public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering,
     BrowserAgentFileChoosing, BrowserCacheBypassingReload {
-    /// Each document's first contentful paint, of any tab: the app's launch marks keep the first
-    /// (`browser.first_paint`, DebugTimings), what a relaunch bench times the browser by.
-    @MainActor public static var onFirstContentfulPaint: (@MainActor () -> Void)?
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -374,7 +371,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
-        if contentful, committedThisLoad { Self.onFirstContentfulPaint?() }
         if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
