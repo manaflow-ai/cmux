@@ -12,7 +12,6 @@ pub(super) enum Ty {
     Str(usize),
     /// Copied only when it is `true`; `false` is absent.
     True,
-    Num,
 }
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Field {

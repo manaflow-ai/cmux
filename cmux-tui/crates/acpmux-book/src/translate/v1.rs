@@ -301,9 +301,6 @@ fn turn_result(
             end.fields.insert("tokens".into(), split);
         }
     }
-    let text = |raw: Option<&RawValue>| {
-        raw.and_then(|raw| input::text(raw).ok()).filter(|text| !text.is_empty())
-    };
     // Only a record that names the starting checkpoint has any; `from` is null when the hub took none.
     if named {
         let quote = |text: &str, cap: usize| {
@@ -339,6 +336,10 @@ fn turn_result(
     Ok(())
 }
 const MAX_ERROR_BYTES: usize = 4 * 1024;
+/// A non-empty string value, or none.
+fn text(raw: Option<&RawValue>) -> Option<Cow<'_, str>> {
+    raw.and_then(|raw| input::text(raw).ok()).filter(|text| !text.is_empty())
+}
 fn agent(
     state: &mut State,
     params: &Meta<'_>,
