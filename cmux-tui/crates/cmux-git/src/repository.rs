@@ -319,7 +319,9 @@ fn core_worktree(
     let arguments = ["config", "--null", "--get", "core.worktree"];
     let left = remaining(deadline);
     match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
-        Ok(output) if output.truncated => Ok(None),
+        // A value that is longer than a path can be: a setting is there,
+        // and it leads to no folder.
+        Ok(output) if output.truncated => Ok(Some(Vec::new())),
         // `--null` ends the value with one NUL byte.
         Ok(output) => Ok(output.stdout.strip_suffix(&[0]).map(<[u8]>::to_vec)),
         // `--get` exits 1, with no text, when the setting is not there.

@@ -8,7 +8,9 @@
 //! - the request's real folder is the top folder or below it;
 //! - the top folder's `.git` entry is the git folder (a folder), or names it
 //!   (a file), and then the git folder names that file back: by its record
-//!   of a linked work tree, or by its `core.worktree` setting;
+//!   of a linked work tree, or by its `core.worktree` setting; or the entry
+//!   is a link to the git folder, and then the git folder is of no other
+//!   work tree ([`link_names`]);
 //! - the git folder uses no common folder, or the common folder of the
 //!   repository that has it as the git folder of a linked work tree.
 //!
@@ -133,6 +135,13 @@ pub(crate) fn check(
                 top.display()
             )));
         }
+        Names::LinkToAnother => {
+            return Err(GitFailure::Exit(format!(
+                "{REFUSED}the `.git` entry of the work tree {} is a link to a git folder that \
+                 is in a work tree or names a work tree",
+                top.display()
+            )));
+        }
         Names::Not => String::new(),
         Names::NoWorkTree => format!(
             ": the git folder names no work tree (to mend it, run `git config core.worktree \
@@ -161,6 +170,9 @@ enum Names {
     /// The `.git` file names the git folder, and the git folder has the
     /// record of a work tree at another place.
     OtherPlace,
+    /// The `.git` entry is a link to the git folder, and the git folder is
+    /// in a work tree or names one.
+    LinkToAnother,
     /// The two name each other, and the git folder uses the common folder
     /// of a repository that does not have it as a linked work tree's.
     OtherCommonFolder,
@@ -220,8 +232,7 @@ fn entry_names(
         return Ok(Names::Not);
     };
     if kind.is_symlink() {
-        // A link is opened as before this check was there.
-        return Ok(Names::EachOther);
+        return link_names(&entry, git_dir, core_worktree);
     }
     if kind.is_dir() {
         // The git folder is in the work tree.
@@ -246,13 +257,39 @@ fn entry_names(
         // setting, as a submodule's does. git reads a relative value from
         // the git folder.
         Record::Missing => Ok(match core_worktree()? {
-            Some(setting) if !setting.is_empty() => {
-                each_other(is_same(&git_dir.join(path_from_bytes(&setting)), top))
-            }
-            _ => Names::NoWorkTree,
+            None => Names::NoWorkTree,
+            Some(setting) => each_other(
+                !setting.is_empty() && is_same(&git_dir.join(path_from_bytes(&setting)), top),
+            ),
         }),
         Record::Unreadable => Ok(Names::Not),
     }
+}
+
+/// Whether the `.git` entry `link` of a work tree, a link, is opened. It
+/// leads to `git_dir`, and `git_dir` is of no other work tree: its real name
+/// is not `.git` (the git folder in a work tree), it has no record of a
+/// linked work tree, and it has no `core.worktree` setting. A tool for many
+/// repositories makes such a link to a git folder that it keeps at another
+/// place.
+///
+/// A limit: a git folder that names no work tree does not say which folder
+/// it is for, so each folder whose `.git` entry is a link to it is opened.
+fn link_names(
+    link: &Path,
+    git_dir: &Path,
+    core_worktree: impl FnOnce() -> Result<Option<Vec<u8>>, GitFailure>,
+) -> Result<Names, GitFailure> {
+    if !is_same(link, git_dir) {
+        return Ok(Names::Not);
+    }
+    let Ok(real) = fs::canonicalize(git_dir) else { return Ok(Names::Not) };
+    let in_a_work_tree = real.file_name().is_none_or(|name| name.eq_ignore_ascii_case(".git"));
+    let has_record = !matches!(record(&git_dir.join("gitdir")), Record::Missing);
+    if in_a_work_tree || has_record || core_worktree()?.is_some() {
+        return Ok(Names::LinkToAnother);
+    }
+    Ok(Names::EachOther)
 }
 
 /// Whether the two paths lead to one folder that is there.
