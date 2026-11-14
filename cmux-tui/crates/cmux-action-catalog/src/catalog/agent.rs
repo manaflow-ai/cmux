@@ -611,6 +611,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
         keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        default_shortcut: Some(Shortcut { key: "`", modifiers: OPT | CMD }),
         category: "agents",
         symbol: "arrow.left.arrow.right",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },

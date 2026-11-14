@@ -107,9 +107,10 @@ import Testing
         list.frame(for: try #require(list.displayed.row(for: .workspace(stripe)))).minX + SidebarStyle.contentInset
     }
 
-    /// Every row's first ink starts at the row inset: Home's house, each pin, each workspace icon and the text-only
+    /// Every row's first ink starts at the row inset: Home's house, each workspace icon and the text-only
     /// titles ("Stripe…", "Pinning…"). Lawrence 2026-11-09 ("home/pin icons not left aligned with 'Fix…'"): Home's glyph
     /// and the pins centered in the icon column (#38061), so their ink started 2 to 4 pt right of the titles below.
+    /// The pin, a narrow mark, is the exception: it centers under the house (#42431, `PinnedRowsShareHomeColumnTests`).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func everyRowsFirstInkStartsAtTheInset(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -119,10 +120,6 @@ import Testing
             var starts: [(String, CGFloat)] = []
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             starts.append(("Home's glyph", Self.x(list, try #require(home.glyphInkFrame, "Home drew no glyph").minX, in: home)))
-            for pin in Self.pins {
-                let row = try HomePinnedRowAlignmentTests.item(list, pin.id)
-                starts.append(("\(pin.id.rawValue)'s pin", Self.x(list, try #require(row.pinInkFrame, "no pin drew").minX, in: row)))
-            }
             for id in Self.iconRows {
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 let ink = try #require(try Self.inkMinX(row.icon), "\(id.rawValue) drew no icon")

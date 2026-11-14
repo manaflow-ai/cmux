@@ -11,7 +11,14 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
 ## The rules
 
 - **Budget**: small and god each at most 3x the target. The target is the goal;
-  3x keeps shared CI runners from flaking.
+  3x keeps shared CI runners from flaking. The small case's budget is a bare
+  wall-clock number with nothing to compare against, so on a shared runner it
+  measures the runner (a GitHub macOS runner took 20 ms for the 4 ms
+  `home_list_one_row_update` target, 11-10, code unchanged). It fails the run only
+  with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
+  xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
+  `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
+  always assert.
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs
@@ -67,9 +74,12 @@ The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
 working, one preview in ten a long Markdown reply, six months of dates; the chat
 has tool outputs up to 2 MB (logs and diffs), subagents nested 5 deep, 200 image
 parts and six months of timestamps. Its last 2 MB log sits about 60 records
-before the end: the open (capped at 128 KiB of whole records) stops short of it,
-so `chat_open_last_messages` shows the cap holding, and the first scroll-up page
-(`chat_older_page`) is the one that reads it.
+before the end. The phone's pages ask acpmux to cut a tool output past 64 KiB
+(`toolOutputMaxBytes`, cmux-tui acpmux `hub/tool_output_cut.rs`): such a record goes with its
+output's head and `_meta.acpmux.cut {bytes, seq}`, and opening the output reads that one record
+whole. So the log's head fits the open (capped at 128 KiB of records), and no page carries 2 MB
+past its cap; `OlderPageToolOutputTests` checks both on this fixture. Before the cut, the open
+stopped short of the log and the first scroll-up page (`chat_older_page`) carried it whole.
 Scrolling up (`chat_scroll_fill`, since the read-ahead): the list asks for the page before the
 oldest turn shown when the reader is within four screens of it (`AgentChatStore.readAhead`,
 from `ChatTranscriptList`'s every scroll step and reload), not when the oldest row draws. The
@@ -91,8 +101,9 @@ long it took in the note.
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
 `maxBytes` of whole records, `beforeSeq` / `afterSeq`: the newest records between them, or
-oldest first after `afterSeq` alone) with index arithmetic, so
-its own cost does not grow with the log.
+oldest first after `afterSeq` alone, and `toolOutputMaxBytes`) with index arithmetic, so
+its own cost does not grow with the log. A cut record's line is made once per log and kept,
+as every other record is a prebuilt line.
 
 UI level (`cmux-next-ios/UITests/InstantListPerfUITests.swift`, wired; runs on
 owned simulators):
