@@ -466,7 +466,7 @@ export function createTailGlide(): TailGlide {
       const still: Part[] = [];
       const take = (index: number) => {
         const id = now.placed.idAt(index);
-        if (id === undefined || !isMounted(now.placed, index)) return;
+        if (id === undefined || id === pinned || !isMounted(now.placed, index)) return;
         const row = rowOf(thread, now.placed, id);
         if (row && !inParts.has(row)) {
           still.push(read(row, id, 0, 0));
