@@ -75,6 +75,7 @@ pub(super) async fn serve_stream(
         None,
         None,
         None,
+        None,
     )
     .await;
     if let Some(v2) = v2

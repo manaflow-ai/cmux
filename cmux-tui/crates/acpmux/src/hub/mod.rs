@@ -827,6 +827,9 @@ pub struct Hub {
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
+    /// The v2 list stream on peer links: the v2 handle when `peers` is on, and the counters
+    /// (`link_v2.rs`).
+    pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
@@ -1343,6 +1346,7 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            link_v2: Arc::default(),
             list_guard: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),

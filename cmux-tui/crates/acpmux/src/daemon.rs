@@ -600,6 +600,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
+        // Links carry the list stream only with `list` and `peers` in the set (`link_v2.rs`).
+        hub.link_v2.install(v2.clone());
         v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_tee::V1PageProvider::new(
             hub.clone(),
         )));

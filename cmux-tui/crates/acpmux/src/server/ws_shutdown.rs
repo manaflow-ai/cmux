@@ -152,14 +152,30 @@ impl Drop for Children {
 /// frame already waiting on the client included, so a frozen client never holds the socket open. A large line
 /// goes compressed once the client asked for that (`frame_compress.rs`).
 pub(super) async fn write<S>(
+    sink: S,
+    outbound: mpsc::Receiver<String>,
+    stopped: oneshot::Receiver<()>,
+    shutdown: WsShutdown,
+    wire: std::sync::Arc<crate::frame_compress::Wire>,
+) where
+    S: Sink<Frame> + Unpin,
+{
+    write_link(sink, outbound, None, stopped, shutdown, wire).await;
+}
+
+/// [`write`] for a link that may carry the v2 list stream: v1's lines first, then the frame in
+/// `slot` (`link_v2::next_line`).
+pub(super) async fn write_link<S>(
     mut sink: S,
     mut outbound: mpsc::Receiver<String>,
+    slot: Option<std::sync::Arc<crate::link_v2::Slot>>,
     mut stopped: oneshot::Receiver<()>,
     shutdown: WsShutdown,
     wire: std::sync::Arc<crate::frame_compress::Wire>,
 ) where
     S: Sink<Frame> + Unpin,
 {
+    let mut streak = 0;
     tokio::select! {
         biased;
         () = shutdown.normal() => {},
@@ -168,10 +184,11 @@ pub(super) async fn write<S>(
             // Set once the connection ended: what is left must be written by then.
             let mut deadline: Option<tokio::time::Instant> = None;
             loop {
+                let next = crate::link_v2::next_line(&mut outbound, slot.as_deref(), &mut streak);
                 let line = match deadline {
-                    Some(at) => tokio::time::timeout_at(at, outbound.recv()).await.ok().flatten(),
+                    Some(at) => tokio::time::timeout_at(at, next).await.ok().flatten(),
                     None => tokio::select! {
-                        line = outbound.recv() => line,
+                        line = next => line,
                         _ = &mut stopped => {
                             deadline = Some(tokio::time::Instant::now() + LAST_FRAMES_WAIT);
                             continue;
