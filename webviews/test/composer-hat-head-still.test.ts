@@ -34,7 +34,8 @@ await requireBrowserLane("composer-hat-head-still.test.ts", async () => {
       logLevel: "error",
     });
     await server.listen();
-    browser = await chromium.launch({ headless: true });
+    // Scrollbars drawn: Playwright hides them in headless Chromium by default.
+    browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
     await warmGalleryFrame(server, ENTRY, { browser, params: { variant: "many-folded" } });
   });
 
