@@ -184,10 +184,11 @@ impl Mux {
                     self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
                 registry.terminal_resource_id(&record.terminal_id)
             };
-            // A terminal whose public id is not read has no seat: say why.
+            // When the public id is not read, the host's seat names no terminal:
+            // say why.
             read.unwrap_or_else(|error| {
                 eprintln!(
-                    "cmux-tui: terminal {} has no seat before its adoption: {error:#}",
+                    "cmux-tui: terminal {}: its seat names no terminal before adoption: {error:#}",
                     record.terminal_id
                 );
                 None
