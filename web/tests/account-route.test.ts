@@ -6,6 +6,9 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  appleAccountTokens,
+  appleSubscriptions,
+  appleTransactions,
   coderouterHandoffLeases,
   coderouterRouteTokens,
   cloudOrganizations,
@@ -930,6 +933,7 @@ describe("account deletion route", () => {
     expect(deletedTables).toContain(cloudOrganizations);
     expect(updatedRows.filter(({ table }) => table === cloudOrganizations)).toHaveLength(2);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
+      table !== appleTransactions &&
       table !== stripeSubscriptions &&
       table !== stripeCustomers &&
       table !== coderouterHandoffLeases &&
@@ -949,6 +953,7 @@ describe("account deletion route", () => {
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
     for (const update of updatedRows.filter(({ table }) =>
+      table !== appleTransactions &&
       table !== coderouterHandoffLeases &&
       table !== coderouterRouteTokens &&
       table !== cloudOrganizations
@@ -2541,6 +2546,27 @@ describe("account deletion route", () => {
       table,
       values: stripUpdatedAt(values),
     }))).toContainEqual({ table: cloudVms, values: { userId: "deleted-account" } });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("drops the account's link to its App Store subscriptions and keeps the transaction ledger", async () => {
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    // The token and the subscription state go: a later App Store
+    // notification for that subscription is skipped as unlinked instead of
+    // granting a plan to the deleted account.
+    const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);
+    expect(conditionColumnNames(tokenDelete?.condition)).toEqual(["user_id"]);
+    const subscriptionDelete = deletedWhere.find((entry) => entry.table === appleSubscriptions);
+    expect(conditionColumnNames(subscriptionDelete?.condition)).toEqual(["user_id"]);
+    // The revenue ledger stays, attributed to the deleted-account placeholder.
+    expect(deletedTables).not.toContain(appleTransactions);
+    // The cmux-row cleanup runs again after the Stack delete; both passes
+    // write the same placeholder.
+    const ledgerUpdates = updatedRows.filter(({ table }) => table === appleTransactions).map(({ values }) => values);
+    expect(ledgerUpdates.length).toBeGreaterThan(0);
+    for (const values of ledgerUpdates) expect(values).toEqual({ userId: "deleted-account" });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
