@@ -209,12 +209,13 @@ def tree_key(repo: Path, sha: str) -> str:
 
 
 def linked_rust(repo: Path, paths: list[str]) -> list[str]:
-    """The changed Rust paths the app links through FFI: those need a new app."""
+    """The changed Rust paths the app links through FFI: those need a new app. A refused app FFI walk lists all of
+    cmux-tui, the router's side (lead decision 2): every Rust path then needs a new app, never a hot swap."""
     import cmux_next_route as route
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")] + list(route.app_ffi_inputs(repo))
-    excluded = route.app_ffi_excluded(repo)  # the FFI crates' tests/, benches/, examples/: not linked
+    excluded = route.app_ffi_excluded(repo)  # the walk's excluded paths: not linked
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)
-            and not any(p.startswith(d + "/") for d in excluded)]
+            and not any(p == d or p.startswith(d + "/") for d in excluded)]
 
 
 def helper_rust(repo: Path, paths: list[str]) -> list[str]:

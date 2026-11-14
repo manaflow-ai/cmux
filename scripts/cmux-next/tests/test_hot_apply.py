@@ -348,6 +348,29 @@ class Fetch(unittest.TestCase):
         self.assertTrue(sent[0].startswith("cmux-hot-apply"))
 
 
+class LinkedRust(unittest.TestCase):
+    """linked_rust: the changed Rust paths the app links through FFI, read through the router."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_linked_rust_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_linked_rust_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+
+    def test_a_refused_app_ffi_walk_links_every_cmux_tui_path(self):
+        # Lead decision 2 (2026-11-11): the router's side of a refused walk is "an input", so a daemon-only change
+        # needs a new app instead of a hot swap of bin/cmux.
+        from unittest import mock
+        import app_ffi_pin  # scripts/ci, which hot-apply.py put on sys.path
+        import cmux_next_route
+        daemon = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+        self.assertEqual(self.hot.linked_rust(ROOT, [daemon]), [])
+        with mock.patch.object(app_ffi_pin, "listed",
+                               side_effect=app_ffi_pin.Unresolved("a Rust string that does not end")), \
+                mock.patch.dict(cmux_next_route._READ, clear=True):
+            self.assertEqual(self.hot.linked_rust(ROOT, [daemon, "docs/x.md"]), [daemon])
+
+
 class FindSocket(unittest.TestCase):
     """find_socket with ps, lsof and the daemon's `server status` stubbed."""
 

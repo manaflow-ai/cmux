@@ -79,6 +79,22 @@ class PullRequestScope(unittest.TestCase):
         return subprocess.run(["bash", str(self.root / "scripts/cmux-next/check-app-ffi-pin.sh"), *args],
                               env=self.env, capture_output=True, text=True)
 
+    def test_a_refused_walk_lists_nothing_and_fails(self):
+        # The release workflow's push paths (app-ffi-release-paths.test.sh) and the pin on the base read --list-inputs:
+        # a walk that refuses fails them, never hands them a shorter list (lead decision 2, 2026-11-11).
+        self.write(SOURCE, 'const X: &str = "no end\n')
+        self.commit("a source the walk cannot read")
+        for flag in ("--list-inputs", "--list-excluded"):
+            with self.subTest(flag=flag):
+                result = self.check(flag)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("error: the app FFI inputs cannot be listed: a Rust string that does not end",
+                              result.stderr)
+                # It names the next step (review of #40095 at 694d83e8, F3).
+                self.assertIn("; fix the source the walk cannot read, or add a reviewed scripts/ci/app_ffi_pin.py "
+                              "entry", result.stderr)
+
     def test_a_valid_canonical_pin_passes(self):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -172,7 +188,7 @@ class PullRequestScope(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checking against the pin only", result.stderr)
 
-    # A crate's tests/, benches/ and examples/ never reach the archive (app_ffi_pin.NOT_BUILT). 2026-11-11: a cargo
+    # A crate's tests/, benches/ and examples/ never reach the archive (app_ffi_pin.py walk). 2026-11-11: a cargo
     # fmt of cmux-layout-reducer-ffi/tests/sidebar_caps.rs (cmux#41522) and two tests/ files of
     # cmux-agent-pane-policy and cmux-layout-reducer-ffi (cmux#41508) failed the pin check.
     NOT_BUILT_FILES = ("cmux-tui/crates/cmux-rd-core/tests/sidebar_caps.rs",
@@ -232,7 +248,8 @@ class PullRequestScope(unittest.TestCase):
 
 class EveryReaderAgrees(unittest.TestCase):
     """check-app-ffi-pin.sh, the router (and build_class.py, the dev-loop apply tools through it) and
-    base_red_excuse.py read one definition of what is not an input: app_ffi_pin.NOT_BUILT."""
+    base_red_excuse.py read one definition of what is and is not an input: the app_ffi_pin.py walk (#41555's
+    NOT_BUILT, which it replaced, was the first one)."""
 
     @classmethod
     def setUpClass(cls):
@@ -246,7 +263,10 @@ class EveryReaderAgrees(unittest.TestCase):
 
         def listed(flag):
             return subprocess.run(["bash", str(SCRIPT), flag], check=True, capture_output=True, text=True).stdout.split()
-        cls.inputs, cls.excluded = listed("--list-inputs"), listed("--list-excluded")
+        # --list-inputs prints git pathspecs: each input as `:(literal)PATH`, each excluded path as
+        # `:(exclude,literal)PATH`, which --list-excluded prints plain.
+        cls.specs, cls.excluded = listed("--list-inputs"), listed("--list-excluded")
+        cls.inputs = [s[len(":(literal)"):] for s in cls.specs if s.startswith(":(literal)")]
         cls.crates = [i for i in cls.inputs if (ROOT / i / "Cargo.toml").is_file()]
 
     def verdicts(self, path):
@@ -256,6 +276,11 @@ class EveryReaderAgrees(unittest.TestCase):
             "build_class.classify_path": "CCmuxAppFFI source" in self.build_class.classify_path(ROOT, path)[1],
             "base_red_excuse.ffi_input": self.excuse.ffi_input(path),
         }
+
+    def test_list_excluded_is_the_excluded_entries_of_list_inputs(self):
+        self.assertEqual([s[len(":(exclude,literal)"):] for s in self.specs if s.startswith(":(exclude,literal)")],
+                         self.excluded)
+        self.assertEqual(len(self.inputs) + len(self.excluded), len(self.specs), self.specs)
 
     def test_the_router_excludes_what_the_pin_check_excludes(self):
         self.assertEqual(self.route.app_ffi_excluded(ROOT), self.excluded)
@@ -285,6 +310,17 @@ class EveryReaderAgrees(unittest.TestCase):
                 verdicts = self.verdicts(path)
                 del verdicts["build_class.classify_path"]  # outside the crates: its own rule, before the inputs
                 self.assertEqual(set(verdicts.values()), {True}, verdicts)
+
+
+    def test_the_refused_walk_side_covers_every_input_the_walk_lists(self):
+        # Review of #40095 at 694d83e8 (F2): when the walk refuses, the router, build_class.py and the dev-loop apply
+        # tools count app_ffi_pin.REFUSED_INPUTS as the inputs, so an input the walk lists outside it
+        # (design-tokens.json, which cmux-motion's build script compiles in) would count as none there: routes would
+        # run less and hot-apply would hot-swap a change that needs a new app.
+        inputs, _ = app_ffi_pin.listed(ROOT)
+        self.assertIn("plans/cmux-next/spec-proposals/visuals/design-tokens.json", inputs)
+        refused = list(app_ffi_pin.REFUSED_INPUTS)
+        self.assertEqual([path for path in inputs if not app_ffi_pin.is_input(path, refused, [])], [])
 
 
 # The checks job's pin step and its pull request scope (the base's copy, --base the merge commit's first parent) are
