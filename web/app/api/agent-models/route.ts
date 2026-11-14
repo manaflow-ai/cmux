@@ -13,7 +13,7 @@ import {
 const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=86400";
 const ALLOW_METHODS = "GET, OPTIONS";
 const ALLOW_HEADERS = "If-None-Match, Content-Type";
-const REQUIRED_PROVIDERS = ["claude", "codex", "gemini", "opencode"] as const;
+const REQUIRED_PROVIDERS = ["claude", "codex", "gemini", "minimax", "opencode"] as const;
 const PAYLOAD = JSON.stringify(validateAndDeduplicateCatalog(agentModelCatalog));
 const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
 
