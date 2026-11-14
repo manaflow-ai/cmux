@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify every changed *.pin.json resolves to bytes in the release asset store.
+# Verify every changed pinned asset manifest resolves to bytes in the release asset store.
 #
 # The caller supplies the previous revision (or this defaults to HEAD^1).  The
 # checkout is the source of truth for the repository and the store client is
@@ -45,17 +45,25 @@ verify_pin() {
         "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative" >/dev/null
       ;;
     scripts/cmux-next/cef-manifest.json)
-      # R2 only: the fleet's hosts read CEF from the retained bucket, and a
-      # GitHub release or a lane's controller upload must not make a pin whose
-      # R2 object is missing look published (cmux#31594 pinned cmux.41 with no
-      # R2 object, and every fleet capture of it failed).
-      local arch
+      # The engine bytes must exist in R2, and their Chromium legal notices
+      # must survive embed. cmux#33361 reverted a crash fix because the new
+      # CEF archive had no CREDITS.html and the nightly signer then failed.
+      local arch chromium cef_dir
+      chromium="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["chromium"])' "$ROOT/$relative")"
       for arch in arm64 x86_64; do
         [[ "$arch" == x86_64 ]] && ! grep -q '"x86_64"' "$ROOT/$relative" && continue
-        echo "Checking $relative ($arch) in R2"
-        CMUX_CEF_MANIFEST="$ROOT/$relative" CMUX_CEF_CACHE_DIR="$CACHE_ROOT/cef" \
-          CMUX_CEF_NO_STORE=1 CMUX_CEF_NO_GITHUB=1 \
-          "$SCRIPT_DIR/ensure-cef.sh" --arch "$arch" >/dev/null
+        echo "Checking $relative ($arch) in R2 and Chromium credits"
+        cef_dir="$(
+          CMUX_CEF_MANIFEST="$ROOT/$relative" CMUX_CEF_CACHE_DIR="$CACHE_ROOT/cef" \
+            CMUX_CEF_NO_STORE=1 CMUX_CEF_NO_GITHUB=1 \
+            "$SCRIPT_DIR/ensure-cef.sh" --arch "$arch"
+        )"
+        (
+          credits_probe="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cef-credits.XXXXXX")"
+          trap 'rm -rf "$credits_probe"' EXIT
+          "$SCRIPT_DIR/install-cef-credits.sh" "$cef_dir" "$credits_probe" "$chromium"
+          "$SCRIPT_DIR/check-cef-credits.sh" "$credits_probe/CREDITS.html"
+        )
       done
       ;;
     *)
@@ -69,4 +77,4 @@ for relative in "${changed_pins[@]}"; do
   verify_pin "$relative"
 done
 
-echo "All changed pinned asset manifests resolve to verified store bytes."
+echo "All changed pinned asset manifests resolve to verified store bytes and notices."
