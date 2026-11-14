@@ -107,6 +107,14 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  * the home owner serves, rows keep the order drawn at launch.
  *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
  * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* A workspace row's own layout, operation "sidebar_row_layout" of
+ * cmux_layout_reducer_json (cmux-layout-reducer sidebar_row_layout.rs): the
+ * sidebar.workspaceRow.lines / linesByKind / linesByAgent settings as written.
+ *   {lines?, linesByKind?, linesByAgent?, kind?, agent?}
+ *     -> {custom, source?, lines:[[token]], slots:{icon, working, progress},
+ *         problems:[{at, why, token?}]}
+ * custom false: no layout applies and the row keeps its element switches.
+ * Called once per (kind, agent) pair after a settings change, never per row. */
 /* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
  * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
  * or New Tab Page at one of the fork's ten places.

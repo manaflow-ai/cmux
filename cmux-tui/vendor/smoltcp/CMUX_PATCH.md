@@ -18,6 +18,14 @@ controller of the same kind, so a reused socket gets the initial window again.
 A listening socket that an RST sends from SYN-RECEIVED back to LISTEN drops
 that peer's MSS and window the same way.
 
+In congestion avoidance, both the Reno-friendly estimate and the cubic target
+credit every newly acknowledged byte (RFC 9438 sections 4.2 and 4.3). Capping
+that credit at one MSS made delayed ACKs and cumulative ACKs after a repaired
+hole recover the window more slowly despite delivering the same bytes. The
+one-MSS growth cap still applies in slow start. The detector is
+`congestion_avoidance_credits_bytes_in_delayed_acks`, which compares equal
+delivery with individual and delayed ACKs after a loss.
+
 The patch also adds tail-loss probes (RFC 8985 section 7), off by default:
 `Socket::set_tail_loss_probe(Some(max_ack_delay))`. With no selective ACKs, a
 segment lost at the end of a burst draws no duplicate ACKs, so only the RTO

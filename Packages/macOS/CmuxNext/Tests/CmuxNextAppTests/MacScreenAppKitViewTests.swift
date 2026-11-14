@@ -122,7 +122,7 @@ struct MacScreenAppKitViewTests {
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
         #expect(texts(under: toolbar).contains("Studio"))
-        for id in ["macScreen.quality", "macScreen.sendKeys", "macScreen.disconnect", "macScreen.connect", "macScreen.viewOnly"] {
+        for id in ["macScreen.quality", "macScreen.sendKeys", "macScreen.disconnect", "macScreen.connect", "macScreen.access", "macScreen.fullScreen", "macScreen.more"] {
             #expect(findView(id, under: toolbar)?.isHidden == true, "\(id)")
         }
         pane.model.name = "Studio 2"

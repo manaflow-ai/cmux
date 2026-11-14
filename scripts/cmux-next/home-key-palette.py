@@ -26,7 +26,7 @@ window (trunk 283047940d8, Lawrence 2026-10-18; HomeUnfocusedAppearanceTests), s
 
 Usage: home-key-palette.py --tag <tag> [--out DIR]
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, json, os, re, signal, socket, subprocess, sys, time
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -187,7 +187,7 @@ try:
     check("the app is active", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     wait_settled()
     s1, fa1 = state(a), fill(a, "1-a-key")
-    print(f"     1 A key: A {s1} A fill {fa1}", flush=True)
+    safe_print(f"     1 A key: A {s1} A fill {fa1}", flush=True)
     check("1: the app is active and A is key", s1.get("appActive") == 1 and s1.get("windowKey") == 1, s1)
     check("1: A key: A active", own(s1, 0), s1)
     key_fill = fa1
@@ -200,7 +200,7 @@ try:
     rpc("debug.window.focus", {"window": b})
     wait_settled()
     s2, fa2 = state(a), fill(a, "2-a-behind-b")
-    print(f"     2 B key, no Home: A {s2} A fill {fa2}", flush=True)
+    safe_print(f"     2 B key, no Home: A {s2} A fill {fa2}", flush=True)
     check("2: B key without a Home pane: A inactive", own(s2, 1), s2)
     check("2: A's bubbles do not change (the same in both states)", same(fa2, key_fill), {"a": fa2, "key": key_fill})
 
@@ -208,7 +208,7 @@ try:
     rpc("debug.window.focus", {"window": b})
     wait_settled()
     s3a, s3b, fa3, fb3 = state(a), state(b), fill(a, "3-a"), fill(b, "3-b")
-    print(f"     3 B key with Home: A {s3a} B {s3b} A fill {fa3} B fill {fb3}", flush=True)
+    safe_print(f"     3 B key with Home: A {s3a} B {s3b} A fill {fa3} B fill {fb3}", flush=True)
     check("3: B key (hosts Home): B active", own(s3b, 0), s3b)
     check("3: B key: A inactive (its own window is not key)", own(s3a, 1), s3a)
     check("3: A and B show the key fill", same(fa3, fb3, key_fill), {"a": fa3, "b": fb3, "key": key_fill})
@@ -216,7 +216,7 @@ try:
     rpc("debug.window.focus", {"window": a})
     wait_settled()
     s4a, s4b, fa4, fb4 = state(a), state(b), fill(a, "4-a"), fill(b, "4-b")
-    print(f"     4 A key again: A {s4a} B {s4b} A fill {fa4} B fill {fb4}", flush=True)
+    safe_print(f"     4 A key again: A {s4a} B {s4b} A fill {fa4} B fill {fb4}", flush=True)
     check("4: A key again: A active", own(s4a, 0), s4a)
     check("4: A key: B inactive (its own window is not key)", own(s4b, 1), s4b)
     check("4: A and B show the key fill", same(fa4, fb4, key_fill), {"a": fa4, "b": fb4, "key": key_fill})
@@ -226,7 +226,7 @@ try:
     check("the app is no longer active (Finder is)", bool(poll(lambda: state(a).get("appActive") == 0, timeout=10)), state(a))
     wait_settled()
     s5a, s5b, fa5, fb5 = state(a), state(b), fill(a, "5-a"), fill(b, "5-b")
-    print(f"     5 app inactive: A {s5a} B {s5b} A fill {fa5} B fill {fb5}", flush=True)
+    safe_print(f"     5 app inactive: A {s5a} B {s5b} A fill {fa5} B fill {fb5}", flush=True)
     check("5: the app inactive: A and B inactive", own(s5a, 1) and own(s5b, 1), [s5a, s5b])
     check("5: the bubbles do not change (no dimmed palette)", same(fa5, fb5, key_fill), {"a": fa5, "b": fb5, "key": key_fill})
 
@@ -237,7 +237,7 @@ try:
     rpc("debug.window.focus", {"window": a})
     wait_settled()
     s6, fa6 = state(a), fill(a, "6-a-before")
-    print(f"     6 A key before the move: A {s6} A fill {fa6}", flush=True)
+    safe_print(f"     6 A key before the move: A {s6} A fill {fa6}", flush=True)
     check("6: before the move A is key: A active and the key fill",
           s6.get("appActive") == 1 and s6.get("windowKey") == 1 and own(s6, 0) and same(fa6, key_fill), [s6, fa6, key_fill])
     vdbin = os.path.expanduser("~/messageslab-rig/bin/vdisplay")
@@ -251,7 +251,7 @@ try:
         check("A moves onto the virtual display", moved.get("screen") == "MessagesLab Rig", moved)
         wait_settled()
         s7 = state(a)
-        print(f"     6 A on the 1x display: {s7}", flush=True)
+        safe_print(f"     6 A on the 1x display: {s7}", flush=True)
         check("6: the move does not change A's state", own(s7, 0), [s6, s7])
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
         gone = poll(lambda: subprocess.run(["kill", "-0", str(vd)], capture_output=True).returncode != 0, timeout=15)
@@ -260,7 +260,7 @@ try:
         rpc("debug.window.focus", {"window": a})
         wait_settled()
         s8, fa8 = state(a), fill(a, "6-a-after")
-        print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
+        safe_print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
         check("6: after the move back: the same state and the same fill",
               own(s8, 0) and same(fa8, fa6, key_fill), {"before": [s6, fa6], "after": [s8, fa8]})
 
@@ -284,7 +284,7 @@ try:
     check("7: B key: A inactive, its typing row drawn with it", own(s7o, 1), s7o)
     if t_key and t_off:
         ck, co = band_colour(t_key, box_key), band_colour(t_off, box_off)
-        print(f"     7 A typing fill key {ck} behind B {co}", flush=True)
+        safe_print(f"     7 A typing fill key {ck} behind B {co}", flush=True)
         check("7: the typing fill differs between the states (exact compare)", ck is not None and co is not None and ck != co,
               {"key": ck, "inactive": co})
 finally:
@@ -296,7 +296,10 @@ finally:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
         safe_print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
-        process.kill()  # the `open -W` this script started
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # the `open -W` this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))

@@ -28,6 +28,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextKeepAwake
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
@@ -173,7 +174,6 @@ final class AppServices {
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
-    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -230,7 +230,7 @@ final class AppServices {
         }
         return palette
     }()  // first read in init (no IUO)
-    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()
@@ -460,7 +460,7 @@ final class AppServices {
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
-    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    private(set) lazy var harnessIcons = HarnessIconBook(work: work, build: environment.build, mock: environment.showcase)
     let harnessIconArtwork = HarnessIconArtwork()
     /// The drawn harness icons the tab strip and sidebar mappings take.
     var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
@@ -520,6 +520,7 @@ final class AppServices {
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
+    let paneOwedWork = AgentPaneOwedWork()  // work a chat owes until someone sees a pane of it (the diff warm of a turn's end)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
@@ -574,7 +575,7 @@ final class AppServices {
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
-        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
+        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())

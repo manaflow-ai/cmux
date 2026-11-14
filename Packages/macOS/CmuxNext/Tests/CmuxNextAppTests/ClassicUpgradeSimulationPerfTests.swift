@@ -31,7 +31,7 @@ struct ClassicUpgradeSimulationPerfTests {
         #expect(launch.outcome?.opened.count == profile.expectedCount, "\(String(describing: launch.outcome))")
         await sim.settle()
         do {
-            try sim.verify(profile, classicBefore: before)
+            try await sim.verify(profile, classicBefore: before)
         } catch {
             await sim.shutdown()
             throw error

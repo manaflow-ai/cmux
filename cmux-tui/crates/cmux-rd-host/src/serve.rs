@@ -175,6 +175,10 @@ impl Carrier for ServeCarrier {
         result
     }
 
+    fn take_path_rtt_us(&mut self) -> Option<u64> {
+        self.link.take_path_rtt_us()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.link.send_datagram(datagram)
     }

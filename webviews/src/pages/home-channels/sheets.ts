@@ -4,7 +4,8 @@
 // page only with the person's click: creating or archiving a Chief and changing its instructions,
 // personality or grant go through the host (`cmux.chief.profile.*` on the host's page relay). A
 // plain browser has no host: those show read-only ("Do this in the cmux app"), no Archive.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import type { PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { ChiefHost, gestureFields, type ChiefEditorService, type ChiefSave } from "./chiefEditing";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
 import {
@@ -41,7 +42,7 @@ export interface SheetsHost {
 const NONE: HomeCapabilities = { start: false, invite: false, chiefs: false };
 const SELECTORS = { machine: "current", session: "current" };
 
-const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
+const describe = (error: unknown) => userMessage(error);
 
 export class HomeSheets {
   private snapshot: SheetsSnapshot = {

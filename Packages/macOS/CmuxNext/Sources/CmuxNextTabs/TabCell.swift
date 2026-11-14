@@ -345,12 +345,17 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            // The flush corner: the card's own surface, so the tab and the card read as one shape.
-            if runsIntoCard { backgroundLayer.backgroundColor = Palette.windowBackground.cgColor }
-            cornerFeetLayer?.fillColor = Palette.windowBackground.cgColor
-            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
+            // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
+            // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
+            // transparency. Where that would not stand out of the chrome, the selection fill.
+            let folder = Palette.folderTabFill ?? selection
+            if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
+            cornerFeetLayer?.fillColor = folder.cgColor
+            if isLifted {
+                // The floating-card token (`Palette.elevatedBackground`, the window a step toward the text) keeps the
+                // tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(Palette.elevatedBackground).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
@@ -449,7 +454,9 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
-        backgroundLayer.cornerCurve = Metrics.tabCornerCurve
+        // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
+        // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
+        backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
         // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -526,8 +533,10 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
-            let inset = (closeRect.width - m.closeGlyphSize) / 2
+            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
+            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
