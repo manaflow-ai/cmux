@@ -1,5 +1,8 @@
 //! Deterministic harness lines to book operations. The actor owns bodies and raw files.
 //! Restore the entire checkpoint before replay; never restore only the row counter.
+mod asks;
+#[cfg(test)]
+mod asks_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod bench;
 mod blocks;
@@ -75,6 +78,10 @@ pub enum BodyField {
     Title,
     InlineParts,
     Pasted,
+    /// An ask's request, raw (decision 245).
+    Request,
+    /// An ask's decision's outcome, raw.
+    Outcome,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodySource {
@@ -319,6 +326,14 @@ pub struct State {
     /// Claims that named no prompt this book holds or will hold (a steer settled before it).
     #[serde(skip)]
     unplaced_claims: u64,
+    /// The asks open now, by the hash of their kind and id (`asks.rs`).
+    asks: BTreeMap<u64, asks::Ask>,
+    /// Asks the bound settled undecided.
+    #[serde(skip)]
+    forced_asks: u64,
+    /// Decisions that named no open ask: one the bound settled, or one this book never saw asked.
+    #[serde(skip)]
+    unplaced_decisions: u64,
 }
 /// A turn-end notice that says `continued`, held whole: a patch replaces a settled row's body, so
 /// taking the mark back sends the notice again without it. Its fields are capped (the error at
@@ -452,6 +467,10 @@ pub struct Counters {
     pub queue_overflowed: u64,
     /// Sender claims no user row took (`sender_claim` after its steer settled, or past 16 held).
     pub unplaced_claims: u64,
+    /// Asks the bound of 32 open settled undecided.
+    pub forced_asks: u64,
+    /// Decisions that named no open ask.
+    pub unplaced_decisions: u64,
 }
 impl State {
     /// Whether raw is currently inside a turn, independent of its open body rows.
@@ -464,6 +483,8 @@ impl State {
         Counters {
             unknown_kinds: self.unknown_kinds.clone(),
             unplaced_claims: self.unplaced_claims,
+            forced_asks: self.forced_asks,
+            unplaced_decisions: self.unplaced_decisions,
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
@@ -506,6 +527,7 @@ impl State {
             .chain(self.plan.iter())
             .chain(self.compaction.iter())
             .chain(self.prompts.values().map(|p| &p.row))
+            .chain(self.asks.values().map(|ask| &ask.row))
     }
     fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
         if !matches!(kind, RowKind::User | RowKind::Group) {
@@ -1168,6 +1190,7 @@ impl State {
             row.turn = self.turn;
         }
         out.row(&row);
+        let row_id = row.id;
         if let Some(body) = body {
             out.body(row.id, BodyField::Content, false, body);
         }
@@ -1226,7 +1249,7 @@ impl State {
         }
         if !steer {
             // Decision 235: the turn's group row names its prompt's row, id and first words.
-            let mut opening = vec![("prompt", row.id.to_string())];
+            let mut opening = vec![("prompt", row_id.to_string())];
             if !prompt_key.is_empty() {
                 opening.push(("promptId", json_string(prompt_key)));
             }

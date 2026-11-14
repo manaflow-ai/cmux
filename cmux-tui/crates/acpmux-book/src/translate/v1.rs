@@ -226,6 +226,12 @@ fn mux(
                 out,
             )?;
         }
+        "permission_request" => state.ask_permission(&ask(line.raw), out)?,
+        "secret_request" => state.ask_secret(&ask(line.raw), false, out)?,
+        "elevation_request" => state.ask_secret(&ask(line.raw), true, out)?,
+        "permission_decision" => state.decide_permission(&ask(line.raw), out),
+        "permission_auto" => state.decide_auto(&ask(line.raw), out),
+        "secret_decision" | "elevation_decision" => state.decide_secret(&ask(line.raw), out),
         "sender_claim" => {
             if let Some((prompt, from)) = super::user::sent_from(line.raw) {
                 state.claim(&prompt, from, out);
@@ -268,6 +274,10 @@ fn mux(
         },
     }
     Ok(())
+}
+/// An ask's record, read leniently: a key of another type reads as none.
+fn ask(raw: &RawValue) -> super::asks::AskRecord<'_> {
+    serde_json::from_str(raw.get()).unwrap_or_default()
 }
 /// The turn-end notice's fields computed from its result, as the view's turn summary reads
 /// them (direct.ts, `turnSummary`): the split of its tokens, its checkpoints, its error, and the

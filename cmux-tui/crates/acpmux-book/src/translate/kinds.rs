@@ -84,7 +84,6 @@ pub(super) const TURN_END: &[Field] = &[
     f("cancelForced", "stopForced", Ty::True),
 ];
 
-const ASK: &str = "PR 2: an ask row, which its decision patches";
 const RECORD: &str = "PR 3: a record row";
 const LIVE: &str = "PR 4: the open group row's live state";
 const QUEUE: &str = "row 2d: the queue head's entry, not a row";
@@ -129,8 +128,8 @@ pub(super) const MUX: &[Kind] = &[
     not("created", UNREAD),
     code("dequeued", "the queue: the entry leaves (State::queue_remove)"),
     not("directories", UNREAD),
-    not("elevation_decision", ASK),
-    not("elevation_request", ASK),
+    code("elevation_decision", "settles its ask row with its outcome (State::decide_secret)"),
+    code("elevation_request", "an ask row for the OK to run as root (State::ask_secret)"),
     notice("exited", &[]),
     notice("failover", &[]),
     not("failover_skipped", UNREAD),
@@ -172,13 +171,13 @@ pub(super) const MUX: &[Kind] = &[
     not("mode", UNREAD),
     not("model", UNREAD),
     not("native_history", IMPORTED),
-    not("permission_auto", ASK),
-    not("permission_chat_allowance", ASK),
-    not("permission_decision", ASK),
-    not("permission_group", ASK),
-    not("permission_reissued", ASK),
-    not("permission_request", ASK),
-    not("permission_withdrawn", ASK),
+    code("permission_auto", "settles the ask the person was shown, if any (State::decide_auto)"),
+    not("permission_chat_allowance", "the chat's allowance: the page reads its permission groups"),
+    code("permission_decision", "settles its ask row (State::decide_permission)"),
+    not("permission_group", "a group of asks: the page reads its permission groups over v1"),
+    not("permission_reissued", "an open ask asked again after a restart: its row is open already"),
+    code("permission_request", "an ask row: a permission or a question (State::ask_permission)"),
+    not("permission_withdrawn", "an agent's cancel: a `cancelled` decision settles its ask"),
     not("plan_build", RECORD),
     not("policy", UNREAD),
     not("policy_refused", UNREAD),
@@ -223,8 +222,8 @@ pub(super) const MUX: &[Kind] = &[
     not("route_changed", UNREAD),
     not("route_probe", UNREAD),
     not("rules", UNREAD),
-    not("secret_decision", ASK),
-    not("secret_request", ASK),
+    code("secret_decision", "settles its ask row with its outcome (State::decide_secret)"),
+    code("secret_request", "an ask row for a secret (State::ask_secret)"),
     not("secret_run", UNREAD),
     code("sender_claim", "where a prompt was sent from: its user row's `sentFrom` (State::claim)"),
     not("session_offer", RECORD),

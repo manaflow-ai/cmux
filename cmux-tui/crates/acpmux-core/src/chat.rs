@@ -1555,6 +1555,8 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Title => "title",
         BodyField::InlineParts => "inlineParts",
         BodyField::Pasted => "pasted",
+        BodyField::Request => "request",
+        BodyField::Outcome => "outcome",
     }
 }
 
