@@ -215,6 +215,23 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.focusedMacID == "m1")
     }
 
+    /// A held machine waits for a read: the network coming back, or the machine being opened, asks
+    /// for one at once (not at the next minute's poll).
+    @Test func theNetworkBackOrOpeningAHeldMachineAsksForARead() {
+        let store = emptyStore()
+        let live = coordinator(store: store, cloud: RecordingCloudDialer())
+        defer { live.stop() }
+        var asks = 0
+        live.onCloudHoldsWaiting = { asks += 1 }
+        live.networkPathChanged(NetworkPathEvent.changed("wifi"))
+        #expect(asks == 0, "nothing held: no read asked")
+        live.holdCloudDial(vm)
+        live.networkPathChanged(NetworkPathEvent.changed("wifi"))
+        #expect(asks == 1)
+        live.touch(vm)
+        #expect(asks == 2)
+    }
+
     @Test func pausedAndStartingMachinesAreNotDialed() async throws {
         let store = emptyStore()
         let cloud = RecordingCloudDialer()
@@ -804,23 +821,6 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         gate.signal()
         await reading.value
         #expect(live.cloudDropHolds["vm_h"] != nil, "a read that began before the drop never lifts it")
-    }
-
-    /// A held machine waits for a read: the network coming back, or the machine being opened, asks
-    /// for one at once (not at the next minute's poll).
-    @Test func theNetworkBackOrOpeningAHeldMachineAsksForARead() {
-        let store = emptyStore()
-        let live = coordinator(store: store, cloud: RecordingCloudDialer())
-        defer { live.stop() }
-        var asks = 0
-        live.onCloudHoldsWaiting = { asks += 1 }
-        live.networkPathChanged(.changed("wifi"))
-        #expect(asks == 0, "nothing held: no read asked")
-        live.holdCloudDial(vm)
-        live.networkPathChanged(.changed("wifi"))
-        #expect(asks == 1)
-        live.touch(vm)
-        #expect(asks == 2)
     }
 
     /// A terminal whose channel ended reattaches at once only when a link it did not open on serves
