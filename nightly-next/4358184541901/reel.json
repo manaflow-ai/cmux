@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4358184541901",
+  "notes": "notes/4358184541901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42876,
+      "title": "cmux-next iOS: off-screen chats, card pictures and cooled terminals give memory back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42952,
+      "title": "base red (webviews-test-history): four test files settle React before teardown; the scrolled-up end skew is in the ratchet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42942,
+      "title": "Cloud: a stalled Keychain call answers within Rust's deadline, naming its item (step A: Rust)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42946,
+      "title": "fix: require exact account scope before publishing worker logs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42810,
+      "title": "acpmux: move shared list records into a storage-independent crate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42850,
+      "title": "agent service v2: core peer list projection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42934,
+      "title": "hq10751: unify Settings menu preview and picker glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42935,
+      "title": "Sidebar: the top group no longer blinks when the selected row passes over it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42943,
+      "title": "base red (acpmux-book and acpmux-core tests): a turn ends for in_turn at its result; the lost-undo recover test's segment holds its first record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42921,
+      "title": "cloud start-chat test: an unread list's last error is named after the list wait (#42872 x #42882)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41224,
+      "title": "Agent chat: what came while a chat was hidden draws in place on return, no slide from the top",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42941,
+      "title": "cmux-source-scan: a nextest regex filter keeps its escapes (succeeds #41707)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42912,
+      "title": "What's New pictures: a commit with no gallery change is pictured by the entry covering it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42824,
+      "title": "Sidebar: Share and View screen buttons on machine headers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42908,
+      "title": "cmux-git: test each git operation against a refused folder; 2 problem texts say what the open knows",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
