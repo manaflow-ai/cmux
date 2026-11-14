@@ -93,10 +93,27 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
   ].freeze
 ].freeze
+# Reviewed successors that also move the action, as [from action reference,
+# from cla.yml SHA-256, to action reference, to cla.yml SHA-256]. Like a
+# runner successor, each is checked by its exact bytes: the v3 structural
+# checks do not apply. The read-token successor (#42487, 2026-11-13) adds one
+# step that mints a read-only manaflow-glaeda-route App token (contents and
+# pull-requests read, this repository, continue-on-error) and passes it to the
+# eefc5c4 action as CLA_READ_TOKEN, which sends only a read that GITHUB_TOKEN's
+# spent budget refused once more on it. Writes stay on GITHUB_TOKEN.
+CLA_ACTION_PINNED_SUCCESSORS = [
+  %w[
+    manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
+    6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
+    manaflow-ai/cla-github-action@eefc5c477a88b5a7d294d5bcf7696e9938096247
+    827b310c6f632845531ac2d96e73808cfa224e506dab83112dcdc2d34631df6f
+  ].freeze
+].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
 CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
 CLA_ACTION_BASE_REFS = (
-  CLA_ACTION_LEGACY_REFS + CLA_ACTION_REVIEWED_MAIN_PINS.map(&:first) + [CLA_ACTION_FINAL]
+  CLA_ACTION_LEGACY_REFS + CLA_ACTION_REVIEWED_MAIN_PINS.map(&:first) +
+  CLA_ACTION_PINNED_SUCCESSORS.map { |pin| pin.fetch(2) } + [CLA_ACTION_FINAL]
 ).uniq.freeze
 CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
@@ -193,7 +210,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "db77181140de6880ea038cb0a76db100e391fad7f0d09a22f9054bf62a43249f"
+EXPECTED_GUARD_SCRIPT_DIGEST = "a306102d32d1451b7131ed02a78814300eaf777806c703347d85dbb72cced45c"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1321,19 +1338,28 @@ def reviewed_cla_base?(base_ref:, base_workflow_digest:, base_script_digest:, ba
     expected[:helper_digest] == base_script_digest &&
     expected[:helper_path] == base_script_path
 
-  # A landed runner successor is a reviewed single-job base with no helper.
-  base_script_digest.nil? && base_script_path.nil? &&
+  # A landed runner or pinned successor is a reviewed single-job base with no helper.
+  base_script_digest.nil? && base_script_path.nil? && (
     CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, _from_digest, to_digest|
       reference == base_ref && to_digest == base_workflow_digest
+    end ||
+    CLA_ACTION_PINNED_SUCCESSORS.any? do |_from_ref, _from_digest, to_ref, to_digest|
+      to_ref == base_ref && to_digest == base_workflow_digest
     end
+  )
 end
 
 def cla_runner_successor?(base_ref:, candidate_ref:, base_workflow_digest:, candidate_workflow_digest:, base_script_digest:, base_script_path:)
-  base_script_digest.nil? && base_script_path.nil? &&
+  base_script_digest.nil? && base_script_path.nil? && (
     CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, from_digest, to_digest|
       base_ref == reference && candidate_ref == reference &&
         base_workflow_digest == from_digest && candidate_workflow_digest == to_digest
+    end ||
+    CLA_ACTION_PINNED_SUCCESSORS.any? do |from_ref, from_digest, to_ref, to_digest|
+      base_ref == from_ref && candidate_ref == to_ref &&
+        base_workflow_digest == from_digest && candidate_workflow_digest == to_digest
     end
+  )
 end
 
 def legacy_action_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
@@ -1413,6 +1439,7 @@ def run_action_transition_regression_matrix!
   current = CLA_ACTION_CURRENT_BASE_REF
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
+  read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1445,7 +1472,15 @@ def run_action_transition_regression_matrix!
     ["runner successor without candidate bytes", successor_ref, successor_ref, true, successor_from, nil, nil, false],
     ["runner successor from unreviewed bytes", successor_ref, successor_ref, true, "0" * 64, nil, nil, false, successor_to],
     ["runner successor with helper", successor_ref, successor_ref, true, successor_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, successor_to],
-    ["runner successor bytes under previous action", previous, previous, false, successor_to, nil, nil, false]
+    ["runner successor bytes under previous action", previous, previous, false, successor_to, nil, nil, false],
+    ["runner successor to read-token successor", read_from_ref, read_to_ref, true, read_from, nil, nil, true, read_to],
+    ["read-token successor no-op", read_to_ref, read_to_ref, false, read_to, nil, nil, true],
+    ["read-token successor to final", read_to_ref, final, true, read_to, nil, nil, true],
+    ["read-token successor reverted", read_to_ref, read_from_ref, true, read_to, nil, nil, false, read_from],
+    ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
+    ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
+    ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
