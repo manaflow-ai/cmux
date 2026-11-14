@@ -432,6 +432,7 @@ mod tests {
     async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
         let (hub, session) = fixture(false).await;
         hub.edit_test_meta(&session, |meta| {
+            meta.status = crate::store::SessionStatus::Running;
             let base = meta.harness_failures.through_seq;
             for offset in 1..=3 {
                 let seq = base + offset;
