@@ -192,8 +192,8 @@ pub fn terminal_chat_swap(facts: TerminalChatFacts, shown: TabFace, to: TabFace)
     }
 }
 
-/// The chat among `chats` that already shows `harness` session `session`, if any: a watching
-/// chat first (it follows the terminal), else one that resumed it and is not closed.
+/// The chat among `chats` that already shows `harness` session `session`, if any: a View
+/// Only chat first (it follows the terminal), else one that resumed it and is not closed.
 /// acpmux would answer an adopt of the session with the same chat
 /// (`hub/adoption.rs` `adopted_session`); this spares the phone that round trip.
 #[uniffi::export]
