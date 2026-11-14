@@ -366,13 +366,13 @@ impl<'a> Reader<'a> {
             self.unreadable("root is not an object", Some(1));
             return false;
         };
-        let mut keys: Vec<&String> = members.keys().collect();
-        keys.sort();
-        for key in keys {
+        let mut entries: Vec<(&String, &Value)> = members.iter().collect();
+        entries.sort_by_key(|(key, _)| *key);
+        for (key, value) in entries {
             if RESERVED_KEYS.contains(&key.as_str()) {
                 continue;
             }
-            self.walk(&members[key], key_path(key));
+            self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
         true
@@ -418,20 +418,20 @@ impl<'a> Reader<'a> {
     /// `~`, as an absolute path; any other value as written.
     fn picture(&self, value: &Value) -> Value {
         let Some(raw) = value.as_str() else { return value.clone() };
-        let Some(prefix) = ["file:", "folder:"].into_iter().find(|prefix| raw.starts_with(prefix))
+        let Some((prefix, rest)) = ["file:", "folder:"]
+            .into_iter()
+            .find_map(|prefix| raw.strip_prefix(prefix).map(|rest| (prefix, rest)))
         else {
             return value.clone();
         };
-        let rest = &raw[prefix.len()..];
         if rest.is_empty() || rest.starts_with('/') {
             return value.clone();
         }
-        if rest == "~" || rest.starts_with("~/") {
+        if let Some(after) = rest.strip_prefix('~')
+            && (after.is_empty() || after.starts_with('/'))
+        {
             let home = std::env::var("HOME").unwrap_or_default();
-            return Value::String(format!(
-                "{prefix}{}",
-                standardized(&format!("{home}{}", &rest[1..]))
-            ));
+            return Value::String(format!("{prefix}{}", standardized(&format!("{home}{after}"))));
         }
         let Some(folder) = self.folder else { return value.clone() };
         Value::String(format!("{prefix}{}", standardized(&folder.join(rest).to_string_lossy())))
@@ -525,7 +525,7 @@ fn standardized(path: &str) -> String {
 
 /// The 1-based line of byte `offset`.
 fn line_at(text: &str, offset: usize) -> usize {
-    text.as_bytes()[..offset.min(text.len())].iter().filter(|&&b| b == b'\n').count() + 1
+    text.bytes().take(offset).filter(|&b| b == b'\n').count() + 1
 }
 
 /// The line where `dotted` (or its last component, for a nested key) is
@@ -537,8 +537,8 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     }
     candidates.iter().find_map(|key| {
         let needle = format!("\"{key}\"");
-        text.match_indices(&needle).find_map(|(at, _)| {
-            let after = text[at + needle.len()..].trim_start();
+        text.match_indices(&needle).find_map(|(at, matched)| {
+            let after = text.get(at + matched.len()..).unwrap_or_default().trim_start();
             after.starts_with(':').then(|| line_at(text, at))
         })
     })
