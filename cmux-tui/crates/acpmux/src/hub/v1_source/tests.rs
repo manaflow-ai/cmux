@@ -99,6 +99,20 @@ pub(super) fn wait_ready(actor: &ChatActor) {
     }
 }
 
+/// Waits until the actor's chunks stop growing for 100 ms: it read what v1 holds.
+pub(super) fn wait_read(log: &V1Log<Arc<dyn Store>>, actor: &ChatActor) {
+    wait_ready(actor);
+    let started = Instant::now();
+    loop {
+        let chunks = log.counters.chunks.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(100));
+        if log.counters.chunks.load(Ordering::SeqCst) == chunks {
+            return;
+        }
+        assert!(started.elapsed() < Duration::from_secs(120), "the actor never stopped reading");
+    }
+}
+
 /// The book's settled records, in seq order: rowId, rev and the first raw place.
 pub(super) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
     let (mut log, _) = Log::open(book, Options::default()).unwrap();
@@ -228,10 +242,43 @@ fn ready_comes_only_from_a_read_that_said_at_end_and_the_hint_finds_new_lines() 
         assert!(started.elapsed() < Duration::from_secs(30), "the line was never read");
         std::thread::sleep(Duration::from_millis(5));
     }
+    let handle = actor.handle.clone();
     actor.join();
+    // The line past the start's last seq was synced and checkpointed: no failure, no restart.
+    assert_eq!(handle.failures(), 0, "the checkpoint after the new line did not fail");
+    assert_eq!(saved_cursor(&home.book()), seq + 1);
     let rows = book_rows(&home.book());
     assert!(rows.iter().any(|row| row.2 == seq), "the new line's row is in the book");
     assert_eq!(rows, translated(home.store.as_ref()));
+}
+
+/// The place of the book's saved cursor.
+pub(super) fn saved_cursor(book: &Path) -> u64 {
+    let saved = log::saved_checkpoint(book).unwrap().unwrap();
+    Checkpoint::from_recovered(&saved).unwrap().cursors[0].place
+}
+
+#[test]
+fn a_first_source_that_reads_100_lines_past_the_start_checkpoints_with_no_failure() {
+    let home = Home::with_chat(200, 2 << 20);
+    let log = home.log();
+    let actor = ChatActor::spawn(home.config(&log));
+    wait_ready(&actor);
+    // The daemon's first source of the chat answers `holds` from the start's last seq; each
+    // line after it is a checkpoint (a prompt settles out of a turn) and a sync past that seq.
+    // Spread over more than a second, so a checkpoint falls inside the run as well as at its end.
+    let mut seq = 0;
+    for n in 0..100 {
+        seq = home.prompt(&format!("past the start {n}"));
+        let _ = actor.handle.wake();
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    let handle = actor.handle.clone();
+    wait_read(&log, &actor);
+    actor.join();
+    assert_eq!(handle.failures(), 0);
+    assert_eq!(saved_cursor(&home.book()), seq + 1);
+    assert_eq!(book_rows(&home.book()), translated(home.store.as_ref()));
 }
 
 struct Gated {

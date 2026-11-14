@@ -16,7 +16,8 @@
 //! - **`holds`**: a place is held while it is at most one past v1's last seq. The first open of a
 //!   chat's book in a daemon's life asks against the last seq v1 found on disk when the daemon
 //!   started, since v1 gives the seqs after it to new lines; a later open asks against what the
-//!   store holds then (nothing v1 took is lost while the process lives).
+//!   store holds then (nothing v1 took is lost while the process lives). The start's seq is for
+//!   the open's question only: `sync_through` asks against v1's last seq now.
 //! - **The hint** is v1's last seq. It is read before a chunk, so a line that lands after the read
 //!   moves it, and the actor reads again.
 //! - **Never ahead of its raw**: `sync_through` makes v1's log durable through a seq before a
@@ -186,7 +187,9 @@ where
     }
 
     fn sync_through(&mut self, place: u64) -> io::Result<()> {
-        if !self.holds(place)? {
+        // Asked against the log as it is now: the start's last seq answers the open's question
+        // alone, and a line v1 appended since is the source's to sync.
+        if place > (self.last_seq)().saturating_add(1) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "v1's log has not reached this place",
