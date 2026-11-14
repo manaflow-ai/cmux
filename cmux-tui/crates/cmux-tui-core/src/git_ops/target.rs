@@ -54,7 +54,16 @@ pub(super) fn directory(
             json!({"code":"no_working_directory","terminal":terminal_id.as_str()}),
         )
     })?;
-    Ok(PathBuf::from(cwd))
+    Ok(real(Path::new(&cwd)).unwrap_or_else(|_| PathBuf::from(cwd)))
+}
+
+/// The real path of `folder`, with no link in it. It is taken one time for
+/// a request, so each git run of the request starts in the same folder,
+/// also when a part of the request's path is a link.
+fn real(folder: &Path) -> std::io::Result<PathBuf> {
+    // On a system that is not Unix the real path has a form of its own:
+    // there the path stays as it came.
+    if cfg!(unix) { std::fs::canonicalize(folder) } else { Ok(folder.to_path_buf()) }
 }
 
 /// Selectors for the terminal that `selectors` names: itself, or the
@@ -93,17 +102,16 @@ fn explicit_path(raw: &str, operation: &'static str) -> Result<PathBuf, Resource
     if !path.is_absolute() {
         return Err(ResourceError::validation_invalid(Some("path"), "path must be absolute"));
     }
-    let metadata = std::fs::metadata(path).map_err(|error| {
+    let not_found = |error: std::io::Error| {
         ResourceError::operation_failed(
             operation,
             format!("{raw}: {error}"),
             json!({"code":"target_not_found"}),
         )
-    })?;
-    if metadata.is_dir() {
-        return Ok(path.to_path_buf());
-    }
-    Ok(path.parent().map_or_else(|| path.to_path_buf(), Path::to_path_buf))
+    };
+    let metadata = std::fs::metadata(path).map_err(not_found)?;
+    let folder = if metadata.is_dir() { path } else { path.parent().unwrap_or(path) };
+    real(folder).map_err(not_found)
 }
 
 #[cfg(all(test, unix))]
