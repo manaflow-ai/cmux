@@ -44,6 +44,8 @@ tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+# Web link addresses (the phone decides which device opens a link, link_side).
+url = "2"
 webrtc = "0.17"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"
