@@ -303,6 +303,22 @@ impl Folders {
         filter: Option<&ListFilter>,
         visible: impl Fn(&FolderRow) -> bool,
     ) -> io::Result<FolderPage> {
+        self.read_page_accounted(cursor, side, inclusive, bounds, filter, (visible, |_| 0))
+    }
+
+    /// Like `read_page_visible`, but also reserves each continuation's encoded
+    /// cost. Both hidden and returned candidates carry a continuation; a key
+    /// that would exceed the budget is left for the next page.
+    pub fn read_page_accounted(
+        &self,
+        cursor: Option<&FolderCursor>,
+        side: FolderReadSide,
+        inclusive: bool,
+        bounds: (usize, usize),
+        filter: Option<&ListFilter>,
+        predicates: (impl Fn(&FolderRow) -> bool, impl Fn(&FolderRow) -> usize),
+    ) -> io::Result<FolderPage> {
+        let (visible, cursor_bytes) = predicates;
         let (limit, max_bytes) = bounds;
         Self::validate_page_bound(limit, max_bytes)?;
         let anchor = cursor.map(FolderCursor::sort_key);
@@ -337,28 +353,27 @@ impl Folders {
         let mut rows = Vec::new();
         let mut bytes_read = 0usize;
         let mut byte_limited = false;
+        let mut first_cursor_bytes: Option<usize> = None;
         for row in candidates.take(limit) {
-            if rows.len() == limit {
-                break;
-            }
-            if !matches(row) {
-                visited.push(row.clone());
-                continue;
-            }
-            let row_bytes = row.encoded_len().saturating_add(1);
-            if bytes_read.saturating_add(row_bytes) > max_bytes {
+            let row_bytes = if matches(row) { row.encoded_len().saturating_add(1) } else { 0 };
+            let key_bytes = cursor_bytes(row);
+            let cursors = first_cursor_bytes.unwrap_or(key_bytes).saturating_add(key_bytes);
+            if bytes_read.saturating_add(row_bytes).saturating_add(cursors) > max_bytes {
                 if visited.is_empty() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "folders page byte budget cannot fit the next row",
+                        "folders page byte budget cannot fit the next candidate",
                     ));
                 }
                 byte_limited = true;
                 break;
             }
+            first_cursor_bytes.get_or_insert(key_bytes);
             visited.push(row.clone());
             bytes_read = bytes_read.saturating_add(row_bytes);
-            rows.push(row.clone());
+            if row_bytes != 0 {
+                rows.push(row.clone());
+            }
         }
         if side == FolderReadSide::Before {
             rows.reverse();
@@ -559,13 +574,43 @@ mod tests {
                 .0
         });
         let filter = ListFilter { origin: Some("peer".into()), ..ListFilter::default() };
+        let visits = std::cell::Cell::new(0);
         let page = folders
-            .read_page(None, FolderReadSide::After, false, 20, MAX_FOLDER_PAGE_BYTES, Some(&filter))
+            .read_page_visible(
+                None,
+                FolderReadSide::After,
+                false,
+                (20, MAX_FOLDER_PAGE_BYTES),
+                Some(&filter),
+                |_| {
+                    visits.set(visits.get() + 1);
+                    true
+                },
+            )
             .unwrap();
+        assert_eq!(visits.get(), 20, "hidden candidates consume the same bound");
         assert!(page.rows.is_empty());
         assert_eq!(page.bytes_read, 0);
         assert!(page.after_key.is_some());
         assert!(page.has_after);
+    }
+
+    #[test]
+    fn hidden_prefix_preserves_continuation_before_an_oversized_matching_row() {
+        let (folders, _) = Folders::new().apply(entry("hidden", "/a", "a", 2, 1)).unwrap();
+        let (folders, _) = folders.apply(entry("visible", "/b", "b", 1, 1)).unwrap();
+        let filter = ListFilter { origin: Some("visible".into()), ..ListFilter::default() };
+        let page =
+            folders.read_page(None, FolderReadSide::After, false, 20, 1, Some(&filter)).unwrap();
+        assert!(page.rows.is_empty());
+        assert!(page.has_after);
+        let cursor = page.after_key.unwrap();
+        assert_eq!(cursor.key.origin.as_ref(), "hidden");
+        assert!(
+            folders
+                .read_page(Some(&cursor), FolderReadSide::After, false, 20, 1, Some(&filter))
+                .is_err()
+        );
     }
 
     #[test]
