@@ -1,0 +1,61 @@
+#if os(iOS)
+import Foundation
+
+/// The Cloud chats screens as this run last read them: each Mac's Cloud machines and each Cloud
+/// machine's chat list, so the sheet opened again draws them at once and reconciles in place,
+/// instead of "Loading Cloud chats…" and "Connecting to <machine> through <Mac>…" on every open.
+/// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+/// faster/percievably load faster". Memory only (as ``AgentChatsMemory``), bounded, the most
+/// recently kept stay; sign-out forgets it (``removeAll()``).
+@MainActor
+public final class CloudChatsMemory {
+    public static let shared = CloudChatsMemory()
+
+    /// Macs and Cloud machines remembered (each kind on its own).
+    public let limit: Int
+    /// Chats kept per Cloud machine: the list's first page.
+    public let chatLimit: Int
+    private var machines: [String: [CloudChatMachine]] = [:]
+    private var machineOrder: [String] = []
+    private var chats: [String: [AcpmuxSession]] = [:]
+    private var chatOrder: [String] = []
+
+    public init(limit: Int = 8, chatLimit: Int = CloudChatList.pageSize) {
+        self.limit = limit
+        self.chatLimit = chatLimit
+    }
+
+    /// The Cloud machines last listed through `macID` (nil: none read this run).
+    public func machines(on macID: String) -> [CloudChatMachine]? { machines[macID] }
+
+    /// Keeps the Cloud machines just listed through `macID`.
+    public func keep(machines list: [CloudChatMachine], on macID: String) {
+        machines[macID] = list
+        Self.touch(macID, in: &machineOrder)
+        while machineOrder.count > limit { machines[machineOrder.removeFirst()] = nil }
+    }
+
+    /// The chats last listed on the Cloud machine at `location` (nil: none read this run).
+    public func chats(at location: CloudChatLocation) -> [AcpmuxSession]? { chats[location.id] }
+
+    /// Keeps the newest ``chatLimit`` of the chats the Cloud machine at `location` lists now.
+    public func keep(chats sessions: some Collection<AcpmuxSession>, at location: CloudChatLocation) {
+        chats[location.id] = CloudChatList.newest(sessions, shown: chatLimit).rows
+        Self.touch(location.id, in: &chatOrder)
+        while chatOrder.count > limit { chats[chatOrder.removeFirst()] = nil }
+    }
+
+    /// Sign-out: no Cloud machine or chat of the account stays.
+    public func removeAll() {
+        machines = [:]
+        machineOrder = []
+        chats = [:]
+        chatOrder = []
+    }
+
+    private static func touch(_ key: String, in order: inout [String]) {
+        order.removeAll { $0 == key }
+        order.append(key)
+    }
+}
+#endif

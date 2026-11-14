@@ -58,6 +58,7 @@ public struct AccountSignOut {
                     MacHomeFeed.shared.discardForSignOut()
                     AgentChatsMemory.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
+                    CloudChatsMemory.shared.removeAll()
                 }) {
         self.snapshots = snapshots
         self.feedStore = feedStore

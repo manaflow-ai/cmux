@@ -86,15 +86,19 @@ struct CloudChatsScreen: View {
                            live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
                 shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
                 selectedLocation = nil
-                locations = []
                 error = nil
                 needsMac = false
                 guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
+                    locations = []
                     loading = false
                     needsMac = true
                     return
                 }
-                loading = true
+                // The machines this run last read through the Mac draw at once and are replaced in
+                // place when the Mac answers: no spinner over a list the phone holds.
+                let kept = attention == nil ? CloudChatsMemory.shared.machines(on: macID) : nil
+                locations = kept.map { CloudChatDirectory.scopedMachines($0, attention: nil).map { CloudChatLocation(macID: macID, machine: $0) } } ?? []
+                loading = kept == nil
                 do {
                     let found: [CloudChatLocation]
                     if let attention {
@@ -106,6 +110,7 @@ struct CloudChatsScreen: View {
                         found = match.map { [$0] } ?? []
                     } else {
                         let listed = try await live.cloudMachines(on: macID)
+                        CloudChatsMemory.shared.keep(machines: listed, on: macID)
                         found = CloudChatDirectory.scopedMachines(listed, attention: nil)
                             .map { CloudChatLocation(macID: macID, machine: $0) }
                     }
@@ -116,7 +121,8 @@ struct CloudChatsScreen: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     loading = false
-                    self.error = "Couldn't load Cloud chats. Try again."
+                    // Kept machines stay listed: opening one says why if it can't connect.
+                    if locations.isEmpty { self.error = "Couldn't load Cloud chats. Try again." }
                 }
             }
         }
@@ -231,16 +237,7 @@ private struct CloudMachineChatsScreen: View {
                 } else {
                     let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(listed.rows, id: \.id) { chat in
-                            Button { selectedSession = chat.id } label: {
-                                VStack(alignment: .leading) {
-                                    Text(chat.name.isEmpty ? chat.harness : chat.name)
-                                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
-                                        Text(prompt).lineLimit(2).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
+                        chatRows(listed.rows)
                         if listed.hasOlder {
                             Section {
                                 Button("Show Older Chats") { shown += CloudChatList.pageSize }
@@ -257,6 +254,12 @@ private struct CloudMachineChatsScreen: View {
                 }
             } else if let cause = failure {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
+            } else if let kept, !kept.isEmpty {
+                // The chats this run last listed on the machine, while its channel opens: the list
+                // the Mac sends takes their place (same rows, same order). A chat tapped now opens
+                // once the channel is ready.
+                List { chatRows(kept) }
+                    .accessibilityIdentifier("cloudChats.kept")
             } else {
                 CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
             }
@@ -281,6 +284,9 @@ private struct CloudMachineChatsScreen: View {
         .navigationDestination(item: $selectedSession) { sessionID in
             if let store = relay?.store(sessionID: sessionID) {
                 AgentChatScreen(store: store)
+            } else if relay?.hub.isReady != true, failure == nil, kept?.contains(where: { $0.id == sessionID }) == true {
+                // A kept chat tapped before the machine's channel is ready: it opens in place once it is.
+                CmuxSpinner()
             } else {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             }
@@ -303,6 +309,11 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
+        // The machine's list as it reads now, for the next open (``CloudChatsMemory``).
+        .onChange(of: relay?.hub.isReady == true ? relay?.hub.sessions : nil, initial: true) { _, sessions in
+            guard let sessions else { return }
+            CloudChatsMemory.shared.keep(chats: sessions.values, at: location)
+        }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
             guard ready, !openedPreferred, let preferredSession,
@@ -310,6 +321,24 @@ private struct CloudMachineChatsScreen: View {
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true
             selectedSession = preferredSession
+        }
+    }
+
+    private var location: CloudChatLocation { CloudChatLocation(macID: macID, machine: machine) }
+
+    /// The chats this run last listed on this machine (``CloudChatsMemory``).
+    private var kept: [AcpmuxSession]? { CloudChatsMemory.shared.chats(at: location) }
+
+    @ViewBuilder private func chatRows(_ rows: [AcpmuxSession]) -> some View {
+        ForEach(rows, id: \.id) { chat in
+            Button { selectedSession = chat.id } label: {
+                VStack(alignment: .leading) {
+                    Text(chat.name.isEmpty ? chat.harness : chat.name)
+                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
+                        Text(prompt).lineLimit(2).foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 
