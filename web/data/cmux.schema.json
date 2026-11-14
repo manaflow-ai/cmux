@@ -1972,6 +1972,33 @@
         }
       }
     },
+    "windowBackground": {
+      "x-cmux-scopes": ["global"],
+      "title": "windowBackground",
+      "description": "One image painted behind the titlebar, sidebar and every terminal pane of a cmux window, from Settings > Themes > Background Image. While an image shows, it replaces window transparency and glass. It is hidden when macOS Reduce Transparency is on.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": ["string", "null"],
+          "default": "",
+          "description": "Path to the image file, absolute or starting with `~/`. Any format macOS reads works (PNG, JPEG, HEIC). Empty or null shows no image."
+        },
+        "imageOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.25,
+          "description": "How visible the image is over the terminal background color, from 0 to 1. Lower values keep text easier to read."
+        },
+        "imageFit": {
+          "type": "string",
+          "enum": ["cover", "contain", "stretch"],
+          "default": "cover",
+          "description": "How the image is scaled to the window: `cover` fills it and crops the overflow, `contain` shows the whole image, `stretch` ignores the aspect ratio."
+        }
+      }
+    },
     "automation": {
       "x-cmux-scopes": ["global"],
       "title": "automation",

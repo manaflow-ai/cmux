@@ -238,7 +238,7 @@ struct WorkspaceContentView: View {
             minimalModeInvalidationProbe.workspaceContentBody?()
         }()
 #endif
-        let appearance = PanelAppearance.fromConfig(config)
+        let appearance = PanelAppearance.fromConfig(config, showsWindowBackgroundImage: windowAppearance.backgroundImage != nil)
         let isSplit = workspace.hasMultipleSplitSurfaces
         let isCanvas = workspace.layoutMode == .canvas
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)

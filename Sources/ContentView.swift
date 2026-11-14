@@ -2033,6 +2033,7 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    private var windowBackgroundImage = WindowBackgroundImageStorage()
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
@@ -2053,7 +2054,8 @@ struct ContentView: View {
                 bgGlassEnabled: bgGlassEnabled,
                 bgGlassTintHex: bgGlassTintHex,
                 bgGlassTintOpacity: bgGlassTintOpacity,
-                reduceTransparency: displayAccessibility.reduceTransparency
+                reduceTransparency: displayAccessibility.reduceTransparency,
+                backgroundImage: windowBackgroundImage.settings
             )
         )
     }
@@ -2627,9 +2629,7 @@ struct ContentView: View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                WindowRootBackdropView(snapshot: appearance)
 
                 contentAndSidebarLayout(appearance: appearance)
 

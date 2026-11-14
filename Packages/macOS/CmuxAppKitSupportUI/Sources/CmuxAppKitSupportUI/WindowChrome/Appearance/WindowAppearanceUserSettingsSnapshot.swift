@@ -1,4 +1,5 @@
 public import SwiftUI
+public import CmuxFoundation
 
 /// User settings needed to resolve window appearance.
 public struct WindowAppearanceUserSettingsSnapshot {
@@ -49,6 +50,10 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// The macOS Reduce Transparency setting.
     public let reduceTransparency: Bool
 
+    /// The window background image choice. ``WindowBackgroundImageSettings/none``
+    /// leaves the window unchanged.
+    public let backgroundImage: WindowBackgroundImageSettings
+
     /// Creates a user settings snapshot for window appearance.
     public init(
         unifySurfaceBackdrops: Bool,
@@ -65,7 +70,8 @@ public struct WindowAppearanceUserSettingsSnapshot {
         bgGlassEnabled: Bool,
         bgGlassTintHex: String,
         bgGlassTintOpacity: Double,
-        reduceTransparency: Bool = false
+        reduceTransparency: Bool = false,
+        backgroundImage: WindowBackgroundImageSettings = .none
     ) {
         self.unifySurfaceBackdrops = unifySurfaceBackdrops
         self.colorScheme = colorScheme
@@ -82,5 +88,6 @@ public struct WindowAppearanceUserSettingsSnapshot {
         self.bgGlassTintHex = bgGlassTintHex
         self.bgGlassTintOpacity = bgGlassTintOpacity
         self.reduceTransparency = reduceTransparency
+        self.backgroundImage = backgroundImage
     }
 }

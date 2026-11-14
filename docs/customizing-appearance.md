@@ -118,6 +118,32 @@ background-image-position = center
 PNG and JPEG only. Each terminal draws its own copy, so the image repeats across
 split panes and each copy uses its own GPU memory.
 
+For one image behind the whole window (titlebar, sidebar, and every pane), use
+**Settings > Themes > Background Image**, or `cmux.json`:
+
+```json
+{
+  "windowBackground": {
+    "image": "~/Pictures/wallpaper.jpg",
+    "imageOpacity": 0.25,
+    "imageFit": "cover"
+  }
+}
+```
+
+- `image` takes an absolute path or one starting with `~/`, in any format macOS
+  reads (PNG, JPEG, HEIC). An empty string or `null` turns it off.
+- `imageOpacity` (0 to 1) sets how much of the image shows over the terminal
+  background color. Lower values keep text easier to read.
+- `imageFit` is `cover` (fill the window, crop the overflow), `contain` (show
+  the whole image), or `stretch`.
+- While an image shows, it replaces `background-opacity`, `background-blur`,
+  and window glass: the desktop no longer shows through. macOS **Reduce
+  Transparency** hides the image.
+- A sidebar with its own material blurs the image behind it. Turn on
+  `sidebarAppearance.matchTerminalBackground` to show the image unblurred
+  there too.
+
 `window-padding-x`, `window-padding-y`, `window-padding-balance`, and
 `window-padding-color` pad each terminal pane.
 

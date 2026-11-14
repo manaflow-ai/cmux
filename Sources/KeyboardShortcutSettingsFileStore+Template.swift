@@ -210,6 +210,13 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "windowBackground": [
+                    "image": "",
+                    "imageOpacity": WindowBackgroundImageSettings.defaultOpacity,
+                    "imageFit": WindowBackgroundImageSettings.defaultFit.rawValue,
+                ],
+            ],
+            [
                 "automation": [
                     "socketControlMode": SocketControlSettings.defaultMode.rawValue,
                     "socketPassword": "",
