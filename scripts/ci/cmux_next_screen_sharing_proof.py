@@ -285,7 +285,7 @@ def main(argv=None):
                "source_sha": args.source_sha, "mac_job": args.mac_job,
                "mac_artifact_sha256": args.artifact_sha256, "physical_iphone_proven": False}
     root = Path(__file__).resolve().parents[2]
-    phone = host = attempt = None
+    phone = host = attempt = work = None
     def interrupted(_signum, _frame):
         raise ProofFailure("Proof interrupted")
     previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT)}
@@ -321,9 +321,12 @@ def main(argv=None):
                     # Stop only this new simulator app before removing its hub
                     # device, so it cannot re-register while cleanup runs.
                     phone.ui.run(phone.ui.simctl + ["terminate", args.udid, args.bundle_id])
-            receipt["cleanup"] = host.cleanup_ok
-            if not host.cleanup_ok:
-                receipt.update(passed=False, error_code="host_cleanup_failed")
+        # Keychain cleanup alone does not remove the private HOME, app logs or
+        # simulator screenshots. Publish cleanup only after their owner exits
+        # its temporary workspace and absence is read back.
+        receipt["cleanup"] = host.cleanup_ok and not work.exists()
+        if not receipt["cleanup"]:
+            receipt.update(passed=False, error_code="host_cleanup_failed")
     except (Exception, KeyboardInterrupt) as error:
         if attempt:
             receipt.update(attempt.receipt)
@@ -335,7 +338,8 @@ def main(argv=None):
                         ("live_frame", "phone_frame_unverified"), ("host_input", "phone_input_unverified"),
                         ("viewer_stop", "phone_stop_unverified"), ("host_stopped", "host_stop_unverified"))
                         if not receipt.get(phase)), "host_cleanup_failed")
-        receipt.update(passed=False, error_code=code, cleanup=host.cleanup_ok if host else False)
+        receipt.update(passed=False, error_code=code,
+                       cleanup=bool(host and host.cleanup_ok and work and not work.exists()))
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
