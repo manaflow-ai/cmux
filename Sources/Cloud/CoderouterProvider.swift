@@ -34,44 +34,12 @@ struct CoderouterProvider: Hashable {
     }
 
     /// The unscoped command shown in the guide and used by ordinary terminal
-    /// users. Sidebar setup uses the scoped overload below.
+    /// users. Sidebar setup runs `CoderouterAppCLISession.addAccountCommand`.
     var addCommand: String {
         switch id {
         case "opencode-go": return "cmux cr add opencode"
         default: return "cmux cr add \(id)"
         }
-    }
-
-    /// Builds the command used by the sidebar for one mapped organization.
-    /// Newer CLIs accept `--team`; older ones run the whole switch-and-add
-    /// sequence against a temporary copy of the CodeRouter config.
-    func addCommand(
-        for organizationID: String?,
-        scope: CoderouterTeamScope = .isolatedConfiguration,
-        cmuxExecutable: String = "cmux"
-    ) -> String {
-        let cli = cmuxExecutable == "cmux" ? "cmux" : Self.shellQuote(cmuxExecutable)
-        let provider = id == "opencode-go" ? "opencode" : id
-        let addCommand = "\(cli) cr add \(provider)"
-        guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !organizationID.isEmpty else {
-            return addCommand
-        }
-
-        let quotedOrganization = Self.shellQuote(organizationID)
-        switch scope {
-        case .teamOption:
-            return "\(addCommand) --team \(quotedOrganization)"
-        case .isolatedConfiguration:
-            // Keep the user's saved org untouched when an older CLI has no
-            // team option. The temporary config is deleted on every exit.
-            let script = "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\") || exit 1; cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'This account is not signed in on this Mac.' >&2; exit 1; fi; if ! mkdir -p \"$tmp/coderouter\"; then exit 1; fi; if ! cp \"$source_config\" \"$tmp/coderouter/config.json\"; then exit 1; fi; result=0; if CODEROUTER_DATA_DIR=\"$tmp\" \(cli) cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || result=$?; else result=$?; fi; exit \"$result\""
-            return "/bin/sh -c \(Self.shellQuote(script))"
-        }
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -219,6 +187,40 @@ struct CoderouterSetupWorkspaceCoordinator {
         return .created(workspace: workspace, manager: manager)
     }
 
+    /// Admits and creates setup directly in its local destination in one main
+    /// actor turn. Staging a running shell elsewhere before projecting it can
+    /// fail after launch, making the caller delete a configuration still in use.
+    func launchAccountTerminal(in workspaceID: UUID) throws {
+        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+              !manager.isFinalizedForWindowClose,
+              let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+              Self.isLocal(workspace) else {
+            throw SurfacePaneFactory.FactoryError.workspaceNotFound(workspaceID)
+        }
+        // The split selects its workspace before the terminal's own room
+        // check, so refuse a full destination here: a refused setup must
+        // leave the person's selected workspace where it was.
+        if let anchor = workspace.focusedPanelId,
+           workspace.terminalSplitSpaceVerdict(splittingPanel: anchor, orientation: .horizontal) == .noSpace {
+            throw SurfacePaneFactory.FactoryError.noSpace
+        }
+        let command = ["sh", "-lc", initialTerminalCommand ?? provider.addCommand]
+        let created = try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: command.map(LocalSurfaceProvider.shellQuote).joined(separator: " "),
+            workingDirectory: nil,
+            at: .workspace(id: workspaceID, placement: .split),
+            focus: true
+        )
+        // Match the local provider's terminal name without pinning a custom
+        // tab title that would prevent the shell from updating its own title.
+        let catalog = SurfaceCatalog.shared
+        let resourceID = LocalSurfaceProvider.resourceID(forTerminalPanel: created.panelID)
+        if var resource = catalog.resources[resourceID] {
+            resource.title = "CodeRouter"
+            catalog.upsert(resource)
+        }
+    }
+
     private static func persistedLocalWorkspace(
         using persistence: CoderouterSetupWorkspacePersistence
     ) -> (workspace: Workspace, manager: TabManager)? {
@@ -249,8 +251,9 @@ struct CoderouterSetupWorkspaceCoordinator {
 }
 
 /// What the Cloud tree's CodeRouter section shows: the selected team's
-/// accounts and whether a refresh is running.
+/// accounts, whether a refresh is running, and why the last read failed.
 struct CloudTreeCoderouterSection: Equatable {
     var accounts: [CloudTreeNode.CoderouterAccount] = []
     var isRefreshing = false
+    var failure: CoderouterCLIFailure?
 }

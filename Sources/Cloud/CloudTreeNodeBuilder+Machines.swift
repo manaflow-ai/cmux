@@ -147,8 +147,9 @@ extension CloudTreeNodeBuilder {
 
     /// One group per account type: every type CodeRouter can add, then any
     /// other type the team already has. Each addable group gets its New Account
-    /// row from `CloudTreeCreateActionBuilder`. Account rows are snapshots;
-    /// credentials never enter the tree.
+    /// row from `CloudTreeCreateActionBuilder`. A failed read leads the section
+    /// with its retry row. Account rows are snapshots; credentials never enter
+    /// the tree.
     static func coderouterNode(_ section: CloudTreeCoderouterSection) -> CloudTreeNode {
         let byProvider = Dictionary(grouping: section.accounts, by: \.provider)
         let others = byProvider.keys.filter { !$0.canAdd }.sorted { $0.id < $1.id }
@@ -163,13 +164,16 @@ extension CloudTreeNodeBuilder {
                 }
             )
         }
+        let failureRows = section.failure.map { failure in
+            [CloudTreeNode(id: "coderouter-section/failure", kind: .createAction(.retryCoderouter(failure)))]
+        } ?? []
         return CloudTreeNode(
             id: "coderouter-section",
             kind: .coderouterSection(
                 count: section.accounts.count,
                 refresh: CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
             ),
-            children: groups
+            children: failureRows + groups
         )
     }
 }
