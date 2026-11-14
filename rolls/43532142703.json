@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43532142703",
+  "recorded_at": "2026-11-14T00:19:12Z",
+  "reason": "cmux-tui 6ed7dfc35cb2 changes the image's cmux-tui (pinned c31121f46af7)",
+  "dry_run": false,
+  "cmux_tui": "6ed7dfc35cb22aff8865742661b0d05dfc28a824",
+  "fixes": [
+    {
+      "sha": "6ed7dfc35cb22aff8865742661b0d05dfc28a824",
+      "mergedAt": "2026-11-13T15:43:09-08:00",
+      "subject": "Automations never fire on their own run's chat, and pr-opened catches pull requests closed within minutes (#40658)"
+    },
+    {
+      "sha": "05f77c3b253e1e172f9e61748f7e37d3573e238d",
+      "mergedAt": "2026-11-13T15:41:34-08:00",
+      "subject": "v2 PR 5c part two: bounded list reads and tee follow-ups (#42675)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T00:19:12Z",
+    "snapshot_id": "sh-4c1f09e1b1db43bdbd5786549614519a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43532142703): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7073f2733d6d23d10588d2d6b3472a3e11247de3",
+    "image": "cloud-native-auto-6ed7dfc3-43532142703-1",
+    "revision": "ci-43532142703-1",
+    "at": "2026-11-14T00:19:12Z"
+  },
+  "rolled_back": false
+}
