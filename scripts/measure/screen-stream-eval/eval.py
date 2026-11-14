@@ -90,7 +90,8 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
-        if g2g.get("p50") is None:
+        # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage.
+        if g2g.get("p50") is None and not (folder / "window-only").exists():
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.

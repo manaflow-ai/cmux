@@ -32,10 +32,10 @@ use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, p
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
-    DRIVER_FILE_NAME, ETC_DIR, GHOSTTY_VERSION_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE,
-    RUN_DIR, STATUS_FILE, STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
+    DRIVER_FILE_NAME, ETC_DIR, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE, RUN_DIR, STATUS_FILE,
+    STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
 };
-use crate::daemon_spec::{DaemonLayout, daemon_spec, ghostty_version};
+use crate::daemon_spec::{DaemonLayout, daemon_spec};
 use crate::machine::{Action, Input, Observation};
 use crate::metadata::{InstanceIdSource, Mmds, read_instance_id};
 use crate::retry::{CLOCK_REARM_ATTEMPTS, RearmOutcome, rearm_bounded};
@@ -301,9 +301,7 @@ impl LinuxPlatform {
             format!("{}\n", layout.kind.as_str()).as_bytes(),
             0o644,
         );
-        let version =
-            ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &entry, &paths.at(TEMPLATE_BOUND_FILE));
         let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);

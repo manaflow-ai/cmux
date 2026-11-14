@@ -168,6 +168,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
@@ -9104,6 +9105,24 @@ def _resolve_roots(repo_root: pathlib.Path, roots: Optional[list[str]]) -> tuple
     return tuple(roots) if roots else DEFAULT_ROOTS
 
 
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(active: list[Finding]) -> None:
+    """One red guard check per active (path, rule), in the guard runner's "<passed 0|1><TAB><check>" format.
+
+    guards_new_reds.py compares "<step> :: <check>" entries, so a finding the base also has is excused and a new one
+    is the change's. With only the step's verdict, a base already red on this step excused every new finding
+    (cmux#42416's pages-size-open-bench.sh landed behind test_cargo_locks_explain.py's reds; cmuxterm-hq
+    docs/handbook/base-red-excused-for-ever.md). No line numbers: an edit above a finding must not make it new."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for rel, rule in sorted({(finding.path, finding.rule) for finding in active}):
+            handle.write(f"0\t{rel}: {rule}\n")
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -9144,6 +9163,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="run built-in detector fixtures and exit",
     )
+    parser.add_argument(
+        "--guard-checks",
+        action="store_true",
+        help=f"append each active (path, rule) as a red check to ${GUARD_CHECK_RESULTS_ENV} (the guard runner's file)",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -9178,6 +9202,8 @@ def main(argv: list[str]) -> int:
         return 2
 
     active, suppressed = filter_allowlisted(findings, allow)
+    if args.guard_checks:
+        report_guard_checks(active)
 
     if args.json:
         payload = {

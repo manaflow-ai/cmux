@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -68,7 +69,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 // The background (or the lock screen) releases every
                 // terminal's size at once. A short background task keeps the
                 // app running for the releases to reach the Mac (bounded:
-                // the Mac's size lease covers a release that never lands).
+                // the Mac's size lease covers a release that never lands)
+                // and while the frames for the next cold launch are saved.
                 let release = SizeReleaseBackgroundTask()
                 release.begin()
                 self?.setAppActive(false)
@@ -210,6 +212,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
             (session as? DaemonTerminalSession)?.reconnect()
@@ -219,7 +222,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
-        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
+        // The placeholder's page carries over only through the frame gate: a
+        // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
+        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
         if live != nil, let frameStore, let key {
@@ -312,11 +317,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         let key = hostFrameKeys.removeValue(forKey: id)
         if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
-        if let frame = host.model.snapshot {
-            if let key {
-                lastFrames[key] = frame
-                if let data = (host.model.frameForSaving() ?? frame).jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
-            }
+        // The page as it is now (not only a grid-card snapshot, which a tab never
+        // shown in the grid lacks): its next host shows it at once while it attaches.
+        // A tab cooled before it drew the Mac's output keeps the cached frame it
+        // had; its blank page never goes over it, in memory or on disk.
+        if let key, let frame = host.model.frameToKeep() {
+            lastFrames[key] = frame
+            if host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
         }
         slots[id] = nil
         cardViews[id] = nil
@@ -336,7 +343,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// state itself: making one during a view update notifies nothing.
     private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
         if let indicator = indicators[id] { return indicator }
-        let indicator = ReattachIndicator()
+        // The pill says "Reattaching…" only once an outage lasted as long as the
+        // composer's quiet line waits (10 s): a blip changes nothing on screen.
+        let indicator = ReattachIndicator(clock: ContinuousClock(), delay: QuietStatusGate.threshold)
         indicators[id] = indicator
         return indicator
     }
@@ -363,7 +372,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A read (no host is created): the tab's pill says "Reattaching…" while
-    /// its reattach has lasted 400 ms or more.
+    /// its reattach has lasted `QuietStatusGate.threshold` or more.
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }

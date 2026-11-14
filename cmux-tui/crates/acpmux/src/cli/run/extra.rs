@@ -618,10 +618,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "store:    {}",
                         v.pointer("/store/mode").and_then(Value::as_str).unwrap_or("")
                     );
+                    // A count that missed status's reading budget is null: unknown, not 0.
+                    let live = v.get("liveAgents").and_then(Value::as_u64);
                     println!(
                         "sessions: {} ({} live agents)",
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
+                        live.map_or_else(|| "unknown".to_owned(), |n| n.to_string())
                     );
                     if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");

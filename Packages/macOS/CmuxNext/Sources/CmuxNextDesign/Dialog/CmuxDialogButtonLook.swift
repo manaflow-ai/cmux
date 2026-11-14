@@ -6,8 +6,8 @@ public import CmuxNextDesignTokens
 ///   `appearance.accent` names a hue) with its on-accent ink, as the web pages' primary button
 ///   draws, so the button Return presses reads first at a glance. It was a gray 3 to 4% denser
 ///   than Cancel's.
-/// - destructive: a solid danger fill with ink fit to 4.5:1 on it, as the web pages' `.danger`
-///   button. `filledDestructive: false` gives the tinted alternative (the danger ink on a faint danger
+/// - destructive: white on a solid danger fill, deepened until white reads at 4.5:1, as macOS draws a
+///   destructive button. `filledDestructive: false` gives the tinted alternative (the danger ink on a faint danger
 ///   wash, lifted to 4.5:1 over the card), kept for the design call (manaflow-ai/cmux#13742). The theme's `danger` is fit only to
 ///   3:1 (a mark's floor): over the glass it measured 2.1:1 (debug.dialog_strip, 2026-10-28).
 /// - cancel and normal: the selection fill (gray, or the accent's tint in an accent theme), a step
@@ -57,9 +57,11 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
             fill = tokens.danger.withAlpha(step * 0.6)
             ink = tokens.danger.withAlpha(1)
         case .destructive where filledDestructive:
-            fill = tokens.danger.withAlpha(1).mixed(toward: card[0], step)
-            ink = tokens.onAccent.withAlpha(1).contrast(with: fill) >= tokens.textPrimary.contrast(with: fill)
-                ? tokens.onAccent.withAlpha(1) : tokens.textPrimary.withAlpha(1)
+            // White on red in every theme, as macOS draws a destructive button (Aziz 2026-11-13: "it must be white on
+            // red"; light themes drew black, the ink with more contrast on their lighter red). The red deepens until
+            // white reads at 4.5:1 on it; hover and press deepen it a step more.
+            ink = Self.white
+            fill = Self.deepened(tokens.danger.withAlpha(1), under: ink).mixed(toward: Self.black, step)
         case .destructive:
             fill = tokens.danger.withAlpha((tokens.isDark ? 0.18 : 0.12) + step * 0.4)
             ink = tokens.danger.withAlpha(1)
@@ -92,6 +94,16 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         let scrimmed = tokens.scrim.composited(over: tokens.windowBackground.withAlpha(1))
         // glass-opaque-allow: a contrast reference only (the card under Reduce Transparency); nothing paints it here
         return [glass.composited(over: scrimmed), tokens.opaqueOverlayFill(lift: lift), scrimmed]
+    }
+
+    static let white = ThemeRGB(red: 1, green: 1, blue: 1)
+    static let black = ThemeRGB(red: 0, green: 0, blue: 0)
+
+    /// `fill` moved toward black in small steps until `ink` reads on it at ``minimumContrast`` (a few steps at most).
+    static func deepened(_ fill: ThemeRGB, under ink: ThemeRGB) -> ThemeRGB {
+        var deep = fill
+        for _ in 0..<30 where ink.contrast(with: deep) < minimumContrast + 0.05 { deep = deep.mixed(toward: black, 0.04) }
+        return deep
     }
 
     /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface. A move for

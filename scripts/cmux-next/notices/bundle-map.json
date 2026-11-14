@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
+      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), CCmuxAppFFI (static Rust: cmux-tui/crates/cmux-app-ffi, the prebuilt xcframework of app-ffi-pin.json; rustc std of cmux-tui's toolchain), Sparkle client",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -20,11 +20,6 @@
       "path": "Contents/Frameworks/MediaRemoteAdapter.framework/*",
       "what": "ungive/mediaremote-adapter (BSD-3-Clause, vendor/mediaremote-adapter) for Now Playing; loaded by /usr/bin/perl, not linked (scripts/cmux-next/bundle-mediaremote-adapter.sh)",
       "notices": ["section:manual-mediaremote-adapter-now-playing"]
-    },
-    {
-      "path": "Contents/Frameworks/Iroh.framework/*",
-      "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision; in Release a stub, its code is merged into Contents/MacOS/cmux (a Mach-O that names rustc std paths without rust-std fails)",
-      "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/WebRTC.framework/*",
@@ -53,8 +48,9 @@
     },
     {
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
-      "what": "the remote browser host's CEF helper processes: copies of the same binary (remote-browser-host-layout.sh)",
-      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "what": "the remote browser host's CEF helper processes (remote-browser-host-layout.sh): cmux-rb-host-helper from build-cef-shim.sh (first-party Objective-C++ and CEF's libcef_dll wrapper, no Rust; cmux#42201), or, when embed-remote-browser-host.sh could not build it, copies of the host binary, which then need the host's notices too (copy_of)",
+      "copy_of": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",

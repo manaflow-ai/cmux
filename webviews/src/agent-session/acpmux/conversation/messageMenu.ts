@@ -12,9 +12,16 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
-import { currentLanguage } from "../i18n";
+import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
+import {
+  sendPromptAgainMenu,
+  sendPromptAgainTarget,
+  type SendPromptAgainMenu,
+  type SendPromptAgainState,
+} from "./sendPromptAgain";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -32,6 +39,8 @@ export type MessageMenuTarget = {
   sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
+  /// The latest successful turn can send its original prompt again, optionally on another model.
+  sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
@@ -51,6 +60,17 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// Identifies the native popup until the host reports its dismissal.
   popupId?: string;
 };
+
+export function withSendPromptAgain(
+  target: MessageMenuTarget | undefined,
+  rowId: string,
+  state: SendPromptAgainState,
+  t: Translate,
+): MessageMenuTarget | undefined {
+  if (sendPromptAgainTarget(state)?.messageId !== rowId) return target;
+  const again = sendPromptAgainMenu(state, t);
+  return again ? { ...(target ?? { text: "" }), sessionId: again.sessionId, sendPromptAgain: again } : target;
+}
 
 /// A native menu action may run after its page report. Require the selected and drawn sessions to
 /// still agree with that report before applying an action to a transcript row.
@@ -322,7 +342,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -350,7 +372,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };

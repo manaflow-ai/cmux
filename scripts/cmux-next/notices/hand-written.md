@@ -605,12 +605,6 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) 2014, John MacFarlane; cmark-gfm portions Copyright (c) 2017, GitHub, Inc.
 - **Source:** https://github.com/swiftlang/swift-cmark
 
-### iroh-ffi
-
-- **License:** MIT License or Apache License 2.0 (dual-licensed; cmux elects MIT)
-- **Copyright:** Copyright 2025 N0, INC.
-- **Source:** https://github.com/manaflow-ai/iroh-ffi (fork of https://github.com/n0-computer/iroh-ffi)
-
 ### Swift Crypto and Swift ASN.1
 
 - **License:** Apache License 2.0
@@ -967,13 +961,15 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
   https://github.com/gorhill/uBlock/archive/refs/tags/1.75.0.tar.gz, sha256
   a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b)
 
-The cmux-next app bundles the unmodified uBlock Origin 1.75.0 release build for
+The cmux-next app bundles the uBlock Origin 1.75.0 release build for
 Chromium (uBlock0_1.75.0.chromium.zip, sha256
 393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582) in
-`Contents/Resources/Extensions/ublock-origin`; the only change is the manifest's
+`Contents/Resources/Extensions/ublock-origin`, with two changes: the manifest's
 `key` field (the Chrome Web Store extension id; the manifest is rewritten with
-two-space indentation). The folder carries the full
-GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`. uBlock Origin is a separate
+two-space indentation), and, since 2026-11-12, the `_locales` catalogs of the
+languages cmux does not ship are removed (scripts/cmux-next/bundle-ublock.sh;
+the browser falls back to the default locale for them). The folder carries the full
+GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`, which records both changes. uBlock Origin is a separate
 program that cmux loads into Chromium; it is not linked into cmux.
 Its bundled libraries keep their own licenses (CodeMirror, csstree, hsluv and
 js-beautify: MIT; diff: BSD-3-Clause; lz4-wasm and other files under `lib/`: see
@@ -1105,7 +1101,9 @@ unchanged, for each rustc that built one of its binaries:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
   `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
-  iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
+  no binary in this app is known to be built by rustc 1.91.0 since the app
+  stopped linking iroh-ffi; the reviewed file still ships, for any Rust
+  binary built by that rustc
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 

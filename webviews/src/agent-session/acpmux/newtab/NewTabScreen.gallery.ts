@@ -665,6 +665,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
     },
     "layout-claude-chips-below": {
+      composerLook: "claude",
       note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(12)),
@@ -690,6 +691,7 @@ export default agentPaneEntry({
       ).map(([name, width]) => [
         name,
         {
+          composerLook: "claude",
           note: width
             ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
             : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
@@ -1189,9 +1191,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await typePrompt(ctx, "release");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // The workspace, Ask, then the first tab. Down to the last option (the create strip's end),
+        // The workspace, Ask, then the first tab. Down to the last line (the create strip, one line),
         // then three more wrap round to the first tab.
-        const options = ctx.document.querySelectorAll('.nt-popover [role="option"]').length;
+        const rows = ctx.document.querySelectorAll('.nt-popover [role="option"]:not(.nt-create-strip-item)').length;
+        const options = rows + (ctx.document.querySelector(".nt-create-strip-item") ? 1 : 0);
         for (let step = 0; step < options - 1; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
