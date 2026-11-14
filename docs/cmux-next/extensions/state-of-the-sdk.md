@@ -24,8 +24,8 @@ missing. Design: `plans/cmux-next/extensibility-DESIGN.md` (rules R1-R7, steps) 
 
 The typed API an extension codes against is one generated file,
 `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts` ("cmux app API 1.0.0", 500+ ops, the scene
-DSL, signals), made by `tools/gen-cmux-global.ts` and checked with `--check`. `cmux ext new` copies
-it into each new extension.
+DSL, signals), made by `tools/gen-cmux-global.ts` and checked with `--check`. `cmux ext new` copies it, and
+`cmux-extension-sdk` as this cmux was built with it (`sdk/`, no registry), into each new extension.
 
 ## What is missing, worst first
 
@@ -42,7 +42,7 @@ it into each new extension.
    `apps/subscriptions.rs` but not declared in the catalog, so it is untyped (#41582 adds them).
 4. **Places not built:** `render: web` panes, new tab widgets (`cmux.newtab.widget/1` is not in
    `cmux-app-manifest/src/interfaces.rs`), chat widgets, status items (validated, never drawn),
-   right sidebar panels. `cmux ext new` scaffolds only a sidebar section.
+   right sidebar panels. `cmux ext new` scaffolds a sidebar section, a pane or a command.
 5. **Sharing.** Extensions install from a local folder only; `cmux ext add/share/search` is #42068.
 6. **Budgets.** The batch-rate ladder (Slowed, Paused) is designed but not enforced (#41554); the
    node cap is checked in the VM, not the host.

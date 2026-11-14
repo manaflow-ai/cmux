@@ -9,7 +9,8 @@ save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the a
 ## For a person
 
 ```sh
-cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, README.md, cmux-app.d.ts
+cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, sdk/, README.md, cmux-app.d.ts
+                             # --kind section (default), pane or command
 cd my-prs
 cmux ext dev                 # validate, build, load; then one line per save
 ```
@@ -115,3 +116,11 @@ leads out of the folder, is refused by name.
 
 `ext dev` refuses a folder in the local apps folder that it did not make, and an id that is not
 `local/NAME` (`local/customize` is `~/.config/cmux/customize`, which reloads on save already).
+
+## The SDK in a new extension
+
+`cmux ext new` writes `sdk/`: `cmux-extension-sdk` as the `cmux` that ran it was built with it
+(its TypeScript source and the runtime's event and scope tables, embedded in the binary).
+`tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
+`file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
+`API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.
