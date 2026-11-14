@@ -164,6 +164,24 @@ class HostTests(unittest.TestCase):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_cloud_namespace_unavailable"):
                     self.host.identity_service(Path("/tmp/owned.app"), "cap", {})
 
+    def test_existing_cloud_device_identity_refuses_before_launch(self):
+        bundle = "com.cmuxterm.app.debug.capabc"
+        selected = dict(bundle_id=bundle, legacy_storage=False, auth_namespace="development")
+        def run(argv, **_):
+            # The raw bundle has no identity; the namespace used by the app does.
+            return Mock(returncode=0 if bundle + ".cloud.development.device-hub" in argv else 44)
+        def command(argv, **_):
+            return json.dumps(selected) if "cloud" in argv else ""
+        with tempfile.TemporaryDirectory(prefix="ss-") as work:
+            host = self.host.Host(Path("/tmp/owned.app"),
+                                  {"CFBundleIdentifier": bundle, "CFBundleExecutable": "cmux"},
+                                  work, ("account", "password"))
+            with patch.object(self.host, "command", side_effect=command), patch.object(self.host.subprocess, "run", side_effect=run), \
+                    patch.object(self.host.subprocess, "Popen", side_effect=AssertionError("launched into an existing namespace")) as launch:
+                with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_not_fresh"):
+                    host.__enter__()
+                launch.assert_not_called()
+
     def test_artifact_requires_completed_verified_exact_source(self):
         source, digest = "a" * 40, "b" * 64
         job = dict(kind="cmux", state="done", source_digest=source,
