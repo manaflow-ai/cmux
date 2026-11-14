@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43563511459",
+  "recorded_at": "2026-11-14T05:58:08Z",
+  "reason": "cmux-tui c59d29d61851 changes the image's cmux-tui (pinned 6e6d25060796)",
+  "dry_run": false,
+  "cmux_tui": "c59d29d61851b8b535a3c4869e21d8a06e884d30",
+  "fixes": [
+    {
+      "sha": "c59d29d61851b8b535a3c4869e21d8a06e884d30",
+      "mergedAt": "2026-11-14T05:29:52Z",
+      "subject": "CMUX-572: grow remote desktop link UDP buffers (#42811)"
+    },
+    {
+      "sha": "27454a9b473bb66759ad71de0f60572f4b2768b1",
+      "mergedAt": "2026-11-13T23:18:35-06:00",
+      "subject": "cmux-tui mcp tests: cmux_exec lists families by name, not with counts"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:58:08Z",
+    "snapshot_id": "sh-df82c0dd7f71415f9990ee3be9dacf5f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43563511459): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0cdc60a9e15adf787806ebf8a9debb28c58037bc",
+    "image": "cloud-native-auto-c59d29d6-43563511459-1",
+    "revision": "ci-43563511459-1",
+    "at": "2026-11-14T05:58:08Z"
+  },
+  "rolled_back": false
+}
