@@ -43,6 +43,7 @@ jobs:
       # feature; client Windows has it built in. Without it the h264-mf rows say so.
       - name: Media Foundation feature (Windows Server)
         continue-on-error: true
+        shell: pwsh
         run: |
           if (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue) {
             $f = Get-WindowsFeature Server-Media-Foundation
@@ -51,27 +52,20 @@ jobs:
           }
 
       - name: GPUs on this machine
+        shell: pwsh
         run: |
           Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Format-Table -AutoSize | Out-String | Tee-Object -Variable gpus
           Add-Content $env:GITHUB_STEP_SUMMARY "GPU: $gpus"
 
-      # GitHub runs pwsh steps with $ErrorActionPreference = stop already.
+      # GitHub runs pwsh steps with $ErrorActionPreference = stop already. The rows go to the
+      # job's own target directory and into the log and step summary; nothing is uploaded.
       - name: Rows
+        shell: pwsh
         working-directory: cmux-tui/crates/cmux-codecs
         run: |
-          $rows = Join-Path $env:RUNNER_TEMP 'codec-bench-windows.jsonl'
-          .\target\release\codec-bench.exe --codecs h264,h264-mf,h264-mf-sw `
-            --scenes page,scroll,drag,typing --loss 0,2,2b --rtt-ms 50 --seconds 10 `
-            --json $rows | Tee-Object -Variable table
+          $bench = @('--codecs', 'h264,h264-mf,h264-mf-sw', '--scenes', 'page,scroll,drag,typing', '--loss', '0,2,2b', '--rtt-ms', '50', '--seconds', '10', '--json', 'target\codec-bench-windows.jsonl')
+          .\target\release\codec-bench.exe @bench | Tee-Object -Variable table
           if ($LASTEXITCODE -ne 0) { throw "codec-bench exited with $LASTEXITCODE" }
-          Add-Content $env:GITHUB_STEP_SUMMARY ($table -join "`n")
+          Add-Content $env:GITHUB_STEP_SUMMARY ($table -join [Environment]::NewLine)
           Write-Output '--- rows (JSON lines) ---'
-          Get-Content $rows
-
-      - name: Upload rows
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: codec-bench-windows
-          path: ${{ runner.temp }}/codec-bench-windows.jsonl
-          if-no-files-found: ignore
+          Get-Content target\codec-bench-windows.jsonl
