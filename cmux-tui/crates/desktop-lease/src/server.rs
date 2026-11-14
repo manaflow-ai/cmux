@@ -12,6 +12,7 @@
 //! {"op":"shutdown"}                                -> {"ok":true} and every slot destroyed
 //! ```
 
+use crate::at;
 use crate::backend::{Action, SlotSpec};
 use crate::pool::Pool;
 use anyhow::{Context, Result, anyhow};
@@ -162,8 +163,8 @@ impl Client {
         let mut line = String::new();
         self.reader.read_line(&mut line)?;
         let v: Value = serde_json::from_str(&line).context("pool answer")?;
-        if v["ok"] != json!(true) {
-            return Err(anyhow!("{}", v["error"].as_str().unwrap_or("pool error")));
+        if at(&v, "/ok").as_bool() != Some(true) {
+            return Err(anyhow!("{}", at(&v, "/error").as_str().unwrap_or("pool error")));
         }
         Ok(v)
     }

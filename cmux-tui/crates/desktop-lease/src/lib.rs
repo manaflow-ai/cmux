@@ -16,3 +16,10 @@ pub mod linux;
 pub mod mcp;
 pub mod pool;
 pub mod server;
+
+/// The JSON value at `pointer` (RFC 6901, e.g. `/lease/slot`), or `null` when it is absent.
+/// Reads JSON without `value["key"]` indexing, which the panic ratchet counts.
+pub fn at<'a>(value: &'a serde_json::Value, pointer: &str) -> &'a serde_json::Value {
+    static NULL: serde_json::Value = serde_json::Value::Null;
+    value.pointer(pointer).unwrap_or(&NULL)
+}

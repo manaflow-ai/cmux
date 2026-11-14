@@ -5,6 +5,7 @@
 //! `results.json` (the first-user-journey results shape, plus timings),
 //! `summary.md` and one PNG per step.
 
+use crate::at;
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use cmux_process::{Child, Command, Stdio};
@@ -93,21 +94,22 @@ impl Mcp {
         if let Some(e) = v.get("error") {
             bail!("{method}: {e}");
         }
-        Ok(v["result"].clone())
+        Ok(at(&v, "/result").clone())
     }
 
     fn tool(&mut self, name: &str, args: Value) -> Result<(Value, Option<Vec<u8>>)> {
         let r = self.request("tools/call", json!({"name": name, "arguments": args}))?;
-        let content = r["content"].as_array().cloned().unwrap_or_default();
-        let text = content.iter().find(|c| c["type"] == "text").and_then(|c| c["text"].as_str());
-        if r["isError"] == json!(true) {
+        let content = at(&r, "/content").as_array().cloned().unwrap_or_default();
+        let text =
+            content.iter().find(|c| at(c, "/type") == "text").and_then(|c| at(c, "/text").as_str());
+        if at(&r, "/isError").as_bool() == Some(true) {
             bail!("{name}: {}", text.unwrap_or("error"));
         }
         let report = text.and_then(|t| serde_json::from_str(t).ok()).unwrap_or(Value::Null);
         let png = content
             .iter()
-            .find(|c| c["type"] == "image")
-            .and_then(|c| c["data"].as_str())
+            .find(|c| at(c, "/type") == "image")
+            .and_then(|c| at(c, "/data").as_str())
             .and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
         Ok((report, png))
     }
@@ -166,7 +168,8 @@ pub fn run(script_path: &Path, out: &Path, socket: &Path) -> Result<Value> {
     let t = Instant::now();
     let (lease, _) = mcp.tool("desktop_lease", script.lease.clone())?;
     let lease_wall_ms = t.elapsed().as_secs_f64() * 1000.0;
-    let slot = lease["slot"].as_str().ok_or_else(|| anyhow!("no slot in {lease}"))?.to_owned();
+    let slot =
+        at(&lease, "/slot").as_str().ok_or_else(|| anyhow!("no slot in {lease}"))?.to_owned();
 
     let mut steps = Vec::new();
     let mut reds = Vec::new();
@@ -174,15 +177,19 @@ pub fn run(script_path: &Path, out: &Path, socket: &Path) -> Result<Value> {
         // The model thinks: the pool has suspended the slot by now; read what it holds.
         std::thread::sleep(Duration::from_millis(script.think_ms));
         let observed = pool.call(&json!({"op": "stats"}))?;
-        let during_think = observed["stats"]["slots"]
+        let during_think = at(&observed, "/stats/slots")
             .as_array()
-            .and_then(|s| s.iter().find(|r| r["slot"] == json!(slot)).cloned())
+            .and_then(|s| {
+                s.iter().find(|r| at(r, "/slot").as_str() == Some(slot.as_str())).cloned()
+            })
             .unwrap_or(Value::Null);
         let mut args = step.args.clone();
         if args.is_null() {
             args = json!({});
         }
-        args["slot"] = json!(slot);
+        args.as_object_mut()
+            .ok_or_else(|| anyhow!("step {} args are not an object", step.name))?
+            .insert("slot".to_owned(), json!(slot));
         let t = Instant::now();
         let called = mcp.tool(&step.tool, args);
         let wall_ms = t.elapsed().as_secs_f64() * 1000.0;
@@ -220,8 +227,8 @@ pub fn run(script_path: &Path, out: &Path, socket: &Path) -> Result<Value> {
             i + 1,
             if pass { "pass" } else { "RED" },
             step.name,
-            report["was"].as_str().unwrap_or("?"),
-            report["resume_ms"].as_f64().unwrap_or(0.0),
+            at(&report, "/was").as_str().unwrap_or("?"),
+            at(&report, "/resume_ms").as_f64().unwrap_or(0.0),
             wall_ms
         );
         steps.push(json!({
@@ -234,7 +241,7 @@ pub fn run(script_path: &Path, out: &Path, socket: &Path) -> Result<Value> {
     mcp.tool("desktop_release", json!({"slot": slot}))?;
     let release_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-    let passed = steps.iter().filter(|s| s["pass"] == json!(true)).count();
+    let passed = steps.iter().filter(|s| at(s, "/pass").as_bool() == Some(true)).count();
     let results = json!({
         "schema": 1,
         "surface": "web",
@@ -259,42 +266,43 @@ pub fn run(script_path: &Path, out: &Path, socket: &Path) -> Result<Value> {
 }
 
 fn summary(r: &Value) -> String {
-    let d = &r["desktop_lease"];
+    let d = at(r, "/desktop_lease");
     let mut s = format!(
         "# {}\n\nslot {} leased in {:.2} ms (warm: {}), released in {:.1} ms; {} of {} steps passed.\n\n\
          | # | step | pass | was | resume ms | act+shot ms | awake MB | think: state, MB | suspend ms (freeze+reclaim) |\n\
          |---|---|---|---|---|---|---|---|---|\n",
-        d["journey"].as_str().unwrap_or(""),
-        d["slot"].as_str().unwrap_or(""),
-        d["lease"]["lease_ms"].as_f64().unwrap_or(0.0),
-        d["lease"]["from_warm"],
-        d["release_ms"].as_f64().unwrap_or(0.0),
-        d["steps_passed"],
-        d["steps"].as_array().map_or(0, Vec::len),
+        at(d, "/journey").as_str().unwrap_or(""),
+        at(d, "/slot").as_str().unwrap_or(""),
+        at(d, "/lease/lease_ms").as_f64().unwrap_or(0.0),
+        at(d, "/lease/from_warm"),
+        at(d, "/release_ms").as_f64().unwrap_or(0.0),
+        at(d, "/steps_passed"),
+        at(d, "/steps").as_array().map_or(0, Vec::len),
     );
-    for st in d["steps"].as_array().into_iter().flatten() {
-        let rep = &st["report"];
-        let sus = &rep["last_suspend"];
+    for st in at(d, "/steps").as_array().into_iter().flatten() {
+        let rep = at(st, "/report");
+        let sus = at(rep, "/last_suspend");
         s += &format!(
             "| {} | {} | {} | {} | {:.1} | {:.0} | {:.0} | {} {:.0} | {} |\n",
-            st["step"],
-            st["name"].as_str().unwrap_or(""),
-            if st["pass"] == json!(true) { "pass" } else { "RED" },
-            rep["was"].as_str().unwrap_or("?"),
-            rep["resume_ms"].as_f64().unwrap_or(0.0),
-            rep["act_ms"].as_f64().unwrap_or(0.0) + rep["screenshot_ms"].as_f64().unwrap_or(0.0),
-            rep["resident_awake_mb"].as_f64().unwrap_or(0.0),
-            st["during_think"]["state"].as_str().unwrap_or("?"),
-            st["during_think"]["resident_mb"].as_f64().unwrap_or(0.0),
+            at(st, "/step"),
+            at(st, "/name").as_str().unwrap_or(""),
+            if at(st, "/pass").as_bool() == Some(true) { "pass" } else { "RED" },
+            at(rep, "/was").as_str().unwrap_or("?"),
+            at(rep, "/resume_ms").as_f64().unwrap_or(0.0),
+            at(rep, "/act_ms").as_f64().unwrap_or(0.0)
+                + at(rep, "/screenshot_ms").as_f64().unwrap_or(0.0),
+            at(rep, "/resident_awake_mb").as_f64().unwrap_or(0.0),
+            at(st, "/during_think/state").as_str().unwrap_or("?"),
+            at(st, "/during_think/resident_mb").as_f64().unwrap_or(0.0),
             if sus.is_null() {
                 "-".to_owned()
             } else {
                 format!(
                     "{:.0}+{:.0} ({:.0} -> {:.0} MB)",
-                    sus["freeze_ms"].as_f64().unwrap_or(0.0),
-                    sus["reclaim_ms"].as_f64().unwrap_or(0.0),
-                    sus["resident_before_mb"].as_f64().unwrap_or(0.0),
-                    sus["resident_after_mb"].as_f64().unwrap_or(0.0)
+                    at(sus, "/freeze_ms").as_f64().unwrap_or(0.0),
+                    at(sus, "/reclaim_ms").as_f64().unwrap_or(0.0),
+                    at(sus, "/resident_before_mb").as_f64().unwrap_or(0.0),
+                    at(sus, "/resident_after_mb").as_f64().unwrap_or(0.0)
                 )
             },
         );

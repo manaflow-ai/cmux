@@ -1,6 +1,7 @@
 //! `desktop-lease serve | mcp | journey | call`: see `lib.rs`.
 
 use anyhow::{Context, Result, bail};
+use desktop_lease::at;
 use desktop_lease::{linux::LinuxXvfb, pool, server};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,14 +48,14 @@ fn main() -> Result<()> {
             let script = flag("--script").map(PathBuf::from).context("--script F")?;
             let out = flag("--out").map(PathBuf::from).context("--out DIR")?;
             let r = desktop_lease::journey::run(&script, &out, &socket)?;
-            let d = &r["desktop_lease"];
+            let d = at(&r, "/desktop_lease");
             println!(
                 "{} of {} steps passed; {}",
-                d["steps_passed"],
-                d["steps"].as_array().map_or(0, Vec::len),
+                at(d, "/steps_passed"),
+                at(d, "/steps").as_array().map_or(0, Vec::len),
                 out.join("summary.md").display()
             );
-            if r["cells"][0]["outcome"] != "pass" {
+            if at(&r, "/cells/0/outcome") != "pass" {
                 bail!("the journey has reds: {}", out.join("results.json").display());
             }
             Ok(())

@@ -8,6 +8,7 @@
 //! (`click` x/y, `type_text`, `press_key` with xdotool key strings, `scroll`,
 //! `screenshot`), prefixed `desktop_` so they never collide with `cmux-cua`.
 
+use crate::at;
 use crate::server::Client;
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -109,7 +110,7 @@ impl Server {
 
     fn call_tool(&mut self, name: &str, args: &Value) -> Result<Value> {
         let owner = self.owner.clone();
-        let slot = args["slot"].as_str().unwrap_or_default().to_owned();
+        let slot = at(args, "/slot").as_str().unwrap_or_default().to_owned();
         match name {
             "desktop_lease" => {
                 let mut spec = args.clone();
@@ -117,10 +118,10 @@ impl Server {
                     spec = json!({});
                 }
                 let v = self.pool()?.call(&json!({"op": "lease", "owner": owner, "spec": spec}))?;
-                if let Some(id) = v["lease"]["slot"].as_str() {
+                if let Some(id) = at(&v, "/lease/slot").as_str() {
                     self.leased.insert(id.to_owned());
                 }
-                Ok(text_result(&v["lease"]))
+                Ok(text_result(at(&v, "/lease")))
             }
             "desktop_release" => {
                 self.pool()?.call(&json!({"op": "release", "owner": owner, "slot": slot}))?;
@@ -135,8 +136,8 @@ impl Server {
                     .call(&json!({"op": "act", "owner": owner, "slot": slot, "action": action}))?;
                 Ok(json!({
                     "content": [
-                        {"type": "text", "text": v["report"].to_string()},
-                        {"type": "image", "data": v["png_b64"], "mimeType": "image/png"}
+                        {"type": "text", "text": at(&v, "/report").to_string()},
+                        {"type": "image", "data": at(&v, "/png_b64"), "mimeType": "image/png"}
                     ],
                     "isError": false
                 }))
@@ -166,10 +167,10 @@ pub fn run(socket: &Path) -> Result<()> {
         let line = line?;
         let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = msg.get("id").cloned() else { continue }; // a notification
-        let method = msg["method"].as_str().unwrap_or_default();
+        let method = at(&msg, "/method").as_str().unwrap_or_default();
         let result = match method {
             "initialize" => json!({
-                "protocolVersion": msg["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "protocolVersion": at(&msg, "/params/protocolVersion").as_str().unwrap_or("2025-06-18"),
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
                 "instructions": INSTRUCTIONS,
@@ -177,8 +178,8 @@ pub fn run(socket: &Path) -> Result<()> {
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools()}),
             "tools/call" => {
-                let name = msg["params"]["name"].as_str().unwrap_or_default().to_owned();
-                let args = msg["params"]["arguments"].clone();
+                let name = at(&msg, "/params/name").as_str().unwrap_or_default().to_owned();
+                let args = at(&msg, "/params/arguments").clone();
                 server.call_tool(&name, &args).unwrap_or_else(|e| error_result(&e))
             }
             _ => {
@@ -210,7 +211,7 @@ mod tests {
         let args = json!({"slot": "s1", "x": 3, "y": 4, "text": "hi", "key": "Return",
                           "direction": "down", "url": "http://x", "wait_ms": 5});
         for tool in tools().as_array().unwrap() {
-            let name = tool["name"].as_str().unwrap();
+            let name = at(tool, "/name").as_str().unwrap();
             match action_for(name, &args) {
                 Some(a) => {
                     assert!(a.get("slot").is_none(), "{name}");
