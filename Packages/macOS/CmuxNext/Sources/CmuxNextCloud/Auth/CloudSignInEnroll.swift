@@ -64,6 +64,9 @@ public final class CloudSignInEnroll {
     private var returnedMeanwhile = false
     /// The work for the changes so far, one after another.
     private var work: Task<Void, Never>?
+    /// The departing account's record (``RecordLeave``), started the moment the change is seen: never
+    /// queued behind an earlier change's enroll and its retry wait, which the app may not outlive.
+    private var recording: Task<Bool, Never>?
     private var following: Task<Void, Never>?
 
     /// `hub`: the platform origin the app's `cmux machine add` mints on, when set. `buildTag`: a DEV
@@ -116,7 +119,7 @@ public final class CloudSignInEnroll {
         work = Task { [weak self] in
             await before?.value
             guard let self else { return }
-            if let current { await enroll(userId: current) } else { await leaveIfAuto(userId: signedOut) }
+            if let current { await enroll(userId: current) } else { await leaveIfAuto(userId: signedOut, recorded: false) }
         }
     }
 
@@ -140,14 +143,31 @@ public final class CloudSignInEnroll {
         resendPending = false
         current = next
         let before = work
+        // The departing account is recorded with acpmux now, while this change still knows it, and
+        // only the leave request waits for the work before it: an enroll waiting to retry, then a quit,
+        // still leaves a record the next launch's leave (or the daemon's next start) finishes.
+        let recorded = leaving.map(record)
         // task-owner: one change's leave and enroll, after the previous change's; ends with them.
         work = Task { [weak self] in
+            let wasRecorded = await recorded?.value ?? false
             await before?.value
             guard let self else { return }
-            if leave { await leaveIfAuto(userId: leaving) }
+            if leave { await leaveIfAuto(userId: leaving, recorded: wasRecorded) }
             if let next { await enroll(userId: next) }
         }
     }
+
+    /// Starts recording that `userId` signs out (``RecordLeave``) at once, on its own.
+    private func record(_ userId: String) -> Task<Bool, Never> {
+        let recordLeave = recordLeave
+        // task-owner: one CLI run that writes the departing account; ends with it (bounded by its deadline).
+        let task = Task { await recordLeave(userId) }
+        recording = task
+        return task
+    }
+
+    /// Waits for the departing account's record started last (tests).
+    func recordedLeave() async -> Bool? { await recording?.value }
 
     /// One request to acpmux; no reply marks a resend for when acpmux is back (``acpmuxReturned()``).
     private func send(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
@@ -166,15 +186,18 @@ public final class CloudSignInEnroll {
         return reply
     }
 
-    private func leaveIfAuto(userId: String?) async {
+    /// `recorded`: the account was recorded already, when the change was seen.
+    private func leaveIfAuto(userId: String?, recorded: Bool) async {
         // A leave acpmux took and did not finish (`kept: busy`) it finishes at its next start.
         // Only the account signing out's own join is left: acpmux keeps one of another account's.
         var params: [String: Any] = [:]
         if let userId {
             params["userId"] = userId
             // Recorded first, with no daemon: a leave acpmux never gets (it is down, or the app quits
-            // first) it still finishes as this account's.
-            if !(await recordLeave(userId)) { Self.log.info("sign-out leave: the account was not recorded first") }
+            // first) it still finishes as this account's. A resend records it again.
+            if !recorded, !(await record(userId).value) {
+                Self.log.info("sign-out leave: the account was not recorded first")
+            }
         }
         let reply = await send("_acpmux/machine_leave_if_auto", params)
         let kept = (reply?["kept"] as? String) ?? (reply == nil ? "no answer" : "")
