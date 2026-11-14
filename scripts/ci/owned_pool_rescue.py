@@ -391,11 +391,14 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/iroh-v2.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
