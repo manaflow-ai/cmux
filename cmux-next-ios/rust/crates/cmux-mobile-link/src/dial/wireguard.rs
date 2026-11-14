@@ -67,7 +67,7 @@ const DIALER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
 const ANSWER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
 /// Room for TURN's ChannelData header and the paths' own headers.
 const MTU: u16 = 1280;
-const KEEPALIVE_SECONDS: u16 = 10;
+pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// A confirmed route silent this long is no longer trusted: every datagram
 /// goes on every route again until the peer confirms one. Longer than the
 /// WireGuard keepalive (10 s), shorter than the link keepalive timeout
@@ -364,7 +364,7 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
 }
 
 /// Time between "your datagrams reach me" messages while they keep arriving.
-const MARKER_INTERVAL: Duration = Duration::from_secs(3);
+pub(crate) const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 /// After a route change the `reach` message is repeated this much later
 /// (each wait after the previous one) while the peer's datagrams keep
 /// arriving: it is one UDP datagram in the tunnel, and the peer sends on
@@ -1782,7 +1782,10 @@ fn start_tunnel(
         preshared_key: None,
         allowed_ips: vec![host(spec.peer_ip)],
         endpoint: None,
-        persistent_keepalive: Some(KEEPALIVE_SECONDS),
+        // Align Keepalives (phone only): the link pings on every 10 s beat
+        // (`LinkConfig::aligned`), a tunnel datagram as often as this
+        // keepalive, so the tunnel sends none of its own at another instant.
+        persistent_keepalive: (!options.aligned_keepalives).then_some(KEEPALIVE_SECONDS),
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
         ultra: ultra_for_dial(options.ultra),
     };
