@@ -1,5 +1,23 @@
 # Sidebar section customization
 
+## Prior art used for this slice
+
+Leo's “BB and Herder” reference maps to [get-bb/bb](https://github.com/get-bb/bb)
+and [Herdr](https://herdr.dev/). BB's public plugin model lets community code add
+side-panel tabs, sidebar sections, footer content, settings, and renderers, with
+live activation and rollback when a plugin fails. Its marketplace is an index of
+pinned sources; it does not install code automatically. Herdr is an agent-aware
+terminal multiplexer: its panes expose working, blocked, or idle state while the
+session stays persistent and can be attached from another client. The workspace
+research links [the Herdr/exe.dev field report](https://rares.blog/articles/stop-making-agents-commute-with-you)
+and records the same pane-state model in `docs/live-migrate-terminal-processes.md`.
+
+Those references led to this bounded native slice: users can shape the existing
+sidebar document through settings, while the document remains the source of
+placement truth and community widgets remain a later app-host primitive. A
+settings reload is atomic and reversible, so a malformed customization falls
+back to the native projection without affecting the session.
+
 CMUX-383 adds a native projection layer for the sidebar document. The document
 continues to own placement and persistence; \`cmux-next.json\` supplies bounded
 user overrides that Rust validates before the Swift view applies them. The
