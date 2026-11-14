@@ -40,7 +40,7 @@ struct CloudLinkRetryBackoffTests {
     @Test("a paused machine's upkeep request does not wake or dial")
     func pausedUpkeepDoesNotConnect() async {
         let probe = ResumeProbe()
-        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id, _ in
             await probe.record(id)
             return "running"
         }, hostThemeColors: { nil })
@@ -58,10 +58,23 @@ struct CloudLinkRetryBackoffTests {
         #expect(await probe.ids.isEmpty)
     }
 
+    @Test("another team's machine resumes with its owning team")
+    func resumeNamesOwningTeam() async {
+        let probe = TeamResumeProbe()
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id, team in
+            await probe.record(id, team)
+            return "running"
+        }, hostThemeColors: { nil })
+        await links.setOwnerTeam("team-b", for: "vm-foreign")
+        await links.setMachineStatus("paused", for: "vm-foreign")
+        _ = try? await links.connected(machineID: "vm-foreign")
+        #expect(await probe.calls == ["vm-foreign:team-b"])
+    }
+
     @Test("a direct open resumes before its carrier dial")
     func directOpenResumes() async {
         let probe = ResumeProbe()
-        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id, _ in
             await probe.record(id)
             return "running"
         }, hostThemeColors: { nil })
@@ -81,4 +94,9 @@ struct CloudLinkRetryBackoffTests {
 private actor ResumeProbe {
     private(set) var ids: [String] = []
     func record(_ id: String) { ids.append(id) }
+}
+
+private actor TeamResumeProbe {
+    private(set) var calls: [String] = []
+    func record(_ id: String, _ team: String?) { calls.append("\(id):\(team ?? "none")") }
 }

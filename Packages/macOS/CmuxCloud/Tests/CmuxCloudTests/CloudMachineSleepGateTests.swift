@@ -125,7 +125,7 @@ struct CloudMachineSleepGateTests {
     ) -> CloudMachineLinkManager {
         CloudMachineLinkManager(
             clientURL: URL(fileURLWithPath: "/tmp/cmux-cloud-test-client"),
-            resumeMachine: { id in await resume(id) },
+            resumeMachine: { id, _ in await resume(id) },
             hostThemeColors: { nil }
         )
     }
