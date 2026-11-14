@@ -734,6 +734,9 @@ fn a_daemon_whose_ended_children_lose_their_ids_seats_no_host() {
 /// before it.
 const DAEMON_STARTED: Option<ProcessStart> = Some(ProcessStart(9));
 
+/// The read of a process's start that a test gives.
+type StartOf = fn(u32) -> Option<ProcessStart>;
+
 /// A host that an earlier daemon started has its seat from this daemon's
 /// start. A client whose session's leader is the host's child is in the
 /// host's terminal before the adoption gives the terminal the seat of its
@@ -835,7 +838,7 @@ fn a_process_that_did_not_start_before_the_daemon_is_no_kept_host() {
     }
     let connections = Arc::new(ConnectionStats::default());
     let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
-    let not_kept: [(Option<ProcessStart>, fn(u32) -> Option<ProcessStart>, &str); 4] = [
+    let not_kept: [(Option<ProcessStart>, StartOf, &str); 4] = [
         (Some(ProcessStart(9)), started_at_9, "it started with the daemon"),
         (Some(ProcessStart(8)), started_at_9, "it started after the daemon"),
         (None, started_at_9, "the daemon does not read its own start"),
