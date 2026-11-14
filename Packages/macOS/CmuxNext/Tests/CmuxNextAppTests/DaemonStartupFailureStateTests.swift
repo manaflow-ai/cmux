@@ -105,8 +105,8 @@ struct DaemonStartupFailureStateTests {
     /// and a state a person must act on is said at once.
     @Test func aDroppedLinkSaysNothingInItsHeaderUntilTheGrace() async {
         let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
-        func ssh(_ id: String, _ status: SidebarMachine.Status) -> SidebarSection {
-            SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: .ssh, status: status)), nodes: [])
+        func ssh(_ id: String, _ status: SidebarMachine.Status) -> CmuxNextSidebar.SidebarSection {
+            CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: id, kind: .ssh, status: status)), nodes: [])
         }
         let healing: [SidebarMachine.Status] = [.reconnecting, .unreachable, .offline, .connecting]
         let needsPerson: [SidebarMachine.Status] = [.authFailed, .installRequired, .updateRequired, .failed]
@@ -131,7 +131,7 @@ struct DaemonStartupFailureStateTests {
         lasting.onEnd = nil
         let said = lasting.holdingConnectingLabels([late]).first?.machine ?? SidebarMachine(id: MachineID("none"), name: "", kind: .ssh)
         #expect(!said.holdsStatusLabel)
-        #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(said).status, hostGroup: false) == Strings.statusReconnecting)
+        #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(said).status, hostGroup: false) == SectionHeaderRowView.statusWords(.reconnecting))
     }
 }
 
