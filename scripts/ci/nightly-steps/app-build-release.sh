@@ -2,6 +2,16 @@
 # nightly.yml build-nightly-app: "Build nightly app (Release)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
+# The asset catalog compile leaves Xcode's ibtoold running, detached, with this job's environment, for about a
+# minute after xcodebuild returns; nightly-next-one's check before the signing secrets then counted two of them
+# (run 43431310245). This step ends the build daemons it started however it exits (refuse_stray_processes.py).
+end_build_daemons_script="$PWD/scripts/ci/refuse_stray_processes.py"
+end_build_daemons() {
+  if [[ -n "${RUNNER_TRACKING_ID:-}" && -f "$end_build_daemons_script" ]]; then
+    python3 "$end_build_daemons_script" --end-build-daemons || true
+  fi
+}
+trap end_build_daemons EXIT
 # cx-f58x: compile out browser-import code as `decide` chose (the
 # notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
@@ -165,6 +175,11 @@ summarize_release_build() {
 finish_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
 }
+# A build xcodebuild ended with a failure (status 65) lets the next one build on what it finished, once
+# (nightly_build_state.py fail_host); any other status leaves the build unfinished, so the next one is clean.
+fail_host_build() {
+  [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" "$1" || true
+}
 # A build on the fleet cache that fails for any reason retries once with Xcode's local cache, keeping the
 # build's incremental inputs. The fleet cache has failed in one form after another (a corrupt object, a missing
 # module key, a precompile's "CAS operation failed", a compiler crash reading the CAS; runs 42100189059,
@@ -188,12 +203,13 @@ if [[ -n "$release_retry" ]]; then
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
   retry_status=${PIPESTATUS[0]}
   set -e
-  [[ "$retry_status" -eq 0 ]] || exit "$retry_status"
+  [[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }
   summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
   summarize_release_build "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
   finish_host_build
 else
+  fail_host_build "$release_status"
   exit "$release_status"
 fi

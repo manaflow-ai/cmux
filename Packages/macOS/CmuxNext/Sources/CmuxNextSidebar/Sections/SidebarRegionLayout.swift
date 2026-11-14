@@ -128,7 +128,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         }
         for (index, section) in shown.enumerated() {
             if index > 0 {
-                if look.separatesSections {
+                // No line under Home's section (Lawrence 2026-11-13: "get rid of line under "home""); its gap stays.
+                if look.separatesSections, shown[index - 1].id != SidebarLayoutDocument.topSectionID {
                     result.separators.append(CGRect(x: 0, y: y + (m.sectionGap - m.lineWidth) / 2, width: width, height: m.lineWidth))
                     result.separatorKeys.append(section.id.rawValue)
                 }

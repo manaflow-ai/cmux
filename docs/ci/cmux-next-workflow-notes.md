@@ -465,6 +465,22 @@ for its own commands, prints their output and keeps its name, id and outcome. A 
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
 
+## note-27c
+
+Above `checks: Start the slow checks in the background` in `.github/workflows/cmux-next.yml` (its deadline).
+
+cmux#42669's checks job 132210422131 (cmuxs-mac-mini-6-glaeda-3, 2026-11-13) was cancelled at its
+35 min cap inside "Tier routing": the step waited from 22:57:35 to 23:05:55 for its 7 background
+commands, which had run since 22:38:10, and the cancel named none of them. The pool now gets a
+deadline 5 min (POOL_TAIL_SECONDS) before the job's cap, counted from the event file the runner
+writes at Set up job (the runner hook's wait for a host lock counts against the cap too). A command
+still running at it stops (scripts/ci/timeout.sh), fails by name with "timed out at the pool
+deadline", and the job reaches "Fail on any red check". Each wait prints, once a minute, which of
+its commands are still running. The 5 min leave room for the steps after the waits (about 2.5 min
+on Linux). That run's mini lacked GNU `timeout`, so the compile-status step tests' bounded reads
+(`timeout "$left" curl`) failed at once and each read loop spun until its test's 60 s subprocess
+bound; note-27b's preflight now stops such a runner in its first minute.
+
 ## note-27b
 
 Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
@@ -477,6 +493,17 @@ job 130624833630), and passed on Blacksmith Linux at the same tree. The job brin
 its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
 tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
 job that runs Python tests doing so.
+
+A mini also has no node and no Homebrew coreutils, so the old `gtimeout` link never
+fired there. On 2026-11-13 every mini-placed checks job seen failed on both (`node:
+command not found`, exit 127; `timeout: command not found`): cmux10s, cmux11s,
+cmux13s, cmux14 and cmuxs-mac-mini-6. The step now puts GNU `timeout` on PATH as
+`timeout`, else `gtimeout`, else a shim to scripts/ci/timeout.sh (its perl
+watchdog); installs node 24.22.1 with scripts/ci/ensure-setup-node.sh when there is
+no node (tool cache, else nodejs.org, checksummed); and ends with a preflight on the
+PATH the next steps get that fails at once naming each tool still missing.
+tests/test_cmux_next_checks_workflow.py's ChecksBringNodeAndTimeoutToAMini runs the
+step under a PATH without them.
 
 ## note-28
 
@@ -3025,3 +3052,52 @@ on a pull request they need no GUI session. The Release and app scheme compiles 
 only, one job per idle light runner beyond its queue, never while a nightly or release job waits on the
 light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
 CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
+
+## note-349
+
+Above `checks: timeout-minutes` in `.github/workflows/cmux-next.yml`.
+
+15 minutes fits Blacksmith 16 vCPU (about 7 min), not a mini: on a mini the job's 15 minutes also
+pay the runner hook's admission wait, and its slow checks run about three times as long beside
+the mini's other jobs. #42624, a data-only devbox image promotion, was placed on a mini on all
+three of its heads and every run was cancelled by the timeout, never passing or failing, so
+merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 132002973791 (run
+43459662812) were admitted at once and were still in their script tests at 15 minutes
+(test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
+43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
+as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
+other route keeps 15.
+
+## note-350
+
+Above `macos-placement: CI_BLACKSMITH_MACOS` in `.github/workflows/cmux-next.yml`.
+
+The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), HQ's
+`HQ_BLACKSMITH_MACOS` pattern (cmuxterm-hq `docs/handbook/label-no-pool-lists.md`). Only the repository
+variable `CI_BLACKSMITH_MACOS` set to `on` lets a Mac job take a Blacksmith macOS label. Unset, the placement
+lists no job for a Blacksmith slot, overflow or retry label, and writes no GUI overflow
+(`next_macos_cascade.blacksmith_on()`); `GUI_LAST_RESORT` is the owned GUI label; and every
+`fromJSON(vars.RUNNER_POOLS).macos_26` and `.macos_26_large` read in a Mac job's runs-on is wrapped
+`(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || <read>)`: the owned side lane while the switch
+is off. The owned label comes from the variable, not a literal: tests/test_ci_self_hosted_guard.sh allows an owned
+literal only after a fork branch, which swift-canary has none of, and tests/test_ci_repo_variable_defaults.py wants a
+pool terminal. The variable's own fallback is declared in `.github/single-host-fallbacks.json`. The name carries no
+`cmux` token: the self-hosted guard reads one as a fleet label. The DEV landing compile
+(dispatch only, no pull request) keeps `dev_landing_place.py`'s own Blacksmith pick for now. Setting the variable
+to `on` resumes Blacksmith macOS with no code change. A fork's pull request keeps its Blacksmith literal: it
+gets no repository variables and never runs on an owned Mac.
+
+On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807) sat queued on
+`blacksmith-6vcpu-macos-26` with 0 of its 39 runners online: the rescue's attempt 3 carried attempt 1's
+placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`.
+`tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
+Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
+
+The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
+bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On
+2026-11-14 cmux#42880's fast tier (run 43600399789, attempt 5) waited on `blacksmith-6vcpu-macos-26` with no runner
+(cmuxterm-hq#10952). It is inside the wrap now, `(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER ||
+vars.MACOS_RUNNER_26 || <pool>)`, in cmux-next.yml (runs-on, `CMUX_NEXT_RUNNER`, `CMUX_NEXT_SIDE_ROUTE`),
+cmux-next-batch.yml and cmux-next-terminal.yml's bot re-run fallback. `tests/test_ci_next_macos_cascade.py`
+`RerunPastTheAttemptCap` evaluates every route of every workflow with an attempt cap at bot attempts 2 to 6, placement re-run or carried,
+and refuses a Blacksmith macOS label for a route attempt 1 serves with an owned one.

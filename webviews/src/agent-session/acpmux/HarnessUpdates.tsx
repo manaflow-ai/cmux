@@ -61,7 +61,7 @@ export function HarnessUpdatesSection({
             <AgentMark agent={row.harness} size={16} reserve />
             <span className="acpmux-harness-update-name">{row.agent}</span>
             {row.phase === "failed" ? (
-              <span className="acpmux-harness-update-versions selectable" title={row.error || undefined}>
+              <span className="acpmux-harness-update-versions">
                 {t("harness.updateFailedShort", { agent: row.agent })}
               </span>
             ) : (

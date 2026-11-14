@@ -138,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
     "senderToken",
@@ -292,4 +293,6 @@ keyed! {
     WarmParams: ["sessionIds", "limit"];
     /// `_acpmux/watch_take_over`.
     WatchTakeOverParams: ["sessionId", "ifLive"];
+    /// `_acpmux/release_to_watch`.
+    ReleaseToWatchParams: ["sessionId"];
 }

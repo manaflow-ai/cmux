@@ -99,7 +99,7 @@ impl Hub {
             "auto_resume_exhausted",
             "turn_stop_requested",
         ];
-        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let scanned = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
             if matches!(e.kind.as_str(), "queued" | "user_message")
                 && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
                 && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)

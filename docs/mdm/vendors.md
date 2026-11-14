@@ -26,7 +26,7 @@ Extension attribute (managed state per Mac), script type:
 ```sh
 #!/bin/sh
 user=$(stat -f %Su /dev/console)
-f="/Users/$user/Library/Application Support/cmux/managed-status.json"
+f="/Users/$user/Library/Application Support/cmux-next/managed-status.json"
 [ -f "$f" ] && /usr/bin/plutil -extract conflicts json -o - "$f" | grep -q '"key"' && echo "<result>conflict</result>" && exit 0
 [ -f "$f" ] && echo "<result>applied</result>" || echo "<result>no status</result>"
 ```
@@ -65,7 +65,7 @@ Send a legacy profile declaration (`com.apple.configuration.legacy`) whose `Prof
 
 ## Checking what a Mac applied
 
-cmux writes `~/Library/Application Support/cmux/managed-status.json` after every change (NIGHTLY and DEV builds write `managed-status.<bundle id>.json`). It lists the managed keys cmux saw, which ones it applied and from where (`mdm` or `team`), conflicts between your profile and the cmux team policy (the profile wins), the managing team and its policy version. It never contains the value of `EnrollmentToken`.
+cmux writes `~/Library/Application Support/cmux-next/managed-status.json` after every change (NIGHTLY and DEV builds write `managed-status.<bundle id>.json`). It lists the managed keys cmux saw, which ones it applied and from where (`mdm` or `team`), conflicts between your profile and the cmux team policy (the profile wins), the managing team and its policy version. It never contains the value of `EnrollmentToken`.
 
 osquery and Fleet:
 
@@ -73,14 +73,14 @@ osquery and Fleet:
 -- Macs where cmux reports a conflict between the MDM profile and the team policy
 SELECT u.username, j.key, j.value
 FROM users u
-JOIN file f ON f.path = u.directory || '/Library/Application Support/cmux/managed-status.json'
+JOIN file f ON f.path = u.directory || '/Library/Application Support/cmux-next/managed-status.json'
 JOIN parse_json j ON j.path = f.path
 WHERE j.fullkey LIKE 'conflicts/%/key';
 
 -- Policy version each Mac applied
 SELECT u.username, j.value AS policy_version
 FROM users u
-JOIN parse_json j ON j.path = u.directory || '/Library/Application Support/cmux/managed-status.json'
+JOIN parse_json j ON j.path = u.directory || '/Library/Application Support/cmux-next/managed-status.json'
 WHERE j.fullkey = 'managing_team/policy_version';
 ```
 

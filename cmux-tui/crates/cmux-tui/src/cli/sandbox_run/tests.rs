@@ -73,8 +73,33 @@ fn a_missing_task_or_an_out_of_range_timeout_is_a_usage_error() {
     let long = "x".repeat(16_001);
     assert!(parsed(&["run", "--sandboxed", &long]).is_err());
     assert!(parsed(&["run", "--sandboxed", &"x".repeat(16_000)]).is_ok());
-    // Counted as the server counts: 8,001 emoji are 16,002 UTF-16 units.
-    assert!(parsed(&["run", "--sandboxed", &"\u{1F600}".repeat(8_001)]).is_err());
+}
+
+/// #39022 F3: the CLI asks the daemon's own `task_fits`, so a task whose bytes, UTF-16 units,
+/// scalars and characters all differ is taken or refused here exactly as the daemon takes or
+/// refuses it. It used to count UTF-16 units and refuse 8,001 emoji the daemon takes.
+#[test]
+fn the_task_limit_is_the_daemons_counted_in_characters() {
+    // A ZWJ family: 18 bytes, 5 scalars, 8 UTF-16 units, one character.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    // A decomposed "é": 3 bytes, 2 scalars, 2 UTF-16 units, one character.
+    let accent = "e\u{301}";
+    let at_limit = format!("{}{family}", accent.repeat(TASK_MAX_CHARS - 1));
+    assert!(at_limit.chars().count() > TASK_MAX_CHARS);
+    assert!(at_limit.encode_utf16().count() > TASK_MAX_CHARS);
+    let past_limit = format!("{at_limit}x");
+    for (task, fits) in [
+        (at_limit.clone(), true),
+        (past_limit, false),
+        (family.repeat(TASK_MAX_CHARS), true),
+        (family.repeat(TASK_MAX_CHARS + 1), false),
+        ("\u{1F600}".repeat(8_001), true),
+    ] {
+        assert_eq!(task_fits(&task), fits);
+        assert_eq!(parsed(&["run", "--sandboxed", &task]).is_ok(), fits, "{} bytes", task.len());
+    }
+    // Whitespace around the task is trimmed first, as the daemon trims it.
+    assert!(parsed(&["run", "--sandboxed", &format!("  {at_limit}  ")]).is_ok());
 }
 
 #[test]

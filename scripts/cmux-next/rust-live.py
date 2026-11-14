@@ -290,21 +290,24 @@ class Builder:
     def cancel(self) -> None:
         """End the running build (its own process group: cargo or the ssh that runs it)."""
         proc = self.current
-        if proc and proc.poll() is None:
+        if proc is None:
+            return
+        # The group, whatever its leader's state: a leader that exited (and was reaped) can leave a child running in
+        # it, and that child would run into later builds (cmux#41767 review F1). start_new_session made the group's id
+        # the leader's pid, which the kernel keeps while any member lives; ProcessLookupError means it is empty.
+        pgid = proc.pid
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
                 return
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+            except PermissionError:  # macOS, a group whose members are exiting: SIGKILL still goes after the grace
                 pass
-            # Whether or not the build's leader exited: a child that ignores SIGTERM would outlive it
-            # (cmux#41767 review F1).
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            if sig == signal.SIGTERM:
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
 
     def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

@@ -17,13 +17,14 @@ const reducedMotion = () =>
 /// host's `--agent-motion-in` from `born`.
 export type Reveal = { id: number; count: number; born: number };
 /// How many of the host's `--agent-motion-in` steps the fade of newly revealed text runs
-/// (conversation.css `.cv-fresh`, which multiplies by the same number).
-export const FRESH_FADE_STEPS = 3;
+/// (conversation.css `.cv-fresh`, which runs the same): one, so the newest words never trail the
+/// stream by a third of a second (Leo, 2026-11-09: "cannot lag nor can they take long").
+export const FRESH_FADE_STEPS = 1;
 /// How long newly revealed text keeps its fade (acp-streaming.md "Reveal animation"). `.cv-fresh`
 /// runs FRESH_FADE_STEPS of the host's `--agent-motion-in`. The fallback matches the conversation
 /// stylesheet's default. The host can change this token at runtime, so expiry reads it as spans are
 /// retired instead of letting a fixed scale value outlive or cut short the CSS fade.
-export const FADE_MS = MOTION_MS.standard * FRESH_FADE_STEPS;
+export const FADE_MS = MOTION_MS.micro * FRESH_FADE_STEPS;
 
 function freshFadeMs(): number {
   if (typeof document === "undefined") return FADE_MS;

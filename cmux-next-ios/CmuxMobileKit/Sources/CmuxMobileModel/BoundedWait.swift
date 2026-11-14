@@ -14,6 +14,12 @@ public struct BoundedWait: Sendable {
     /// Returns true when the work finished within the limit.
     @discardableResult
     public func run(_ work: @escaping @Sendable () async -> Void) async -> Bool {
+        await run(on: ContinuousClock(), work)
+    }
+
+    /// ``run(_:)`` with the limit timed on `clock` (tests pass one that moves only when told to).
+    @discardableResult
+    public func run<C: Clock<Duration>>(on clock: C, _ work: @escaping @Sendable () async -> Void) async -> Bool {
         let limit = limit
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let once = ResumeOnce(continuation)
@@ -22,7 +28,7 @@ public struct BoundedWait: Sendable {
                 once.resume(true)
             }
             Task {
-                try? await Task.sleep(for: limit)
+                try? await clock.sleep(for: limit)
                 if once.resume(false) { worker.cancel() }
             }
         }

@@ -50,6 +50,7 @@ import {
 } from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
+  automatedNotice,
   legacyNotice,
   isSystemSender,
   noticeBody,
@@ -645,9 +646,10 @@ function promptOf(
       };
     }
   }
-  // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
-  // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
-  // itself, never the person's own prompt in the pane.
+  // A notice an older acpmux kept no provenance for, tell-coordinator's page (agentNotice.ts
+  // `legacyNotice`) and a reconciler's or hook's plain-text notice (`automatedNotice`): only from
+  // `acpmux send` at a shell or its outbox, or a sender that named itself, never the person's own
+  // prompt in the pane.
   // The person's own record (`ownerRecord`) is none of those, whatever its client.
   const owner = ownerRecord(msg);
   const viaSend =
@@ -657,7 +659,7 @@ function promptOf(
       (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client))) ||
     (provenance?.kind === "agent_message" && provenance.from === NAMED_SENDER);
   if (viaSend) {
-    const read = renderedNotice(text) ?? legacyNotice(text);
+    const read = renderedNotice(text) ?? legacyNotice(text) ?? automatedNotice(text);
     if (read && "notice" in read)
       return {
         kind: "message",
@@ -775,6 +777,17 @@ function promptOf(
     const agent = agentSigned(body, [name]);
     if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
+  // A reconciler's or hook's plain-text notice in the history (agentNotice.ts `automatedNotice`):
+  // its line, which opens to the whole text. acpmux's inbox notice read back from the history keeps
+  // no provenance there, so its threads are not known for sure (a topic may hold spaces): it is the
+  // inbox's notice line, its text whole behind the chevron, never parsed into thread rows that could
+  // come out empty.
+  const automated = automatedNotice(rest) ?? historyInbox(rest);
+  if (automated)
+    return {
+      kind: "message",
+      message: { name: automated.notice.sender, notice: automated.notice, text: automated.body, raw: text },
+    };
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
     const summary = tag(notification[0], "summary") || tag(notification[0], "status");
@@ -1056,6 +1069,22 @@ const escapeTitle = (title: string) => title.replace(/[\\`*_[\]<>]/g, "\\$&");
 const DIGEST_LEAD =
   /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;
 const DIGEST_PART = /^\[agent message \d+ of \d+\] from ([^\n]+)$/gm;
+
+/// acpmux's inbox notice as the agent reads it (hub/inbox.rs `render`): `[inbox] New messages from
+/// other agents …`.
+const INBOX_RELAY = /^\[inbox\][ \t]+(New messages from other agents\b[\s\S]*)$/;
+
+/// acpmux's inbox notice in a Claude session's history, as an info notice from `inbox`: its first
+/// line the title, the rest the body; undefined for any other text.
+function historyInbox(text: string): { notice: AgentNotice; body: string } | undefined {
+  const inbox = INBOX_RELAY.exec(text);
+  if (!inbox) return undefined;
+  const words = inbox[1]!.trim();
+  const first = words.split("\n", 1)[0]!.trim();
+  const title = first.length <= 200 ? first.replace(/\.$/, "") : `${first.slice(0, 199).trimEnd()}…`;
+  const body = first.length <= 200 ? words.slice(first.length).trim() : words;
+  return { notice: { sender: "inbox", severity: "info", title, links: [] }, body };
+}
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;

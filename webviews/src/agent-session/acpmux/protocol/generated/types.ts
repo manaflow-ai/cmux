@@ -66,6 +66,7 @@ export interface AcpmuxRequestMeta {
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
   senderToken?: unknown;
+  sessionCreatedAt?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -1238,6 +1239,11 @@ export type QueuedSubagentRetry = {
   /** Its task or name, when acpmux knew one. */
   name: (string | null);
 } & Record<string, unknown>;
+
+export interface ReleaseToWatchParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+}
 
 export type RequestMeta = {
   acpmux?: AcpmuxRequestMeta;

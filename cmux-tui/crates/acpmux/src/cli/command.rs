@@ -338,6 +338,16 @@ pub enum Command {
         #[arg(long)]
         plain: bool,
     },
+    /// Run a Claude Code or Codex chat's conversation in this terminal: shows the chat's turn
+    /// as it runs, then, once the chat is idle, the chat stops its agent and watches this
+    /// terminal, which runs the agent's own resume command (`claude --resume ID`, `codex
+    /// resume ID`). Toggle Terminal and Chat types it. Never cuts a turn off.
+    ResumeHere {
+        session: String,
+        /// Print the resume command (with --json: `{argv, cwd, env}`) instead of running it.
+        #[arg(long)]
+        print: bool,
+    },
     /// Be an ACP agent on stdin/stdout for an editor (Zed: `"command": "cmux",
     /// "args": ["acp", "stdio", "-m", "claude"]`). Relays to the daemon;
     /// the flags are defaults for each new session the editor creates.

@@ -3,7 +3,9 @@ import { defineExperiment } from "../../../experiments/experiment";
 
 /// How the followed transcript moves when the reader sends and while a reply streams (followChase.ts).
 /// Leo, 2026-11-07: "When it comes to sending messages, I feel like the jump, the jolt is a bit too
-/// jarring ... what is satisfying at 120 hertz? That's what we want to aim at." To try another arm,
+/// jarring ... what is satisfying at 120 hertz? That's what we want to aim at." Then, 2026-11-09:
+/// "these animations all slosh around and it's not cohesive / i previously sent the claude code one,
+/// just look at how they do it" and "we need to slim down": `send` ships. To try another arm,
 /// set `cmux.experiments` to `{"follow-motion":"chunk"}` in the pane's web inspector and reload.
 export const followMotion = defineExperiment({
   id: "follow-motion",
@@ -11,6 +13,11 @@ export const followMotion = defineExperiment({
   description:
     "Sending from the latest message and a fast reply streaming in. Watch whether the sent prompt, the rows above it and each new line move as one steady motion, with no jump in a frame and no surge per chunk.",
   arms: {
+    send: {
+      label: "Send only (slim)",
+      description:
+        "Only a send moves on a curve: the sent prompt and its thinking row rise into the room they open in one motion (the send step). A reply streaming, a row arriving and the turn ending move the rows in the frame they land, as Claude Code's transcript only appends.",
+    },
     spring: {
       label: "Spring chase",
       description:
@@ -37,7 +44,7 @@ export const followMotion = defineExperiment({
     },
     instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
   },
-  defaultArm: "blocks",
+  defaultArm: "send",
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;

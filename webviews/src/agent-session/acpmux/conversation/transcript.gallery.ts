@@ -12,7 +12,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { FRESH_REPLY_MINUTES, GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
@@ -2270,7 +2270,7 @@ export default agentPaneEntry({
       note: "A live Claude turn with reported usage shows Thinking and elapsed time only. Nonzero output and input usage must not add a token count or tooltip. Play: the line holds still.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
+          user(prompt, 0.6),
           activity(
             [
               thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
@@ -2279,9 +2279,11 @@ export default agentPaneEntry({
               }),
               tool("Search for parseError", "search", "completed"),
             ],
-            5.85,
+            0.55,
           ),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          // Past WRITING_MS and inside SILENT_MS (thinkingModel.ts): the line reads "Thinking"; a reply
+          // silent for longer reads "Waiting" (reconvene/live-line.gallery.ts `after-reply-silent`).
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         {
           isWorking: true,
@@ -2297,9 +2299,9 @@ export default agentPaneEntry({
       note: "A live turn with output usage only still shows Thinking and elapsed time, without token counts.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
-          activity([tool("Search for parseError", "search", "completed")], 5.85),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          user(prompt, 0.6),
+          activity([tool("Search for parseError", "search", "completed")], 0.55),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),

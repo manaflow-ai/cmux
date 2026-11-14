@@ -404,16 +404,9 @@ impl Link {
     /// Packets to send now, on the current path: handshake messages and their
     /// retries, control records and their retransmissions, acks and probe replies.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Vec<u8>>, LinkError> {
-        if let State::Handshake(_) = self.state
-            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        if self.poll_handshake_timers(now_us)?
+            && let Some((packet, _)) = &self.last_handshake
         {
-            self.state = State::Failed;
-            return Err(LinkError::HandshakeTimeout);
-        }
-        if let Some((packet, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
-        {
-            *sent = now_us;
             self.out.push_back(packet.clone());
         }
         if self.is_established() {
@@ -423,6 +416,26 @@ impl Link {
             }
         }
         Ok(self.out.drain(..).collect())
+    }
+
+    /// Advances handshake timers without creating another packet.  Endpoints
+    /// use this while signaling has not supplied a route, so the queued first
+    /// message stays available without a retry storm or a lost timeout.
+    pub(crate) fn poll_handshake_timers(&mut self, now_us: u64) -> Result<bool, LinkError> {
+        if let State::Handshake(_) = self.state
+            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        {
+            self.state = State::Failed;
+            return Err(LinkError::HandshakeTimeout);
+        }
+        let mut retry = false;
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+            retry = true;
+        }
+        Ok(retry)
     }
 
     /// When the caller should call [`Link::poll_transmit`] next without input.

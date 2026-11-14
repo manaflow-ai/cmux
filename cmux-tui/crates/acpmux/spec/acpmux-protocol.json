@@ -325,6 +325,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/seen",
       "params": {
         "$ref": "#/types/SeenParams"
@@ -870,6 +880,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/release_to_watch",
+      "params": {
+        "$ref": "#/types/ReleaseToWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": {
         "$ref": "#/types/ArchiveParams"
@@ -1387,6 +1405,12 @@
     {
       "kind": "request",
       "name": "_acpmux/computer_use_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_endpoint",
       "params": true,
       "result": true
     },
@@ -2025,6 +2049,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/journal_restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -2068,6 +2104,24 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_signed_in",
       "params": true,
       "result": true
     },
@@ -2188,6 +2242,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/unsent",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/lagged",
       "params": true
     },
@@ -2266,6 +2325,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -5238,6 +5298,16 @@
         "error",
         "name"
       ],
+      "type": "object"
+    },
+    "ReleaseToWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "RequestMeta": {

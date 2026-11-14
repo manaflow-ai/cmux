@@ -13,10 +13,18 @@ binaries (cmux-tui-artifacts.yml build-linux) builds with thin LTO
 only to cmux-tui/<sha>/machine/. Every other caller of the build workflow, and
 so every shipped app, npm, PyPI, release, R2 and tree artifact, keeps the fat
 profile. ChannelOnlyThinTest checks that.
+
+cmux-tui-artifacts.yml's build calls take what they build (lto, target_set,
+artifact_prefix, include_windows, windows_acpmux) from
+scripts/cmux-next/cmux-tui-build-profiles.json, a tree-key input, never from a
+literal in the workflow, which is not one: a literal there changes what gets
+built and keeps the tree key (cmux#42622; handbook
+reuse-key-leaves-out-an-input). BuildProfileSourceTest checks that.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 import unittest
@@ -54,10 +62,27 @@ class CmuxTuiReleaseProfileTest(unittest.TestCase):
 
 BUILD_PACKAGE = "./.github/workflows/cmux-tui-build-package.yml"
 MACHINE_PREFIX = "machine-channel-"
+PROFILES_PATH = ROOT / "scripts/cmux-next/cmux-tui-build-profiles.json"
+PROFILE_REF = re.compile(r"fromJSON\(needs\.tree-preflight\.outputs\.build_profiles\)\.([a-z_]+)\.([a-z_]+)")
+# The build-package inputs that decide what a tree build makes.
+BUILD_DEFINING = ("lto", "target_set", "artifact_prefix", "include_windows", "windows_acpmux")
 
 
 def workflow(path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def profiles():
+    return json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+
+
+def resolve(value):
+    """A `${{ fromJSON(...build_profiles).P.K }}` input as the profile value it reads; else unchanged."""
+    if isinstance(value, str):
+        whole = re.fullmatch(r"\$\{\{\s*" + PROFILE_REF.pattern + r"\s*\}\}", value)
+        if whole:
+            return profiles()[whole.group(1)][whole.group(2)]
+    return value
 
 
 class ChannelOnlyThinTest(unittest.TestCase):
@@ -67,7 +92,7 @@ class ChannelOnlyThinTest(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             for name, job in (workflow(path).get("jobs") or {}).items():
                 if isinstance(job, dict) and job.get("uses") == BUILD_PACKAGE:
-                    yield path.name, name, job.get("with") or {}
+                    yield path.name, name, {k: resolve(v) for k, v in (job.get("with") or {}).items()}
 
     def test_only_the_machine_channel_legs_build_thin(self):
         thin = []
@@ -92,9 +117,11 @@ class ChannelOnlyThinTest(unittest.TestCase):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
         # Fat and every shipped Linux target: all on main and rc/**, Linux plus arm64 Mac elsewhere.
         target_set = jobs["build"]["with"]["target_set"]
-        self.assertIn("'all'", target_set)
-        self.assertIn("'linux-macos-arm64'", target_set)
-        self.assertNotIn("lto", jobs["build"]["with"])
+        refs = PROFILE_REF.findall(target_set)
+        self.assertEqual(refs, [("shipped", "target_set_main"), ("shipped", "target_set")])
+        self.assertEqual(profiles()["shipped"]["target_set_main"], "all")
+        self.assertEqual(profiles()["shipped"]["target_set"], "linux-macos-arm64")
+        self.assertEqual(resolve(jobs["build"]["with"]["lto"]), "fat")
         for name in ("publish", "darwin-fallback-plan"):
             with self.subTest(job=name):
                 self.assertNotIn("build-linux", jobs[name]["needs"])
@@ -126,6 +153,43 @@ class ChannelOnlyThinTest(unittest.TestCase):
         inputs = workflow(ROOT / ".github/workflows/cmux-tui-build-package.yml")[True]["workflow_call"]["inputs"]
         self.assertEqual(inputs["lto"]["default"], "fat")
         self.assertEqual(inputs["artifact_prefix"]["default"], "")
+
+
+class BuildProfileSourceTest(unittest.TestCase):
+    """What a tree build makes comes from the keyed profile file, not a workflow literal."""
+
+    def test_artifacts_build_calls_read_the_profile_file(self):
+        jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
+        calls = {name: job.get("with") or {} for name, job in jobs.items()
+                 if isinstance(job, dict) and job.get("uses") == BUILD_PACKAGE}
+        self.assertEqual(sorted(calls), ["build", "build-darwin-fallback", "build-linux", "build-windows"])
+        keyed = profiles()
+        for name, inputs in calls.items():
+            for key in BUILD_DEFINING:
+                if key not in inputs:
+                    continue
+                value = str(inputs[key])
+                with self.subTest(job=name, input=key):
+                    if name == "build-darwin-fallback" and key == "target_set":
+                        # The targets `build` left unbuilt, under the same profile.
+                        self.assertEqual(value, "${{ needs.darwin-fallback-plan.outputs.target_set }}")
+                        continue
+                    if key == "include_windows" and inputs[key] is False:
+                        continue  # no Windows leg: those are build-windows' own call
+                    refs = PROFILE_REF.findall(value)
+                    self.assertTrue(refs, f"{name}.{key} is {value!r}: read it from {PROFILES_PATH.relative_to(ROOT)}")
+                    # A condition may compare with literals (the ref picks a profile field);
+                    # a literal as the value itself is a build setting the key does not see.
+                    stripped = PROFILE_REF.sub("", value)
+                    stripped = re.sub(r"(?:==|!=)\s*'[^']*'|startsWith\([^)]*\)", "", stripped)
+                    self.assertNotRegex(stripped, r"'[^']*'",
+                                        f"{name}.{key} mixes a literal into the profile read: {value!r}")
+                    for profile, field in refs:
+                        self.assertIn(field, keyed.get(profile, {}), f"{name}.{key} reads {profile}.{field}, which the file lacks")
+
+    def test_the_profile_file_is_a_tree_key_input(self):
+        inputs = (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text(encoding="utf-8").splitlines()
+        self.assertIn("blob scripts/cmux-next/cmux-tui-build-profiles.json", inputs)
 
 
 if __name__ == "__main__":

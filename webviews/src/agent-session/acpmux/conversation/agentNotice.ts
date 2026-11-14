@@ -18,6 +18,8 @@
 // text through `acpmux send` at a shell; `legacyNotice` reads that head (only from a shell's or the
 // outbox's `acpmux send`, never a prompt the person typed in the pane) so today's pages read too.
 
+import type { NoticeBodyLook } from "./noticeLook";
+
 export type NoticeSeverity = "info" | "warn" | "fire";
 export type NoticeLink = { url: string; label?: string };
 
@@ -61,7 +63,10 @@ export const shownSender = (name: string) => (isSystemSender(name) ? "" : name);
 /// A system notice's body as the reader sees it: without the `Task bg-…: COMMAND` line (the title
 /// already names the command; the id is the model's handle) and the `(bg_output reads all of it.)`
 /// hint, which names a tool only the model calls (acpmux hub/bg_notify.rs `end_body`).
+/// A body that only says the title again (tell-coordinator gave a title-only notice its title as
+/// its body) is none: the opened notice shows its title then (`openedNoticeText`).
 export function shownNoticeBody(notice: AgentNotice, body: string): string {
+  if (saysTitle(body, notice.title)) return "";
   if (!notice.system) return body;
   const lines = body.split("\n");
   if (lines[0] && TASK_LINE.test(lines[0])) lines.shift();
@@ -273,6 +278,59 @@ export function legacyNotice(
   return { notice: { ...signed(sender), host, severity, title, links: [] }, body };
 }
 
+/// Automated notices that older senders put in a prompt as plain text, with nothing in the record to
+/// say so: the head each starts with, and the sender its line names. Leo, 2026-11-03, on
+/// `[stall-reconciler] #31356 conflicts with main …` drawn as his own bubble: asked whether they could
+/// show "as a quiet, collapsed row, like the background-task replies", he said "yeah let's"; and, on
+/// hiding such things, "well there are cases (rare) that you would want to see it". So each is a
+/// notice's line that opens to its whole text, never hidden. Read only where the prompt did not come
+/// from the pane (`acpmux send` at a shell or its outbox, an adopted or watched Claude session's
+/// history); a sender that can marks its prompt itself (`acpmux send --notice`). Add a sender here
+/// only with its exact head and a test (conversation/automatedNotice.test.ts).
+export const AUTOMATED_NOTICE_HEADS: readonly { readonly sender: string; readonly head: RegExp }[] = [
+  // leo-workspace tools/conflict_notice.py and the stall reconciler's other steers.
+  { sender: "stall-reconciler", head: /^\[stall-reconciler\][ \t]*:?[ \t]*/ },
+  // leo-workspace tools/spend_guard.py `nudge_text`.
+  { sender: "spend-guard", head: /^Spend guard \(stall reconciler\):[ \t]*/ },
+  // Claude Code's Stop hook that blocked the stop, its feedback the next prompt.
+  { sender: "hook", head: /^Stop hook feedback:[ \t]*/ },
+];
+
+/// The title and body of a notice's words: its first line's first sentence (up to `.`, `!` or `?`
+/// before a space or the line's end) is the title, what follows it the body. A first line too long
+/// for a title is cut there, and the body keeps every word, so nothing is lost behind the chevron.
+function titled(words: string): { title: string; body: string } {
+  const all = words.trim();
+  const first = all.split("\n", 1)[0]!.trim();
+  const sentence = (/^(.+?)[.!?](?=\s|$)/.exec(first)?.[1] ?? first).trim();
+  if (sentence.length <= 200)
+    return {
+      title: sentence,
+      body: all
+        .slice(sentence.length)
+        .replace(/^[.!?]/, "")
+        .trim(),
+    };
+  if (first.length <= 200) return { title: first, body: all.slice(first.length).trim() };
+  return { title: `${first.slice(0, 199).trimEnd()}…`, body: all };
+}
+
+/// An automated notice in plain text (AUTOMATED_NOTICE_HEADS), as an info notice from its sender:
+/// the title its first sentence, the body the rest. Undefined for text with no such head, or a head
+/// with nothing after it.
+export function automatedNotice(text: string): { notice: AgentNotice; body: string } | undefined {
+  const trimmed = text.trim();
+  for (const { sender, head } of AUTOMATED_NOTICE_HEADS) {
+    const lead = head.exec(trimmed);
+    if (!lead) continue;
+    const words = trimmed.slice(lead[0].length).trim();
+    if (!words) return undefined;
+    const { title, body } = titled(words.replace(/^\n+/, ""));
+    return { notice: { sender, severity: "info", title: title.replace(/\s+/g, " "), links: [] }, body };
+  }
+  return undefined;
+}
+
 /// A link's chip label: a GitHub pull request or issue reads `#32827`, an Actions run `run 1234567`
 /// (its id cut to seven digits), else its label, else its host and the path's last part.
 export function noticeLinkLabel(link: NoticeLink): string {
@@ -307,6 +365,23 @@ export function noticeMarkdown(body: string, links: readonly NoticeLink[]): stri
     .join(" · ");
   return body ? `${body}\n\n${line}` : line;
 }
+
+/// What an opened notice says above its links (IncomingMessageCard.tsx). Its head (sender, machine,
+/// severity) and title are the line's: the body, and a notice of a title alone its title, never "No
+/// message text" (Leo, 2026-11-14, on spend-watch's one-line WARN that opened to that copy: "this is
+/// weird"). A body never starts with its title again: a digest lists its titles, a title cut from a
+/// long first line has that line whole in its body. Gallery versions (noticeLook.ts
+/// `NoticeBodyLook`): `title-body`, the title whole above the body (a tool's notice); `wrap`, the
+/// body alone, the line's title wrapping whole while open.
+export function openedNoticeText(notice: AgentNotice, body: string, look: NoticeBodyLook = "body"): string {
+  if (look === "wrap") return body;
+  if (look === "title-body" && !notice.system && body) return `${notice.title}\n\n${body}`;
+  return body || notice.title;
+}
+
+/// Whether `body` says `title` and nothing more, its runs of spaces and line breaks as one space, as
+/// the title's are (`noticeTitle`). A title cut with `…` keeps the body that says it whole.
+const saysTitle = (body: string, title: string) => body.replace(/\s+/g, " ").trim() === title;
 
 /// A notice's whole text as the transcript row keeps it for Find, Copy, export and the empty-row
 /// check: its title, then what the opened line shows. Never empty: a notice of a title alone is

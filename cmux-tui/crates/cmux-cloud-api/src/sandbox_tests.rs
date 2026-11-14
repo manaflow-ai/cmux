@@ -697,6 +697,29 @@ fn a_tasks_length_is_counted_in_characters_the_composer_counts() {
     );
 }
 
+/// #39022 F3: `task_fits`, which the daemon's create and `cmux run --sandboxed` both ask, counts
+/// characters at the limit where bytes, scalars and UTF-16 units all say more.
+#[test]
+fn task_fits_counts_characters_right_at_the_limit() {
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let at_limit = format!("{}{family}", "e\u{301}".repeat(TASK_MAX_CHARS - 1));
+    assert!(at_limit.len() > TASK_MAX_CHARS && at_limit.chars().count() > TASK_MAX_CHARS);
+    assert!(task_fits(&at_limit));
+    assert!(!task_fits(&format!("{at_limit}x")));
+    assert!(!task_fits(""));
+    let engine = Engine::open(None, Fake::new(None, vec![]), quick());
+    let mut ok = body("k-family", "team_1");
+    ok["task"] = json!(at_limit);
+    assert!(engine.perform("runs.create", &args(ok)).is_ok());
+    let mut long = body("k-family-long", "team_1");
+    long["task"] = json!(format!("{at_limit}{family}"));
+    let refused = engine.perform("runs.create", &args(long)).unwrap_err();
+    assert!(
+        matches!(&refused, Failure::Http { status: 400, code: Some(code), .. } if code == "run_task_required"),
+        "{refused:?}"
+    );
+}
+
 /// #39022 review at b1bfb468, F1: every cleanup pass names the time only a list read since may say
 /// the machine is gone: the Run's settle time, never earlier than its end.
 #[test]

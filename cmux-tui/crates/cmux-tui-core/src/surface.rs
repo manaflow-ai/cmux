@@ -676,6 +676,10 @@ impl Surface {
         self.as_pty().map(|pty| &pty.tail_pin)
     }
 
+    pub(crate) fn port_mark(&self) -> Option<&crate::mux::PortMark> {
+        self.as_pty().map(|pty| &pty.port_mark)
+    }
+
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
         match self {
             Surface::Pty(surface) => Some(surface.event_surface_id),
@@ -813,6 +817,7 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, snapshot.pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
@@ -833,6 +838,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -855,7 +861,6 @@ impl Surface {
                 host_identity: Some(host_identity),
                 pending_host_binding: Mutex::new(Some(pending_host_binding)),
                 host_exit_record_path: Some(host_exit_record_path),
-                pid: snapshot.pid,
                 command: snapshot.command,
                 cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
