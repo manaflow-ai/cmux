@@ -979,7 +979,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         let before = reads.all.count
         // Asks while that read is out: none cancels it.
         for _ in 0..<3 { live.onCloudHoldsWaiting?(false) }
-        for _ in 0..<200 { await Task.yield() }
+        for _ in 0..<50 { try? await Task.sleep(for: .milliseconds(4)) } // test: a restarted read would reach the stub by now
         #expect(reads.all.count == before, "an ask cancelled the read in flight and read again")
         ServiceStub.release(host: host)
         await settle { live.cloudStaleHolds["vm_b"] == nil }
