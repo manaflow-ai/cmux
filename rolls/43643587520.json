@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43643587520",
+  "recorded_at": "2026-11-14T21:48:38Z",
+  "reason": "cmux-tui 52daad6a127e changes the image's cmux-tui (pinned 7aa4ee2f3294)",
+  "dry_run": false,
+  "cmux_tui": "52daad6a127e413311f6c51f0b95a5d06a5cbf7e",
+  "fixes": [
+    {
+      "sha": "52daad6a127e413311f6c51f0b95a5d06a5cbf7e",
+      "mergedAt": "2026-11-14T13:12:45-08:00",
+      "subject": "carrier: the cmux link runs the Cloud tunnel hub, so the ssh backup route exists (#43135)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T21:48:38Z",
+    "snapshot_id": "sh-82275d4a11f44412b4488c38013dbbad",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43643587520): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d65e86897f72d0b80db6809567186b6e1daa0fca",
+    "image": "cloud-native-auto-52daad6a-43643587520-1",
+    "revision": "ci-43643587520-1",
+    "at": "2026-11-14T21:48:38Z"
+  },
+  "rolled_back": false
+}
