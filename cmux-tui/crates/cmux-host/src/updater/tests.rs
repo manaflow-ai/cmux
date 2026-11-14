@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use base64::Engine as _;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::channel::{self, CHANNEL, PURPOSE, Payload};
 use super::store;
@@ -2366,9 +2366,9 @@ fn first_ready_failed_channel_is_unknown_not_current() {
     assert!(matches!(first, first_ready::First::OnImage(_)));
     let report = look::report(&paths).unwrap();
     let timing = report.get("first_ready").unwrap();
-    assert_eq!(timing["image_behind"], Value::Null);
-    assert_eq!(timing["update_ms"], Value::Null);
-    assert_eq!(timing["to_version"], Value::Null);
+    assert_eq!(timing["image_behind"], serde_json::Value::Null);
+    assert_eq!(timing["update_ms"], serde_json::Value::Null);
+    assert_eq!(timing["to_version"], serde_json::Value::Null);
     assert_eq!(timing["outcome"], "on_image");
 }
 
