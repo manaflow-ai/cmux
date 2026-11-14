@@ -110,7 +110,7 @@ mod segment_tests {
     fn peer_row(hub: &Hub, peer: &str, id: &str, name: &str) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name, "peer": peer}),
+            summary: json!({"sessionId": id, "name": name, "peer": peer}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
@@ -293,7 +293,8 @@ mod segment_tests {
         let row = RemoteSession {
             peer: "hb".into(),
             summary: json!({"sessionId": "r1", "name": "hb/c/lane", "peer": "hb",
-                            "status": "closed"}),
+                            "status": "closed"})
+            .into(),
             receipt: SessionReceipt {
                 host_id: "hb".into(),
                 mux_session_id: "r1".into(),

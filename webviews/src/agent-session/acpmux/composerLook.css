@@ -38,7 +38,11 @@
   height: auto;
 }
 .nt-composer[data-composer-look="codex"] > .nt-above {
-  padding-block: 2px var(--acpmux-tray-tuck);
+  /* The chips centre in the band that shows: the composer's gap under the tray (--nt-composer-gap,
+     newtab/screen.css) and the 2 px above split evenly, so the band keeps its height (Lucas 2026-11-14). */
+  --nt-tray-room: calc((2px + var(--nt-composer-gap, 0px)) / 2);
+  padding-block: var(--nt-tray-room) var(--acpmux-tray-tuck);
+  margin-bottom: calc(var(--nt-tray-room) - var(--acpmux-tray-tuck) - var(--nt-composer-gap, 0px));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;

@@ -9,10 +9,10 @@ import Testing
 /// Every test draws through `DensityTokens.$scoped`, so it never changes the app-wide
 /// `DesignSettings.shared` other suites read in parallel.
 @MainActor @Suite struct DensityTokensTests {
-    /// Compact's chrome before the density rework, value by value: the guard that keeps today's
-    /// Compact look pixel-identical. Change a number here only with Lawrence's OK.
+    /// Compact's chrome, value by value: the guard that keeps the Compact look pixel-identical. Change a number here only
+    /// with Lawrence's OK (2026-11-13: Compact is 20 pt tall everywhere, rows and tabs).
     private static let compactMetrics: [(String, CGFloat)] = [
-        ("sidebarWidth", 208), ("titlebarHeight", 32), ("sidebarRowHeight", 24), ("sidebarRowHeightWithSubtitle", 36),
+        ("sidebarWidth", 208), ("titlebarHeight", 32), ("sidebarRowHeight", 20), ("sidebarRowHeightWithSubtitle", 36),
         ("sidebarHeaderHeight", 22), ("roomDotDiameter", 8), ("roomDotSlot", 24), ("tabHeight", 24), ("controlHeight", 24),
         ("tabMaxWidth", 200), ("tabMinWidth", 32), ("paletteRowHeight", 28), ("paletteSearchHeight", 44), ("paletteWidth", 640),
         ("panelInset", 6), ("columnGap", 6), ("densityPaneCornerRadius", 8),
@@ -34,10 +34,12 @@ import Testing
                 let value = try #require(Self.live(name), "no metric \(name)")
                 #expect(value == expected, "\(name) at Compact is \(value), was \(expected)")
             }
-            #expect(Metrics.tabStripHeight == (Metrics.compactTabs ? 26 : 28))
+            #expect(Metrics.tabStripHeight == 26, "Compact's 20 pt pill with 3 pt above and below")
             // Panels and items are levels of the one corner radius now (`Metrics.corners`), not tunables of their own.
             // Lawrence 2026-11-05: the one radius defaults to the omnibar's 8 pt, so panels are 8 pt and items 4 pt.
-            #expect(Metrics.panelCornerRadius == 8 && Metrics.itemCornerRadius == 4, "Compact's 8 pt panels and 4 pt items")
+            // Compact's 20 pt tab rounds at 5 (8 on 30), so its items, nested from it, are concentric levels of it.
+            #expect(Metrics.panelCornerRadius == 8, "Compact's 8 pt panels")
+            #expect(Metrics.itemCornerRadius == Metrics.corners.radius(depth: 2), "Compact's items nest in the one corner")
             #expect(Self.typeSizes() == [12, 12, 10.5, 11, 16, 10.5, 20, 13])
             #expect(Metrics.tokens.resolve(compact: 2, comfortable: 4, token: "panePadding") == 2, "the density's pane padding")
             #expect(Metrics.space1 == ChromeTunables.space1.value && Metrics.space3 == ChromeTunables.space3.value
@@ -49,7 +51,8 @@ import Testing
     @Test func theDefaultDensityIsCompact() {
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
         #expect(DensityPreset.compact.tokens.level == 0 && DensityPreset.compact.tokens.spacing == 1)
-        #expect(DensityPreset.compact.tokens.tokens.isEmpty && DensityPreset.compact.tokens.fontSize == nil)
+        #expect(DensityPreset.compact.tokens.tokens == ["sidebarRowHeight": 20, "tabStripHeight": 26])
+        #expect(DensityPreset.compact.tokens.fontSize == nil)
     }
 
     /// Level 1 is the tunables' comfortable pair. The Comfortable preset sits above it since
@@ -82,13 +85,15 @@ import Testing
                 #expect(Metrics.itemCornerRadius == Metrics.corners.radius(depth: 2), "\(preset): the item corner is not concentric")
             }
         }
+        // Ultra-compact and Compact share 20 pt rows; Default and Comfortable share 14 pt text (Lucas 2026-11-13).
         for series in [bodies, rows, tabs] {
-            #expect(zip(series, series.dropFirst()).allSatisfy { $0 < $1 }, "strictly larger at each step: \(series)")
+            #expect(zip(series, series.dropFirst()).allSatisfy { $0 <= $1 }, "never smaller at a step: \(series)")
         }
         #expect(radii.allSatisfy { $0 >= 0 }, "corner radii are never negative: \(radii)")
-        // Default is 13 pt on 28 pt rows (Austin 2026-11-05); Comfortable and Spacious sit above it.
-        #expect(bodies == [11.5, 12, 13, 13.5, 14.5])
-        #expect(rows == [20, 24, 28, 34, 42])
+        // Default is the ChatGPT app's 14 pt on 30 pt rows (its 28 pt token and the Codex fill), Lucas 2026-11-13;
+        // Comfortable keeps Default's text, Spacious is bigger.
+        #expect(bodies == [11, 12, 14, 14, 16])
+        #expect(rows == [20, 20, 28, 34, 42])
     }
 
     /// Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever
@@ -101,8 +106,9 @@ import Testing
                 small.append(Metrics.smallIconSize)
             }
         }
-        #expect(icons == [12, 14, 16, 16, 20])
-        #expect(small == [12, 12, 14, 16, 16])
+        // Comfortable and Spacious step their icons too (Lucas 2026-11-12: "Try text size and icon size").
+        #expect(icons == [12, 14, 16, 20, 24])
+        #expect(small == [12, 12, 14, 16, 20])
         for level in stride(from: DensityTokens.levelRange.lowerBound, through: DensityTokens.levelRange.upperBound, by: 0.25) {
             let tokens = DensityTokens(id: "l", name: "L", level: level)
             #expect(DensityTokens.iconScale.contains(tokens.resolveGlyph(compact: 14, comfortable: 16)), "level \(level)")

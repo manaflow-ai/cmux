@@ -240,6 +240,8 @@ jobs:
           set -o pipefail
           log="$RUNNER_TEMP/acpmux-protocol-tests.log"
           if ! cargo test --locked -p acpmux --lib -- protocol:: 2>&1 | tee "$log"; then
+            # A stale Cargo.lock is named as such, not as a failed test (cargo-locks.py explain).
+            if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
             echo "::error title=acpmux protocol tests::a protocol test failed. A stale IR (protocol_ir_is_current) is regenerated with ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol_ir_is_current in cmux-tui, then bun run acpmux-protocol:codegen in webviews"
             exit 1
           fi

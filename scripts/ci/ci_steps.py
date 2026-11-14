@@ -173,8 +173,12 @@ def run_step(step: Step, env: dict[str, str] | None = None) -> Result:
         out, _ = proc.communicate(timeout=step.timeout)
         code: int | None = proc.returncode
     except subprocess.TimeoutExpired:
-        # The step's own process group, which start_new_session made: its children go with it.
-        os.killpg(proc.pid, signal.SIGKILL)
+        # The step's own process group, which start_new_session made: its children go with it. A group that is
+        # gone (ESRCH), or on macOS one whose processes are all zombies (EPERM), has nothing left to stop.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
         out, _ = proc.communicate()
         code = None
     return Result(step, code, time.monotonic() - start, out or "")
