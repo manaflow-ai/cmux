@@ -27,7 +27,9 @@ on:
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Resources/theme-files/*.json"
       - "docs/remote-agents-and-cloud.md"
+      - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/deeplinks/agent-link.json"
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
@@ -38,6 +40,7 @@ on:
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/theme/theme-ink-vectors.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
@@ -259,6 +262,13 @@ jobs:
   # a flake or a test that fails on the merge parent too only warns, and a crash, a cut-short
   # binary, a compile error or a test the merge parent passes fails the job. A
   # feat-cmux-next push runs the suites plainly, so a base red shows red there.
+  # The acpmux-* crates acpmux is built from (acpmux-book, acpmux-core, acpmux-client,
+  # acpmux-build-id, acpmux-list-types) run here too, lib and tests/: no hosted job ran them,
+  # so two changes left their tests red on base in one day (2026-11-14): #42834 changed what
+  # acpmux-book answers and left acpmux-core's test of the old answer, and #42906 left two
+  # acpmux-core tests that #42943 repaired. tests/test_cargo_test_verdict.py fails when the
+  # suites miss such a crate or one of its tests/ files. The job and step keep their names:
+  # the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -379,7 +389,8 @@ jobs:
           umask 022
           verdict=../scripts/ci/cargo_test_verdict.py
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
-          suites=(--locked -p acpmux --lib --test hub_integration --no-fail-fast)
+          suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
+            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,7 @@ import { SchemaValidator } from "../../tools/json-schema.ts"
 import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
 import { generate, scopeFor } from "../../tools/gen-cmux-global.ts"
 import { loadAppCatalogs, schemaType } from "../../tools/app-catalogs.ts"
+import { pack } from "../../tools/pack.ts"
 
 const root = join(import.meta.dir, "../..")
 const schema = new SchemaValidator(JSON.parse(readFileSync(join(root, "schema/cmux-app.schema.json"), "utf8")))
@@ -137,6 +138,20 @@ describe("generator", () => {
     writeFileSync(join(dir, "bad/catalog/c.json"), JSON.stringify({ family: "bad", operations: [{ name: "bad.x" }] }))
     expect(() => loadAppCatalogs(dir)).toThrow(/bad\/catalog\/c.json/)
   })
+  // The runtime answers `cmux.<name>` from its own members first (cmux.ts createCmux), so a catalog
+  // family with a member's name (the `theme.scheme.*` ops, `integrations.*`) is unreachable as
+  // `cmux.theme.scheme`. The d.ts once declared both, and TypeScript took the family: an extension
+  // could not write `cmux.theme.success` (the SDK's own example did not type-check).
+  test("CmuxGlobal declares each member once, as the runtime answers it", async () => {
+    const dts = generate()["cmux-app.d.ts"]!
+    const body = dts.slice(dts.indexOf("interface CmuxGlobal {"), dts.indexOf("\n}\ndeclare const cmux"))
+    const members = [...body.matchAll(/^  (?:readonly )?([A-Za-z_$][\w$]*)[:(<]/gm)].map((m) => m[1]!)
+    expect(members.filter((m, i) => members.indexOf(m) !== i)).toEqual([])
+    expect(body).toContain("readonly theme: CmuxTheme")
+    const { createCmux } = await import("../src/cmux.ts")
+    const runtime = Reflect.ownKeys(createCmux(() => undefined)).filter((k): k is string => typeof k === "string")
+    for (const name of runtime) if (name !== "callRaw" && name !== "CmuxError") expect({ name, declared: members.includes(name) }).toEqual({ name, declared: true })
+  })
   test("JSON Schema to TypeScript", () => {
     expect(schemaType({ type: "object", properties: { a: { type: "integer" }, b: { type: "array", items: { enum: ["x", "y"] } } }, required: ["a"] }))
       .toBe('{ a: number; b?: Array<"x" | "y"> }')
@@ -159,5 +174,35 @@ describe("native code tiers", () => {
   test("first-party native server is accepted", () => {
     const d = dir({ ...base, id: "cmux/tasks", repository: "https://github.com/manaflow-ai/cmux", server: { kind: "native", binary: "cmux-tasks", args: ["serve"], hosts: ["team-vm", "local"], data: "durable" }, contributes: { paneKinds: [{ id: "board", title: "Tasks", renderer: "native", nativeView: "tasks.board" }] } })
     expect(validatePackage(d).errors).toEqual([])
+  })
+})
+
+describe("pack", () => {
+  // An extension copied out of a cmux checkout (a sample a person installs) has no
+  // node_modules and no tsconfig `paths`: `cmux-extension-sdk` resolves to the SDK
+  // `cmux ext dev` hands over, and the folder's own copy still wins when it has one.
+  const sdk = join(root, "../cmux-extension-sdk/typescript/src/index.ts")
+  const outside = () => {
+    const d = mkdtempSync(join(tmpdir(), "cmux-pack-"))
+    mkdirSync(join(d, "src"))
+    writeFileSync(join(d, "src/main.ts"), `import { section, Text } from "cmux-extension-sdk"\nexport const renderHello = section(() => Text("hi"))\n`)
+    return d
+  }
+
+  test("an extension outside a checkout builds on the SDK it is handed", async () => {
+    const d = outside()
+    await expect(pack(d)).rejects.toThrow()
+    const built = await pack(d, { sdk })
+    expect(built).toContain("var renderHello = section(")
+    expect(built).toContain("globalThis.__cmuxAppExports")
+  })
+
+  test("the folder's own copy of the SDK comes first", async () => {
+    const d = outside()
+    mkdirSync(join(d, "node_modules/cmux-extension-sdk"), { recursive: true })
+    writeFileSync(join(d, "node_modules/cmux-extension-sdk/package.json"), JSON.stringify({ name: "cmux-extension-sdk", main: "index.js" }))
+    writeFileSync(join(d, "node_modules/cmux-extension-sdk/index.js"), `export const section = (r) => r; export const Text = (t) => "own copy " + t\n`)
+    const built = await pack(d, { sdk })
+    expect(built).toContain("own copy ")
   })
 })

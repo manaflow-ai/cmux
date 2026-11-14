@@ -5,8 +5,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, Once, PoisonError};
 
 use cmux_git::head::Checkout;
 use cmux_git::run::GitFailure;
@@ -18,9 +18,22 @@ const REFUSED: &str = "this folder is not opened: ";
 /// A fresh folder for one test, removed when dropped.
 struct Scratch(PathBuf);
 
+/// How many scratch folders are there now. The test home is there while one is.
+static LIVE: Mutex<usize> = Mutex::new(0);
+
+/// The folder that HOME names for the whole test process.
+fn test_home() -> PathBuf {
+    std::env::temp_dir().join(format!("cmux-git-own-tree-home-{}", std::process::id()))
+}
+
 impl Scratch {
     fn new(name: &str) -> Self {
         isolate_home();
+        {
+            let mut live = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
+            std::fs::create_dir_all(test_home()).expect("create the test home");
+            *live = live.saturating_add(1);
+        }
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
@@ -41,6 +54,11 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
+        let mut live = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
+        *live = live.saturating_sub(1);
+        if *live == 0 {
+            let _ = std::fs::remove_dir_all(test_home());
+        }
     }
 }
 
@@ -50,9 +68,7 @@ impl Drop for Scratch {
 fn isolate_home() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let home =
-            std::env::temp_dir().join(format!("cmux-git-own-tree-home-{}", std::process::id()));
-        std::fs::create_dir_all(&home).expect("create the test home");
+        let home = test_home();
         // SAFETY: every test calls this before it spawns anything or reads
         // the environment, and `Once` blocks them until it has run.
         unsafe {
@@ -135,6 +151,23 @@ fn top_folder(directory: &Path) -> PathBuf {
 }
 
 #[test]
+fn own_tree_tests_leave_no_folder_when_they_end() {
+    let scratch = Scratch::new("left");
+    let folder = scratch.0.clone();
+    std::fs::write(folder.join("file"), "one\n").expect("write a file");
+    assert!(test_home().is_dir(), "the test home is there while a test's folder is");
+
+    drop(scratch);
+
+    assert!(!folder.exists(), "the folder {} stays", folder.display());
+    // The count is read and the test home is looked at in one lock, as the guard does. With
+    // one process for each test this proves the removal. With the tests of one process on
+    // threads, other tests can have folders, and then this proves the rule only.
+    let live = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    assert_eq!(test_home().exists(), *live > 0, "the test home is there only while a folder is");
+}
+
+#[test]
 fn own_tree_open_refuses_a_folder_that_is_not_in_the_work_tree_that_git_gives_for_it() {
     let scratch = Scratch::new("outside");
     let (folder, other) = (scratch.0.join("folder"), scratch.folder("other"));
@@ -186,6 +219,10 @@ fn own_tree_open_refuses_a_work_tree_whose_top_folder_has_another_git_folder_or_
     assert_eq!(top_folder(&outer), outer, "the repository above still opens");
 }
 
+/// Why the open refuses a `.git` file that names a git folder with the name `.git` and no
+/// record of a work tree.
+const NAME_IS_GIT: &str = ": the `.git` file names a git folder whose own name is `.git`";
+
 /// Whether a problem text names no command to run, and says to ask the person. A problem
 /// text says what is refused and why.
 fn names_no_command(problem: &str) -> bool {
@@ -218,10 +255,25 @@ fn own_tree_open_refuses_a_git_file_that_names_the_git_folder_in_another_work_tr
     let problem = refusal(&folder);
 
     assert!(problem.contains("do not name each other"), "{problem}");
-    let why = ": the git folder is the `.git` folder of another work tree";
-    assert!(problem.contains(why), "{problem}");
+    assert!(problem.contains(NAME_IS_GIT), "{problem}");
     assert!(names_no_command(&problem), "{problem}");
     assert_eq!(top_folder(&other), other, "the other work tree still opens");
+}
+
+/// The open reads the name of the git folder only. It does not look at the folder around a
+/// git folder with the name `.git`, so the problem text says the name and no more.
+#[test]
+fn own_tree_open_says_no_more_than_the_name_of_a_git_folder_apart_with_the_name_dot_git() {
+    let scratch = Scratch::new("file-name");
+    let (folder, apart) = (scratch.folder("folder"), scratch.folder("apart"));
+    new_repository_with_its_git_folder_at(&folder, &apart.join(".git"));
+
+    let problem = refusal(&folder);
+
+    assert!(problem.contains("do not name each other"), "{problem}");
+    assert!(problem.contains(NAME_IS_GIT), "{problem}");
+    assert!(!problem.contains("another work tree"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
 }
 
 #[test]
@@ -410,6 +462,7 @@ fn own_tree_open_refuses_a_git_entry_that_is_a_link_to_the_git_folder_of_another
     let problem = refusal(&folder);
 
     assert!(problem.contains("is a link"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
     assert_eq!(top_folder(&other), other, "the other work tree still opens");
 }
 
@@ -429,8 +482,10 @@ fn own_tree_open_refuses_a_git_entry_that_is_a_link_to_a_git_folder_that_names_a
 
     let problem = refusal(&by_record);
     assert!(problem.contains("is a link"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
     let problem = refusal(&by_setting);
     assert!(problem.contains("is a link"), "{problem}");
+    assert!(names_no_command(&problem), "{problem}");
 
     assert_eq!(top_folder(&linked), linked, "the recorded work tree still opens");
 }

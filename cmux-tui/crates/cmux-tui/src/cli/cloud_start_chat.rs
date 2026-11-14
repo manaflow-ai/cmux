@@ -8,7 +8,8 @@
 //! that verb's checks, keys and deadlines:
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux. A list the app has not
-//!    loaded yet (just launched) is read again until it is, for at most [`LIST_LOAD_WAIT`] and `--timeout`.
+//!    loaded yet (just launched) is read again until it is, for at most `LIST_LOAD_WAIT` and `--timeout`
+//!    (`cmux_cloud_start_core::list_wait`, which the app's own start asks too).
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
@@ -35,6 +36,7 @@
 use std::io::Read as _;
 use std::time::{Duration, Instant};
 
+use cmux_cloud_start_core::list_wait::{ListWait, list_wait};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -219,7 +221,7 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
             2,
         );
     }
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
 }
@@ -250,7 +252,7 @@ pub(super) fn send_existing(
         until: None,
         allow_large: false,
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
 }
 
@@ -311,7 +313,7 @@ pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
 
 /// The app's `cloud list-machines` answer, or its error.
 pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
@@ -323,7 +325,7 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     if let Some(key) = &global.idempotency_key {
         globals.extend(["--idempotency-key".to_owned(), key.clone()]);
     }
-    let mut runner = SelfRunner { globals, global: global.clone() };
+    let mut runner = SelfRunner { globals, ..SelfRunner::new(global) };
     let mut args = args.to_vec();
     args.push("--json".to_owned());
     step_result(&runner.cmux(&args))
@@ -567,6 +569,13 @@ pub(super) trait Runner {
     ) -> Option<Result<Value, Value>> {
         None
     }
+    /// The deadline every step of this runner ends by, when it has one ([`SelfRunner::until`]): a step past it is
+    /// not started, a child still running at it is killed, and a `cloud exec` gives the machine what is left of it
+    /// as the remote command's own limit ([`exec`]). `None` (every runner but the carrier fault drill's): no bound
+    /// beyond each step's own.
+    fn until(&mut self) -> Option<Instant> {
+        None
+    }
     /// One wait on a chat tab's records over the machine's link stream `socket` ([`link_wait::observe`]).
     fn observe(
         &mut self,
@@ -579,19 +588,42 @@ pub(super) trait Runner {
     }
 }
 
-struct SelfRunner {
+pub(super) struct SelfRunner {
     globals: Vec<String>,
     global: GlobalArgs,
+    /// The program each step runs: this binary (a test: a stand-in).
+    exe: Option<std::path::PathBuf>,
+    /// [`Runner::until`]: `None` for every caller but the carrier fault drill, which runs each step as before.
+    until: Option<Instant>,
+}
+
+impl SelfRunner {
+    pub(super) fn new(global: &GlobalArgs) -> Self {
+        Self { globals: forwarded_globals(global), global: global.clone(), exe: None, until: None }
+    }
+
+    /// The same runner, each of whose steps ends by `until` ([`Runner::until`]).
+    pub(super) fn until(mut self, until: Instant) -> Self {
+        self.until = Some(until);
+        self
+    }
+
+    /// Runs `exe` instead of this binary (a test's stand-in `cmux`).
+    #[cfg(test)]
+    pub(super) fn running(mut self, exe: std::path::PathBuf) -> Self {
+        self.exe = Some(exe);
+        self
+    }
 }
 
 /// This binary as the runner of another command's steps (`cmux chat cd`, chat_cd.rs), reaching the same app.
 pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
-    SelfRunner { globals: forwarded_globals(global), global: global.clone() }
+    SelfRunner::new(global)
 }
 
 impl Runner for SelfRunner {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let exe = match std::env::current_exe() {
+        let exe = match self.exe.clone().map_or_else(std::env::current_exe, Ok) {
             Ok(exe) => exe,
             Err(error) => {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
@@ -600,13 +632,16 @@ impl Runner for SelfRunner {
         // A step reads the app's own words (vm_words.rs), whatever the command prints.
         let mut command = cmux_process::Command::new(exe);
         command.env(super::vm_words::STEP_ENV, "1").args(&self.globals).args(args);
-        match command.output() {
-            Ok(output) => Ran {
-                code: output.status.code().unwrap_or(1),
-                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        match self.until {
+            None => match command.output() {
+                Ok(output) => Ran {
+                    code: output.status.code().unwrap_or(1),
+                    stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                },
+                Err(error) => Ran { code: 127, stdout: String::new(), stderr: error.to_string() },
             },
-            Err(error) => Ran { code: 127, stdout: String::new(), stderr: error.to_string() },
+            Some(until) => internal::bounded::output_by(command, until),
         }
     }
 
@@ -616,6 +651,10 @@ impl Runner for SelfRunner {
 
     fn now(&mut self) -> Instant {
         Instant::now()
+    }
+
+    fn until(&mut self) -> Option<Instant> {
+        self.until
     }
 
     fn fresh_name(&mut self) -> String {
@@ -629,8 +668,13 @@ impl Runner for SelfRunner {
         params: Value,
         timeout: Duration,
     ) -> Option<Result<Value, Value>> {
+        // A runner with a deadline asks nothing past it, and its request stops there however long the app keeps
+        // answering its liveness ping (`request_by`).
+        if self.until.is_some_and(|until| Instant::now() >= until) {
+            return Some(Err(internal::bounded::past_deadline()));
+        }
         let mut stream = super::app::connect_command(&self.global).ok()?;
-        super::app::request(&mut stream, method, params, timeout).ok()
+        super::app::request_by(&mut stream, method, params, timeout, self.until).ok()
     }
 }
 
@@ -1181,6 +1225,10 @@ impl Runner for Timed<'_> {
 
     fn fresh_name(&mut self) -> String {
         self.inner.fresh_name()
+    }
+
+    fn until(&mut self) -> Option<Instant> {
+        self.inner.until()
     }
 
     fn observe(
@@ -1980,37 +2028,30 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
     )
 }
 
-/// How long a start waits for the app's first machine list (an app just launched loads it after
-/// sign-in: the production chat probe, cmuxterm-hq run 43553290380) before it answers `cloud.list_unread`.
-const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
-
-/// The pause between reads of a machine list the app has not loaded yet.
-const LIST_LOAD_POLL: Duration = Duration::from_secs(2);
-
-/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again
-/// [`LIST_LOAD_POLL`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
-/// `deadline`. A read that fails keeps the last answer; the caller's checks then refuse on what it says.
+/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again as the
+/// Cloud start core's [`list_wait`] paces it (the app's `CloudStartChat` waits the same way): its
+/// `LIST_LOAD_POLL` apart, for at most `LIST_LOAD_WAIT` and what is left of `deadline`. A read that
+/// fails keeps the last answer; the caller's checks then refuse on what it says.
 fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -> Value {
-    let unloaded = |list: &Value| {
-        at(list, "loaded").as_bool() == Some(false)
-            && list.pointer("/account/signed_in") != Some(&Value::Bool(false))
-    };
-    let until = runner.now() + LIST_LOAD_WAIT;
-    while unloaded(&listed) {
-        let left = until.saturating_duration_since(runner.now());
-        if left.is_zero() || deadline.passed(runner) {
-            break;
-        }
-        let pause = deadline.bound(runner, LIST_LOAD_POLL.min(left));
-        runner.pause(pause);
-        if runner.now() >= until || deadline.passed(runner) {
-            break;
-        }
-        if let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
-            listed = now;
+    let began = runner.now();
+    loop {
+        let loaded = at(&listed, "loaded").as_bool() != Some(false);
+        let signed_in = listed.pointer("/account/signed_in") != Some(&Value::Bool(false));
+        let elapsed = runner.now().saturating_duration_since(began);
+        match list_wait(elapsed, deadline.left(runner), loaded, signed_in) {
+            ListWait::Proceed | ListWait::Unread => return listed,
+            ListWait::Pause { pause_ms, read_after } => {
+                runner.pause(Duration::from_millis(pause_ms));
+                if !read_after {
+                    continue;
+                }
+                let read = runner.cmux(&words(&["cloud", "list-machines", "--json"]));
+                if let Ok(now) = step_result(&read) {
+                    listed = now;
+                }
+            }
         }
     }
-    listed
 }
 
 /// The pause between reads of the app's machine list while a new machine is being made.
@@ -2321,6 +2362,22 @@ fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadli
 }
 
 pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
+    // A runner with a deadline gives the machine what is left of it as the command's own limit: the remote script
+    // is killed there, whatever happens to this side's wait.
+    let bounded;
+    let script = match runner.until() {
+        None => script,
+        Some(until) => {
+            let left = until.saturating_duration_since(runner.now());
+            match internal::bounded::remote_script(script, left) {
+                Some(wrapped) => {
+                    bounded = wrapped;
+                    bounded.as_str()
+                }
+                None => return Err(internal::bounded::past_deadline()),
+            }
+        }
+    };
     let args = vec![
         "cloud".to_owned(),
         "exec".to_owned(),
