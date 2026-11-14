@@ -301,8 +301,20 @@ impl Hub {
         kinds: &[&str],
         f: &mut dyn FnMut(EventRecord) -> bool,
     ) -> anyhow::Result<()> {
+        self.scan_kinds_after_and_kept(session, 0, kinds, f)
+    }
+
+    /// [`Self::scan_kinds_and_kept`] of the journal records past `after` (a restore point's seq,
+    /// `restore_point.rs`); every kept one is numbered past the journal's end, so all are read.
+    pub(super) fn scan_kinds_after_and_kept(
+        &self,
+        session: &Session,
+        after: u64,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
         let mut going = true;
-        self.store.scan_kinds(&session.id, kinds, &mut |e| {
+        self.store.scan_kinds_after(&session.id, after, kinds, &mut |e| {
             going = f(e);
             going
         })?;
@@ -720,8 +732,10 @@ mod tests {
                     continue;
                 }
                 let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                // A test module in its own file (`mod tests;` beside its source) is a test module.
                 if !rel.ends_with(".rs")
                     || rel.ends_with("_tests.rs")
+                    || rel.ends_with("/tests.rs")
                     || rel.starts_with("store")
                     || allowed.contains(&rel.as_str())
                     || fixtures.iter().any(|f| rel.starts_with(f))

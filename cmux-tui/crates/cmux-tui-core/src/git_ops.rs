@@ -1,9 +1,10 @@
-//! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
+//! `git.diff`, `git.fingerprint`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; a connection's request runs git on the daemon's git lane
 //! (`server/git_lane.rs`), never on the connection's reader thread,
 //! bounded by a deadline and output limits. `git.status` reads the refs only
-//! (`cmux_git::head`), not the work tree. `git.checkpoint.*` captures
+//! (`cmux_git::head`), not the work tree. `git.fingerprint` says if a diff is
+//! still current without making it (`fingerprint`). `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -26,6 +27,7 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
@@ -67,6 +69,9 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host answers `git.fingerprint`.
+pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
+
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
@@ -104,6 +109,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitBranches
             | ResourceOperation::GitFilesSearch
             | ResourceOperation::GitFilesList
+            | ResourceOperation::GitFingerprint
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
             | ResourceOperation::GitWorktreeCreate
@@ -140,11 +146,15 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
+        ResourceOperation::GitFingerprint => "git.fingerprint",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
         return status(&directory);
+    }
+    if operation == "git.fingerprint" {
+        return fingerprint::read(&directory, &request.fields);
     }
     let repository = open_repository(&directory, operation)?;
     match operation {

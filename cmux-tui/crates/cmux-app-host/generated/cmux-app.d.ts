@@ -184,6 +184,8 @@ declare namespace Cmux {
   type GitFileMatch = { path: string; matches: Array<number> }
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
+  type GitFingerprintResult = { fingerprint: string; files_read: number; bytes_read: number }
+  type GitFingerprintScope = "uncommitted" | "unstaged" | "staged" | "branch"
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
@@ -1059,6 +1061,8 @@ interface CmuxGlobal {
       /** `git.files.search` (read, scope `git:read`) */
       search: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; query: string; limit?: number }, Cmux.GitFilesSearchResult>
     }
+    /** `git.fingerprint` (read, scope `git:read`) */
+    fingerprint: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope?: Cmux.GitFingerprintScope }, Cmux.GitFingerprintResult>
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
     /** `git.status` (read, scope `git:read`) */
@@ -1137,16 +1141,6 @@ interface CmuxGlobal {
       /** `integration.policy.get` (read, scope `integration:read`): Read the team's integration policy (allowed providers, GitHub repository scope). */
       get: CmuxOp<Record<string, never>, Cmux.TeamIntegrationPolicy>
     }
-  }
-  integrations: {
-    /** `integrations.connect` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Start connecting a provider; it completes only with a person at the provider. */
-    connect: CmuxOp<{ provider: "github" | "linear" | "slack" }, unknown>
-    /** `integrations.cycle_variant` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Switch to the next Integrations design variant (DEV and NIGHTLY). */
-    cycle_variant: CmuxOp<Record<string, never>, unknown>
-    /** `integrations.import_api` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Add an API from an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list. */
-    import_api: CmuxOp<{ source: string }, unknown>
-    /** `integrations.open` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Open the Integrations pane, or one connection. */
-    open: CmuxOp<{ connection?: string }, unknown>
   }
   invite: {
     /** `invite.approve_join` (mutation, scope `invite:write`): Approve (default) or decline a join that waits for approval (pending_approval). */
@@ -1779,16 +1773,6 @@ interface CmuxGlobal {
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }
-  theme: {
-    scheme: {
-      /** `theme.scheme.convert` (read, scope `theme:read`) */
-      convert: CmuxOp<{ machine?: string; session?: string; text: string; file?: string | null; from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; to?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.export` (read, scope `theme:read`) */
-      export: CmuxOp<{ machine?: string; session?: string; name: string; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.from_image` (read, scope `theme:read`) */
-      from_image: CmuxOp<{ machine?: string; session?: string; width: number; height: number; channels: number; pixels: string; appearance?: "dark" | "light" | null; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeFromImageResult>
-    }
-  }
   thread: {
     /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
     update: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; title?: string; status?: Cmux.HomeThreadStatus; owner?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
@@ -1905,6 +1889,8 @@ interface CmuxGlobal {
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
+  /** Time zones. The sandbox has no Intl and `toLocaleString` ignores `timeZone`: `zone(name, at?)` gives an IANA zone's offset (minutes east of UTC) and short name at `at` (epoch ms, default now). An unknown name throws CmuxError `zone.unknown`. Local time is `new Date(utcMs + offsetMinutes * 60000)` read with the getUTC* methods. */
+  time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null

@@ -8,6 +8,7 @@
 //! Chat actors, peer links and lifecycle code build on these modules in later
 //! PRs. This crate deliberately has no whole-list reply type.
 
+pub mod boot;
 pub mod chat;
 pub mod conn;
 #[cfg(all(test, feature = "allocation-metrics"))]
@@ -80,3 +81,8 @@ pub mod hub;
 pub mod life;
 pub mod registry;
 pub mod wire;
+
+// `acpmux_client::tokio_list` against the hub, in the lib's tests (which CI runs) rather than
+// one more `tests/` binary.
+#[cfg(test)]
+mod tokio_list_tests;
