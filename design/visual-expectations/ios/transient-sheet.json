@@ -1,0 +1,27 @@
+{
+  "id": "transient-sheet",
+  "platform": "ios",
+  "title": "The Team appearance sheet on the transient material (RecoveryGalleryRoot transient-sheet)",
+  "spec": "design/surface-materials.md",
+  "schemes": ["light", "dark"],
+  "tolerance": { "ratio": 0.001, "threshold": 0.1 },
+  "keep": [],
+  "captures": [
+    {
+      "state": "standard-open",
+      "launch": [
+        "-cmux-mobile-recovery-gallery", "transient-sheet",
+        "-cmux-mobile-material-variant", "standard",
+        "-cmux-visual-tap", "transient.openSheet",
+        "-cmux-visual-wait", "Team appearance"
+      ],
+      "keep": [
+        {
+          "name": "sheet header",
+          "why": "The sheet's grabber and navigation bar (Team appearance) sit on the material; their height and title placement change only on purpose.",
+          "box": [0, 60, 402, 100]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "agent-pane.turn-error-card",
+  "title": "Chat: a turn's error card",
+  "spec": "design/turn-error-details.md",
+  "captures": [
+    { "state": "rate-limited", "entry": "agent-pane.turn-error-card", "variant": "rate-limited", "width": 760, "height": 300 },
+    { "state": "server-unreachable", "entry": "agent-pane.turn-error-card", "variant": "server-unreachable", "width": 760, "height": 300 },
+    { "state": "spawn-failed", "entry": "agent-pane.turn-error-card", "variant": "spawn-failed", "width": 760, "height": 300 }
+  ],
+  "keep": []
+}

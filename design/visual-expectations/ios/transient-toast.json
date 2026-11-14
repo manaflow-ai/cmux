@@ -1,0 +1,22 @@
+{
+  "id": "transient-toast",
+  "platform": "ios",
+  "title": "Toasts on the transient material (RecoveryGalleryRoot transient-toast)",
+  "spec": "design/surface-materials.md",
+  "schemes": ["light", "dark"],
+  "tolerance": { "ratio": 0.001, "threshold": 0.1 },
+  "keep": [],
+  "captures": [
+    {
+      "state": "standard",
+      "launch": ["-cmux-mobile-recovery-gallery", "transient-toast", "-cmux-mobile-material-variant", "standard"],
+      "keep": [
+        {
+          "name": "toast stack",
+          "why": "The two toasts (Copied, Couldn't open the tab) are the material under review: their veil, radius and text must not drift without say-so.",
+          "box": [20, 330, 362, 200]
+        }
+      ]
+    }
+  ]
+}

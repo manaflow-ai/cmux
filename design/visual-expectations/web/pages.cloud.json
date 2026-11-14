@@ -1,0 +1,10 @@
+{
+  "id": "pages.cloud",
+  "title": "Cloud page: machines and the create sheet",
+  "spec": "design/transient-material.md",
+  "captures": [
+    { "state": "machines", "entry": "pages.cloud", "variant": "machines", "width": 1000, "height": 680 },
+    { "state": "creating", "entry": "pages.cloud", "variant": "creating", "width": 1000, "height": 680 }
+  ],
+  "keep": []
+}

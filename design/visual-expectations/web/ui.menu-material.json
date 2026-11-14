@@ -1,0 +1,7 @@
+{
+  "id": "ui.menu-material",
+  "title": "Web menu material",
+  "spec": "design/surface-materials.md",
+  "captures": [{ "state": "one", "entry": "ui.menu-material", "variant": "one", "width": 760, "height": 520 }],
+  "keep": []
+}
