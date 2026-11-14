@@ -92,13 +92,19 @@ impl BookTee {
     pub(super) fn mark(&self, session: &Session, seq: u64) {
         session.book_hint.fetch_max(seq, Ordering::Release);
         self.counters.marks.fetch_add(1, Ordering::Relaxed);
-        {
+        // The drain is woken only when the set was empty: one that holds ids has a wake given
+        // since the drain last took from it, so a burst of lines wakes it once.
+        let wake = {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let wake = pending.is_empty();
             if !pending.contains(&session.id) {
                 pending.insert(session.id.clone());
             }
+            wake
+        };
+        if wake {
+            self.notify.notify_one();
         }
-        self.notify.notify_one();
     }
 
     fn take(&self) -> Vec<String> {
