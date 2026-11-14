@@ -44,5 +44,8 @@ pub use managed::{ManagedPreferences, ManagedReader, ManagedSource, Policy, Team
 pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;
 pub use schema::{Row, Schema};
-pub use store::{Change, FileRead, Op, Origin, Outcome, State, Target, WriteMeta, apply};
+pub use store::{
+    Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta,
+    apply,
+};
 pub use watch::{Watcher, watch_store};

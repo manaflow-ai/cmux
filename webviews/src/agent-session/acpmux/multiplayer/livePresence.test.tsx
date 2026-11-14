@@ -3,6 +3,7 @@
 // whole transcript. Leo 2026-10-26: "we can still do the regular chat multiplayer".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -19,7 +20,8 @@ beforeAll(() => {
     Element: dom.window.Element,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

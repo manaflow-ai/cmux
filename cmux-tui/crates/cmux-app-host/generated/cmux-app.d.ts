@@ -25,6 +25,9 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserImportReadError = { kind: string; message: string }
+  type BrowserImportReadResult = { ok?: Cmux.JsonValue | null; error?: Cmux.BrowserImportReadError }
+  type BrowserImportSearchEngine = { name: string; keyword?: string; search: string; suggest?: string }
   type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number; proxy?: Cmux.BrowserProfileProxy }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
@@ -38,6 +41,8 @@ declare namespace Cmux {
   type Budget = { wall_clock_seconds?: number; vm_minutes?: number; model_spend_usd?: unknown; tool_calls?: number }
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
+  type ChatState = "working" | "input" | "idle" | "failed" | "lost"
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string> }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
@@ -52,7 +57,7 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
-  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; classic_running: boolean; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
   type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
@@ -124,13 +129,14 @@ declare namespace Cmux {
   type CreationResolution = { correlation_key: string; state: "pending" | "created" | "not_applied" | "indeterminate"; recovery: "retry_same_idempotency_key" | "retry_new_idempotency_key" | "wait" | "none" | "do_not_retry"; operation?: string; idempotency_key?: string; created_path?: Cmux.CreatedPath; generation?: string; revision?: string }
   type CredentialCheck = { valid: boolean; actor?: string; reason?: "unknown_key" | "credential_invalid" | "credential_malformed" | "credential_foreign_host" | "credential_closed" }
   type CronSpec = { expr: string; tz: string }
-  type Cursor = { generation: string; revision: string }
+  type Cursor = { generation: string; revision: string; live?: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -198,7 +204,7 @@ declare namespace Cmux {
   type GroupPlacement = { kind: "local" | "mini" | "cloud_vm"; host?: string; machine?: string }
   type GroupWorkspaceId = string
   type Handoff = { id: string; to: string; epoch: number; at: number }
-  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string; pending_kinds?: Array<Cmux.HistoryKind> }
   type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
@@ -403,6 +409,8 @@ declare namespace Cmux {
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
   type SettingsChange = { keys: Array<string> }
+  type SettingsEdit = { op: "set" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
+  type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -499,6 +507,10 @@ declare namespace Cmux {
   type TerminalWaitExitPending = { state: "pending"; terminal_id: string /* terminal_… */; lifecycle: "launching" | "running"; revision: string }
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
+  type ThemeScheme = { name: string | null; author: string | null; background: string; foreground: string; cursor: string | null; cursorText: string | null; selectionBackground: string | null; selectionForeground: string | null; palette: Array<string>; accent: string | null; base16: Array<string> }
+  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeSwatch = { color: string; share: number }
+  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -695,6 +707,14 @@ interface CmuxGlobal {
   channel: {
     /** `channel.create` (mutation, scope `channel:write`): Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel. */
     create: CmuxOp<{ title: string; display_name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+  }
+  chat: {
+    /** `chat.list` (read, scope `chat:read`) */
+    list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ChatSummary>>
+    /** `chat.mark_read` (mutation, scope `chat:write`) */
+    mark_read: CmuxOp<{ machine?: string; session?: string; chat: string }, Cmux.MutationResult<Cmux.ChatSummary>>
+    /** `chat.pin` (mutation, scope `chat:write`) */
+    pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean }, Cmux.MutationResult<Cmux.ChatSummary>>
   }
   chief: {
     /** `chief.continue` (mutation, scope `chief:write`) */
@@ -1264,7 +1284,7 @@ interface CmuxGlobal {
     /** `pane.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.split` (mutation, scope `workspace:write`) */
-    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; fit?: boolean; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     split_ratio: {
       /** `pane.split_ratio.set` (mutation, scope `workspace:write`) */
       set: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; split_id: string /* split_… */; ratio: number; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
@@ -1759,6 +1779,16 @@ interface CmuxGlobal {
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }
+  theme: {
+    scheme: {
+      /** `theme.scheme.convert` (read, scope `theme:read`) */
+      convert: CmuxOp<{ machine?: string; session?: string; text: string; file?: string | null; from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; to?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
+      /** `theme.scheme.export` (read, scope `theme:read`) */
+      export: CmuxOp<{ machine?: string; session?: string; name: string; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
+      /** `theme.scheme.from_image` (read, scope `theme:read`) */
+      from_image: CmuxOp<{ machine?: string; session?: string; width: number; height: number; channels: number; pixels: string; appearance?: "dark" | "light" | null; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeFromImageResult>
+    }
+  }
   thread: {
     /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
     update: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; title?: string; status?: Cmux.HomeThreadStatus; owner?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
@@ -1894,6 +1924,8 @@ declare const cmux: CmuxGlobal
 interface CmuxSignalMap {
   /** `agent.list`: The agents of the current session and their state (agent.list). The daemon pushes agent.changed when an agent's state changes, so the runtime never polls it. Scope: any of `agent:read`; pushed by `agent.changed`. */
   "agent.list": { params: { state?: string }; value: Array<Cmux.AgentSnapshot> }
+  /** `chat.list`: Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it. Scope: any of `chat:read`; pushed by `chat.changed`. */
+  "chat.list": { params: {  }; value: Array<Cmux.ChatSummary> }
   /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it. Scope: any of `integration:github:read`, `net:api.github.com`; polled every 300 s (never faster than 60 s): nothing pushes it yet. */
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */

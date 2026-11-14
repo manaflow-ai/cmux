@@ -88,6 +88,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
+    /// The panel's own window while it floats (``ChiefLauncherPanel``); nil keeps a floating panel in the window.
+    public let launcher: ChiefLauncherPanel?
 
     private enum Chrome { case bar, strip, rest }
     private let backdrop = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
@@ -114,12 +116,16 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     private var press: (start: NSPoint, frame: NSRect, expanded: NSRect, edges: Set<NSRectEdge>, moved: Bool)?
     private var styleTask: Task<Void, Never>?
     private var sourced: Look?
+    /// The cmux window's content the panel was last mounted for.
+    private weak var mountHost: NSView?
 
     /// - Parameters:
     ///   - title: The bar's name of the Chief.
+    ///   - launcher: The window the panel floats in, over every app; nil floats it inside the window.
     ///   - actions: The bar's buttons and the hand moves.
-    public init(title: String, actions: Actions) {
+    public init(title: String, launcher: ChiefLauncherPanel? = nil, actions: Actions) {
         self.title = NSTextField(labelWithString: title)
+        self.launcher = launcher
         self.actions = actions
         super.init(frame: .zero)
         wantsLayer = true
@@ -175,10 +181,16 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     required init?(coder: NSCoder) { nil }
 
     override public var isFlipped: Bool { true }
-    override public var mouseDownCanMoveWindow: Bool { false }
+    /// In its own window the panel's empty space drags the window (``ChiefLauncherPanel``); in the cmux window only
+    /// its grip moves it.
+    override public var mouseDownCanMoveWindow: Bool { inLauncher }
     /// The grip and the rim (the presses ``hitTest(_:)`` keeps for the panel) move or resize it on the first click,
     /// as a title bar does, even while another window holds the keys: without it that click only made the window key.
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { floating }
+
+    /// Floating in its own window (``launcher``), not in the cmux window: the window moves and resizes, the panel
+    /// fills it.
+    private var inLauncher: Bool { launcher.map { superview === $0.contentView } ?? false }
 
     /// A press in the window's top row on a floating panel moves the panel, never the window; on a docked panel's
     /// bar it moves the window, as any titlebar background does.
@@ -214,6 +226,36 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         super.viewDidMoveToSuperview()
         if superview != nil { actions.opened() }
     }
+
+    /// Puts the panel on screen for the window whose content is `host`: floating, in its own window over every app
+    /// (``launcher``); docked (or with no launcher), in `host`.
+    public func mount(in host: NSView) {
+        mountHost = host
+        if floating, let launcher {
+            launcher.onDismiss = { [weak self] in self?.actions.hide() }
+            launcher.onFirstResponderChange = { [weak self] in self?.firstResponderDidChange() }
+            launcher.present(self)
+            applyShape()
+        } else {
+            launcher?.dismiss()
+            if superview !== host { host.addSubview(self) }
+        }
+    }
+
+    /// Takes the panel off screen, its own window too.
+    public func unmount() {
+        launcher?.dismiss()
+        removeFromSuperview()
+    }
+
+    /// Takes the panel down and closes its own window for good: the window it served closes.
+    public func closeLauncher() {
+        unmount()
+        launcher?.close()
+    }
+
+    /// Whether the panel shows for the window whose content is `host`: in it, or in its own window.
+    public func isShown(in host: NSView) -> Bool { superview === host || inLauncher && launcher?.isVisible == true }
 
     /// Floating or docked: the corners, the shadow and the Dock/Float button follow.
     public func setFloating(_ floating: Bool) {
@@ -262,10 +304,19 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         holdsOpen = true
         applyShape()
         layoutSubtreeIfNeeded()
+        if inLauncher { launcher?.takeKeys() }
         if !window.makeFirstResponder(target ?? firstKeyView(in: chief) ?? chief), !hasKeys {
             holdsOpen = false
             applyShape()
         }
+    }
+
+    /// The stage takes the keys back (a pane focus move out of the Chief): floating in its own window, the Chief
+    /// gives them up and the cmux window `window` takes them, so the Chief's window hides as on a click outside.
+    public func yieldKeys(to window: NSWindow) {
+        guard inLauncher, let launcher else { return }
+        if hasKeys { launcher.makeFirstResponder(nil) }
+        if launcher.isKeyWindow { WindowActivation.show(window, .raise) }
     }
 
     /// Places the panel for `panel` in its superview's `bounds` (y up) and returns the stage's area (y down): all
@@ -281,7 +332,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         case .bottom?: stage.size.height = max(0, stage.height - gap)
         case nil: rect = panel.floatingFrame.rect(in: size, minimum: leastFloating)
         }
-        guard press == nil else { return stage }
+        guard press == nil, !inLauncher else { return stage } // in its own window, the window places it
         expanded = CGRect(x: rect.minX, y: size.height - rect.maxY, width: rect.width, height: rect.height).integral
         applyShape()
         return stage
@@ -294,12 +345,14 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         case (.left?, .left), (.right?, .right), (.top?, .up), (.bottom?, .down): return true
         case (.some, _): return false
         case (nil, _):
-            guard let host = superview?.bounds else { return false }
-            switch direction { // the superview's y runs up
-            case .left: return frame.midX < host.midX
-            case .right: return frame.midX >= host.midX
-            case .up: return frame.midY >= host.midY
-            case .down: return frame.midY < host.midY
+            // In its own window: where that window lies from the cmux window's middle, on the screen (y up).
+            let (me, host) = inLauncher ? (launcher?.frame, mountHost?.window?.frame) : (frame, superview?.bounds)
+            guard let me, let host else { return false }
+            switch direction { // y runs up
+            case .left: return me.midX < host.midX
+            case .right: return me.midX >= host.midX
+            case .up: return me.midY >= host.midY
+            case .down: return me.midY < host.midY
             }
         }
     }
@@ -319,7 +372,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         switch style {
         case .panel: return .bar
         case .card, .seeThrough: return .strip
-        case .composeBar, .pill, .bubble, .seeThroughBar: return holdsOpen || hasKeys ? .strip : .rest
+        // In its own window it shows only while in use (a click outside hides it): never a resting shape there.
+        case .composeBar, .pill, .bubble, .seeThroughBar: return holdsOpen || hasKeys || inLauncher ? .strip : .rest
         }
     }
 
@@ -386,11 +440,13 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     private func applyShape() {
+        if inLauncher, let host = superview?.bounds { expanded = host } // its window is its place
         guard superview != nil, expanded.width > 0 else { needsLayout = true; return }
         let chrome = chrome
-        let shown = !floating ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
+        let shown = !floating || inLauncher ? expanded : chrome == .rest ? rest(in: expanded) : style.collapses ? grown(from: expanded) : expanded
         if frame != shown { frame = shown }
-        let card = Self.cardCornerRadius
+        // In its own window it is the window's shape: a window's corners. In the cmux window, a card's.
+        let card = inLauncher ? Metrics.standardWindowCornerRadius : Self.cardCornerRadius
         let radius: CGFloat = !floating ? 0 : chrome == .rest ? min(shown.height / 2, restsAsBar ? card : shown.height / 2) : card
         backdrop.cornerRadius = radius
         header.layer?.cornerRadius = card
@@ -411,7 +467,13 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         gripMark.isHidden = chrome != .rest || style == .bubble
         chiefMark.isHidden = !(chrome == .rest && style == .bubble)
         window?.invalidateCursorRects(for: self)
+        if inLauncher { window?.invalidateShadow() } // the shadow follows the rounded shape the window draws
         needsLayout = true
+    }
+
+    override public func resize(withOldSuperviewSize oldSize: NSSize) {
+        super.resize(withOldSuperviewSize: oldSize)
+        if inLauncher { applyShape() }
     }
 
     override public func layout() {
@@ -515,7 +577,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        guard floating, let superview, frame.contains(point) else { return super.hitTest(point) }
+        // In its own window the window moves and resizes itself (``ChiefLauncherPanel``).
+        guard floating, !inLauncher, let superview, frame.contains(point) else { return super.hitTest(point) }
         let local = convert(point, from: superview)
         // The rim's resize band and the grip's empty space are the panel's own: they move or resize it.
         if !resizeEdges(at: local).isEmpty { return self }
@@ -525,7 +588,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     override public func mouseDown(with event: NSEvent) {
-        guard floating, let superview else { return super.mouseDown(with: event) }
+        guard floating, !inLauncher, let superview else { return super.mouseDown(with: event) }
         press = (superview.convert(event.locationInWindow, from: nil), frame, expanded, resizeEdges(at: convert(event.locationInWindow, from: nil)), false)
     }
 
@@ -561,7 +624,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     override public func resetCursorRects() {
-        guard floating else { return }
+        guard floating, !inLauncher else { return }
         addCursorRect(bar.frame, cursor: .openHand)
         guard chrome != .rest else { return }
         let b = Self.resizeBand

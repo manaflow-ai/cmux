@@ -22,11 +22,26 @@ public final class AgentChatSurface {
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
     var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
@@ -572,7 +587,10 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if !store.hasTurns {
+        if store.isLoadingHistory, !store.hasTurns {
+            // An existing chat whose history is on its way: never the new-chat prompt.
+            AgentChatLoadingState(store: store)
+        } else if store.isNewChat {
             VStack(spacing: 12) {
                 // The agent's own mark (the Claude or Codex logo), not a generic glyph.
                 AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
@@ -583,6 +601,46 @@ struct AgentChatEmptyState: View {
             }
             .multilineTextAlignment(.center)
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// An existing chat's history is on its way and none is kept on this phone yet: a spinner
+/// with what it waits for (the Mac's link, or its reply), in the empty state's place.
+struct AgentChatLoadingState: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        VStack(spacing: 12) {
+            CmuxSpinner()
+            Text(store.summary.status == .disconnected
+                 ? "Connecting to \(store.summary.macName)…"
+                 : "Loading chat…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agentChat.loadingHistory")
+    }
+}
+
+/// Kept rows show while the chat is away from the Mac or catches up with it; after
+/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
+/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+struct AgentChatConnectionLine: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        if let line = store.connectionLine {
+            Text(verbatim: line)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("agentChat.connectionLine")
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 }
@@ -645,7 +703,6 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -662,44 +719,22 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
+                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -738,7 +773,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
@@ -761,11 +795,21 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                    let spring = Animation.cmuxMobileSmooth.unlessReduceMotion
+                    if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
+                        // Not animated (the first height, an instant placement, or Reduce
+                        // Motion), so `DrawnHeightReporter` gets no frame for it and its onAppear
+                        // ran at 0: hand the height over here. Without it a tab's jump-to-bottom
+                        // circle stayed on the dock guide's 96 pt default, 40 pt above a 56 pt
+                        // composer, until some later animated change (CMUX-10).
+                        if frame.height > 0 {
+                            surface.drawnStackHeight = frame.height
+                            surface.stackHeightFrame?(frame.height)
+                        }
                     } else {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
+                        withAnimation(spring) { reportedHeight = frame.height }
                     }
                 }
             }
@@ -931,9 +975,13 @@ struct UserBubble: View {
                     }
                 }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+
+    /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
+    /// run a prompt's lines across most of it. The native row measures with the same rule.
+    nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
 }
 
 extension UserBubble {

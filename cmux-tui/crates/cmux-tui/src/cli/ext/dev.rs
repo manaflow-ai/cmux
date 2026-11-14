@@ -13,6 +13,11 @@
 //! preview mount when it is not installed) to learn whether the new script
 //! loads and renders, and unmounts it. The daemon says where its local
 //! folder is in `apps-list` (`local_dir`).
+//!
+//! Before each build it asks the daemon for its capability manifest's digest
+//! (`apps-capabilities {brief}`) and, when the running cmux's typed global
+//! differs from the project's `cmux-app.d.ts`, writes the live one there, so
+//! the types the editor checks against are the API the daemon serves.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -37,11 +42,13 @@ pub(super) const DEBOUNCE: Duration = Duration::from_millis(120);
 /// build stops with a build error instead of holding the loop.
 pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// How long the daemon may take to pick up a copied change.
-const PICKUP_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the daemon may take to pick up a copied change: a hang breaker only, so a busy daemon's
+/// slow pickup is waited for, not reported as a failed reload.
+const PICKUP_DEADLINE: Duration = Duration::from_secs(30);
 
-/// How long the load check may take (the daemon's own trial waits 5 s).
-const PROBE_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the load check may take (the daemon's own trial waits 5 s): a hang breaker only, as
+/// `PICKUP_DEADLINE`.
+const PROBE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Package files copied per reload (a runaway folder costs no more).
 const MAX_FILES: usize = 2_000;
@@ -649,6 +656,28 @@ pub(super) fn fingerprint(dir: &Path) -> u64 {
     hasher.finish()
 }
 
+/// The typed app global in an extension folder (`cmux ext new` writes it).
+pub(super) const TYPES_FILE: &str = "cmux-app.d.ts";
+
+/// Writes `types` to `dir/cmux-app.d.ts` when the folder uses the types (the
+/// file is there, or a `src/` folder) and the text differs; by an atomic
+/// rename. `Ok(true)` when it wrote.
+pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
+    let path = dir.join(TYPES_FILE);
+    let current = std::fs::read_to_string(&path).ok();
+    if current.is_none() && !dir.join("src").is_dir() {
+        return Ok(false);
+    }
+    if current.as_deref() == Some(types) {
+        return Ok(false);
+    }
+    // A dot name: the watch and the fingerprint skip it.
+    let staged = dir.join(format!(".{TYPES_FILE}.cmux-ext-dev"));
+    std::fs::write(&staged, types)?;
+    std::fs::rename(&staged, &path)?;
+    Ok(true)
+}
+
 /// Where each contribution shows, from the manifest.
 fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
@@ -666,8 +695,6 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
-                "cmux.chat.widget/1" => "chat messages that name the app".into(),
-                "cmux.newtab.widget/1" => "the new tab page".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 other => other.to_string(),
             };
@@ -680,13 +707,7 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 5] = [
-        "cmux.section/1",
-        "cmux.newtab.widget/1",
-        "cmux.pane/1",
-        "cmux.session.info.section/1",
-        "cmux.chat.widget/1",
-    ];
+    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -709,10 +730,14 @@ pub(super) struct Outcome {
     pub installed: Option<bool>,
     pub placed: Vec<Value>,
     pub probe: Option<String>,
+    /// The outline of the probe's first scene (`scene.rs`): what the view rendered.
+    pub scene: Vec<String>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
     pub interrupted: bool,
+    /// `cmux-app.d.ts` was rewritten from the running cmux (API version).
+    pub types_updated: Option<String>,
 }
 
 impl Outcome {
@@ -730,9 +755,11 @@ impl Outcome {
             installed: None,
             placed: Vec::new(),
             probe: None,
+            scene: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
+            types_updated: None,
         }
     }
 
@@ -768,8 +795,10 @@ impl Outcome {
             "installed": self.installed,
             "placed": self.placed,
             "probe": self.probe,
+            "scene": self.scene,
             "logs": self.logs,
             "next": self.next,
+            "typesUpdated": self.types_updated,
         })
     }
 
@@ -797,6 +826,9 @@ impl Outcome {
                 }
                 if self.installed == Some(false) {
                     line.push_str(", as a preview (not installed)");
+                }
+                if let Some(version) = &self.types_updated {
+                    line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
                 }
                 line
             }
@@ -826,6 +858,9 @@ pub(super) struct Session {
     /// The folder's fingerprint right after the last build: what that
     /// reload loaded (its own build output included).
     pub built_print: Option<u64>,
+    /// The daemon's types digest the project's `cmux-app.d.ts` was last
+    /// checked against: the whole manifest is fetched only when it moves.
+    types_digest: Option<String>,
 }
 
 impl Session {
@@ -841,7 +876,28 @@ impl Session {
             probes: 0,
             last: None,
             built_print: None,
+            types_digest: None,
         }
+    }
+
+    /// Hot reload of the API itself: when the running cmux's typed global
+    /// (`apps-capabilities`) differs from the project's `cmux-app.d.ts`,
+    /// writes the live one. Checked on start and whenever the daemon's
+    /// digest moves; an older daemon without the manifest changes nothing.
+    /// Returns the API version when it wrote the file.
+    fn refresh_types(&mut self) -> Option<String> {
+        let brief =
+            self.daemon.call(json!({ "cmd": "apps-capabilities", "brief": true })).ok()?.ok()?;
+        let digest = brief.field("typesDigest").as_str()?.to_string();
+        if self.types_digest.as_deref() == Some(digest.as_str()) {
+            return None;
+        }
+        let manifest = self.daemon.call(json!({ "cmd": "apps-capabilities" })).ok()?.ok()?;
+        let types = manifest.field("types").as_str()?;
+        let version = manifest.field("apiVersion").as_str().unwrap_or_default().to_string();
+        let wrote = write_types(&self.dir, types).ok()?;
+        self.types_digest = Some(digest);
+        wrote.then_some(version)
     }
 
     /// Validate, build, copy, wait for the daemon's reload, check the load.
@@ -855,6 +911,9 @@ impl Session {
             Err(errors) => return outcome.failed(Phase::Manifest, errors),
         };
         outcome.app = Some(pkg.id.clone());
+        // Before the build, so the build checks against the live API and the
+        // fingerprint below includes the rewritten file (no second reload).
+        outcome.types_updated = self.refresh_types();
         let plan = build_plan(&pkg, self.build.as_deref(), self.bun.as_deref());
         outcome.build = match &plan {
             BuildPlan::Command(_) => Some("command"),
@@ -951,7 +1010,7 @@ impl Session {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
                 match self.probe(&pkg.id, &interface, !installed) {
-                    Ok(Ok(())) => {}
+                    Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
                         return outcome.failed(Phase::Load, vec![problem]);
@@ -1042,14 +1101,14 @@ impl Session {
         })
     }
 
-    /// Mounts `interface` once and waits for its first scene (loaded) or its
-    /// failure (the load error); then unmounts it.
+    /// Mounts `interface` once and waits for its first scene (loaded: its op
+    /// batch) or its failure (the load error); then unmounts it.
     fn probe(
         &mut self,
         id: &str,
         interface: &str,
         preview: bool,
-    ) -> Result<Result<(), Problem>, Stop> {
+    ) -> Result<Result<Value, Problem>, Stop> {
         self.probes += 1;
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
         let mut context = json!({});
@@ -1072,7 +1131,7 @@ impl Session {
                 return None;
             }
             match value.field("event").as_str()? {
-                "apps-scene" => Some(Ok(())),
+                "apps-scene" => Some(Ok(value.field("ops").clone())),
                 "apps-mount-failed" => {
                     Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }

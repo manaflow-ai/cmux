@@ -86,12 +86,10 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
   });
 
   /// The transcript's column at an effective scale, in device px: Chat Text Width's 800 (at least 720,
-  /// capped by the pane; conversation.css --cv-column), its insets on whole pixels (`--cv-inset`).
+  /// capped by the pane; conversation.css --cv-column), with fractional insets (`--cv-inset`).
   const transcriptBox = (effectiveScale: number): Box => {
-    const pane = Math.round(PANE / effectiveScale);
-    const span = Math.min(800 / effectiveScale, Math.max(720 / effectiveScale, pane));
-    const inset = Math.round((pane - span) / 2);
-    return { left: inset * effectiveScale, width: (pane - 2 * inset) * effectiveScale };
+    const pane = Math.round(PANE / effectiveScale) * effectiveScale;
+    return { left: (pane - 800) / 2, width: 800 };
   };
 
   test("the chat column and New Tab composer share one column across scale combinations", async () => {
@@ -108,22 +106,28 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
       // The New Tab composer takes the transcript's column, so Home's composer and the chat line up
-      // (#34103): its inset rounds the same way.
+      // (#34103): both keep the same fractional inset.
       expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.width, -0.5);
       expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.left, -0.5);
     }
   });
 
-  test("a native-style scale update keeps the live column geometry in sync", async () => {
-    const effectiveScale = 1.5 * 1.25;
-    const page = await open("agent-pane.chat-width", "standard", 1, 1);
-    const before = await measure(page, ".acpmux-row", 1);
-    await page.setViewportSize({ width: Math.round(PANE / effectiveScale), height: Math.round(900 / effectiveScale) });
-    await publishNativePageZoom(page, 1.5, 1.25);
-    const after = await measure(page, ".acpmux-row", effectiveScale);
-    await page.close();
-    expect(before.width).toBeCloseTo(transcriptBox(1).width, -0.5);
-    expect(after.width).toBeCloseTo(transcriptBox(effectiveScale).width, -0.5);
-    expect(after.left).toBeCloseTo(transcriptBox(effectiveScale).left, -0.5);
+  test("repeated native-style zoom steps keep the live chat and composer edges still", async () => {
+    const steps = Array.from({ length: 16 }, (_, index) => (index + 5) / 10);
+    const zooms = [...steps, ...[...steps].reverse()];
+    for (const [entry, variant, selector] of [
+      ["agent-pane.chat-width", "standard", ".acpmux-row"],
+      ["agent-pane.new-tab", "chats-unavailable", ".nt-box"],
+    ] as const) {
+      const page = await open(entry, variant, 1, 1);
+      for (const scale of zooms) {
+        await page.setViewportSize({ width: Math.round(PANE / scale), height: Math.round(900 / scale) });
+        await publishNativePageZoom(page, 1, scale);
+        const drawn = await measure(page, selector, scale);
+        expect(Math.abs(drawn.width - 800), `${entry} width at ${scale}`).toBeLessThan(0.1);
+        expect(Math.abs(drawn.left - transcriptBox(scale).left), `${entry} inset at ${scale}`).toBeLessThan(0.1);
+      }
+      await page.close();
+    }
   });
 });

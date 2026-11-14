@@ -1,3 +1,4 @@
+import CmuxConnectivityTelemetry
 import class CmuxMobileModel.ConnectTimeline
 import enum CmuxMobileModel.DeveloperOptions
 import CmuxMobileTransport
@@ -30,13 +31,16 @@ public final class LinkController {
     /// The last dial was refused with 401: the next dial mints a fresh token.
     @ObservationIgnored private var refreshTokenNextDial = false
     @ObservationIgnored private let clock: any Clock<Duration>
+    /// Every dial, phase, probe, drop and roam, for connectivity telemetry (team: verbose).
+    @ObservationIgnored private let events: LinkConnectivityEvents
     @ObservationIgnored private var dialTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored private var probeTask: Task<Void, Never>?
-    /// Foreground silence is detected within 5 s: 2.5 s until a probe,
-    /// 2 s for any inbound frame, and 0.5 s grace for the FFI boundary.
+    /// Foreground silence is detected within 5 s: 2.5 s of quiet until a
+    /// probe, 2 s for any inbound frame, and 0.5 s grace for the FFI
+    /// boundary. A link that received a frame within the beat is not probed.
     nonisolated static let heartbeat: Duration = .milliseconds(2500)
     nonisolated static let probeTimeout: Duration = .seconds(2)
     nonisolated static let backgroundHeartbeat: Duration = .seconds(15)
@@ -53,6 +57,19 @@ public final class LinkController {
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
+    /// Every phase change and every drop of a live link, for the connectivity incident detector.
+    @ObservationIgnored public var onSignal: (@MainActor (LinkSignal) -> Void)?
+
+    /// What ``onSignal`` reports.
+    public enum LinkSignal: Equatable, Sendable {
+        case phase(LinkMachine.Phase)
+        /// A live link died under the phone (its stream ended or a probe went unanswered); deliberate
+        /// redials (a resume, a transport switch, a retarget) are not drops.
+        case dropped(reason: String)
+        /// A dial failed (not one a newer dial cancelled); the first is retried at once, without a
+        /// waiting phase, so this is where its reason is seen.
+        case dialFailed(reason: String)
+    }
     /// Runs right after a dial, in the same detached step (no main actor):
     /// the coordinator opens the channels it needs first (`auth`, `daemon`)
     /// and sends its setup batch, so the live list needs no main-actor turn
@@ -74,11 +91,13 @@ public final class LinkController {
         blockUDP: Bool = false,
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
+        telemetry: ConnectivityTelemetry = .shared,
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
         machine = LinkMachine(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP)
         self.dialer = dialer
         self.clock = clock
+        self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
     }
 
@@ -105,7 +124,7 @@ public final class LinkController {
     /// launch the main actor is busy drawing the first frames, and the dial
     /// waited for it twice, about 0.45 s). Only adopting the link needs it.
     private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
-                                            forceRefresh: Bool,
+                                            forceRefresh: Bool, events: LinkConnectivityEvents,
                                             accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
         let token = try await accessToken(forceRefresh)
         ConnectTimeline.shared.mark("token_ready")
@@ -113,8 +132,10 @@ public final class LinkController {
         if let timed = link as? any TimedMacLink {
             let steps = timed.timings.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " ")
             ConnectTimeline.shared.mark("link_connected", detail: steps)
+            events.connected(timed.timings)
         } else {
             ConnectTimeline.shared.mark("link_connected")
+            events.connected([])
         }
         return link
     }
@@ -132,6 +153,7 @@ public final class LinkController {
         let dialer = dialer
         let accessToken = accessToken
         let clock = clock
+        let events = events
         networkTask = Task { [weak self] in
             do { try await clock.sleep(for: Self.networkSettle) } catch { return }
             ConnectTimeline.shared.mark("network_changed")
@@ -142,6 +164,7 @@ public final class LinkController {
             }.value
             log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
             ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+            events.roamed(steps)
             guard let self, !Task.isCancelled else { return }
             self.send(.networkChanged)
         }
@@ -157,16 +180,26 @@ public final class LinkController {
 
     public func send(_ event: LinkMachine.Event) {
         let wasBackgrounded = machine.isBackgrounded
+        let wasConnected = machine.phase.isConnected
         let effects = machine.handle(event)
+        switch event {
+        case .linkDropped(_, let reason), .probeFailed(_, let reason):
+            if wasConnected, !machine.phase.isConnected { onSignal?(.dropped(reason: reason)) }
+        default:
+            break
+        }
         quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
+            events.phaseChanged(phase, macID: machine.target?.macID)
+            onSignal?(.phase(phase))
         }
         if media != machine.media {
             log.info("link media \(String(describing: self.machine.media), privacy: .public)")
             ConnectTimeline.shared.mark("media", detail: String(describing: machine.media))
             media = machine.media
+            events.media(media)
         }
         if case .waiting(_, _, let reason, _) = machine.phase { lastFailure = reason }
         if machine.phase.isConnected { lastFailure = nil }
@@ -197,6 +230,7 @@ public final class LinkController {
             dialTask?.cancel()
             retryTask?.cancel()
             guard var endpoint = endpoint(macID) else {
+                events.dialSkipped(macID: macID)
                 send(.dialFailed(generation: generation, reason: "not registered yet"))
                 return
             }
@@ -209,6 +243,8 @@ public final class LinkController {
             let forceRefresh = refreshTokenNextDial
             refreshTokenNextDial = false
             ConnectTimeline.shared.mark("dial_start", detail: transport.rawValue)
+            events.dialStarted(transport: transport, endpoint: endpoint)
+            let events = events
             // The token, the dial and the coordinator's first channels start
             // now, off the main actor; this task (main actor) only waits for
             // the link and adopts it.
@@ -216,7 +252,7 @@ public final class LinkController {
             let macDeviceID = endpoint.macDeviceID
             let work = Task.detached { () async throws -> (link: any MacLink, prepared: (any Sendable)?) in
                 let link = try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
-                                                  forceRefresh: forceRefresh, accessToken: accessToken)
+                                                  forceRefresh: forceRefresh, events: events, accessToken: accessToken)
                 guard let prepare, !Task.isCancelled else { return (link, nil) }
                 return (link, await prepare(link, macDeviceID))
             }
@@ -235,6 +271,11 @@ public final class LinkController {
                     self.adopt(link, generation: generation)
                 } catch {
                     log.error("dial failed: \(String(describing: error), privacy: .public)")
+                    // A dial cancelled by a newer one (re-target, foreground) is not a failure.
+                    if !Task.isCancelled, !(error is CancellationError), generation == self?.machine.generation {
+                        events.dialFailed(error, transport: transport)
+                        self?.onSignal?(.dialFailed(reason: Self.reason(error)))
+                    }
                     if Self.sessionRevoked(error, afterRefresh: forceRefresh) {
                         // A fresh token was refused too: the account's session is
                         // gone, and no redial can fix that (matrix cell
@@ -277,6 +318,7 @@ public final class LinkController {
             }
             guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
             self.probeTask = nil
+            self.events.probed(result)
             switch result {
             case .success(let rtt):
                 ConnectTimeline.shared.mark("link_alive", detail: rtt.map { "\($0) ms" } ?? "traffic")
@@ -307,6 +349,7 @@ public final class LinkController {
                     self.send(.mediaUpdated(generation: generation, state))
                 case .disconnected(let reason):
                     log.info("link dropped: \(reason, privacy: .public)")
+                    self.events.dropped(reason: reason)
                     self.send(.linkDropped(generation: generation, reason: reason))
                 case .idle, .connecting:
                     break
@@ -336,9 +379,21 @@ public final class LinkController {
         let clock = clock
         let interval = machine.isBackgrounded ? Self.backgroundHeartbeat : Self.heartbeat
         heartbeatTask = Task { [weak self] in
+            var wait = interval
             while !Task.isCancelled {
-                do { try await clock.sleep(for: interval) } catch { return }
+                do { try await clock.sleep(for: wait) } catch { return }
                 guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
+                // A frame from the Mac within the beat proves the link alive as
+                // a pong would: probe only a link quiet for a whole beat, and
+                // look again one beat after its last frame. Silence is then
+                // probed as soon as it lasts a beat, so the 5 s bound holds
+                // from the last frame, while a busy link (a streaming turn,
+                // terminal output) sends no probes at all.
+                if let quiet = self.link?.receivedAgo, quiet < interval {
+                    wait = interval - quiet
+                    continue
+                }
+                wait = interval
                 self.run(.probe(generation: generation))
             }
         }

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7a7b3e8bc2a6eb6d12e276c8073c3200a6b8d9a9bfd1b0403217c18c6323aee8",
+  "catalog_sha256": "47a22221950420d74276eb623f4a6aef32828f4a508749f641b620b3d746375c",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -94,6 +94,18 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
+    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -175,7 +187,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -335,6 +353,9 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -721,6 +742,9 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
       "class": "read"
     },
@@ -965,6 +989,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

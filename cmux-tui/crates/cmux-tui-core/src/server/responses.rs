@@ -51,7 +51,8 @@ pub(super) fn send_request_error_with_delivery(
 }
 
 pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool {
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    writer.send_control(&response.into_value()).is_ok()
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
@@ -65,7 +66,8 @@ pub(super) fn send_response_with_details(
     retryable: Option<bool>,
     details: Option<Value>,
 ) -> bool {
-    let Ok(mut value) = serde_json::to_value(response) else { return false };
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    let mut value = response.into_value();
     if let Some(reason) = reason {
         value.insert("reason", Value::String(reason));
     }
@@ -76,6 +78,17 @@ pub(super) fn send_response_with_details(
         value.insert("error_details", details);
     }
     writer.send_control(&value).is_ok()
+}
+
+/// [`send_response_with_details`] of a successful `list-workspaces` reply whose tree is its
+/// build's shared text: the same bytes (tree_reply_text.rs).
+pub(super) fn send_tree_reply(
+    writer: &MessageWriter,
+    response: Response,
+    tree: &super::tree_reply_text::TreeReply,
+) -> bool {
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    writer.send_tree_reply(tree, response.id.as_ref()).is_ok()
 }
 
 /// The stable `error_code` of a rejected command, when its error has one.

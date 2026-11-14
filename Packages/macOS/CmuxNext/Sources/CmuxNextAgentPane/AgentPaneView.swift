@@ -72,6 +72,9 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
+    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
+    /// person, so its prompts would reach the agent as an unverified sender's.
+    var personUnprovenNotice: AgentPaneNotice?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -111,8 +114,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
-    /// The indicator while Computer use can act as me is on (``AgentPaneActAsMeBadge``); nil without the app's grant.
-    var actAsMeBadge: AgentPaneActAsMeBadge?
+    /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
+    let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
@@ -277,6 +280,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
@@ -331,8 +335,6 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        // Only the page host draws the outside-dictation mark; the old host has no event stream.
-        model.onWatchMicrophone = { [weak self] on in self?.watchMicrophone(on) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
@@ -368,6 +370,10 @@ public final class AgentPaneView: NSView {
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
+        model.onToast = { [weak self] toast in
+            guard let window = self?.window else { return }
+            CmuxToastCenter.shared.show(toast, in: window)
+        }
         installHostGlass()
     }
 
@@ -412,7 +418,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -436,7 +442,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
-            actAsMeBadge?.stop()
+            actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }
@@ -447,7 +453,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        let frame = topBar.contentFrame(in: bounds)
+        let frame = topBar.pageFrame(in: bounds)
         // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
         let shown = holdsPageAway ? heldPageFrame(of: frame) : frame
         if let page {
@@ -517,29 +523,8 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
-    /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
-    var microphoneActivity: MicrophoneActivity?
-
-    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
-    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
-    func watchMicrophone(_ on: Bool) {
-        guard let microphoneActivity else { return }
-        guard on, let pageEvents else {
-            microphoneActivity.unwatch(self)
-            return
-        }
-        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
-            // A level is stale at once: with no page subscribed, none is buffered for later.
-            guard let pageEvents, pageEvents.hasSubscribers else { return }
-            _ = pageEvents.publish(.micLevel(level))
-        }, onChange: { [weak pageEvents] state in
-            _ = pageEvents?.publish(.micActivity(state))
-        })
-    }
-
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
-        microphoneActivity?.unwatch(self)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -569,6 +554,8 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
+        model.transport.onPersonProof = nil
+        model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil

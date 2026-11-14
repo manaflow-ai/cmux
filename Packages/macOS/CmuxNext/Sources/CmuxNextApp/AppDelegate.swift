@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
     private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
+    private var launchSnapshot: Task<LaunchSnapshot?, Never>?  // started in `main` (readAtLaunch); nil once the launch took its result
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -84,8 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
-         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment; self.cloudEnvironment = cloudEnvironment
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+        self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
@@ -96,22 +97,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
+            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited")  // suspends for the read; the daemon's start reads no file
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
-                try Task.checkCancellation()
+                try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-                finishLaunching(); await firstFrame.opened(); await refresh()
+                finishLaunching(snapshot); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -122,16 +121,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-                finishLaunching()
+                finishLaunching(snapshot)
             }
             cloudBootstrap = nil
         }
     }
 
-    private func finishLaunching() {
+    private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) {
+        daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+            terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
+            resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -207,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
@@ -216,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.healthFeeds.start() // app health: before the daemon's first ensure
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
-                              resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
+                              resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart, launchSnapshot: launchSnapshot)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
@@ -249,9 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
         // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' and toasts' pages, so the first Set Icon, dialog and toast open warm.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm(); services?.toasts.prewarm() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
@@ -363,7 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
-        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
@@ -389,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
+        services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
@@ -426,7 +425,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
-                control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
@@ -571,7 +569,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
-        services?.mobile.stop()
         services?.iphone.stop()
         services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
@@ -586,16 +583,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
+    /// A Dock click or an open of the running app (a launcher, Finder, `open -a`, a second launch), with or without a window
+    /// on screen (`reopenOrCreateWindow`): a window it has comes forward; only with none does one come back or open.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        // A Dock click in an update relaunch's startup: the user chose cmux.
-        services?.input.endRelaunchBehind("dock click", activating: true)
-        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
-        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.endRelaunchBehind("dock click", activating: true) // in an update relaunch's startup: the user chose cmux
+        // Under CMUX_NEXT_NO_ACTIVATE=1 too the user chose cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
         services?.input.noteReopenRequested()
-        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
-        services.windows.reopenOrCreateWindow()
+        services?.windows.reopenOrCreateWindow()
         return false
     }
 }

@@ -86,6 +86,10 @@ pub struct Chain {
     pub harness: Option<(String, u32)>,
     /// The bundle's name (`Claude.app`) and path.
     pub app: Option<(String, String)>,
+    /// The file name of the first tool an app only ships that the walk went past (`Python`, for
+    /// Xcode's python): no app's own code ([`app_bundle`]), yet a program, so a send under it is a
+    /// tool's and never the person's plain shell ([`from_chain`]).
+    pub shipped: Option<String>,
 }
 
 /// The claim this process makes, from its environment and, when that is silent or names two
@@ -210,16 +214,18 @@ pub fn ai_agent(env: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     Some(claim)
 }
 
-/// A claim from a process chain: a known harness binary, or an app bundle that is not a terminal
-/// (a shell under a terminal is the person's).
+/// A claim from a process chain: a known harness binary, an app bundle that is not a terminal (a
+/// shell under a terminal is the person's), or else a tool an app ships that the walk went past.
 pub fn from_chain(chain: &Chain) -> Option<Value> {
     let app = chain.app.as_ref().map(|(name, _)| name.as_str());
     let mut claim = match &chain.harness {
         Some((harness, pid)) => json!({"harness": harness, "pid": pid}),
-        None => {
-            let app = app.filter(|a| !is_terminal(a))?;
-            json!({"harness": app.trim_end_matches(".app")})
-        }
+        None => match app.filter(|a| !is_terminal(a)) {
+            Some(app) => json!({"harness": app.trim_end_matches(".app")}),
+            // A tool an app ships (Xcode's python) is named by its own file, not the app: still a
+            // program's send, as when the walk stopped at the app that ships it.
+            None => json!({"harness": chain.shipped.as_deref()?}),
+        },
     };
     put(&mut claim, "source", json!("process"));
     if let Some(app) = app {
@@ -461,6 +467,9 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
         // (cmux.app's bin/acpmux resolves to bin/cmux).
         if found.app.is_none() && p.pid != pid && name != "acpmux" {
             found.app = app_bundle(&p.exe);
+            if found.app.is_none() && found.shipped.is_none() && p.exe.contains(".app/") {
+                found.shipped = Some(name.to_owned());
+            }
         }
         if found.harness.is_none() {
             found.harness = HARNESS_BINARIES
@@ -497,12 +506,34 @@ fn ancestors_in(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Vec<u32> {
     found
 }
 
-/// The outermost `.app` bundle in an executable path: its name and its path.
+/// The parent of `pid`, read for that pid alone (`sender_program.rs` walks the same chain).
+pub(crate) fn parent(pid: u32) -> Option<u32> {
+    lookup(pid).map(|p| p.ppid)
+}
+
+/// Where an app bundle keeps its own code: its main executable, its frameworks and helper apps
+/// (Claude.app's `Contents/Frameworks/Claude Helper.app`), its helpers, XPC services and login
+/// items.
+const OWN_CODE: &[&str] = &[
+    "Contents/MacOS/",
+    "Contents/Frameworks/",
+    "Contents/Helpers/",
+    "Contents/XPCServices/",
+    "Contents/Library/LoginItems/",
+];
+
+/// The app bundle an executable is the code of: the outermost `.app` in its path, when the
+/// executable is that app's own code ([`OWN_CODE`]), with its name and path. A tool an app only
+/// ships is not that app, nor is any bundle inside it: Xcode's
+/// `Contents/Developer/.../Python.app/Contents/MacOS/Python` (which ran our outbox relay and drew as
+/// "Xcode", Leo, 2026-11-11: "what's up with this?"), its git and clang, anything under
+/// `Contents/Resources/` or `Contents/SharedSupport/`; the walk goes on past it.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();
-    let path = exe.get(..end)?;
+    let (path, inside) = (exe.get(..end)?, exe.get(end + 1..)?);
     let name = path.rsplit('/').next()?;
-    (name.len() > ".app".len()).then(|| (name.to_owned(), path.to_owned()))
+    (name.len() > ".app".len() && OWN_CODE.iter().any(|dir| inside.starts_with(dir)))
+        .then(|| (name.to_owned(), path.to_owned()))
 }
 
 fn is_terminal(app: &str) -> bool {
@@ -560,9 +591,119 @@ fn signer(path: &str) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let out =
-        std::process::Command::new("codesign").args(["-dv", "--verbose=2", path]).output().ok()?;
-    parse_signer(&String::from_utf8_lossy(&out.stderr))
+    static SIGNERS: std::sync::OnceLock<Signers> = std::sync::OnceLock::new();
+    SIGNERS.get_or_init(Signers::default).signer(path, run_codesign)
+}
+
+/// `codesign -dv` on one bundle: what it writes to stderr, empty when it cannot run.
+fn run_codesign(path: &str) -> String {
+    std::process::Command::new("codesign")
+        .args(["-dv", "--verbose=2", path])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stderr).into_owned())
+        .unwrap_or_default()
+}
+
+/// Who signed each app bundle the daemon has looked at, kept while the bundle's files are the
+/// same. A send from an agent inside an app (cmux.app, Claude.app) walks to that app every time,
+/// and `codesign -dv` costs about 15 ms; reading what it reads costs a few `stat`s.
+#[derive(Default)]
+struct Signers {
+    known: std::sync::Mutex<std::collections::HashMap<String, (BundleFiles, Option<String>)>>,
+}
+
+/// At most this many bundles are kept; past it the cache starts again empty.
+const MAX_SIGNERS: usize = 64;
+
+impl Signers {
+    /// Who signed the bundle at `path`, by `run` (`codesign -dv`'s stderr), run again only when
+    /// the bundle's files changed since the last answer for `path`. A path whose files cannot
+    /// be read is asked each time and never kept.
+    fn signer(&self, path: &str, run: impl FnOnce(&str) -> String) -> Option<String> {
+        let Some(files) = BundleFiles::read(path) else {
+            return parse_signer(&run(path));
+        };
+        if let Some((seen, signer)) = self.known().get(path)
+            && *seen == files
+        {
+            return signer.clone();
+        }
+        // codesign runs with no lock held: two sends from one new bundle may both run it.
+        let signer = parse_signer(&run(path));
+        let mut known = self.known();
+        if known.len() >= MAX_SIGNERS && !known.contains_key(path) {
+            known.clear();
+        }
+        known.insert(path.to_owned(), (files, signer.clone()));
+        signer
+    }
+
+    fn known(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, (BundleFiles, Option<String>)>>
+    {
+        self.known.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// What `codesign -dv` reads of a bundle, as the file system describes it: the bundle folder,
+/// `Contents/Info.plist`, `Contents/_CodeSignature/CodeResources` and every entry of
+/// `Contents/MacOS` (identity, size, change time). An update, a re-sign or a replaced bundle
+/// changes at least one. Provenance only (see the module notes): a writer that keeps all of
+/// these the same could just as well sign the bundle itself.
+#[derive(Debug, PartialEq, Eq)]
+struct BundleFiles(Vec<(String, FileStamp)>);
+
+#[derive(Debug, PartialEq, Eq)]
+struct FileStamp {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    changed: (i64, i64),
+}
+
+impl BundleFiles {
+    fn read(path: &str) -> Option<Self> {
+        let root = std::path::Path::new(path);
+        let mut files = vec![(String::new(), FileStamp::of(root)?)];
+        for part in ["Contents/Info.plist", "Contents/_CodeSignature/CodeResources"] {
+            if let Some(stamp) = FileStamp::of(&root.join(part)) {
+                files.push((part.to_owned(), stamp));
+            }
+        }
+        let macos = root.join("Contents/MacOS");
+        if let Some(stamp) = FileStamp::of(&macos) {
+            files.push(("Contents/MacOS".to_owned(), stamp));
+        }
+        let mut executables: Vec<(String, FileStamp)> = std::fs::read_dir(&macos)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                Some((format!("Contents/MacOS/{name}"), FileStamp::of(&entry.path())?))
+            })
+            .collect();
+        executables.sort_by(|a, b| a.0.cmp(&b.0));
+        files.extend(executables);
+        Some(Self(files))
+    }
+}
+
+impl FileStamp {
+    fn of(path: &std::path::Path) -> Option<Self> {
+        let meta = std::fs::metadata(path).ok()?;
+        #[cfg(unix)]
+        let (dev, ino, changed) = {
+            use std::os::unix::fs::MetadataExt;
+            (meta.dev(), meta.ino(), (meta.ctime(), meta.ctime_nsec()))
+        };
+        // App bundles and codesign are macOS only; elsewhere the length and mtime are the stamp.
+        #[cfg(not(unix))]
+        let (dev, ino, changed) = (0, 0, (0, 0));
+        Some(Self { dev, ino, len: meta.len(), modified: meta.modified().ok(), changed })
+    }
 }
 
 fn parse_signer(codesign: &str) -> Option<String> {

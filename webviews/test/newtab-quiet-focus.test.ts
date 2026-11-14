@@ -343,7 +343,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     });
   }
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: New Tab casts ${theme === "light" ? "--elevation-1" : "no shadow"}, the chat composer the material's depth`, async () => {
+    test(`${theme}: New Tab casts ${theme === "light" ? "--elevation-1" : "no shadow"}, the chat composer the composer's quieter depth`, async () => {
       const page = await open(2, theme);
       const result = await page.evaluate(() => {
         // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
@@ -367,7 +367,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         probe.style.boxShadow = "var(--elevation-1)";
         document.body.append(probe);
         const elevation = drops(getComputedStyle(probe).boxShadow);
-        probe.style.boxShadow = "var(--glass-material-depth)";
+        probe.style.boxShadow = "var(--glass-material-depth-composer)";
         const depth = drops(getComputedStyle(probe).boxShadow);
         probe.remove();
         const of = (id: string) => drops(getComputedStyle(document.getElementById(id)!).boxShadow);
@@ -378,8 +378,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       else
         for (const layer of result.newtab)
           expect(layer, "newtab casts no visible shadow").toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
-      expect(result.depth.length, "the material's depth resolves to two layers").toBe(2);
-      expect(result.composer, "the chat composer casts the material's depth").toEqual(result.depth);
+      expect(result.depth.length, "the composer's depth resolves to two layers").toBe(2);
+      expect(result.composer, "the chat composer casts the composer's quieter depth").toEqual(result.depth);
       await page.close();
     });
   }
