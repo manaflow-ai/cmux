@@ -645,11 +645,11 @@ impl MediaEngine {
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
-        if fb.acked_frame > 0 {
-            if let Some(sent_at_us) = state.sent_at_us.get(&fb.acked_frame).copied() {
-                let sample = now_us.saturating_sub(sent_at_us);
-                self.ack_rtt_us = Some(self.ack_rtt_us.map_or(sample, |best| best.min(sample)));
-            }
+        if fb.acked_frame > 0
+            && let Some(sent_at_us) = state.sent_at_us.get(&fb.acked_frame).copied()
+        {
+            let sample = now_us.saturating_sub(sent_at_us);
+            self.ack_rtt_us = Some(self.ack_rtt_us.map_or(sample, |best| best.min(sample)));
         }
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
