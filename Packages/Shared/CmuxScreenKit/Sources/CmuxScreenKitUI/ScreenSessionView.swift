@@ -135,7 +135,7 @@ public struct ScreenSessionView: View {
                 if chromeVisible { chrome }
             }
             stateCard
-            if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
+            if hasTrackpadOverlay, session.keepsLiveLayout { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
         .background(.black)
@@ -174,7 +174,7 @@ public struct ScreenSessionView: View {
     private var chrome: some View {
         VStack(spacing: 6) {
             topBar
-            if features.contains(.shortcutsBar), case .connected = session.phase {
+            if features.contains(.shortcutsBar), session.keepsLiveLayout {
                 MacShortcutsBar(session: session, shortcuts: shortcuts)
             }
         }
@@ -250,7 +250,7 @@ public struct ScreenSessionView: View {
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
-        guard hasTrackpadOverlay, trackpadOpen, case .connected = session.phase else { return false }
+        guard hasTrackpadOverlay, trackpadOpen, session.keepsLiveLayout else { return false }
         return true
     }
 
@@ -266,7 +266,7 @@ public struct ScreenSessionView: View {
     /// finger while the notch drags), none before the screen connects or while
     /// the software keyboard covers it.
     private var trackpadReserved: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
+        guard hasTrackpadOverlay, session.keepsLiveLayout else { return 0 }
         if keyboardHidesTrackpad { return keyboardOverlap }
         return max(0, trackpadDrawerHeight - trackpadOffset) + keyboardOverlap
     }
@@ -474,9 +474,13 @@ public struct ScreenSessionView: View {
     @ViewBuilder private var stateCard: some View {
         switch session.phase {
         case .connecting:
-            card {
-                CmuxSpinner()
-                Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
+            // A reconnect keeps the last frame and says nothing until it has run
+            // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently.
+            if !session.isReconnecting || session.reconnectNoticeDue {
+                card {
+                    CmuxSpinner()
+                    Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
+                }
             }
         case let .failed(message, needsSignIn):
             card {
@@ -544,7 +548,7 @@ public struct ScreenSessionView: View {
     }
 
     private var pasteBannerInset: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase else { return 24 }
+        guard hasTrackpadOverlay, session.keepsLiveLayout else { return 24 }
         return trackpadReserved + 12
     }
 
