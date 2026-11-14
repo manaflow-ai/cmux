@@ -31,6 +31,7 @@ mod config;
 mod keybinding_tools;
 mod live_code_tools;
 mod messages;
+mod off;
 mod open_tool;
 mod placement;
 mod remote_tools;
@@ -509,7 +510,11 @@ fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     match config::setting(path) {
         Ok(Some(true)) => None,
         Ok(None) if agent_chat => None,
-        Ok(_) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
+        // `"mcp": {"enabled": false}` said so, over any answer to the cmux Tools question.
+        Ok(Some(false)) => {
+            Some(messages.switched_off.replace("{path}", &path.display().to_string()))
+        }
+        Ok(None) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
         Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
     }
 }
@@ -521,8 +526,13 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let mut computer_use_only = false;
     if let Some(message) = refusal(&path) {
         if !terminal_agent {
+            // Still complete the handshake and say why, so the agent shows the
+            // reason instead of a closed connection; no cmux tool runs (`off`).
             eprintln!("cmux: {message}");
-            return 1;
+            let _ = crate::restore_default_termination_signals();
+            acpmux::parent_watch::exit_with_parent();
+            let output = watch::Output::new(io::stdout());
+            return off::Off::new(message).run(io::stdin().lock(), &output);
         }
         // A terminal agent with the cmux tools off: Computer Use only.
         computer_use_only = true;

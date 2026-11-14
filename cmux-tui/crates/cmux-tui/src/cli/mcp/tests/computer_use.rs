@@ -230,7 +230,10 @@ fn a_terminal_agent_with_the_cmux_tools_off_gets_only_computer_use() {
         call(&mut server, "cmux_exec", json!({"script": "await cmux.workspace_list({});"}));
     let error = &refused["structuredContent"]["error"]["cmux"]["error"];
     assert_eq!(error["code"], "tool.not_allowed", "{refused}");
-    assert!(error["message"].as_str().unwrap().contains("mcp.enabled"), "{refused}");
+    assert!(
+        error["message"].as_str().unwrap().contains("agents.cmuxMcp on --confirm"),
+        "{refused}"
+    );
     let direct = call(&mut server, "workspace_list", json!({}));
     assert_eq!(direct["structuredContent"]["error"]["code"], "tool.not_allowed", "{direct}");
     assert!(server.backend.sent.borrow().is_empty(), "nothing reached an owner");

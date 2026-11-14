@@ -27,6 +27,18 @@
 //! declined, nothing is missing); unanswered keeps the switch's rule.
 //! `--remove` runs whatever the answer is: it only takes out an entry named
 //! `cmux` that runs `cmux mcp serve`, never a server of the person's.
+//!
+//! The entry goes into the person's global agent configs, so it must work in
+//! whatever terminal or app the agent starts. When this cmux runs on another
+//! settings file than the shared one (`CMUX_NEXT_CONFIG_FILE`: a tagged build
+//! launched on its own file), the entry's `env` names that file, so the
+//! server reads the answer the app wrote rather than the shared file's; on
+//! the shared file the entry has no `env`. A `cmux` entry whose settings file
+//! is another than this cmux's is replaced like a moved one.
+//!
+//! The command is this cmux's own path (`this_cli`), as from the start: an
+//! entry another build wrote stays while its command still runs, and one
+//! whose app was deleted is replaced.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -38,7 +50,7 @@ use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
-use cmux_tui_core::user_settings::AgentsCmuxMcp;
+use cmux_tui_core::user_settings::{AgentsCmuxMcp, CONFIG_OVERRIDE};
 
 const TASK: &str = "mcp";
 
@@ -111,6 +123,13 @@ impl Client {
                             .filter_map(Value::as_str)
                             .map(str::to_owned)
                             .collect(),
+                        env: server
+                            .get("env")
+                            .and_then(Value::as_object)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                            .collect(),
                     })
                     .collect())
             }
@@ -140,23 +159,35 @@ impl Client {
                             .filter_map(toml::Value::as_str)
                             .map(str::to_owned)
                             .collect(),
+                        env: server
+                            .get("env")
+                            .and_then(toml::Value::as_table)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                            .collect(),
                     })
                     .collect())
             }
         }
     }
 
-    /// `mcp add` of the server named `cmux` that runs `command args`.
-    fn add(self, command: &str, args: &[String]) -> Vec<String> {
+    /// `mcp add` of the server named `cmux` that runs `command args` with
+    /// `env`. Each `--env KEY=VALUE` goes before the scope and the name:
+    /// Claude Code's `--env` takes several values, so the next option
+    /// (`--scope`) ends it before the name, and Codex takes one per flag.
+    fn add(self, command: &str, args: &[String], env: &[(String, String)]) -> Vec<String> {
         let scope: &[&str] = match self {
             Self::Claude => &["--scope", "user"],
             Self::Codex => &[],
         };
+        let env =
+            env.iter().flat_map(|(key, value)| ["--env".to_owned(), format!("{key}={value}")]);
         ["mcp", "add"]
             .iter()
-            .chain(scope)
-            .chain(&[SERVER, "--", command])
             .map(|arg| (*arg).to_owned())
+            .chain(env)
+            .chain(scope.iter().chain(&[SERVER, "--", command]).map(|arg| (*arg).to_owned()))
             .chain(args.iter().cloned())
             .collect()
     }
@@ -189,6 +220,8 @@ struct Entry {
     name: String,
     command: Option<String>,
     args: Vec<String>,
+    /// Its `env` (string values only).
+    env: Vec<(String, String)>,
 }
 
 impl Entry {
@@ -210,8 +243,33 @@ impl Entry {
         }
     }
 
+    /// The settings file its `env` names (`CMUX_NEXT_CONFIG_FILE`); `None`
+    /// for the shared one.
+    fn settings_file(&self) -> Option<&str> {
+        self.env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, value)| value.as_str())
+    }
+
+    /// The line that adds it back: its command and args, and of its `env`
+    /// only cmux's own `CMUX_*` keys. The line is printed in the report, and
+    /// another key of the person's may hold a secret.
+    fn restore(&self, client: Client) -> Option<String> {
+        let env: Vec<(String, String)> =
+            self.env.iter().filter(|(key, _)| key.starts_with("CMUX_")).cloned().collect();
+        self.command.as_deref().map(|command| client.line(&client.add(command, &self.args, &env)))
+    }
+
+    /// Whether the settings file its `env` names is there (no file named:
+    /// the shared one, always). A file that is gone (a scratch launch's) would
+    /// leave the server reading nothing, so the entry is replaced.
+    fn settings_file_exists(&self) -> bool {
+        self.settings_file().is_none_or(|file| Path::new(file).is_file())
+    }
+
+    /// For the report: no `env` values beyond the settings file, since a
+    /// server of the person's may keep a secret there.
     fn json(&self) -> Value {
-        json!({"name": self.name, "command": self.command, "args": self.args})
+        json!({"name": self.name, "command": self.command, "args": self.args,
+               "settings_file": self.settings_file()})
     }
 }
 
@@ -222,7 +280,8 @@ enum Plan {
     /// Already gives the cmux server.
     Ok,
     Add,
-    /// Replaces the `cmux` entry whose command is gone.
+    /// Replaces the `cmux` entry whose command is gone, or that names
+    /// another settings file than this cmux's or one that is gone.
     Replace,
     /// The person must act: this `user_action`.
     Person(Value),
@@ -242,6 +301,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     }
     let command = this_cli()?;
     let (settings, enabled) = super::super::mcp::outside_chats();
+    let env = server_env(&settings);
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let path = std::env::var_os("PATH");
     let clients =
@@ -260,7 +320,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let mut user_action = Value::Null;
     let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
     for client in clients {
-        let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
+        let (next, found) = plan(client, request.clients.contains(&client), path.as_deref(), &env);
         let here = on_path(path.as_deref(), client.id()).is_some();
         installed |= here;
         let mut row = json!({
@@ -297,7 +357,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 "planned"
             }
             Plan::Add | Plan::Replace => {
-                match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
+                match apply(client, &command, &env, found.as_ref().filter(|e| e.name == SERVER)) {
                     Ok(line) => {
                         row.set("undo", json!(line));
                         undo.push(line);
@@ -338,7 +398,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "task": TASK,
         "state": state,
         "dry_run": request.dry_run,
-        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"]},
+        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"],
+                   "env": env.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>()},
         "settings": settings,
         "enabled": enabled == Ok(true),
         "choice": choice.as_str(),
@@ -404,10 +465,7 @@ fn remove(request: &Request) -> Outcome {
                 } else {
                     match run_cli(client, &client.remove()) {
                         Ok(()) => {
-                            let line = entry
-                                .command
-                                .as_deref()
-                                .map(|command| client.line(&client.add(command, &entry.args)));
+                            let line = entry.restore(client);
                             if let Some(line) = &line {
                                 row.set("undo", json!(line));
                                 undo.push(line.clone());
@@ -458,6 +516,7 @@ fn remove(request: &Request) -> Outcome {
 /// installed it is `ok`, as `run` is: the switch has nothing to serve.
 pub(super) fn status() -> Value {
     let (settings, enabled) = super::super::mcp::outside_chats();
+    let env = server_env(&settings);
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let declined = choice == AgentsCmuxMcp::Off;
     let unanswered = choice == AgentsCmuxMcp::Ask;
@@ -465,7 +524,7 @@ pub(super) fn status() -> Value {
     let clients: Vec<Value> = CLIENTS
         .into_iter()
         .filter_map(|client| {
-            let (next, found) = plan(client, false, path.as_deref());
+            let (next, found) = plan(client, false, path.as_deref(), &env);
             let state = match next {
                 Plan::Absent => return None,
                 Plan::Ok => "ok",
@@ -526,9 +585,34 @@ fn this_cli() -> Result<String, Refusal> {
         .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
 }
 
+/// The `env` of the entry setup writes: `CMUX_NEXT_CONFIG_FILE` naming
+/// `settings` (absolute) when this cmux runs on its own settings file, so the
+/// server reads that file from any terminal; none on the shared file.
+fn server_env(settings: &Path) -> Vec<(String, String)> {
+    server_env_from(|key| std::env::var_os(key), settings)
+}
+
+fn server_env_from(
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+    settings: &Path,
+) -> Vec<(String, String)> {
+    if getenv(CONFIG_OVERRIDE).is_none_or(|value| value.is_empty()) {
+        return Vec::new();
+    }
+    let absolute = std::path::absolute(settings).unwrap_or_else(|_| settings.to_path_buf());
+    vec![(CONFIG_OVERRIDE.to_owned(), absolute.to_string_lossy().into_owned())]
+}
+
 /// What setup does for `client`, and the entry that decided it. A harness
-/// that is not installed is the person's only when it was named.
-fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entry>) {
+/// that is not installed is the person's only when it was named. An entry
+/// named `cmux` is ours only while it names the same settings file as `env`.
+fn plan(
+    client: Client,
+    named: bool,
+    path: Option<&OsStr>,
+    env: &[(String, String)],
+) -> (Plan, Option<Entry>) {
+    let wanted = env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, v)| v.as_str());
     if on_path(path, client.id()).is_none() {
         if !named {
             return (Plan::Absent, None);
@@ -553,7 +637,14 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
         Ok(entries) => entries,
         Err(error) => return (Plan::Failed(error), None),
     };
-    if let Some(at) = entries.iter().position(|entry| entry.serves_cmux() && entry.runs(path)) {
+    if let Some(at) = entries.iter().position(|entry| {
+        entry.serves_cmux()
+            && entry.runs(path)
+            // Another name is the person's own wiring; the `cmux` entry must
+            // reach this cmux's settings file.
+            && entry.settings_file_exists()
+            && (entry.name != SERVER || entry.settings_file() == wanted)
+    }) {
         return (Plan::Ok, Some(entries.swap_remove(at)));
     }
     let Some(at) = entries.iter().position(|entry| entry.name == SERVER) else {
@@ -578,23 +669,26 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
     (Plan::Person(action), Some(taken))
 }
 
-/// Adds the cmux server to `client`, removing `old` (the `cmux` entry whose
-/// command is gone) first, and answers the line that undoes it. When the add
+/// Adds the cmux server with `env` to `client`, removing `old` (the `cmux`
+/// entry whose command is gone or that names another settings file) first, and answers the line that undoes it. When the add
 /// fails after the remove, the error names the line that puts `old` back.
-fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, String> {
+fn apply(
+    client: Client,
+    command: &str,
+    env: &[(String, String)],
+    old: Option<&Entry>,
+) -> Result<String, String> {
     let remove = client.remove();
-    let restore = old.and_then(|old| {
-        old.command.as_deref().map(|command| client.line(&client.add(command, &old.args)))
-    });
+    let restore = old.and_then(|old| old.restore(client));
     if old.is_some() {
         run_cli(client, &remove)?;
     }
-    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()])).map_err(|error| {
-        match &restore {
+    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()], env)).map_err(
+        |error| match &restore {
             Some(restore) => format!("{error}; `{restore}` puts the old entry back"),
             None => error,
-        }
-    })?;
+        },
+    )?;
     let undo = client.line(&remove);
     Ok(match restore {
         Some(restore) => format!("{undo} && {restore}"),

@@ -418,8 +418,8 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network. Agent chats inside cmux have it already." },
       { h2: "Turn it on" },
-      { p: "For clients outside cmux, the server is off until you turn it on:" },
-      { code: "cmux settings set mcp.enabled true\ncmux mcp tools", lang: "bash" },
+      { p: "For clients outside cmux, the server is off until you choose Add to My Agents in Settings > Agents > Add cmux Tools to Your Coding Agents, or run:" },
+      { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux mcp tools", lang: "bash" },
       { h2: "Claude Code" },
       { code: "claude mcp add cmux -- cmux mcp serve", lang: "bash" },
       { h2: "Codex" },

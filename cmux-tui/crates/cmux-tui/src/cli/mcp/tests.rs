@@ -819,6 +819,83 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
     assert!(server.backend.sent.borrow().is_empty(), "nothing reached an owner");
 }
 
+/// The off server's reason names the setting the person actually changes:
+/// Settings > Agents > Add cmux Tools to Your Coding Agents, or
+/// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
+/// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
+/// named as itself. Read outside an agent chat, in every locale.
+#[test]
+fn the_refusal_names_the_setting_the_person_turns_on() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("cmux-next.json");
+    for text in
+        [None, Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)]
+    {
+        match text {
+            Some(text) => std::fs::write(&path, text).unwrap(),
+            None => drop(std::fs::remove_file(&path)),
+        }
+        let message = refusal_for(&path, false).expect("off");
+        assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
+        assert!(!message.contains("mcp.enabled"), "{message}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+    }
+    std::fs::write(&path, r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#).unwrap();
+    let message = refusal_for(&path, false).expect("off");
+    assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
+    let [english, _] = messages::all();
+    assert!(english.disabled.contains("Add cmux Tools to Your Coding Agents"));
+    for messages in messages::all() {
+        assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
+        assert!(messages.disabled.contains("{path}") && messages.switched_off.contains("{path}"));
+        for text in [messages.usage, messages.disabled] {
+            assert!(!text.contains("mcp.enabled"), "{text}");
+        }
+    }
+}
+
+/// While the server is off, `cmux mcp serve` still completes the MCP
+/// handshake (before, it exited first and Claude Code showed only
+/// CONNECTION_CLOSED): `initialize` succeeds with the reason as its
+/// instructions, `tools/list` offers one tool that says it, and every call,
+/// of any name, answers the reason as an error and runs nothing.
+#[test]
+fn the_off_server_completes_the_handshake_and_answers_every_call_with_the_reason() {
+    let reason = "cmux's tools are off: choose Add to My Agents";
+    let server = off::Off::new(reason.to_owned());
+    let init = server
+        .handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}))
+        .unwrap();
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18", "{init}");
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux");
+    assert_eq!(init["result"]["instructions"], reason);
+    assert_eq!(
+        server.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})),
+        None
+    );
+    let list = server.handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
+    let tools = list["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 1, "{list}");
+    assert_eq!(tools[0]["name"], off::TOOL);
+    assert_eq!(tools[0]["description"], reason);
+    for name in [off::TOOL, "workspace_list", "cmux_exec", "cu_click"] {
+        let call = server
+            .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                            "params": {"name": name, "arguments": {}}}))
+            .unwrap();
+        assert_eq!(call["result"]["isError"], true, "{call}");
+        assert_eq!(call["result"]["content"][0]["text"], reason, "{call}");
+        assert_eq!(call["result"]["structuredContent"]["error"]["code"], "mcp.disabled");
+        assert_eq!(call["result"]["structuredContent"]["state"], "not_run", "{call}");
+    }
+    let ping = server.handle(&json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})).unwrap();
+    assert_eq!(ping["result"], json!({}));
+    let other =
+        server.handle(&json!({"jsonrpc": "2.0", "id": 5, "method": "resources/list"})).unwrap();
+    assert_eq!(other["error"]["code"], -32601, "{other}");
+}
+
 #[test]
 fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     let text = "{\"url\": \"https://a//b/*c*/\", // note\n \"list\": [1, 2,], /* x */ }";
