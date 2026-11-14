@@ -242,7 +242,7 @@ fn epoch() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_micros() as u64);
     let prev = LAST
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
             Some(now.max(last + 1))
         })
         .unwrap_or_default();

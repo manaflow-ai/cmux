@@ -709,13 +709,9 @@ fn poll_once(
     options.home = home.to_path_buf();
     options.dry_run = false;
     options.stop_host = true;
-    let report = match target {
-        Err(e) => return Err(e),
-        Ok(target) => {
-            options.target = target;
-            teleport(&options)
-        }
-    };
+    let target = target?;
+    options.target = target;
+    let report = teleport(&options);
     let _ = migrate::write_private(
         &home.join("state").join("move.json"),
         serde_json::to_string(&report)
