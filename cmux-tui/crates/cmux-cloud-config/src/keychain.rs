@@ -1,7 +1,7 @@
 //! The deadline of the app's calls into its own Keychain items, and what a call that misses it answers.
 //!
 //! A Keychain that is locked, asking for its password, or stuck held the app's machine list for good: the relay's
-//! install-token mint waited in `SecItemCopyMatching` and `SecItemAdd` of the install key with no deadline, the
+//! install-token mint waited in the Security read and add of the install key with no deadline, the
 //! daemon's apps relay gave up after 30 s, and the card read "Something went wrong. Try again." (a CI Mac whose
 //! keychain was a per-job file keychain, 2026-11-14). The app still makes the Security call; the app FFI's gate
 //! (`cmux-layout-reducer-ffi` `keychain`) runs it on its own thread and answers [`refusal`] once [`DEADLINE`] passes,
