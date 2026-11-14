@@ -72,6 +72,8 @@ public struct WorkspacesList: View {
     /// titles, group titles and Mac lines start after it, at the text column.
     @Environment(\.dynamicTypeSize) private var typeSize
     private var gutter: CGFloat { CmuxMobileListColumn.plain(typeSize).text }
+    /// The connection banner's slot over the list (`cmuxMobileBanner`), for the UIKit list.
+    @Environment(\.cmuxMobileBannerInset) private var bannerInset
     /// Scrolls the UIKit list and reads its visible area (unfolding scrolls
     /// when the first new row would open below it).
     @State private var listControl = WorkspacesListControl()
@@ -409,7 +411,8 @@ public struct WorkspacesList: View {
     /// SwiftUI over it.
     private func list(_ inbox: WorkspaceInbox) -> some View {
         WorkspacesCollection(model: listModel(inbox), actions: collectionActions, control: listControl,
-                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey)
+                             membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey,
+                             bannerInset: bannerInset)
             // Under the bars, as the Feed's list: UIKit insets the content by them.
             .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .topLeading) { closeAnchor }
