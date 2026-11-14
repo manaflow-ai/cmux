@@ -27,6 +27,8 @@ pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 /// `_acpmux/attach` with `settled: true` answers the chat's settled view first, then the records
 /// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
 pub const SETTLED_ATTACH: &str = "settled-attach-v1";
+/// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
+pub const HOLD_ATTACH: &str = "attach-hold-v1";
 
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
@@ -140,6 +142,7 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
+    Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[

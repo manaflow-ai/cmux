@@ -635,6 +635,29 @@ fn truncated_source_cursor_rebuilds_with_a_new_edition() {
 }
 
 #[test]
+fn a_book_an_older_translator_wrote_rebuilds_from_raw() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 2);
+    catch_up(config.clone());
+    let (mut log, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let mut saved = Checkpoint::from_recovered(&recovered).unwrap();
+    saved.translator_version = translate::VERSION - 1;
+    let open: Vec<u64> = saved.open.iter().map(|open| open.body.row).collect();
+    saved.write(&mut log, &open).unwrap();
+    drop(log);
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    actor.join();
+    assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, 2);
+    let rebuilt = rows(home.path());
+    // The rebuilt rows are this translator's: the turn-end notice names its result's seq.
+    assert!(rebuilt.iter().any(|(_, row)| String::from_utf8_lossy(row).contains(r#""seq":9"#)));
+    let clean = tempfile::tempdir().unwrap();
+    catch_up(fixture(clean.path(), 2));
+    assert_eq!(rebuilt, rows(clean.path()));
+}
+
+#[test]
 fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 2).with_edition_random(Arc::new(|| 77));
@@ -915,4 +938,29 @@ fn history_permits_are_two_in_turn_and_a_stop_never_waits_for_one() {
     drop((second, other));
     assert_eq!(permits.held(), 0);
     assert!(permits.acquire(&go).is_some());
+}
+
+#[test]
+fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
+    let page: Page = serde_json::from_value(serde_json::json!({"sid": "s", "stream": "chat:c"}))
+        .expect("a page");
+    let mut keyed = page.clone();
+    keyed.keys = Some(
+        (0..1000)
+            .map(|n| {
+                crate::wire::PageKey::Summary(crate::wire::ListKey {
+                    last_activity: n,
+                    chat_id: format!("chat-{n:060}"),
+                    origin: "o".repeat(64),
+                })
+            })
+            .collect(),
+    );
+    let count = |page: Page| {
+        let (reply, _rx) = Reply::channel("page", None, None);
+        Request::Page { page: Box::new(page), person: [0; 16], reply }.bytes()
+    };
+    let (plain, keyed_len) = (count(page), count(keyed.clone()));
+    let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
+    assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }

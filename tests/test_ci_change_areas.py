@@ -2665,6 +2665,8 @@ def test_every_github_file_is_placed_by_the_helper_walk() -> None:
     # pull request that adds the next data file fails here instead.
     # A Windows job's PowerShell script is a script the walk follows by name (#42833's .ps1 was unplaced).
     assert module.referrer_role(".github/scripts/windows-step.ps1") == "script"
+    # A captured CI log quotes the commands a run printed; it runs none of them (#41545's fixtures).
+    assert module.referrer_role("tests/fixtures/base_red_excuse_step_mapping/run-head.log") == "documentation"
     tracked = subprocess.run(
         ["git", "-C", str(ROOT), "ls-files", "--", ".github"],
         capture_output=True, text=True, check=True,
