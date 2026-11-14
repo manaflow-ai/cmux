@@ -44,6 +44,7 @@ export default async function CoderouterAgentsPage({
           <tr><td>OpenCode</td><td><code>cr opencode</code></td><td>{t("automatic")}</td></tr>
           <tr><td>Pi</td><td><code>cr pi</code> {t("experimental")}</td><td>{t("automatic")}</td></tr>
           <tr><td>Claude Code</td><td>{t("claudeMacCell")}</td><td>{t("automatic")}</td></tr>
+          <tr><td>Muse Code</td><td>{t("ownSignIn")}</td><td>{t("ownSignIn")}</td></tr>
         </tbody>
       </table>
 
@@ -93,6 +94,7 @@ CODEROUTER_API_KEY=<key> cr codex exec "run the tests"`}</CodeBlock>
       </ul>
       <p>{t("cloudYours")}</p>
       <p>{t("cloudOwnLogin")}</p>
+      <p>{t("cloudMuse")}</p>
       <p>{t("cloudRun")}</p>
       <CodeBlock lang="bash">{`# Inside a Cloud machine
 claude

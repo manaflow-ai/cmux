@@ -95,6 +95,26 @@ describe("docs search index", () => {
     }
   });
 
+  test("documents Muse Code's own sign-in on the CodeRouter agents page in every locale", async () => {
+    const pages = await pagesPromise;
+
+    for (const locale of routing.locales) {
+      const agentsPage = pages.find(
+        (page) => page.locale === locale && page.href === "/docs/coderouter/agents",
+      );
+      const texts = agentsPage?.sections.flatMap((section) => section.texts) ?? [];
+
+      // Search aliases already contain "Muse Code" and "muse login", so look
+      // for the one translated paragraph that carries the recovery steps.
+      const recovery = texts.find(
+        (text) => text.includes("muse usage") && text.includes("muse logout"),
+      );
+      for (const term of ["Muse Code", "CodeRouter", "muse login", "META_API_KEY"]) {
+        expect(recovery).toContain(term);
+      }
+    }
+  });
+
   test("localizes the notification preview schema description in every locale", async () => {
     for (const locale of routing.locales) {
       const messages = (await import(`../messages/${locale}.json`)).default as {
