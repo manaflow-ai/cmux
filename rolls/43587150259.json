@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43587150259",
+  "recorded_at": "2026-11-14T11:03:41Z",
+  "reason": "cmux-tui 4e340b553b91 changes the image's cmux-tui (pinned 57ec9f10dfe5)",
+  "dry_run": false,
+  "cmux_tui": "4e340b553b91cc0346bf12e96d193e365b4d5ba9",
+  "fixes": [
+    {
+      "sha": "4e340b553b91cc0346bf12e96d193e365b4d5ba9",
+      "mergedAt": "2026-11-14T02:30:21-08:00",
+      "subject": "cmux-tui: terminal.output_read windows keep their trailing line breaks (#42967)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T11:03:41Z",
+    "snapshot_id": "sh-9c23b6238b424a00890922710322cc49",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43587150259): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dcec6dcea4fe8c0cf1f9cb1e56814fd8d6623752",
+    "image": "cloud-native-auto-4e340b55-43587150259-1",
+    "revision": "ci-43587150259-1",
+    "at": "2026-11-14T11:03:41Z"
+  },
+  "rolled_back": false
+}
