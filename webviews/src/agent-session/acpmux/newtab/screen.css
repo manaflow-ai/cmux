@@ -495,9 +495,10 @@
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
 }
 /* The tray's chips are a flex row with align-items: center, so the mark, the name and the chevron share the line
-   box's center and the fill centers on them. A name's lowercase ink sits low in that line box, so the leading mark
-   (folder, laptop, a project's picture) drops by a share of the name's font size, the same proportion at every
-   density; a fixed 1 pt tuned at Default overshot at Compact (Lucas 2026-11-14). */
+   box's center and the fill centers on them. A project's name is lowercase, whose ink sits low in that line box, so
+   its picture drops by a share of the name's font size, the same proportion at every density; the folder and the
+   laptop beside "No folder" and "This Mac" center by flex (Lucas 2026-11-14: the laptop sat under "This Mac" at
+   Compact). A fixed 1 pt tuned at Default overshot at Compact. */
 .nt-above .acpmux-location-button {
   --acpmux-location-mark-drop: 0.08;
 }
@@ -505,7 +506,7 @@
 .nt-composer[data-composer-look="codex"] .nt-above .acpmux-location-button {
   --acpmux-location-mark-drop: 0;
 }
-.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
   translate: 0 calc(var(--text-control, 13px) * var(--acpmux-location-mark-drop));
 }
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
