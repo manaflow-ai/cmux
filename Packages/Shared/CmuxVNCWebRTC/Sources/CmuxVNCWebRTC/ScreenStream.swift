@@ -381,6 +381,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
     private let log: @Sendable (String) -> Void
     private let lock = NSLock()
     private var session: Session?
+    /// Invalidates offers suspended in ICE discovery, including when no session exists yet.
+    private var sessionGeneration: UInt64 = 0
+    /// A device-hub owner cannot redeem another offer after Stop. Pairing rooms remain reusable.
+    private var ticketRevoked = false
     /// The device hub session ``serve(_:)`` is serving, for `bye` on disconnect.
     private var ticketSignaling: (any ScreenSignaling)?
     /// Where the agent's pointer is (Computer Use), in global display
@@ -446,12 +450,31 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// Ends the current viewer's session (it may connect again with the link;
     /// a device hub session gets `bye` and ends for good).
     public func disconnectViewer() {
+        revokeViewer()
         endSession()
         guard let signaling = lock.withLock({ ticketSignaling }) else { return }
         Task {
             try? await signaling.send(.bye)
             signaling.close()
         }
+    }
+
+    /// Revokes admission synchronously before a caller moves WebRTC teardown off its UI thread.
+    /// No peer-connection operations run here. A device-hub owner stays revoked permanently;
+    /// a pairing room may accept another offer after this session has been disconnected.
+    public func revokeViewer() {
+        let current = lock.withLock { () -> Session? in
+            if pairing == nil { ticketRevoked = true }
+            sessionGeneration &+= 1
+            return session
+        }
+        guard let current else { return }
+        let tasks = current.lock.withLock { () -> [Task<Void, Never>] in
+            current.ended = true
+            return current.tasks
+        }
+        for task in tasks { task.cancel() }
+        current.backend.stop()
     }
 
     private func emit(_ event: Event) {
@@ -463,7 +486,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// ticket) ends with it: on `bye`, on a close, and on an error such as a
     /// fingerprint that does not verify.
     public func serve(_ signaling: any ScreenSignaling) async throws {
-        if signaling.endsSessionOnClose { lock.withLock { ticketSignaling = signaling } }
+        let admitted = lock.withLock { () -> Bool in
+            guard !ticketRevoked else { return false }
+            if signaling.endsSessionOnClose { ticketSignaling = signaling }
+            return true
+        }
+        guard admitted, !Task.isCancelled else { signaling.close(); return }
         defer {
             signaling.close()
             if signaling.endsSessionOnClose {
@@ -503,9 +531,18 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     private func accept(offer sdp: String, signaling: any ScreenSignaling) async throws {
         endSession()
-        let link = try VNCPeerLink(iceServers: try await signaling.iceServers(), preferStreamRelays: false)
+        let generation = lock.withLock { ticketRevoked ? nil : sessionGeneration }
+        guard let generation, !Task.isCancelled else { return }
+        let servers = try await signaling.iceServers()
+        guard !Task.isCancelled, lock.withLock({ !ticketRevoked && sessionGeneration == generation }) else { return }
+        let link = try VNCPeerLink(iceServers: servers, preferStreamRelays: false)
         let session = Session(link: link, backend: makeBackend())
-        lock.withLock { self.session = session }
+        let installed = lock.withLock { () -> Bool in
+            guard !ticketRevoked, sessionGeneration == generation else { return false }
+            self.session = session
+            return true
+        }
+        guard installed else { session.backend.stop(); link.close(); return }
         session.add(Task { [weak self] in
             for await event in link.events {
                 switch event {
@@ -524,17 +561,26 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         })
         let answer = try await link.answer(offer: sdp, video: session.video)
+        guard !Task.isCancelled, lock.withLock({ self.session === session && !ticketRevoked }),
+              !session.lock.withLock({ session.ended }) else { return }
         try await signaling.send(.answer(answer))
         log("viewer offered; streaming answer sent")
     }
 
     private func start(_ session: Session) {
-        session.lock.withLock { session.opened = true }
+        guard lock.withLock({ self.session === session && !ticketRevoked }) else { return }
+        let admitted = session.lock.withLock { () -> Bool in
+            guard !session.ended, !session.opened else { return false }
+            session.opened = true
+            return true
+        }
+        guard admitted else { return }
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
         sendCapabilities(session)
         session.add(Task { [weak self] in
             do {
+                guard !Task.isCancelled, !session.lock.withLock({ session.ended }) else { return }
                 try await session.backend.start(frame: { [weak self] buffer, crop in
                     session.lock.withLock { session.captured += 1 }
                     self?.push(buffer, crop: crop, session: session)
@@ -586,6 +632,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
 
     private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
+        guard lock.withLock({ self.session === session && !ticketRevoked }),
+              !session.lock.withLock({ session.ended }) else { return }
         session.lock.withLock {
             session.last = (buffer, crop)
             session.lastPush = .now()
@@ -665,6 +713,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
     static func endsSession(_ input: ScreenInput) -> Bool { input.t == "bye" }
 
     private func handleInput(_ data: Data, session: Session) {
+        guard lock.withLock({ self.session === session && !ticketRevoked }),
+              !session.lock.withLock({ session.ended }) else { return }
         guard let input = try? JSONDecoder().decode(ScreenInput.self, from: data) else { return }
         if Self.endsSession(input) {
             // The viewer left (closed its tab, disconnected): end now, view-only sessions too.
@@ -816,8 +866,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     private func endSession(ifCurrent expected: Session? = nil) {
         let ended = lock.withLock { () -> Session? in
-            guard let session, expected == nil || session === expected else { return nil }
-            self.session = nil
+            if let expected, session !== expected { return nil }
+            sessionGeneration &+= 1
+            defer { self.session = nil }
             return session
         }
         guard let ended else { return }

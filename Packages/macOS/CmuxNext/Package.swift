@@ -1692,8 +1692,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
+                .product(name: "CmuxScreenKit", package: "CmuxScreenKit"),
             ],
             swiftSettings: uiSwiftSettings
         ),

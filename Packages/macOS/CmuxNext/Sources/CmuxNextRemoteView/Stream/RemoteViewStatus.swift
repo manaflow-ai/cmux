@@ -30,10 +30,14 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// What the connect waits on, in the transport's words (a Cloud desktop dial's step and how long is
     /// left); nil when the transport gives none. The connecting card shows it as its detail.
     public var connectingReason: String?
+    /// The host's accepted Welcome carrier, only while streaming. Diagnostic data,
+    /// not the requested carrier or the local byte path; unknown values stay unknown.
+    public var carrier: String?
 
     public init(
         path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
-        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil
+        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil,
+        carrier: String? = nil
     ) {
         self.path = path
         self.rttMs = rttMs
@@ -42,5 +46,6 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
         self.upstream = upstream
         self.endReason = endReason
         self.connectingReason = connectingReason
+        self.carrier = carrier
     }
 }
