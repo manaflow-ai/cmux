@@ -134,6 +134,8 @@ For Claude Code, AskUserQuestion is answered by allowing the PermissionRequest w
 
 Codex's hook-level `request_user_input`, `update_plan`, and approval prompts stay in Codex's own TUI/app-server path. cmux records Codex `PreToolUse` and `PermissionRequest` hooks as non-blocking telemetry only, because Codex runs `PermissionRequest` hooks before its `Approve for me` auto-review path. Blocking in hook mode would make Codex ask for Feed approval before its own reviewer can decide.
 
+Claude's `PermissionRequest` hook does not block when the payload's `permission_mode` is `auto`, `dontAsk` or `bypassPermissions`. In those modes Claude does not ask the user through the hook (auto mode's classifier decides, or Claude shows its own prompt), so nobody could answer a Feed card. The bridge prints `{}` at once and pushes nothing, since the call's `PreToolUse` hook already reports it. AskUserQuestion and ExitPlanMode still block in every mode.
+
 When Codex is launched through `cmux codex-teams`, cmux owns the private Codex app-server connection. The Codex Teams watcher listens for app-server command and file-change approval requests, which happen after Codex has decided that user approval is needed, and bridges those requests to Feed as actionable permission cards. A Feed click responds to the app-server request. If Feed times out or no decision is returned, cmux does not send a denial so Codex's native TUI approval can still answer the request.
 
 ## Timeout behavior
