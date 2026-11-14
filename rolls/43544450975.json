@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43544450975",
+  "recorded_at": "2026-11-14T02:21:09Z",
+  "reason": "cmux-tui 27b2db402d36 changes the image's cmux-tui (pinned 5f79927a2b47)",
+  "dry_run": false,
+  "cmux_tui": "27b2db402d3627856dc112e8ffd0040a2cbd2fce",
+  "fixes": [
+    {
+      "sha": "27b2db402d3627856dc112e8ffd0040a2cbd2fce",
+      "mergedAt": "2026-11-13T17:42:54-08:00",
+      "subject": "agent service v2: serve folders windows and pages (5f part two) (#42663)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T02:21:09Z",
+    "snapshot_id": "sh-47e894c4bf8d41f387166d9f9ab4eb61",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43544450975): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8612f882a5933388f07b39b03c14ef40a88895d3",
+    "image": "cloud-native-auto-27b2db40-43544450975-1",
+    "revision": "ci-43544450975-1",
+    "at": "2026-11-14T02:21:09Z"
+  },
+  "rolled_back": false
+}
