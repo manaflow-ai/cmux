@@ -250,6 +250,21 @@ import Testing
         #expect(MachineAgentSessions(fold: AgentSessionFold(machine: "old-1")).isComplete, "a fold of an older daemon's journal is its answer")
     }
 
+    /// An older daemon has no list: the app folds its journal. A read of that journal that fails (the daemon
+    /// started again and refuses the cursor, or no daemon answers on the socket) drops the fold, so the app
+    /// holds no session of that machine. That is no answer of the daemon, so it is not that machine's whole
+    /// list: the vault reads again and does not say "no sessions yet".
+    @Test func aJournalReadOfAnOlderDaemonThatFailsLeavesNoWholeList() async {
+        var machine = MachineAgentSessions(fold: AgentSessionFold(machine: "old-1"))
+        #expect(machine.isComplete, "a fold that a read made is that daemon's answer")
+        let noDaemon = "/tmp/cmux-no-daemon-\(UUID().uuidString.prefix(8)).sock"
+        var failed = false
+        do { try await machine.read(journal: noDaemon) } catch { failed = true }
+        #expect(failed, "no daemon listens on that socket path")
+        #expect(machine.sessions.isEmpty)
+        #expect(!machine.isComplete, "a read that failed is no answer: a session can exist on that machine")
+    }
+
     /// This Mac's daemon is not connected yet: its start can take minutes while it builds its registry again. It
     /// gave no answer, so the app holds no whole list: resume by id says "still loading" and not "no session",
     /// and the vault shows its "not complete" mark and not its "no sessions yet" text.
