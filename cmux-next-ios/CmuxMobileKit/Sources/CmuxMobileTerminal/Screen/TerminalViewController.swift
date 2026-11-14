@@ -897,9 +897,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             armGridHoldExpiry()
         }
         if tuiGridHold.heldRows != held {
-            view.setNeedsLayout()
-            view.layoutIfNeeded()
+            relayoutTUIArea()
         }
+    }
+
+    /// The TUI area's height: the held grid's rows, else the page's.
+    private func applyTUIAreaHeight(cellHeight: CGFloat) {
+        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cellHeight
+        if tuiHeight.constant != areaHeight { tuiHeight.constant = areaHeight }
+    }
+
+    /// The hold changed outside a layout pass: the area takes its height in
+    /// this pass. Set from `layoutTerminal` (inside `viewDidLayoutSubviews`),
+    /// the constraint only moved the area in the next display frame, one
+    /// frame after the held frame went (the grid hung from the toolbar for a
+    /// frame).
+    private func relayoutTUIArea() {
+        if cell.height > 0 { applyTUIAreaHeight(cellHeight: cell.height) }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
     }
 
     private func endGridHold(layout: Bool) {
@@ -908,8 +924,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard tuiGridHold.heldRows != nil else { return }
         tuiGridHold.release()
         guard layout else { return }
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        relayoutTUIArea()
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
@@ -1810,8 +1825,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             gridColumns = columns
         }
         // The area keeps the grid on screen until the Mac's new one is in.
-        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cellHeight
-        if tuiHeight.constant != areaHeight { tuiHeight.constant = areaHeight }
+        applyTUIAreaHeight(cellHeight: cellHeight)
         if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
         applyContentWidth()
         applyTUIPlacement()
