@@ -213,8 +213,13 @@ impl Reassembler {
                 } else {
                     Self::observed_data(p) as u16
                 };
-                let indexes = (0..end)
-                    .filter(|&i| p.shards[usize::from(i)].is_none())
+                let indexes = p
+                    .shards
+                    .iter()
+                    .take(usize::from(end))
+                    .enumerate()
+                    .filter(|(_, shard)| shard.is_none())
+                    .map(|(i, _)| i as u16)
                     .take(MAX_NACK_INDEXES)
                     .collect();
                 p.last_nack_us = Some(now_us);
