@@ -448,6 +448,16 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
     expect(host.calls.filter((c) => c.name === "action.run")).toHaveLength(1)
     const move = host.calls.find((c) => c.name === "browser.navigate")!
     expect([move.params, move.options.gesture]).toEqual([{ browser: "browser_1", url: "https://ice2.somafm.com/dronezone-128-mp3" }, "g3"])
+    // With browser:write off, the toast names the scope instead of asking to press Play again.
+    host.handlers["browser.navigate"] = () => ({ ok: false, body: { code: "scope.missing", message: "browser:write is off", retryable: false } })
+    host.handlers["toast.show"] = ok()
+    host.dispatch("m", help("Previous station"), "tap", { gesture: "g5" })
+    await host.settle(10)
+    expect(host.calls.filter((c) => c.name === "toast.show").at(-1)?.params.title).toBe("Turn on Change browsers for My views to play")
+    expect(host.calls.filter((c) => c.name === "action.run")).toHaveLength(1)
+    host.handlers["browser.navigate"] = (p) => ((tab = { ...tab!, url: p.url }), { ok: true, body: { value: null } })
+    host.dispatch("m", help("Next station"), "tap", { gesture: "g6" })
+    await host.settle(10)
     host.dispatch("m", help("Favorite"), "tap", { gesture: "g4" })
     await host.settle()
     expect(host.calls.filter((c) => c.name === "app.storage.set" && c.params.key === "favorites").at(-1)?.params.value).toEqual(["dronezone"])

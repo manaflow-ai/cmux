@@ -80,11 +80,15 @@ function play(s) {
   choose(s)
   const moving = streamBrowser !== null
   const call = moving ? cmux.browser.navigate({ browser: streamBrowser, url: streamOf(s) }) : cmux.actions.run("openBrowser", { url: streamOf(s) })
-  call.then(readPlaying, (e) => {
-    // A stream tab closed since the last read: the next Play opens a new one.
-    readPlaying()
-    const scope = moving ? "Change browsers" : "Run actions"
-    cmux.toast({ title: moving ? "Press Play again to open the radio tab" : `Turn on ${scope} for My views to play`, message: message(e), tone: "warning" })
+  call.then(readPlaying, async (e) => {
+    await readPlaying()
+    // A stream tab closed since the last read: the next Play opens a new one. Otherwise the
+    // call was refused, most often for a scope that is off.
+    const title =
+      moving && streamBrowser === null
+        ? "Press Play again to open the radio tab"
+        : `Turn on ${moving ? "Change browsers" : "Run actions"} for My views to play`
+    cmux.toast({ title, message: message(e), tone: "warning" })
   })
 }
 
