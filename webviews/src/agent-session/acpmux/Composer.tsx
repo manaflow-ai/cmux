@@ -195,6 +195,12 @@ const STOP_GUARD_MS = 600;
 
 /// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
 const UNSENT_DRAFT_INTERVAL_MS = 300;
+/// How long a draft rests before its places with no attachment are looked up in the host's kept
+/// chips: a paste's placeholder is the composer's before then.
+const LOST_PLACES_SETTLE_MS = 400;
+/// A look-up of lost places the host did not answer asks again after this long, doubling, this many times.
+const LOST_READ_RETRY_MS = 500;
+const LOST_READ_TRIES = 5;
 /// A field change this soon after the person's key, text input or composition is their edit.
 const TYPED_WINDOW_MS = 250;
 /// With Cmd held, the keys that edit the prompt (undo, redo, cut, paste, delete a line); any other
@@ -1513,6 +1519,111 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
+  /// The chat the composer shows now, for work that answers after an await.
+  const shownChat = useRef(sessionId);
+  shownChat.current = sessionId;
+  /// The places in the text whose attachment the composer has not drawn: no chip of that id, staged
+  /// or still being read. Read against the drawn chips, as the send's `placeInline` reads them.
+  const lostPlaces = () =>
+    (field.current?.inlineIds() ?? []).filter(
+      (id) => !attachments.some((chip) => chip.id === id) && !pending.some((chip) => chip.id === id),
+    );
+  /// A look-up of lost places in the host's kept chips is out (`recoverLost`).
+  const recovering = useRef(false);
+  /// The send that waits for its lost places to come back: it goes once the composer draws them.
+  const queuedSend = useRef<(() => void) | undefined>(undefined);
+  /// Brings back the attachments of `ids` from the host's kept copy of this chat's chips
+  /// (keptAttachments.ts). A read the host does not answer is asked again; the places stay. With a
+  /// send waiting (`queuedSend`), a place the host answered it does not hold leaves the text and the
+  /// prompt stays here with a note, never sent as the bare id; a host that never answers leaves the
+  /// places and the prompt as they are, with a note.
+  const recoverLost = async (ids: readonly string[]) => {
+    if (recovering.current || !keptAttachments || !sessionId) return;
+    recovering.current = true;
+    const chat = sessionId;
+    const finishRecovery = () => {
+      recovering.current = false;
+    };
+    try {
+      let kept: ComposerAttachment[] | undefined;
+      for (let tries = 0; kept === undefined && tries < LOST_READ_TRIES; tries = tries + 1) {
+        if (tries) await new Promise((resolve) => setTimeout(resolve, LOST_READ_RETRY_MS * 2 ** (tries - 1)));
+        if (shownChat.current !== chat) {
+          finishRecovery();
+          return;
+        }
+        kept = await keptAttachments.read(chat).catch(() => undefined);
+      }
+      if (shownChat.current !== chat) {
+        finishRecovery();
+        return;
+      }
+      if (kept === undefined) {
+        if (queuedSend.current) {
+          queuedSend.current = undefined;
+          setAttachError(t("composer.attachmentsUnread"));
+        }
+        finishRecovery();
+        return;
+      }
+      const found = kept.filter((chip) => ids.includes(chip.id) && !attachmentId(chip.id));
+      const missing = ids.filter((id) => !attachmentId(id) && !found.some((chip) => chip.id === id));
+      if (queuedSend.current && missing.length) {
+        queuedSend.current = undefined;
+        for (const id of missing) field.current?.removeInline(id);
+        setAttachError(t("composer.attachmentsLost"));
+      }
+      if (!found.length) {
+        finishRecovery();
+        return;
+      }
+      attachmentsRef.current = appendAttachments(attachmentsRef.current, found);
+      setAttachments((current) => appendAttachments(current, found));
+    } catch {
+      // A failed recovery leaves the draft in place for the next attachment read.
+      finishRecovery();
+      return;
+    }
+    finishRecovery();
+    // A send that came while this look-up was out (it served other places) looks up its own now:
+    // the places still with no chip, read from the text and the chips held right now.
+    if (queuedSend.current && shownChat.current === chat) {
+      const still = (field.current?.inlineIds() ?? []).filter((id) => !attachmentId(id));
+      if (still.some((id) => !ids.includes(id))) void recoverLostNow.current(still);
+    }
+  };
+  const recoverLostNow = useRef(recoverLost);
+  recoverLostNow.current = recoverLost;
+  /// The places already looked up in the host's kept chips for this chat (`recoverLost`).
+  const triedLost = useRef(new Set<string>());
+  useEffect(() => {
+    triedLost.current.clear();
+    // A send waiting for its chips is the chat's it was typed in: another chat never runs it. Its
+    // prompt stays, and the composer says to send it again.
+    if (queuedSend.current) setAttachError(t("composer.attachmentsUnread"));
+    queuedSend.current = undefined;
+  }, [sessionId, t, setAttachError]);
+  // A draft that comes back with places whose chips the composer does not hold (a reconnect, a
+  // relaunch, a Not sent prompt put back) gets them from the host's kept copy, drawn as chips.
+  useEffect(() => {
+    if (!keptAttachments || !sessionId) return;
+    const timer = setTimeout(() => {
+      const lost = lostPlaces().filter((id) => !triedLost.current.has(id));
+      if (!lost.length) return;
+      for (const id of lost) triedLost.current.add(id);
+      void recoverLost(lost);
+    }, LOST_PLACES_SETTLE_MS);
+    return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the field and the chips as they are when it settles.
+  }, [text, attachments, sessionId, keptAttachments, t, setAttachError]);
+  // The waiting send goes once every place it holds is a chip the composer drew.
+  useEffect(() => {
+    const again = queuedSend.current;
+    if (!again || lostPlaces().length) return;
+    queuedSend.current = undefined;
+    again();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs when the drawn chips change.
+  }, [attachments]);
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
@@ -1547,9 +1658,11 @@ function ComposerFrame({
         dictationEnded.current = true;
         try {
           submitNow.current(force, steer, kept, route);
-        } finally {
+        } catch (error) {
           dictationEnded.current = false;
+          throw error;
         }
+        dictationEnded.current = false;
       });
       return true;
     }
@@ -1563,6 +1676,18 @@ function ComposerFrame({
       commands,
       pickedSkills.current,
     );
+    // An attachment's place in the text whose attachment the composer no longer holds (its chip
+    // went while the draft kept its place: a reconnect, a read of the chat's chips that failed)
+    // never goes as its bare id. The chips come back from the host's kept copy and the prompt
+    // goes then; one the host does not hold leaves the text, and the composer says so (Leo,
+    // 2026-11-11: six pasted images went as "130e68ee-…" text, with no image).
+    const lost = lostPlaces();
+    if (lost.length) {
+      // One waiting send: a second Enter while its chips come back replaces it, never adds one.
+      queuedSend.current = () => submitNow.current(force, steer, kept, route);
+      void recoverLost(lost);
+      return false;
+    }
     const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
@@ -2538,7 +2663,7 @@ function ComposerFrame({
   // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
   // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
   // once, so its glyphs draw at once.
-  slotMemory.current ??= newSlotMemory(sessionId);
+  if (!slotMemory.current) slotMemory.current = newSlotMemory(sessionId);
   const morphMemory = onOpenInWindow ? undefined : slotMemory.current;
   const stopButton = running ? (
     <button

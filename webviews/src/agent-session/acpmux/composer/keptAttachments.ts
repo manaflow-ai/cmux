@@ -8,6 +8,7 @@ import { holdWebSwap } from "../../../pages/shared/webSwap";
 /// draft's text (Leo 2026-10-20). A chip's contents travel once: a later write names it without
 /// them and the host keeps the file it has. `write` answers the ids of the chips whose contents the
 /// host holds (`{held}`); a chip it does not hold goes with its contents next time.
+/// `read` rejects when the host could not answer: an empty list means the chat keeps no chips.
 export type KeptAttachments = {
   read(sessionId: string): Promise<ComposerAttachment[]>;
   write(sessionId: string, attachments: ComposerAttachment[]): Promise<{ held?: unknown } | null | undefined>;
@@ -16,6 +17,11 @@ export type KeptAttachments = {
 /// How long the chips rest before they go to the host, so several picks or a paste of four
 /// screenshots write once.
 export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
+/// A read of the chat's chips that failed (the host busy, the bridge between pages) asks again,
+/// first after this long, then twice as long each time, up to `KEPT_READ_RETRY_MAX_MS`.
+export const KEPT_READ_RETRY_MS = 500;
+export const KEPT_READ_RETRY_MAX_MS = 8000;
+export const KEPT_READ_TRIES = 6;
 
 /// The chips a chat keeps: a shell run's chip stays with its page (its output fills when the prompt goes).
 /// A video's poster, frames and transcript stay too: the host reads them again when the chip comes
@@ -36,9 +42,19 @@ const handoffs = new Map<string, Promise<void>>();
 /// chat (attachmentIntake.ts `elsewhere`). A batch's chips are ready at their own times, so one
 /// chat's handoffs go one after another: each reads what the last wrote, never over it.
 export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
+  // A read the host does not answer is asked again: written over an unread list, the chat's other
+  // kept chips would go. A host that never answers keeps at least these.
+  const readKept = async (tries = 0): Promise<ComposerAttachment[]> => {
+    try {
+      return await store.read(chat);
+    } catch {
+      if (tries + 1 >= KEPT_READ_TRIES) return [];
+      await new Promise((resolve) => setTimeout(resolve, KEPT_READ_RETRY_MS * 2 ** tries));
+      return readKept(tries + 1);
+    }
+  };
   const next = (handoffs.get(chat) ?? Promise.resolve())
-    .then(() => store.read(chat))
-    .catch(() => [])
+    .then(() => readKept())
     .then((kept) => store.write(chat, appendAttachments(kept, chips)))
     .then(
       () => undefined,
@@ -74,6 +90,8 @@ export function useKeptAttachments(
   carry.current = carrying;
   /// A chat was read on this page before: the page's first chat keeps what it was opened with.
   const readOne = useRef(false);
+  /// The chat whose chips the composer holds: the last one read here.
+  const heldFor = useRef<string | undefined>(undefined);
   /// Writes sent and not answered yet.
   const inFlight = useRef(0);
   /// Each chat's newest write, and the chats whose newest write the host refused (with what it held).
@@ -134,29 +152,56 @@ export function useKeptAttachments(
     // The last chat's chips reach the host before this chat's are read.
     flush();
     const keepHeld = carry.current();
+    // The chips held now are this chat's own when this chat was the last one read here: the
+    // session went away and came back (a reconnect's attach, a page's handshake), with no other
+    // chat shown between. They are newer than the host's copy and stay.
+    const ownChips = heldFor.current === sessionId;
     let current = true;
-    void store
-      .read(sessionId)
-      .catch(() => [])
-      .then((kept) => {
-        if (!current) return;
-        const read = Array.isArray(kept) ? kept : [];
-        written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
-        // This chat's last write was refused: what the page showed then comes back with it, and goes
-        // again (the swap's hold resends a refused write) until the host keeps it.
-        const unkept = refused.current.get(sessionId);
-        const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
-        if (unkept) written.current.ids = "\u0000refused";
-        const keep = keepHeld || !readOne.current;
-        readOne.current = true;
-        setAttachments((held) => {
-          const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
-          return back.length || others.length !== held.length ? [...back, ...others] : held;
-        });
-        setReadFor(sessionId);
+    const retries = new Set<ReturnType<typeof setTimeout>>();
+    let tries = 0;
+    const answered = (kept: unknown) => {
+      if (!current) return;
+      const read = Array.isArray(kept) ? (kept as ComposerAttachment[]) : [];
+      written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
+      // This chat's last write was refused: what the page showed then comes back with it, and goes
+      // again (the swap's hold resends a refused write) until the host keeps it.
+      const unkept = refused.current.get(sessionId);
+      const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
+      if (unkept) written.current.ids = "\u0000refused";
+      const keep = keepHeld || ownChips || !readOne.current;
+      readOne.current = true;
+      heldFor.current = sessionId;
+      setAttachments((held) => {
+        const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
+        return back.length || others.length !== held.length ? [...back, ...others] : held;
       });
+      setReadFor(sessionId);
+    };
+    const ask = () =>
+      void store.read(sessionId).then(answered, () => {
+        // A read that failed says nothing of the chat's chips: it never takes the chips shown away
+        // (their places would stay in the text as bare ids, and the prompt would go without its
+        // pictures). Nothing is written before a read answers, so the host's copy stays too. After
+        // the last try (a host with no store) the chat goes on as one that keeps none.
+        if (!current) return;
+        // Chips of the chat shown before (a switch, nothing carried) are never this chat's.
+        if (!tries && !(keepHeld || ownChips || !readOne.current)) setAttachments((held) => (held.length ? [] : held));
+        tries += 1;
+        if (tries >= KEPT_READ_TRIES) return answered([]);
+        const retry = setTimeout(
+          () => {
+            retries.delete(retry);
+            ask();
+          },
+          Math.min(KEPT_READ_RETRY_MS * 2 ** (tries - 1), KEPT_READ_RETRY_MAX_MS),
+        );
+        retries.add(retry);
+      });
+    ask();
     return () => {
       current = false;
+      for (const retry of retries) clearTimeout(retry);
+      retries.clear();
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- flush only sends what rests; a chat is read once per session.
   }, [sessionId, store, setAttachments]);
@@ -173,14 +218,16 @@ export function useKeptAttachments(
     }
     if (pending.current?.sessionId === sessionId && signature(pending.current.chips) === signature(chips)) return;
     if (pending.current) clearTimeout(pending.current.timer);
+    const timer = setTimeout(() => {
+      pending.current = undefined;
+      send(sessionId, chips);
+    }, KEPT_ATTACHMENTS_SETTLE_MS);
     pending.current = {
       sessionId,
       chips,
-      timer: setTimeout(() => {
-        pending.current = undefined;
-        send(sessionId, chips);
-      }, KEPT_ATTACHMENTS_SETTLE_MS),
+      timer,
     };
+    return () => clearTimeout(timer);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- send is this render's; the timer sends what this render held.
   }, [sessionId, store, readFor, attachments]);
 

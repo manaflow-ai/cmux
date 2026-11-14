@@ -1067,11 +1067,11 @@ const postNewChatDraft = () =>
   );
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
+/// A read the host did not answer rejects: it is no answer that the chat keeps no chips.
 const keptAttachments: KeptAttachments = {
   read: (sessionId) =>
-    callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
-      (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
-      () => [],
+    callNative<unknown>("chat.draftAttachments.get", { sessionId }).then((kept) =>
+      Array.isArray(kept) ? (kept as ComposerAttachment[]) : [],
     ),
   write: (sessionId, attachments) =>
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
@@ -6722,7 +6722,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const chips = keptChips(list.flatMap((entry) => entry.attachments));
         if (!chips.length) return;
         // A closing page writes the shown chat's at once: it may be gone before a read answers.
-        const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
+        const kept =
+          shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat).catch(() => []);
         await keptAttachments
           .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
           .catch(() => undefined);
