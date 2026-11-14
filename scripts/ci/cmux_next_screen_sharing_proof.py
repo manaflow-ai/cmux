@@ -24,6 +24,7 @@ class ProofFailure(RuntimeError):
 
 
 ERROR_CODES = {
+    "device_hub_configuration_timeout", "host_cloud_namespace_unavailable",
     "proof_incomplete", "proof_interrupted", "host_cleanup_failed", "runner_preflight_failed",
     "host_command_unavailable", "host_command_failed", "device_identity_secure_enclave_unavailable",
     "device_identity_corrupt_key_blob", "device_identity_unavailable",

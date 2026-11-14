@@ -262,6 +262,13 @@ class HostTests(unittest.TestCase):
             with self.assertRaises(proof.ProofFailure):
                 proof.export_receipt({"error_code": "secret@example.test"}, directory)
 
+    def test_safe_startup_errors_survive_public_receipt(self):
+        for code in ("device_hub_configuration_timeout", "host_cloud_namespace_unavailable"):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                self.assertFalse(proof.export_receipt({"error_code": code}, directory))
+                with zipfile.ZipFile(Path(directory) / "evidence.zip") as archive:
+                    self.assertEqual(json.loads(archive.read("screen-sharing-proof.json"))["error_code"], code)
+
 
 if __name__ == "__main__":
     unittest.main()

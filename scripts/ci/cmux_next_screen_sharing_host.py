@@ -222,7 +222,7 @@ class Host:
                         self.device = state["this_device"]
                         return self
                 code = state.get("last_error")
-                if isinstance(code, str) and (code in {"device_identity_secure_enclave_unavailable", "device_identity_corrupt_key_blob", "device_identity_unavailable"}
+                if isinstance(code, str) and (code in {"device_identity_secure_enclave_unavailable", "device_identity_corrupt_key_blob", "device_identity_unavailable", "device_hub_configuration_timeout"}
                                               or re.fullmatch(r"device_identity_keychain_-?[0-9]{1,10}", code)):
                     raise HostFailure(code)
                 time.sleep(1)
