@@ -13543,6 +13543,9 @@ class TerminalController {
     private static let v1MirrorDirectionError =
         "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
 
+    private static let v1UnsupportedWorkspaceSplitError =
+        "ERROR: \(String(localized: "socket.newSplit.error.unsupportedWorkspace", defaultValue: "Splits are not supported in this workspace"))"
+
     private func newSplit(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -13604,6 +13607,8 @@ class TerminalController {
                 result = "OK routed-to-remote-tmux"
             case .noSpace:
                 result = "ERROR: No space for new pane"
+            case .moshTmuxSplitUnsupported:
+                result = Self.v1UnsupportedWorkspaceSplitError
             case .failed:
                 break
             }
