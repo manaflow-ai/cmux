@@ -106,7 +106,7 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
-fn selected_extra(row: &Map<String, Value>) -> Value {
+fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
@@ -115,6 +115,13 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    // Status describes the session; state may instead say stuck or stopping.
+    // Ordinary rows need no second copy of the same string on the wire.
+    if let Some(status) = row.get("status").and_then(Value::as_str)
+        && status != state
+    {
+        values.insert("status".into(), Value::String(status.to_owned()));
+    }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
@@ -136,8 +143,8 @@ fn selected_extra(row: &Map<String, Value>) -> Value {
     Value::Object(values)
 }
 
-fn extra(row: &Map<String, Value>) -> Value {
-    let mut value = selected_extra(row);
+fn extra(row: &Map<String, Value>, state: &str) -> Value {
+    let mut value = selected_extra(row, state);
     cut_values(&mut value);
     value
 }
@@ -261,13 +268,15 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     // Apply typed field bounds once, while extra is empty. Subsequent fitting
     // never uses the index's empty-extra fallback.
     summary = summary.prepare()?;
-    let mut local = Form { row: summary, extra: extra(row) };
+    let local_extra = extra(row, &summary.state);
+    let mut local = Form { row: summary, extra: local_extra };
 
     // Mask before cutting: a text boundary must not leave a partial secret.
     // v1 bounds the scan itself. It recognizes a summary by these three keys.
     // Keep them on the temporary
     // mask input, then convert the result to the same typed Summary shape.
-    let mut mask_input = selected_extra(row).as_object().cloned().unwrap_or_default();
+    let mut mask_input =
+        selected_extra(row, &local.row.state).as_object().cloned().unwrap_or_default();
     mask_input.insert("sessionId".into(), Value::String(local.row.chat_id.clone()));
     mask_input.insert("harness".into(), Value::String(local.row.harness.clone()));
     mask_input.insert("lastSeq".into(), row.get("lastSeq").cloned().unwrap_or(Value::from(0)));
@@ -287,7 +296,7 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
                 masked.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
             cut_title(&mut summary.title);
             summary = summary.prepare()?;
-            let peer_extra = extra(&masked);
+            let peer_extra = extra(&masked, &summary.state);
             if summary.title == local.row.title && peer_extra == local.extra {
                 None
             } else {
@@ -335,9 +344,10 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         .to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
-    summary.state = row
-        .status()
-        .or_else(|| value.get("state").and_then(Value::as_str))
+    summary.state = value
+        .get("state")
+        .and_then(Value::as_str)
+        .or_else(|| row.status())
         .unwrap_or("closed")
         .to_owned();
     summary.last_activity = row.updated_ms();
@@ -354,7 +364,7 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
     summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
     let mut opaque = value
         .as_object()
-        .map(extra)
+        .map(|row| extra(row, &summary.state))
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
