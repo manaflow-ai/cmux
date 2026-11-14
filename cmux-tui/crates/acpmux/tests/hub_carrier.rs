@@ -988,7 +988,7 @@ async fn connect_through_pipe(
     fixture: &PipeFixture,
     identity: &cmux_remote::crypto::StaticIdentity,
     invitation: bool,
-) -> cmux_remote::connection::ClientConnection {
+) -> Arc<cmux_remote::connection::ClientConnection> {
     use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
     use cmux_remote::crypto::ClientAuthMode;
     use cmux_remote::provider::{ConnectRequest, DirectWebSocketProvider, TransportProvider};
