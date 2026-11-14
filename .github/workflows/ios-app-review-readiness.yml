@@ -5,16 +5,19 @@ name: iOS App Review readiness
 # conclusion is the readiness answer.
 #
 # The App Store app is the cmux NEXT iPhone app (cmux-next-ios, com.cmux.app,
-# built from feat-cmux-next), so this runs feat-cmux-next's App Review gate
-# (.github/workflows/ios-review-gate.yml, cmux-next-ios/AppStoreReview/
-# APP-REVIEW-GATE.md) against the feat-cmux-next head: the guideline lint on
-# the source, the reviewer-path walk on iPhone, iPad and iPhone Duo with the
-# agent reviewer pass, and `asc validate --strict` (read-only; it needs the
-# `release` environment, which serves only main). The gate fails on any
-# blocking finding.
+# built from feat-cmux-next), so its gate is feat-cmux-next's
+# ios-review-gate.yml (cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md): the
+# guideline lint, and the reviewer-path walk on iPhone, iPad and iPhone Duo
+# with the agent reviewer pass. This job dispatches that workflow on
+# feat-cmux-next for the feat-cmux-next head and takes its run's conclusion,
+# as ios-reliability-matrix.yml starts the matrix. It holds no secret: the
+# gate runs as feat-cmux-next's own run with feat-cmux-next's own rules, and
+# main's release key never reaches a workflow defined on another branch.
+# `asc validate --strict` needs that key, so it stays in the production
+# submission (ios-app-store.yml), which calls the gate with it.
 #
-# No paths filter: every main push must leave a run behind, and no run is
-# cancelled for a newer one, so each push keeps its own verdict.
+# No paths filter and no cancel-in-progress: every main push leaves its own run
+# and verdict behind.
 
 on:
   push:
@@ -22,25 +25,41 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ios-app-review-readiness-${{ github.ref }}-${{ github.sha }}
+  group: ios-app-review-readiness-${{ github.sha }}
   cancel-in-progress: false
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   review-gate:
     name: NEXT App Review gate
-    uses: manaflow-ai/cmux/.github/workflows/ios-review-gate.yml@feat-cmux-next
-    # A called workflow gets at most these; the gate's lint job reads actions.
+    if: github.repository == 'manaflow-ai/cmux'
     permissions:
+      actions: write # dispatch and read ios-review-gate.yml
       contents: read
-      actions: read
-    with:
-      ref: feat-cmux-next
-      lane: appstore
-      agent_pass: true
-      gate_ref: feat-cmux-next
-    # The agent pass's Claude token and the App Store Connect key (release
-    # environment) are read inside the gate.
-    secrets: inherit
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The gate's reviewer-path jobs take about 30 minutes, plus their queue.
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch the gate on feat-cmux-next
+        id: dispatch
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve feat-cmux-next: $sha" >&2; exit 1; }
+          # return_run_details: the reply names the run this dispatch made, so a
+          # concurrent dispatch is never mistaken for it.
+          run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
+            -f ref=feat-cmux-next -f "inputs[ref]=$sha" -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
+            -F return_run_details=true --jq .workflow_run_id)"
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::the dispatch named no run: $run_id" >&2; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "App Review gate for feat-cmux-next $sha: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for the gate's verdict
+        env:
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "$RUN_ID" -R "$GITHUB_REPOSITORY" --exit-status --interval 60
