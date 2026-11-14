@@ -1,7 +1,7 @@
 use super::*;
 
-fn named(name: &str) -> RelaySender {
-    RelaySender { name: Some(name.to_owned()), subagent: None }
+fn named(name: &str) -> RelayMetadata {
+    RelayMetadata { name: Some(name.to_owned()), ..Default::default() }
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
     assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
     let done =
-        relay_with_deadline(&config, "refuse", "x", &RelaySender::default(), true, None).unwrap();
+        relay_with_deadline(&config, "refuse", "x", &RelayMetadata::default(), true, None).unwrap();
     assert_eq!(done.status, 7);
     assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -110,13 +110,14 @@ fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
     crate::test_exec::write_executable(&early, "#!/bin/sh\nexec 0<&-\nsleep 1\necho delivery-0\n");
     let early = SendRelay { argv: vec![early.display().to_string()], ls_argv: None };
     let big = "x".repeat(1 << 20);
-    let e = relay_with_deadline(&early, "lane-b", &big, &RelaySender::default(), true, None)
+    let e = relay_with_deadline(&early, "lane-b", &big, &RelayMetadata::default(), true, None)
         .unwrap_err();
     assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
     let missing = SendRelay { argv: vec![dir.join("absent").display().to_string()], ls_argv: None };
     assert!(
-        relay_with_deadline(&missing, "lane-b", "x", &RelaySender::default(), true, None).is_err()
+        relay_with_deadline(&missing, "lane-b", "x", &RelayMetadata::default(), true, None)
+            .is_err()
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -124,7 +125,7 @@ fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
 #[test]
 fn a_relayed_send_with_attachments_is_refused() {
     let config = SendRelay { argv: vec!["/nonexistent/relay".into()], ls_argv: None };
-    let e = send_with_deadline(&config, "lane-b", "x", &RelaySender::default(), true, true, None)
+    let e = send_with_deadline(&config, "lane-b", "x", &RelayMetadata::default(), true, true, None)
         .unwrap_err();
     assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
     assert!(e.to_string().contains("text only"), "{e}");

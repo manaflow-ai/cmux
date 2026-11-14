@@ -62,7 +62,11 @@ impl Source for RouteSource {
         };
         let config =
             (self.resolve)(id).ok_or_else(|| ConnError::InvalidRequest("no such stream".into()))?;
-        let handle = self.registry.hydrate(config);
+        // None: the chat is being purged, so it is no stream to subscribe to.
+        let handle = self
+            .registry
+            .hydrate(config)
+            .ok_or_else(|| ConnError::InvalidRequest("no such stream".into()))?;
         let chat = ChatSub {
             sid: sub.sid.clone(),
             conn: self.conn,

@@ -368,6 +368,66 @@ fn carrier_mark(
     }
 }
 
+/// A carrier start that keeps the relay URL of the join it started on (config.json's relay
+/// as the daemon holds it then).
+type Started = Arc<Mutex<Vec<Option<String>>>>;
+
+fn carrier_on(
+    started: &Started,
+) -> impl FnOnce(Arc<crate::hub::Hub>) -> BoxFuture<'static, ()> + 'static {
+    let started = Arc::clone(started);
+    move |hub| -> BoxFuture<'static, ()> {
+        Box::pin(async move {
+            let url = hub.config.read().await.mesh_relay.as_ref().map(|relay| relay.url.clone());
+            started.lock().unwrap().push(url);
+        })
+    }
+}
+
+/// #38440 review F1: the carrier starts after a sign-in's enroll whether or not one ran
+/// before. A first join (a daemon started unjoined) starts it, and so does a sign-in again
+/// after a sign-out's leave stopped it, on the new join's relay and credential, never the
+/// left one's.
+#[tokio::test]
+async fn a_re_enroll_after_a_sign_out_runs_the_carrier_on_the_new_join() {
+    let hub = memory_hub();
+    let (first, _first_seen) = recording_hub().await;
+    let (second, _second_seen) = recording_hub().await;
+    let started: Started = Arc::default();
+    // A daemon started unjoined: the first sign-in joins, and the carrier starts.
+    let disk: Disk = Arc::new(Mutex::new(Some(first.clone())));
+    let joined = super::enroll_transition_with(
+        &hub,
+        async { EnrollOutcome::Joined },
+        read(&disk),
+        carrier_on(&started),
+    )
+    .await;
+    assert_eq!(joined, (EnrollOutcome::Joined, Some("started")));
+    assert_eq!(*started.lock().unwrap(), [Some(first.url.clone())], "a first join's carrier");
+    // Signing out stops it with the relay.
+    *disk.lock().unwrap() = None;
+    let left = LeaveOutcome { left: true, kept: None, hub: Some("revoked"), relay_removed: true };
+    super::after_leave(&hub, &left).await;
+    assert!(hub.mesh.get().is_none());
+    // Signing in again joins anew: the carrier runs again, on the new join.
+    *disk.lock().unwrap() = Some(second.clone());
+    let again = super::enroll_transition_with(
+        &hub,
+        async { EnrollOutcome::Joined },
+        read(&disk),
+        carrier_on(&started),
+    )
+    .await;
+    assert_eq!(again, (EnrollOutcome::Joined, Some("started")));
+    assert_eq!(
+        *started.lock().unwrap(),
+        [Some(first.url.clone()), Some(second.url.clone())],
+        "the re-enroll's carrier runs on the new join's relay"
+    );
+    super::stop_joined(&hub).await;
+}
+
 /// The start with a leave pending that ends as `outcome` once `gate` opens, config.json's
 /// relay then being `disk`'s; whether it started the carrier.
 async fn start_after_leave(

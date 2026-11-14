@@ -1051,6 +1051,34 @@ fn intent(home: &Path, account: &str) {
     mark_leave(home, Some(account)).unwrap();
 }
 
+/// #38319 review F2 (#38440 F3): the app signs out, its intent writer starts and waits for
+/// the join lock, the same account signs back in and enrolls, and only then does the writer
+/// get the lock. Its intent is from before that sign-in: not recorded, and the next start
+/// leaves the newer join. A sign-out after that sign-in is recorded and leaves.
+#[tokio::test]
+async fn a_leave_intent_written_late_never_leaves_the_newer_join() {
+    let home = tempfile::tempdir().unwrap();
+    let port = FakeHub::at(home.path());
+    let signed_out_at = now_ms().saturating_sub(1_000);
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+    let joined = load_at(home.path()).unwrap().expect("joined");
+    let late = record_leave_intent_at(home.path(), "user_me", Some(signed_out_at)).await;
+    assert!(!late.unwrap(), "a stale intent is not recorded");
+    let at_start = finish_marked_at_start(home.path()).await;
+    assert!(at_start.as_ref().is_none_or(|left| !left.left), "{at_start:?}");
+    let kept = load_at(home.path()).unwrap().expect("the newer join stays");
+    assert_eq!(kept.credential, joined.credential);
+    assert!(!kept.revoked);
+    // Another account's late intent is still recorded: this sign-in was not theirs.
+    assert!(record_leave_intent_at(home.path(), "user_b", Some(signed_out_at)).await.unwrap());
+    remove_mark(home.path(), LEAVE_FILE);
+    // A sign-out after this sign-in is recorded, and the start leaves the join.
+    assert!(record_leave_intent_at(home.path(), "user_me", None).await.unwrap());
+    let left = finish_marked_at_start(home.path()).await.expect("a leave is marked");
+    assert!(left.left, "{left:?}");
+    assert!(load_at(home.path()).unwrap().is_none());
+}
+
 /// A leave asked of the daemon by `account` (None: a launch signed out).
 async fn asked(home: &Path, account: Option<&str>, port: &FakeHub) -> LeaveOutcome {
     leave_asked(home, Some("box-a"), account, |record| port.revoke_own(record)).await
