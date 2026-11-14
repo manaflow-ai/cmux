@@ -26,7 +26,9 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
-//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
+//! Keychain items, each on a thread of Rust's within its deadline),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
 //! checks, decisions, result fields and answer text),
 //! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
@@ -79,6 +81,7 @@ pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
+pub mod keychain;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
