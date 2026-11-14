@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43651036079",
+  "recorded_at": "2026-11-14T23:08:12Z",
+  "reason": "cmux-tui a3af699c06f8 changes the image's cmux-tui (pinned 3aeb17bcbb11)",
+  "dry_run": false,
+  "cmux_tui": "a3af699c06f84129947ced45a59f2f6898ddaa6a",
+  "fixes": [
+    {
+      "sha": "365f1abb49f92648d0f4c07ee595b61e50ef3cec",
+      "mergedAt": "2026-11-14T14:19:44-08:00",
+      "subject": "sidebar reducer: a stale op applies to the document as it is now; each refusal has its own text (step A) (#43234)"
+    },
+    {
+      "sha": "b0d2e04f36d916f495ac3f806477418b1aeb863b",
+      "mergedAt": "2026-11-14T14:18:27-08:00",
+      "subject": "cmux-encode: Media Foundation H.264 encoder for Windows, with bench rows (#43212)"
+    },
+    {
+      "sha": "0503b79f66a4c0c66822ab5af6cd5f0b0880c32b",
+      "mergedAt": "2026-11-14T14:09:29-08:00",
+      "subject": "v2 list stream on a peer link: the mirror's mark and one append per unit (8 part two, core) (#43098)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T23:08:12Z",
+    "snapshot_id": "sh-69a0283b31304ec48df3db28b7f49ee6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43651036079): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "96b4141774ef8e0df1395b5e14946e5016f6c589",
+    "image": "cloud-native-auto-a3af699c-43651036079-1",
+    "revision": "ci-43651036079-1",
+    "at": "2026-11-14T23:08:12Z"
+  },
+  "rolled_back": false
+}
