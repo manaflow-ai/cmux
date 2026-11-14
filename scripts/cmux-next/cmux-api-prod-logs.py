@@ -429,6 +429,8 @@ def belongs_to_account(event, account):
 def publish(events, needles, account=None):
     """(header, rows) for the public log. Needles filter the public rows, never raw event text, so a dispatcher can't
     probe for tenant text; and the header says only whether any row was kept, not how many."""
+    if not needles:
+        raise ValueError("needles: at least one search term is required")
     events = [event for event in events if belongs_to_account(event, account)]
     counts = {}
     rows = [line(e, counts) for e in events]
@@ -470,6 +472,8 @@ def event_needles(path):
 
 
 def main():
+    if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
+        sys.exit("logs: only workflow_dispatch may query")
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="frm", required=True, help="UTC start, e.g. 2026-11-11T13:20:00Z")
     ap.add_argument("--minutes", type=int, default=30)
@@ -482,6 +486,8 @@ def main():
         sys.exit("account: an exact team/account id is required")
     raw = args.needles or (event_needles(args.needles_from_event) if args.needles_from_event else "")
     needles = [n.strip() for n in raw.split(",") if n.strip()]
+    if not needles:
+        sys.exit("needles: at least one search term is required")
     if any(not NEEDLE_OK.match(n) for n in needles):
         sys.exit("needles: each 3-80 chars of letters, digits, _ . / : - and space")
     start = datetime.datetime.strptime(args.frm, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)

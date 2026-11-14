@@ -25,8 +25,8 @@ on:
         required: false
         default: "30"
       needles:
-        description: "Optional comma-separated search terms within the exact account scope; printed hashed"
-        required: false
+        description: "Required comma-separated search terms within the exact account scope; printed hashed"
+        required: true
         default: ""
 
 permissions:
@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   logs:
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     environment: cmux-next-production
     timeout-minutes: 10

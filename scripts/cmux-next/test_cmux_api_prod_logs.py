@@ -184,7 +184,7 @@ class AccountIsolationTests(unittest.TestCase):
         bad = event({"msg": "private text", "team": "team_foreign"})
         conflict = event({"msg": "team selection unreachable", "team": TEAM, "account": "team_foreign"})
         missing = event({"msg": "team selection unreachable"})
-        head, rows = logs.publish([good, bad, conflict, missing], [], account=TEAM)
+        head, rows = logs.publish([good, bad, conflict, missing], ["team selection unreachable"], account=TEAM)
         self.assertEqual(len(rows), 1)
         self.assertEqual(head["events_in_window"], 1)
         self.assertNotIn("logs_dropped_unlisted", head)
@@ -201,10 +201,10 @@ class AccountIsolationTests(unittest.TestCase):
         for value in (None, [], 42, TEAM + "-suffix"):
             with self.subTest(value=value):
                 candidate = event({"msg": "team selection unreachable", "team": value})
-                self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+                self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
         candidate = event({"msg": "team selection unreachable", "team": TEAM})
         candidate["source"] = {"msg": "team selection unreachable", "team": "team_foreign"}
-        self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+        self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
 
     def test_account_field_and_refining_needles_keep_only_the_scoped_row(self):
         own = event({"msg": "team selection unreachable", "account": TEAM},
@@ -217,18 +217,19 @@ class AccountIsolationTests(unittest.TestCase):
 
     def test_duplicate_serialized_identity_fails_closed(self):
         candidate = event('{"msg":"team selection unreachable","team":"team_foreign","team":"' + TEAM + '"}')
-        self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+        self.assertEqual(logs.publish([candidate], ["team selection unreachable"], account=TEAM)[1], [])
 
     def test_main_reads_account_from_event_and_filters_before_output(self):
         own = event({"msg": "team selection unreachable", "team": TEAM})
         foreign = event({"msg": "team selection unreachable", "team": "team_foreign"})
         response = {"result": {"events": {"events": [own, foreign]}}}
         with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
-            json.dump({"inputs": {"account": TEAM, "needles": ""}}, f)
+            json.dump({"inputs": {"account": TEAM, "needles": "team selection unreachable"}}, f)
             f.flush()
             args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles-from-event", f.name]
             output = io.StringIO()
-            with patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+            with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                    patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
                     patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response) as query:
                 self.assertEqual(logs.main(), 0)
             query.assert_called_once()
@@ -241,10 +242,30 @@ class AccountIsolationTests(unittest.TestCase):
 
     def test_main_without_account_refuses_before_query(self):
         args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles", TEAM]
-        with patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
             with self.assertRaisesRegex(SystemExit, "exact team/account id is required"):
                 logs.main()
         query.assert_not_called()
+
+
+    def test_push_event_never_queries_even_with_scope_and_search(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", TEAM]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "push"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "only workflow_dispatch"):
+                logs.main()
+        query.assert_not_called()
+
+    def test_empty_needles_refuse_before_query_or_publishing(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", " , "]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "at least one search term"):
+                logs.main()
+        query.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "at least one search term"):
+            logs.publish([event({"msg": "team selection unreachable", "team": TEAM})], [], account=TEAM)
 
 
 if __name__ == "__main__":
