@@ -284,6 +284,7 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        live?.onCloudMachineGone = { [weak self] machineID, name in self?.cloudMachineGone(machineID, name: name) }
         live?.onTeamSwitch = { [weak self] in self?.closeTeamScreens() }
         #if DEBUG
         // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
@@ -467,6 +468,21 @@ final class ShellModel {
 
     /// A Mac left the account: a workspace page of it (and anything pushed
     /// on top) closes, back to the list.
+    /// A Cloud machine left the list with one of its pages open (a workspace, its terminal, its
+    /// Settings page): say it ended before the page closes, never a silent jump back.
+    func cloudMachineGone(_ machineID: String, name: String) {
+        let onWorkspaces = workspacesPath.contains { $0.macID == machineID }
+        let onSettings = settingsPath.contains { route in
+            switch route {
+            case .cloudMachine(let id), .cloudWorkspace(let id, _): id == machineID
+            default: false
+            }
+        }
+        guard onWorkspaces || onSettings else { return }
+        toast = CmuxMobileToast(symbol: "xmark.icloud", text: "\(name) was deleted")
+        theme.haptics.warning()
+    }
+
     func macRemoved(_ macID: String) {
         if let index = workspacesPath.firstIndex(where: { $0.macID == macID }) {
             workspacesPath.removeSubrange(index...)

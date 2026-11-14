@@ -253,6 +253,20 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.cloudHoldNotBefore[vm] == nil, "opening the machine kept its wait")
     }
 
+    /// Live capture at 8347616b (criterion 7): a machine deleted while its terminal was open
+    /// dropped back to the list with no word. Its leaving names it first, then its pages close.
+    @Test func aMachineThatLeavesTheListIsNamedBeforeItsPagesClose() {
+        let store = emptyStore()
+        let live = coordinator(store: store, cloud: RecordingCloudDialer())
+        defer { live.stop() }
+        var events: [String] = []
+        live.onCloudMachineGone = { id, name in events.append("gone \(id) \(name)") }
+        live.onMacRemoved = { id in events.append("removed \(id)") }
+        live.applyCloudMachines([machine(.running)])
+        live.applyCloudMachines([])
+        #expect(events == ["gone \(vm) Build box", "removed \(vm)"])
+    }
+
     @Test func pausedAndStartingMachinesAreNotDialed() async throws {
         let store = emptyStore()
         let cloud = RecordingCloudDialer()

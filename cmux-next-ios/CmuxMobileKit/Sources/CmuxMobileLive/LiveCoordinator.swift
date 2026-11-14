@@ -49,6 +49,9 @@ public final class LiveCoordinator {
     /// A Mac left the account (removed here or on another device), after
     /// the store forgot it: screens showing one of its workspaces close.
     @ObservationIgnored public var onMacRemoved: ((String) -> Void)?
+    /// A Cloud machine left the list (deleted, or no longer the account's), with the name it had:
+    /// the shell says so when one of its pages was open, before closing them (``onMacRemoved``).
+    @ObservationIgnored public var onCloudMachineGone: ((_ id: String, _ name: String) -> Void)?
     /// The active team changed after another was running (any path): the shell closes the
     /// screens that showed its links (``ShellModel/closeTeamScreens()``).
     @ObservationIgnored public var onTeamSwitch: (() -> Void)?

@@ -74,6 +74,7 @@ extension LiveCoordinator {
             }
         }
         let before = Set(listedCloudMachines.map(\.id))
+        let namesBefore = Dictionary(listedCloudMachines.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         listedCloudMachines = machines
         // A refusal that the list has since changed (paused, gone, started again) no longer holds.
         for (id, refusal) in cloudRefusals {
@@ -91,6 +92,8 @@ extension LiveCoordinator {
         publishCloudMachines()
         let ids = Set(machines.map(\.id))
         for gone in before.subtracting(ids) {
+            // A page of it on screen ends with a word, not a silent jump back (criterion 7).
+            onCloudMachineGone?(gone, namesBefore[gone] ?? "This Cloud machine")
             // Its open pages close, as a removed Mac's do (a workspace on Workspaces or Settings).
             onMacRemoved?(gone)
             // Gone from the list (deleted): no later session takes its terminals.
