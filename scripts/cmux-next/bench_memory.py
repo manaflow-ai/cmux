@@ -558,6 +558,28 @@ def remember_chat_tab(workspace: str, response: dict):
         CHAT_TABS[workspace] = tab
 
 
+def chat_tab_of(app: App, workspace: str) -> str | None:
+    """`workspace`'s agent chat tab (kind `conversation`) from `snapshot.get`, or None.
+
+    `agent.openSessionWorkspace` answers with the workspace id only, so a --fake-agent chat has no
+    recorded tab; the restore then pressed `prevSurface`, which leaves a workspace that already shows its
+    chat for its terminal, and the trace bound to a chat that went off screen (first_content_ms null)."""
+    snap = app.call("snapshot.get", timeout=30) or {}
+    if isinstance(snap, dict) and isinstance(snap.get("result"), dict):
+        snap = snap["result"]
+    topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+    for ws in topology.get("workspaces", []) or []:
+        if ws.get("id") != workspace:
+            continue
+        for screen in ws.get("screens", []) or []:
+            for pane in screen.get("panes", []) or []:
+                for tab in pane.get("tabs", []) or []:
+                    ident = str(tab.get("id") or "")
+                    if tab.get("kind") == "conversation" and ident and not ident.startswith("pending_"):
+                        return ident
+    return None
+
+
 def cef_page_count(app: App) -> int | None:
     """Live Chromium pages of cmux's own (`cmux-page://`), from `debug.cef_pages`."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
@@ -577,6 +599,8 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
     opens = []
     for workspace in workspaces[:count]:
         tab = CHAT_TABS.get(workspace)
+        # The snapshot's id of the chat tab (it names tabs otherwise than an action's `created`).
+        snapshot_tab = None if tab else chat_tab_of(app, workspace)
         armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
         if not isinstance(armed, dict) or armed.get("error"):
             opens.append({"workspace": workspace, "error": f"arm: {armed}"})
@@ -585,11 +609,17 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
         if not shown.get("error"):
             # No recorded id: the chat is the tab before the terminal the mix added last. The trace
             # binds only when a chat loads, so a wrong guess reads as `live`, never as a restore time.
-            shown = app.run("tab.focus", target=tab) if tab else app.action("prevSurface")
+            if tab:
+                shown = app.run("tab.focus", target=tab)
+            elif snapshot_tab:
+                shown = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": snapshot_tab},
+                                                "focus": True}, timeout=30) or {}
+            else:
+                shown = app.action("prevSurface")
         trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
         frames = trace.get("frames") or []
         opens.append({
-            "workspace": workspace, "tab": tab or "prevSurface",
+            "workspace": workspace, "tab": tab or (snapshot_tab and f"snapshot:{snapshot_tab}") or "prevSurface",
             "error": shown.get("error") or trace.get("error"),
             "timed_out": trace.get("timed_out"),
             "first_content_ms": trace.get("first_content_ms"),

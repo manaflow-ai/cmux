@@ -56,7 +56,7 @@ fn a_page_hang_round_trips_through_the_c_abi() {
         m.call("tick", json!({"nowMs": 10000})),
         json!({
             "actions": [{"id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1}],
-            "nextTickMs": 12000
+            "nextTickMs": 40000
         })
     );
     let snap = m.call("snapshot", json!({}));
@@ -67,7 +67,7 @@ fn a_page_hang_round_trips_through_the_c_abi() {
             "id": id, "kind": "page", "label": "Agent chat",
             "state": "repairing", "sinceMs": 10000,
             "detail": "Not answering for 10 s. Reloading it (attempt 1 of 3); your draft is kept.",
-            "action": "reloadPage", "attempt": 1, "maxAttempts": 3, "nextAtMs": 12000,
+            "action": "reloadPage", "attempt": 1, "maxAttempts": 3, "nextAtMs": 40000,
             "canRepair": true
         })
     );

@@ -778,6 +778,8 @@ private struct LinkSettingsObserver: ViewModifier {
                 // moment) still shows the page: only the background hides it.
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
+                // Relative times stop ticking unseen, and read the time at once on return.
+                MinuteClock.shared.setActive(phase != .background)
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()

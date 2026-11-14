@@ -99,29 +99,64 @@ nm -gjU "$after" | LC_ALL=C sort -u > "$out/candidate/exports-after-strip.txt"
 cmp "$out/candidate/exports.txt" "$out/candidate/exports-after-strip.txt"
 dwarfdump --uuid "$after" | awk '{print $2}' > "$out/candidate/uuid-after-strip.txt"
 cmp "$out/candidate/uuid-before-strip.txt" "$out/candidate/uuid-after-strip.txt"
+
+# Record the installed payload before signing. This is the authoritative size
+# comparison even when an ad-hoc signature or launch smoke fails later: signing
+# changes only code-signature metadata, while the CEF payload bytes are already
+# in their final locations.
+printf 'arm\tdu_kib\tapp\n' > "$out/pre-sign-du.tsv"
 for arm in baseline candidate; do
   app="$work/$arm/cmux NIGHTLY.app"
-  # Both copies get the same ad-hoc signing treatment and preserve entitlements.
-  # The source DMG remains signed and untouched.
-  codesign --force --deep --sign - --preserve-metadata=entitlements,flags,runtime "$app"
-  codesign --verify --deep --strict "$app"
+  du_kib="$(du -sk "$app" | awk '{print $1}')"
+  printf '%s\t%s\t%s\n' "$arm" "$du_kib" "$app" | tee -a "$out/pre-sign-du.tsv"
   python3 "$root/scripts/cmux-next/bundle-size.py" report "$app" --json "$out/$arm/size.json" \
     > "$out/$arm/size.txt"
-  python3 "$root/scripts/ci/stable_next_ui_journey.py" --app "$app" --out "$out/$arm/smoke" \
-    --seconds 30 --startup-timeout 90 > "$out/$arm/smoke.log" 2>&1
+done
+
+signing_status=0
+smoke_status=0
+for arm in baseline candidate; do
+  app="$work/$arm/cmux NIGHTLY.app"
+  # Ad-hoc signing is only for the launch smoke. Do not preserve the DMG's
+  # provisioning metadata: it is invalid for an ad-hoc identity and can make
+  # launchd kill the copied app before it starts.
+  if codesign --force --deep --sign - --timestamp=none "$app" > "$out/$arm/sign.log" 2>&1; then
+    printf 'signing_%s=passed\n' "$arm" | tee -a "$out/signing.txt"
+  else
+    code=$?
+    printf 'signing_%s=failed exit=%s\n' "$arm" "$code" | tee -a "$out/signing.txt"
+    signing_status=1
+    continue
+  fi
+  if ! codesign --verify --deep --strict "$app" > "$out/$arm/sign-verify.log" 2>&1; then
+    printf 'signing_%s=verify-failed\n' "$arm" | tee -a "$out/signing.txt"
+    signing_status=1
+    continue
+  fi
+  if ! python3 "$root/scripts/ci/stable_next_ui_journey.py" --app "$app" --out "$out/$arm/smoke" \
+    --seconds 30 --startup-timeout 90 > "$out/$arm/smoke.log" 2>&1; then
+    printf 'smoke_%s=failed\n' "$arm" | tee -a "$out/signing.txt"
+    smoke_status=1
+  else
+    printf 'smoke_%s=passed\n' "$arm" | tee -a "$out/signing.txt"
+  fi
 done
 python3 - "$out" "$nightly" "$digest" "$fork" <<'PY'
 import json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 before = json.loads((out / 'baseline/size.json').read_text())
 after = json.loads((out / 'candidate/size.json').read_text())
+signing = (out / 'signing.txt').read_text() if (out / 'signing.txt').exists() else ''
 report = {'kind': 'paired-nightly-binary-substitution', 'nightly': sys.argv[2],
           'dmg_sha256': sys.argv[3], 'cef_source': sys.argv[4],
           'baseline_app_bytes': before['app_bytes'], 'candidate_app_bytes': after['app_bytes'],
           'saved_app_bytes': before['app_bytes'] - after['app_bytes'],
-          'launch_and_browser_smoke_passed': True,
-          'signing': 'both arms ad-hoc; source DMG unchanged',
+          'pre_sign_du_tsv': 'pre-sign-du.tsv',
+          'launch_and_browser_smoke_passed': 'smoke_baseline=passed' in signing and 'smoke_candidate=passed' in signing,
+          'signing': signing.strip().splitlines(),
           'scope': 'CEF binary only; release packaging and pin adoption remain separate'}
 (out / 'comparison.json').write_text(json.dumps(report, indent=2) + '\n')
 print(json.dumps(report, indent=2))
 PY
+final_status=$((signing_status || smoke_status))
+exit "$final_status"
