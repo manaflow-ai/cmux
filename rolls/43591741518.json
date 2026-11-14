@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43591741518",
+  "recorded_at": "2026-11-14T11:56:54Z",
+  "reason": "cmux-tui 6f486d5a62c8 changes the image's cmux-tui (pinned 94268dd8eac9)",
+  "dry_run": false,
+  "cmux_tui": "6f486d5a62c8bcfeb9a803d6c18eff9d1cbac4ba",
+  "fixes": [
+    {
+      "sha": "6f486d5a62c8bcfeb9a803d6c18eff9d1cbac4ba",
+      "mergedAt": "2026-11-14T03:27:33-08:00",
+      "subject": "fix(cmux-tui): follow-ups to the restatement in parts: placed-terminal scope, one journal compare, a lock guard test (#42945)"
+    },
+    {
+      "sha": "d78ec0e38cda91075837c81e4c7b0ff8a60901cf",
+      "mergedAt": "2026-11-14T03:23:28-08:00",
+      "subject": "v2 client: mirror subscriptions deliver v1 rows (#42808)"
+    },
+    {
+      "sha": "38e1699c618afa634ec892878dcaf617c4123dbc",
+      "mergedAt": "2026-11-14T03:23:08-08:00",
+      "subject": "Ultra Mode: Auto, the default on Mac and iPhone (#39317)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T11:56:54Z",
+    "snapshot_id": "sh-55348d3d95d148a3b257a1ba50253f18",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43591741518): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "15c14a22ac077321582f9b5a9c47836a061c727b",
+    "image": "cloud-native-auto-6f486d5a-43591741518-1",
+    "revision": "ci-43591741518-1",
+    "at": "2026-11-14T11:56:54Z"
+  },
+  "rolled_back": false
+}
