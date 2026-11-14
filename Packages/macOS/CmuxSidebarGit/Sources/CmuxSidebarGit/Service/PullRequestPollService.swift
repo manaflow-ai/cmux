@@ -271,6 +271,38 @@ public final class PullRequestPollService: PullRequestProbing {
                 repoResults: repoFetch.repoResults
             )
             guard !Task.isCancelled else { return }
+            let deliveryStatuses = await withTaskGroup(
+                of: (WorkspaceGitProbeKey, PullRequestDeliveryStatus?).self,
+                returning: [WorkspaceGitProbeKey: PullRequestDeliveryStatus].self
+            ) { group in
+                for result in results {
+                    guard case .resolved(let resolvedPullRequest) = result.resolution,
+                          let repositorySlug = resolvedPullRequest.repositorySlug else {
+                        continue
+                    }
+                    let key = WorkspaceGitProbeKey(
+                        workspaceId: result.workspaceId,
+                        panelId: result.panelId
+                    )
+                    group.addTask {
+                        (
+                            key,
+                            await probeService.fetchDeliveryStatus(
+                                repositorySlug: repositorySlug,
+                                pullRequestNumber: resolvedPullRequest.number
+                            )
+                        )
+                    }
+                }
+                var values: [WorkspaceGitProbeKey: PullRequestDeliveryStatus] = [:]
+                for await (key, status) in group {
+                    if let status {
+                        values[key] = status
+                    }
+                }
+                return values
+            }
+            guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 guard !Task.isCancelled else { return }
@@ -278,6 +310,7 @@ public final class PullRequestPollService: PullRequestProbing {
                 self.applyWorkspacePullRequestRefreshResults(
                     results,
                     repoResults: repoFetch.repoResults,
+                    deliveryStatuses: deliveryStatuses,
                     requestedKeys: keys,
                     now: Date(),
                     reason: reason,
