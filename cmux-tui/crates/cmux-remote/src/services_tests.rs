@@ -1029,7 +1029,8 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
 async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
     tokio::task::LocalSet::new()
         .run_until(async {
-            const LINES: usize = 100_000;
+            const LINES: usize = 20_000;
+            const PAD: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
             let directory = tempdir().unwrap();
             let workspace = WorkspaceService::new();
@@ -1074,11 +1075,13 @@ async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
                     process,
                     WorkspaceRequest::SpawnProcess {
                         workspace: workspace_id,
-                        // One small write per line, ~1 MiB in all.
+                        // One small write per line (a shell builtin), ~1 MiB in all:
+                        // the daemon reads it as thousands of small events.
                         argv: vec![
-                            "awk".into(),
+                            "/bin/sh".into(),
+                            "-c".into(),
                             format!(
-                                "BEGIN {{ for (i = 0; i < {LINES}; i++) {{ print \"line\" i; fflush() }} }}"
+                                "i=0; while [ $i -lt {LINES} ]; do printf 'line%06d {PAD}\\n' $i; i=$((i+1)); done"
                             ),
                         ],
                         cwd: None,
@@ -1108,7 +1111,7 @@ async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
                 // Read slower than the child writes for the first events.
                 events += 1;
                 if events < 1_500 {
-                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
                 }
                 match event.event {
                     ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
@@ -1125,7 +1128,7 @@ async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
                     ProcessEvent::Exit { code, .. } => break code,
                 }
             };
-            let expected: String = (0..LINES).map(|i| format!("line{i}\n")).collect();
+            let expected: String = (0..LINES).map(|i| format!("line{i:06} {PAD}\n")).collect();
             assert_eq!(output.len(), expected.len(), "received bytes");
             assert!(output == expected.as_bytes(), "output differs from what the child wrote");
             assert_eq!(exit, Some(0));
