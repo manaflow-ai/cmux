@@ -46,14 +46,17 @@ function launch() {
   registerChatDisplayHost((key, value) => {
     if (value === null) delete file[key];
     else file[key] = value;
+    for (const wrote of writes.splice(0)) wrote();
   });
 }
 
 /// The host's first `display` push after the page loads: what the file holds.
 const hostSendsDisplay = () => setChatDisplay({ ...file });
 
-/// The page writes a pick once its slider-style debounce passed (chatDisplay.ts WRITE_DELAY_MS).
-const writesSettle = () => new Promise((resolve) => setTimeout(resolve, 400));
+/// Waiters for the host's next write: the page writes a pick once its debounce passed
+/// (chatDisplay.ts WRITE_DELAY_MS). Code that never writes the pick never settles, and the test fails.
+const writes: (() => void)[] = [];
+const writesSettle = () => new Promise<void>((resolve) => writes.push(resolve));
 
 beforeEach(() => {
   file = {};
