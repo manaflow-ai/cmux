@@ -519,18 +519,17 @@ mod tests {
         }
     }
 
-    /// In an untrusted project with its own `.codex/config.toml`, whose
-    /// `cmux` entry would load after the trust prompt and merge with the
-    /// switch, Codex is not asked and nothing is turned off or said.
+    /// Where a project config (the launch folder, `-C` applied, or above)
+    /// defines `cmux`, Codex is not asked and nothing is turned off or said;
+    /// a project config without `cmux` changes nothing.
     #[test]
-    fn an_untrusted_projects_config_turns_nothing_off_quietly() {
+    fn a_project_config_naming_cmux_turns_nothing_off_quietly() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let (home, project) = (root.join("codex"), root.join("proj"));
-        fs::create_dir_all(project.join(".git")).unwrap();
-        fs::create_dir_all(project.join(".codex")).unwrap();
-        fs::create_dir_all(&home).unwrap();
-        fs::write(project.join(".codex/config.toml"), "").unwrap();
+        let (home, project, other) = (root.join("codex"), root.join("proj"), root.join("other"));
+        for folder in [project.join(".codex"), other.clone(), home.clone()] {
+            fs::create_dir_all(folder).unwrap();
+        }
         let asked = RefCell::new(0);
         let resolve = |_: &Path, _: &OsStr, _: &Path, _: &ConfigArgs| {
             *asked.borrow_mut() += 1;
@@ -541,10 +540,9 @@ mod tests {
             "CMUX_TUI_TERMINAL_ID" => Some(OsString::from("term_1")),
             _ => None,
         };
-        let mut said = Vec::new();
-        let args = os(&["fix the bug"]);
-        let launch = |cwd: &Path, said: &mut Vec<String>| {
-            mcp_settings(
+        let launch = |cwd: &Path, args: &[&str], said: &mut Vec<String>| {
+            let args = os(args);
+            let settings = mcp_settings(
                 &McpLaunch {
                     args: &args,
                     codex: Path::new("/real/codex"),
@@ -557,21 +555,29 @@ mod tests {
                 &resolve,
                 &getenv,
                 &mut |line| said.push(line.to_owned()),
-            )
+            );
+            settings.iter().any(|s| s.to_string_lossy() == "mcp_servers.cmux.enabled=false")
         };
-        let settings = launch(&project, &mut said);
-        assert_eq!(*asked.borrow(), 0);
-        assert!(said.is_empty(), "{said:?}");
-        assert!(!settings.iter().any(|s| s.to_string_lossy().contains("enabled=false")));
-        // Trusted: asked, and another cmux's entry is turned off.
-        fs::write(
-            home.join("config.toml"),
-            format!("[projects.\"{}\"]\ntrust_level = \"trusted\"\n", project.display()),
-        )
-        .unwrap();
-        let settings = launch(&project, &mut said);
+        let mut said = Vec::new();
+        // A project config without cmux: asked, another cmux's entry turned off.
+        fs::write(project.join(".codex/config.toml"), "model = \"o3\"\n").unwrap();
+        assert!(launch(&project, &["fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
-        assert!(settings.iter().any(|s| s.to_string_lossy() == "mcp_servers.cmux.enabled=false"));
+        // One that defines cmux: not asked, nothing off, nothing said.
+        fs::write(project.join(".codex/config.toml"), "[mcp_servers.cmux]\ncwd = \"/w\"\n")
+            .unwrap();
+        assert!(!launch(&project, &["fix the bug"], &mut said));
+        assert_eq!(*asked.borrow(), 1);
+        assert!(said.is_empty(), "{said:?}");
+        // `-C` into it from a folder without one: the same.
+        let to_project = project.to_str().unwrap();
+        assert!(!launch(&other, &["-C", to_project, "fix the bug"], &mut said));
+        assert_eq!(*asked.borrow(), 1);
+        // And `-C` out of it: asked again.
+        let to_other = other.to_str().unwrap();
+        assert!(launch(&project, &["-C", to_other, "fix the bug"], &mut said));
+        assert_eq!(*asked.borrow(), 2);
+        assert!(said.is_empty(), "{said:?}");
     }
 
     /// An entry with a url is never turned off, and nothing is said: it is
