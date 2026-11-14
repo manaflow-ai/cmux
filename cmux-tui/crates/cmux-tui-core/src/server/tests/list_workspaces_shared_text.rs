@@ -146,7 +146,9 @@ fn the_readers_of_one_build_share_one_serialization_of_its_tree() {
 /// The reply the command path makes of `list-workspaces`: the tree value in a `Response`,
 /// serialized by the connection's writer.
 fn value_path_reply(mux: &Arc<Mux>, connection: &Connection, id: Option<Value>) -> String {
-    let data = cmd_workspaces::list_workspaces(mux, connection.writer.lines_written()).unwrap();
+    let lines_written = connection.writer.lines_written();
+    let data =
+        cmd_workspaces::list_workspaces(mux, connection.client, lines_written, None, None).unwrap();
     let response = Response {
         id,
         ok: true,

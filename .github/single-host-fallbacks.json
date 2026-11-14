@@ -271,6 +271,10 @@
       "fallback": "as vars.CI_NIGHTLY_MINI, for build-nightly-app only: glaeda-nightly-mini-builder, on the two warm builders (nightly-only-1/2) of cmux15 and of cmux7s-mac-mini. Unset, build-nightly-app keeps its picker route",
       "after_minutes": 25
     },
+    "CI_BLACKSMITH_MACOS": {
+      "fallback": "an off switch, not a host: unset sends each cmux-next Mac job to vars.CI_SIDE_LANE_RUNNER, the owned side lane (docs/ci/cmux-next-workflow-notes.md#note-350)",
+      "after_minutes": 5
+    },
     "CI_CLASSIC_NIGHTLY_MINI": {
       "fallback": "none automatic while it is set, by design: it is the classic one-mini switch and the rollback (Lawrence, 2026-11-04: \"we need to just make nightlies build on a single mac mini\"), separate from NEXT's CI_NIGHTLY_MINI so classic switches on its own. When set, every job of cmux main's nightly.yml on main (push, schedule or dispatch) takes it first, except the jobs that hold a key, run the signed bundle or build the macOS 15 helper, which keep their route (build-nightly-app included) (cmux tests/test_classic_nightly_one_mini.py). Its only allowed value, glaeda-nightly-mini, is on cmux15's nightly-only-3..7 and cmux7s-mac-mini's nightly-only-3..5. An rc/** push never reads it. Clearing it puts every job back on its earlier route in the same runs-on. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
       "after_minutes": 25
