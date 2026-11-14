@@ -138,6 +138,11 @@ pub enum ResumeSize {
     Over,
 }
 
+/// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
+/// none when its index entry is missing or its record is refused: a hole that keeps its place
+/// and its row slot.
+type TurnRead = (RowRef, Vec<u8>);
+
 /// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
 struct Span {
@@ -744,9 +749,7 @@ impl Log {
         let mut next =
             if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
         let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
-        // Each group row `folds.idx` lists, with its row and text; `None` is a hole: its index
-        // entry is missing or its record is refused. A hole keeps its place and its row slot.
-        let mut taken: Vec<(u64, Option<(RowRef, Vec<u8>)>)> = Vec::new();
+        let mut taken: Vec<(u64, Option<TurnRead>)> = Vec::new();
         while let Some(at) = next
             && taken.len() < MAX_ROWS
         {
