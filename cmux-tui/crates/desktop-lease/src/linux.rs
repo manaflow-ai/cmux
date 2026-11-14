@@ -102,18 +102,66 @@ impl Backend for LinuxXvfb {
     }
 }
 
+/// The slot's X authority file, inside its private state directory.
+const XAUTHORITY: &str = "Xauthority";
+
+/// Writes a fresh MIT-MAGIC-COOKIE-1 for `:display` into the slot's
+/// `Xauthority` (mode 0600, in a 0700 directory) and returns its path.
+/// Xvfb reads it through `-auth`; every client of the slot gets it as
+/// `XAUTHORITY`.
+fn write_xauthority(dir: &Path, display: u32) -> Result<PathBuf> {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("chmod 700 {}", dir.display()))?;
+    let mut cookie = [0u8; 16];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut cookie))
+        .context("read a cookie from /dev/urandom")?;
+    let path = dir.join(XAUTHORITY);
+    let _ = std::fs::remove_file(&path);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| format!("create {}", path.display()))?;
+    file.write_all(&xauthority_entry(display, &cookie))
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
+}
+
+/// One Xauthority record: family Wild (any address), the display number, the
+/// MIT-MAGIC-COOKIE-1 name and the cookie, each length-prefixed (u16, big endian).
+fn xauthority_entry(display: u32, cookie: &[u8; 16]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(64);
+    out.extend_from_slice(&0xffff_u16.to_be_bytes());
+    let display = display.to_string();
+    for field in [&b""[..], display.as_bytes(), b"MIT-MAGIC-COOKIE-1", &cookie[..]] {
+        let len = u16::try_from(field.len()).unwrap_or(u16::MAX);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(field);
+    }
+    out
+}
+
 fn spawn_desktop(b: &LinuxXvfb, id: &str, spec: &SlotSpec, display: u32) -> Result<LinuxDesktop> {
     let dir = b.state_dir.join("slots").join(id);
     std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
     let unit = format!("desktop-lease-{}-{id}", std::process::id());
     let (w, h) = (spec.width, spec.height);
+    let xauthority = write_xauthority(&dir, display)?;
     let d = shell_quote(&dir.to_string_lossy());
+    let xa = shell_quote(&xauthority.to_string_lossy());
     // One shell holds the scope; every process of the desktop is its child,
-    // so all of them are in the scope's cgroup.
+    // so all of them are in the scope's cgroup. `-auth` turns on X access
+    // control: only a client holding this slot's cookie may connect, so
+    // another local user cannot read the screen or send input.
     let script = format!(
-        "Xvfb :{display} -screen 0 {w}x{h}x24 -nolisten tcp -noreset >{d}/xvfb.log 2>&1 &\n\
+        "Xvfb :{display} -screen 0 {w}x{h}x24 -nolisten tcp -noreset -auth {xa} >{d}/xvfb.log 2>&1 &\n\
          i=0; while [ ! -S /tmp/.X11-unix/X{display} ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\n\
          export DISPLAY=:{display}\n\
+         export XAUTHORITY={xa}\n\
          openbox >{d}/openbox.log 2>&1 &\n\
          {browser} --user-data-dir={d}/profile --no-first-run --no-default-browser-check \
            --disable-gpu --password-store=basic --disable-background-networking \
@@ -241,6 +289,7 @@ impl LinuxDesktop {
         let out = Command::new("xdotool")
             .args(args)
             .env("DISPLAY", format!(":{}", self.display))
+            .env("XAUTHORITY", self.dir.join(XAUTHORITY))
             .stdin(Stdio::null())
             .output()
             .context("xdotool")?;
@@ -252,6 +301,7 @@ impl LinuxDesktop {
 
     fn screenshot(&self) -> Result<Vec<u8>> {
         let out = Command::new("import")
+            .env("XAUTHORITY", self.dir.join(XAUTHORITY))
             .args([
                 "-silent",
                 "-window",
@@ -414,5 +464,23 @@ impl Desktop for LinuxDesktop {
 impl Drop for LinuxDesktop {
     fn drop(&mut self) {
         self.destroy();
+    }
+}
+
+#[cfg(test)]
+mod xauthority_tests {
+    use super::xauthority_entry;
+
+    #[test]
+    fn the_entry_is_one_wild_mit_magic_cookie_record_for_the_display() {
+        let cookie = [7u8; 16];
+        let entry = xauthority_entry(301, &cookie);
+        let mut want = vec![0xff, 0xff, 0, 0, 0, 3];
+        want.extend_from_slice(b"301");
+        want.extend_from_slice(&[0, 18]);
+        want.extend_from_slice(b"MIT-MAGIC-COOKIE-1");
+        want.extend_from_slice(&[0, 16]);
+        want.extend_from_slice(&cookie);
+        assert_eq!(entry, want);
     }
 }
