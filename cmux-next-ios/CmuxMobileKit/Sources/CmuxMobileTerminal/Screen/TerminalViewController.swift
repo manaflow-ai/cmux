@@ -3346,8 +3346,12 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         // The corner chip sits over the grid's rows: an opaque pill of the
         // terminal background, so the text under it never shows through.
         hostGridNote.textAlignment = corner ? .center : .natural
-        hostGridNote.backgroundColor = corner ? CmuxMobileGhosttyApp.background.withAlphaComponent(0.92) : .clear
+        // Opaque (visual review of #42422): the rows scroll under it, so it cannot keep to one row;
+        // nothing of the text under it may show through, and a hairline marks its edge.
+        hostGridNote.backgroundColor = corner ? CmuxMobileGhosttyApp.background : .clear
         hostGridNote.layer.cornerRadius = corner ? 6 : 0
+        hostGridNote.layer.borderWidth = corner ? 1 / max(1, traitCollection.displayScale) : 0
+        hostGridNote.layer.borderColor = corner ? hostGridNote.textColor.withAlphaComponent(0.35).cgColor : nil
         hostGridNote.clipsToBounds = corner
         let line = ceil(hostGridNote.font.lineHeight)
         if let box = layout.letterbox {
