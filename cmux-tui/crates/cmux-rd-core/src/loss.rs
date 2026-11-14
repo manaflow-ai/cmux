@@ -46,7 +46,7 @@ impl LossMeter {
             return None;
         }
         let loss = self.sample_lost as f64 / total as f64;
-        self.sample_started_us = Some(now_us);
+        self.sample_started_us = None;
         self.sample_received = 0;
         self.sample_lost = 0;
         Some(loss)
