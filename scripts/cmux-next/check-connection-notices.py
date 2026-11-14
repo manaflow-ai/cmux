@@ -7,7 +7,7 @@ connection-state-with-no-action-or-bound.md): a reconnecting, retrying, handshak
 offline or disconnected state says nothing until it has lasted the shared bound, unless the person can act on it.
 
 What it reads, in the cmux NEXT UI (SURFACES): the web pages (webviews/src), the Mac app (Packages/macOS/CmuxNext)
-and the iOS apps (cmux-next-ios, Packages/iOS, ios). Tests, galleries, fixtures and previews are not read.
+and the iOS app (cmux-next-ios, Packages/iOS). Tests, galleries, fixtures and previews are not read.
 
 A connection state is a string the person can read that says one (CONNECTION_WORDS: connecting, reconnecting,
 retrying, restoring, handshaking, "Getting access", offline, disconnected, not connected, unreachable, can't reach,
@@ -63,7 +63,6 @@ SURFACES: tuple[tuple[str, str], ...] = (
     ("Packages/macOS/CmuxNext/Sources/", "mac"),
     ("cmux-next-ios/", "ios"),
     ("Packages/iOS/", "ios"),
-    ("ios/", "ios"),
 )
 SOURCE_SUFFIXES = (".ts", ".tsx", ".swift")
 STRING_TABLE_SUFFIX = ".xcstrings"
@@ -191,6 +190,7 @@ class Tree:
 
     def __init__(self, root: Path):
         self.root = root
+        self.unit_ids: set[str] = set()  # filled by scan()
 
     def files(self) -> list[str]:
         prefixes = [p for p, _ in SURFACES]
@@ -380,6 +380,7 @@ def scan(tree: Tree) -> list[Unit]:
         unit.literal_grace = [m.group(0) for m in LITERAL_GRACE.finditer(text)
                               if int(m.group(2).replace("_", "")) < bound]
     propagate(units, imports)
+    tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
@@ -511,7 +512,7 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     path = root / ALLOWLIST
     allow = read_allowlist(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
     offenders = {u.id: u for u in units if not u.ok}
-    unit_ids = {u.id for u in units}
+    unit_ids = tree.unit_ids
     problems: list[str] = bound_drift(tree)
     # With a base, judge only what the change touches (its files, or the files its words come from): a change never
     # pays for a file it left alone, like the pre-push gate. A change to a string table can turn any unit's words
@@ -540,7 +541,7 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
                if unit.literal_grace else "no action and no time bound")
         problems.append(f"{unit.path}:{first.line}: {unit.name} shows a connection state ({first.text!r}) with {why}")
     for uid in sorted(allow):
-        if uid not in offenders and touched(uid.split("::", 1)[0]):
+        if uid not in offenders:  # every run: the list never holds a fixed unit, whatever file fixed it
             problems.append(f"{ALLOWLIST}: stale row {uid}: it no longer shows an unbounded connection state; "
                             "remove the row in this change")
     if before is not None:

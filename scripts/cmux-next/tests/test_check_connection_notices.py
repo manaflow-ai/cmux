@@ -409,6 +409,32 @@ class Allowlist(unittest.TestCase):
         self.assertIn(f"{WEB}/AutoResumeNotice.tsx:3: AutoResumeNotice shows a connection state", out,
                       "the unit whose row was removed is judged though its file is untouched")
 
+    def test_a_listed_unit_fixed_from_another_file_fails_as_stale(self):
+        """Second review: a page's row stayed when only its strings map changed, and a later run paid for it."""
+        tree = Tree(self)
+        tree.write(f"{PAGE}/strings.ts", PAGE_STRINGS)
+        tree.write(f"{PAGE}/EditorPage.tsx", QUIET_PAGE_OLD)
+        tree.allow(f"{PAGE}/EditorPage.tsx::EditorPage")
+        tree.commit("base")
+        tree.write(f"{PAGE}/strings.ts", PAGE_STRINGS.replace('"page.disconnected"', '"page.retry"'))
+        tree.commit("head: the map no longer says it")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"stale row {PAGE}/EditorPage.tsx::EditorPage", out)
+
+    def test_a_unit_fixed_in_place_does_not_free_its_row_for_a_namesake(self):
+        """Second review: fixing a.tsx::X where it is let b.tsx::X take its row."""
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.commit("base")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", HELD_NOTICE)
+        tree.write(f"{WEB}/other/AutoResumeNotice.tsx", NOISY_NOTICE.replace("./retryState", "../retryState"))
+        tree.allow(f"{WEB}/other/AutoResumeNotice.tsx::AutoResumeNotice")
+        tree.commit("head")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"new row {WEB}/other/AutoResumeNotice.tsx::AutoResumeNotice", out)
+
     def test_a_string_table_change_judges_every_unit(self):
         """Review of the first head: a key whose English became "Reconnecting…" was not judged."""
         tree = Tree(self)
