@@ -66,6 +66,10 @@ pub struct CongestionController {
     /// New timing evidence must come from a newer send burst. All packets of
     /// one encoded frame share a send timestamp, even across feedback chunks.
     last_delay_sent_us: Option<u64>,
+    /// A single upward jitter excursion is not a sustained queue. Qualification
+    /// advances only with distinct send bursts, never with feedback fragments.
+    overuse_samples: u8,
+    overuse_since_us: Option<u64>,
     usage: Usage,
 }
 
@@ -81,6 +85,8 @@ impl CongestionController {
             trend_us: 0.0,
             last_delay_us: None,
             last_delay_sent_us: None,
+            overuse_samples: 0,
+            overuse_since_us: None,
             usage: Usage::Normal,
         };
         cc.clamp();
@@ -125,6 +131,8 @@ impl CongestionController {
         self.path = path;
         self.last_delay_us = None;
         self.last_delay_sent_us = None;
+        self.overuse_samples = 0;
+        self.overuse_since_us = None;
         self.trend_us = 0.0;
         self.usage = Usage::Normal;
         self.clamp();
@@ -180,12 +188,29 @@ impl CongestionController {
         };
         let mut target = self.target_bps as f64;
         let evidence = !deltas.is_empty();
+        let mut sustained_overuse = false;
+        if evidence {
+            if self.usage == Usage::Overuse {
+                if let Some(sent) = newest_sent {
+                    self.overuse_samples = self.overuse_samples.saturating_add(1);
+                    let since = *self.overuse_since_us.get_or_insert(sent);
+                    // Require three fresh observations spanning at least 10 ms.
+                    // Alternating delay rises/falls otherwise compound 15% cuts
+                    // while the matching underuse cannot restore the bitrate.
+                    sustained_overuse =
+                        self.overuse_samples >= 3 && sent.saturating_sub(since) >= 10_000;
+                }
+            } else {
+                self.overuse_samples = 0;
+                self.overuse_since_us = None;
+            }
+        }
         if evidence && self.usage != Usage::Normal {
             // Growth after a decrease starts from now, not from the last increase.
             self.last_increase_us = Some(now_us);
         }
         match self.usage {
-            Usage::Overuse if evidence => target *= 0.85,
+            Usage::Overuse if sustained_overuse => target *= 0.85,
             Usage::Normal if evidence => {
                 let elapsed_s = self
                     .last_increase_us
