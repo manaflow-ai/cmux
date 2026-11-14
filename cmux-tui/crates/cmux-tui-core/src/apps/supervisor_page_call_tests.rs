@@ -159,7 +159,7 @@ fn a_provider_op_without_a_provider_is_answered_at_once() {
     let f = web_fixture();
     install_with_read(&f);
     f.set("grant-chat", WEB_APP, Origin::User, |o| {
-        o.grant = Some(("agent_chat:read".into(), true))
+        o.grant = Some(("agent_chat:read".into(), true));
     })
     .ok();
     let answer = page_call(&f, "p1", json!({ "id": "c5", "op": "agent_chat.list" })).unwrap();

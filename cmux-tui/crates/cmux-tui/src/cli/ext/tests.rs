@@ -772,7 +772,7 @@ fn ext_dev_reports_web_panes_and_fails_when_the_daemon_hosts_none() {
         "implements": { "cmux.pane/1": { "web": "web/index.html" } }
     });
     let page = json!({ "interface": "cmux.pane/1", "root": "web", "entry": "index.html" });
-    let served = json!({ "id": "local/web-pane", "web_pages": [page.clone()] });
+    let served = json!({ "id": "local/web-pane", "web_pages": [page] });
     assert_eq!(dev::web_check(&manifest, Some(&served)).unwrap(), vec![page]);
     // A daemon older than web panes lists no `web_pages`.
     let old = json!({ "id": "local/web-pane" });
