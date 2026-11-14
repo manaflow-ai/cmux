@@ -11,6 +11,12 @@ Use `--filter` during focused development. It accepts one Rust test-name substri
 
 The script rejects dirty or unpushed work, verifies the exact commit in every hosted job, waits for completion, prints failed logs, and downloads the macOS arm64 TUI and userland agent detector to `cmux-tui/target/hosted/<commit>/cmux-tui` and `cmux-tui/target/hosted/<commit>/cmux-agent-screen-detection`. Running those downloaded binaries on the Mac is allowed. When the wait ends (`CMUX_TUI_HOSTED_TIMEOUT_SECONDS`, default 7200) before the run is done, the script does not cancel the run: it prints the run URL and `glaeda-gh wait run manaflow-ai/cmux/<id>`, and exits with status 3. Wait on that run; do not start a second one. The script keeps one open run per commit, mode and filter: when a cmux-tui run for the same commit, mode and filter is still open (queued, in progress or waiting), it does not dispatch, prints that run's id and URL, and exits with status 4. Wait on that run with `glaeda-gh wait run manaflow-ai/cmux/<id>`. Ctrl-C or `--cancel-on-timeout` cancels the hosted run.
 
+To prove a regression test is red, verify the red (test-only) commit of a two-commit fix with `--commit <40-char-sha>` (for example `--commit "$(git rev-parse HEAD~1)" --filter <name>`) after you push the fix commit. The sha must be on your branch's pushed head. The run is dispatched on `feat-cmux-next`, so that branch's `cmux-tui.yml` runs; it tests exactly that sha, and the workflow refuses a sha that no branch of this repository contains. Do not make a separate red branch, and do not dispatch the workflow by hand.
+
+A `--commit` red run is a valid red receipt only when both are true. A reviewer checks both:
+- The run title `cmux-tui <mode> <request_id> @ <sha>` names the PR's own red commit (`gh pr view <n> --json commits`). Any commit that a branch of this repository contains can be tested, so a run for another commit proves nothing about this PR.
+- The run failed in the named test in a test job. A failure in `validate exact commit request` (for example, a missing script that the guard names), a compile error that the base already has, or a step that fails on a path with a variable is red for the wrong reason.
+
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
 
 ## A fix names its port to the other branch
