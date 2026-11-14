@@ -187,6 +187,26 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const pids = renderers(root);
     const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+    if (process.env.DETAIL === "1") {
+      // Where the renderer's memory is: its mappings by name (PSS), the DOM it holds, and Blink's own counters.
+      const byName = new Map<string, number>();
+      for (const pid of pids) {
+        let name = "";
+        for (const line of fs.readFileSync(`/proc/${pid}/smaps`, "utf8").split("\n")) {
+          const head = /^[0-9a-f]+-[0-9a-f]+ \S+ \S+ \S+ \S+\s*(.*)$/.exec(line);
+          if (head) name = head[1] || "[anon]";
+          const pss = /^Pss:\s+(\d+) kB/.exec(line);
+          if (pss) byName.set(name, (byName.get(name) ?? 0) + Number(pss[1]) / 1024);
+        }
+      }
+      const top = [...byName].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      console.log(`  smaps: ${top.map(([n, v]) => `${path.basename(n) || n} ${v.toFixed(1)}`).join(", ")}`);
+      const dom = (await pages[0]!.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
+      console.log(`  dom (page 0): ${JSON.stringify(dom)}`);
+      let nodes = 0;
+      for (const { page } of pages) nodes += await page.evaluate(() => document.getElementsByTagName("*").length);
+      console.log(`  elements (all pages): ${nodes}`);
+    }
     return { renderers: pids.length, mb, heap };
   };
 
