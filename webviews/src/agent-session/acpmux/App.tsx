@@ -642,7 +642,7 @@ import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { HarnessUpdatesContext, useHarnessUpdateList } from "./harnessUpdateList";
 import { Notice, NoticeSlot } from "./NoticeSlot";
-import { createPaneToasts, paneNotices } from "./paneToasts";
+import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
 import { RulesNotice } from "./RulesNotice";
@@ -1832,7 +1832,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
   const [toastTop, setToastTop] = useState<HTMLDivElement | null>(null);
   const notices = useMemo(
-    () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts }),
+    () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next

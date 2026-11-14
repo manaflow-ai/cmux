@@ -258,6 +258,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
     case toastAvoidance(CGRect?)
+    /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
+    /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
+    case toast(message: String, isError: Bool, group: String?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
