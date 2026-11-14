@@ -1,37 +1,28 @@
-import CmuxNextDesign
-import SwiftUI
+import AppKit
 
 /// Style 1: one line (mark, "Connect X?", badge, Connect) with the facts behind Details.
-struct McpConnectCompactRow: View {
-    let flow: McpConnectCardFlow
-    let colors: McpConnectCardColors
-    let actions: McpConnectCardActions
-    @State private var open = false
+struct McpConnectCompactRow {
+    let parts: McpConnectParts
 
-    var body: some View {
-        let card = flow.card
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                McpConnectMark(title: card.title, size: 20, colors: colors)
-                Text(McpConnectStrings.connectTitle(card.title)).font(colors.emphasized).foregroundStyle(colors.text)
-                McpConnectBadge(card: card, colors: colors)
-                Spacer(minLength: 8)
-                if flow.phase == .ask {
-                    Button(McpConnectStrings.details) { open.toggle() }.buttonStyle(.borderless)
-                    CmuxDialogActionButton(McpConnectStrings.connect, hint: .return, action: actions.connect)
-                }
-            }
-            if open || card.risky {
-                McpConnectRiskLines(card: card, colors: colors)
-            }
-            if open {
-                McpConnectReason(card: card, colors: colors)
-                McpConnectFacts(card: card, colors: colors)
-                McpConnectScopeMenu(flow: flow, colors: colors, actions: actions)
-            }
-            if flow.phase != .ask {
-                McpConnectControls(flow: flow, colors: colors, actions: actions)
-            }
+    @MainActor func make() -> NSView {
+        let card = parts.card
+        let flow = parts.flow
+        var line: [NSView] = [parts.mark(size: 20),
+                              parts.label(McpConnectStrings.connectTitle(card.title), font: parts.colors.emphasized, color: parts.colors.text),
+                              parts.badge(), parts.spacer(min: 8)]
+        if flow.phase == .ask {
+            let state = parts.state
+            line.append(parts.plainButton(McpConnectStrings.details, borderless: true) { state.open.toggle() })
+            line.append(parts.dialogButton(McpConnectStrings.connect, id: "connect", hint: .return) { [actions = parts.actions] in actions.connect() })
         }
+        var views: [NSView] = [parts.row(line, spacing: 8)]
+        let open = parts.state.open
+        if open || card.risky { views.append(parts.risks()) }
+        if open {
+            if let reason = parts.reason() { views.append(reason) }
+            views += [parts.facts(), parts.scopeMenu()]
+        }
+        if flow.phase != .ask { views.append(parts.controls()) }
+        return parts.column(views, spacing: 8)
     }
 }
