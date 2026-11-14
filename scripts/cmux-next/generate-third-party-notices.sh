@@ -212,7 +212,7 @@ section() {
     --source-tag "$ref" \
     --target aarch64-apple-darwin --target x86_64-apple-darwin \
     --format markdown --section-id "$id" --title "$title" \
-    "${tree_arg[@]}" --out "$work/$id.md" "$@"
+    ${tree_arg[@]+"${tree_arg[@]}"} --out "$work/$id.md" "$@"
 }
 
 vm_cli_args=()
@@ -222,7 +222,7 @@ fi
 section rust-cmux-cli "Rust crates: cmux CLI and daemon (bin/cmux)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
-  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' "${vm_cli_args[@]}"
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' ${vm_cli_args[@]+"${vm_cli_args[@]}"}
 section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
