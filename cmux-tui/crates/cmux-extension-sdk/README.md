@@ -22,7 +22,8 @@ npm install cmux-extension-sdk        # or: bun add cmux-extension-sdk
 ```
 
 Until the package is on npm, point at a cmux checkout:
-`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`.
+`bun add file:<cmux>/cmux-tui/crates/cmux-extension-sdk/typescript`. `cmux ext dev` needs neither:
+with no copy in the folder, it builds against the SDK built into the CLI.
 
 `cmux-app.json`: what the extension is, the places it fills, and the scopes it asks for.
 
@@ -74,6 +75,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
 | `EVENT_STREAMS`, `scopeFor(stream)` | The streams cmux sends and the scope each needs. |
 | `cmux` | Every op cmux gives an extension (`cmux.workspace.focus`, `cmux.toast`, `cmux.watch`, `cmux.storage`, ...), typed in `cmux-app.d.ts`. |
+| `cmux.time.zone(name, at?)` | Another time zone: `{zone, offsetMinutes, abbreviation}` for an IANA name at `at` (epoch ms, default now); throws `zone.unknown`. The sandbox has no `Intl`, and `toLocaleString` ignores `timeZone`, so a world clock reads the offset here and formats `new Date(now + offsetMinutes * 60000)` with the `getUTC*` methods. |
 | `signal`, `computed`, `effect`, `onCleanup`, `untrack` | Reactive state: a view that reads a signal redraws only what changed. |
 | `VStack`, `HStack`, `Row`, `Text`, `Panel`, `ForEach`, `Button`, `Toggle`, ... | The scene DSL cmux draws natively. Colors are theme tones (`cmux.theme.success`), never raw values. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
@@ -88,6 +90,8 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `agent.changed` | `agent:read` | an agent's state changes |
 | `agent_chat.changed` | `agent_chat:read` | a chat is added, closed, renamed, read or changes state |
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
+| `settings.changed` | `settings:read` | a cmux setting changes (the file, a managed layer, Settings, the CLI); names no keys, carries no values |
+| `theme.changed` | `settings:read` | the theme, app theme, theme file or edits, accent, hue, saturation or highlight color changes |
 
 ## Test it
 
