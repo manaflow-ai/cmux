@@ -42,6 +42,7 @@ const row: AcpmuxRow = {
   at: Date.now() - 300_000,
   text: "Check the alignment of this sent message.",
 };
+const PENDING_SENT_AT = Date.now() - 10_000;
 const PENDING_TEXT =
   "A steer long enough to be wider than its queued note, so the note starts where this text starts and the next line wraps under it.";
 const item: AcpmuxActivity = {
@@ -159,7 +160,7 @@ function App() {
                   queued: true,
                   promptId: "glyph-pending",
                   sessionId: "glyph-session",
-                  sentAt: Date.now() - 10_000,
+                  sentAt: PENDING_SENT_AT,
                 },
               }}
               text={PENDING_TEXT}
