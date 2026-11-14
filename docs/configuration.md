@@ -981,7 +981,8 @@ builds. With `enabled` set to `true`, sessions started after the change get the
 its first-turn skill list); running sessions are not changed. Open the board with **Show Agent
 Board** in the command palette; while the setting is off the page explains the cost and has a
 **Turn On Agent Board** button. The switch is also in Settings > Agents > Guidance and Skills, and
-`cmux settings set agents.board.enabled true` works too. Agents cannot turn it on themselves.
+`cmux settings set agents.board.enabled true --confirm` works too once you approve it in cmux.
+Agents cannot turn it on themselves.
 
 ```json
 { "agents": { "board": { "enabled": true } } }
