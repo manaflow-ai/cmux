@@ -508,6 +508,10 @@ export class MockSettingsProvider {
         return { files };
       },
       "cmux.settings.theme.overrides.open": () => ({}),
+      "cmux.settings.theme.file.open": () => {
+        if (this.themeFileRefusal) throw new ProtocolError("cmux.settings.theme.file_failed", this.themeFileRefusal);
+        return {};
+      },
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
@@ -1156,6 +1160,8 @@ export class MockSettingsProvider {
   switchedTo: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
+  /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */
+  themeFileRefusal: string | null = null;
   /** The machines the card's Update buttons asked for, in order. */
   updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */

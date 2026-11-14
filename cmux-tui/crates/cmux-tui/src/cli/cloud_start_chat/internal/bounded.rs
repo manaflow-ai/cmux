@@ -18,6 +18,7 @@ pub(in crate::cli::cloud_start_chat) const PAST_DEADLINE: i32 = 124;
 /// What a step the deadline ended says.
 const PAST_DEADLINE_SAID: &str = "--timeout ran out: the step was stopped";
 /// The grace the remote `timeout` gives its script after TERM, before KILL.
+// timeout: TERM-to-KILL grace inside the caller's own --timeout; it ends no request early.
 const REMOTE_KILL_GRACE: Duration = Duration::from_secs(1);
 /// How long a `cloud exec` may take from here to its script starting on the machine (the app's request, the
 /// exec's own connect). The remote limit leaves it out, so a script that started that late still ends, KILL

@@ -10,6 +10,8 @@ use cmux_json::JsonSet as _;
 use super::MutationRequest;
 use super::frontend_browser_history;
 use super::list_workspaces_reply;
+use super::list_workspaces_reply_first;
+use super::list_workspaces_reply_since;
 use super::optional_surface_size;
 use super::origin_gate;
 use super::personal;
@@ -22,12 +24,51 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// What a client holds of the tree (`list-workspaces` `known`): the fields it read from its last
+/// reply. Any field missing or different gets the whole tree.
+#[derive(Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub(super) struct KnownTree {
+    #[serde(default)]
+    pub(super) registry_id: Option<String>,
+    #[serde(default)]
+    pub(super) generation: Option<String>,
+    #[serde(default)]
+    pub(super) workspace_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) pane_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) terminal_revision: Option<u64>,
+    #[serde(default)]
+    pub(super) tree_revision: Option<String>,
+}
+
 /// The tree, and the lines its connection had written when it was read (`lines_written_before_read`,
 /// read first): a line past that count may carry a change the tree lacks. The connection writes its
 /// events on another thread than this reply, so such an event can reach the client before the reply
 /// (#32408).
-pub(super) fn list_workspaces(mux: &Arc<Mux>, lines_written: Option<u64>) -> anyhow::Result<Value> {
-    let mut reply = list_workspaces_reply(mux)?;
+///
+/// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
+/// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
+/// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
+pub(super) fn list_workspaces(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    known: Option<&KnownTree>,
+    limit: Option<usize>,
+) -> anyhow::Result<Value> {
+    // A remote device that must not see some workspaces (#31210) is answered
+    // from the ones it may see: its page, `total` and revision say nothing of
+    // the others, all read with one view of them.
+    let mut reply = match (known, limit) {
+        (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
+            list_workspaces_reply_since(mux, known, limit, view)
+        })?,
+        (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
+            Ok(list_workspaces_reply_first(mux, limit, view)?.0)
+        })?,
+        (None, None) => list_workspaces_reply(mux)?,
+    };
     if let Some(lines) = lines_written {
         reply.set("lines_written_before_read", json!(lines));
     }

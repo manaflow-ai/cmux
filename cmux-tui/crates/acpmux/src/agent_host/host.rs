@@ -1289,11 +1289,6 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
             .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
 }
 
-/// Watches the directories that hold this host's record (kqueue on macOS,
-/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
-/// (the daemon's home was deleted, or a daemon removed the record), no daemon
-/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
-/// stat; a record rewritten in place (write, then rename) is still present.
 /// The file a host notes each SIGTERM it ends on: `agent-host-signals.log` in the acpmux home
 /// (the parent of `hosts/`, or of `hosts/pool/` for a pooled host). Hosts write no other log, so
 /// without it nothing said who ended a host (manaflow-ai/cmuxterm-hq#6338).
@@ -1325,35 +1320,47 @@ fn note_term(log: &Path, session: &str, sender: Option<i32>) {
     }
 }
 
+/// Watches this host's record (`record_watch.rs` `RecordWatch`; kqueue on macOS, inotify on
+/// Linux; no polling). When the record is gone (the daemon's home was deleted, a daemon removed
+/// the record, or a newer host of the session wrote its own), no daemon can ever adopt this host:
+/// it ends like SIGTERM. A record rewritten in place (write, then rename) is still present. It
+/// was already gone when the watch began (the home deleted right after the start): it ends now.
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
     tx: mpsc::Sender<Event>,
-) -> Option<super::record_watch::DirWatch> {
+) -> Option<super::record_watch::RecordWatch> {
     let watched = spec.clone();
     let own = nonce.to_owned();
-    let term = tx.clone();
     let mut dirs = vec![spec.hosts_dir.clone()];
     if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
         && let Some(hosts) = spec.hosts_dir.parent()
     {
         dirs.push(hosts.to_path_buf());
     }
-    let watch = super::record_watch::DirWatch::start(&dirs, move || {
-        if record_present(&watched, &own) {
-            return false;
-        }
-        // The watch thread is not a runtime thread: a blocking send never
-        // drops the end when the event queue is full.
-        let _ = term.blocking_send(Event::Term);
-        true
-    });
-    // The record may have gone before the watch began (the home deleted
-    // right after the start): check once now.
-    if !record_present(spec, nonce) {
-        let _ = tx.try_send(Event::Term);
-    }
-    watch
+    let session = spec.session_id.clone();
+    let record_dirs = dirs.clone();
+    let files = move || {
+        record_dirs
+            .iter()
+            .map(|dir| record_path(dir, &session))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>()
+    };
+    super::record_watch::RecordWatch::start(
+        dirs,
+        files,
+        move || record_present(&watched, &own),
+        move || {
+            // On the watch thread, not a runtime thread: a blocking send never drops the end
+            // when the event queue is full. The check at the start runs on the runtime.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let _ = tx.try_send(Event::Term);
+            } else {
+                let _ = tx.blocking_send(Event::Term);
+            }
+        },
+    )
 }
 
 /// This user may chdir into `dir` (search permission, what a spawn's chdir needs).

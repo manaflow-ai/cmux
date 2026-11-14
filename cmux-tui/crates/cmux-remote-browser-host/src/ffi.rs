@@ -116,6 +116,18 @@ unsafe extern "C" {
     );
     pub fn rb_shim_set_screen(width_dip: c_int, height_dip: c_int, scale: f64) -> c_int;
     pub fn rb_shim_open_tab(request: c_int, url: *const c_char, w: c_int, h: c_int) -> c_int;
+    /// A shared host's tab: the virtual screen, and only `browser`'s window
+    /// resized (-1: no window yet).
+    pub fn rb_shim_set_tab_screen(browser: c_int, w: c_int, h: c_int, scale: f64) -> c_int;
+    /// [`rb_shim_open_tab`] in a request context of its own whose cache
+    /// (cookies, storage) is `cache_dir`, under the host's root cache.
+    pub fn rb_shim_open_tab_in(
+        request: c_int,
+        url: *const c_char,
+        w: c_int,
+        h: c_int,
+        cache_dir: *const c_char,
+    ) -> c_int;
     pub fn rb_shim_close_tab(browser: c_int);
     pub fn rb_shim_capture(browser: c_int, on: c_int, min_period_us: c_int) -> c_int;
     pub fn rb_shim_capture_refresh(browser: c_int) -> c_int;
@@ -216,12 +228,26 @@ fn range(r: Option<[u32; 2]>) -> (c_int, c_int) {
 
 /// The shim on the CEF UI thread. Use only from shim callbacks or tasks posted
 /// with `rb_shim_post`.
-pub struct ShimPresentation;
+#[derive(Debug, Default)]
+pub struct ShimPresentation {
+    /// The tab's browser once it exists.
+    pub browser: Option<i32>,
+    /// A shared host's tab: its own cache directory (request context). Its
+    /// screen changes size only its own window; `None` (a one-tab host)
+    /// sizes every window, as before.
+    pub cache: Option<CString>,
+}
 
 impl Presentation for ShimPresentation {
     fn set_screen(&mut self, s: ScreenSize) -> bool {
         let w = c_int::try_from(s.css_width).unwrap_or(c_int::MAX);
         let h = c_int::try_from(s.css_height).unwrap_or(c_int::MAX);
+        if self.cache.is_some() {
+            // SAFETY: plain values; on the UI thread by this type's contract.
+            return unsafe {
+                rb_shim_set_tab_screen(self.browser.unwrap_or(-1), w, h, s.scale) == 1
+            };
+        }
         // SAFETY: plain values; on the UI thread by this type's contract.
         unsafe { rb_shim_set_screen(w, h, s.scale) == 1 }
     }
@@ -230,6 +256,12 @@ impl Presentation for ShimPresentation {
         let url = cstr(url);
         let w = c_int::try_from(s.css_width).unwrap_or(c_int::MAX);
         let h = c_int::try_from(s.css_height).unwrap_or(c_int::MAX);
+        if let Some(cache) = self.cache.as_ref() {
+            // SAFETY: `url` and `cache` outlive the call.
+            return unsafe {
+                rb_shim_open_tab_in(request, url.as_ptr(), w, h, cache.as_ptr()) == 1
+            };
+        }
         // SAFETY: `url` outlives the call.
         unsafe { rb_shim_open_tab(request, url.as_ptr(), w, h) == 1 }
     }

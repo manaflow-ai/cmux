@@ -31,6 +31,12 @@ final class TerminalHostGridNoteCaptureUITests: XCTestCase {
         // The grid and its note fit above the keyboard: both stay whole at the top.
         Scene(id: "tui-30x12-keyboard", spec: "30x12,tui", keyboard: true, note: "30×12 · set by Rig Mac"),
         Scene(id: "tui-30x12-tab", spec: "30x12,tui", embedded: true, note: "30×12 · set by Rig Mac"),
+        // procps top on the primary screen, started at a marked prompt: every
+        // row of its first paint shows, not only the rows it rewrites later
+        // (live report 2026-11-14).
+        Scene(id: "top-30x12", spec: "30x12,top", note: "30×12 · set by Rig Mac"),
+        Scene(id: "top-30x12-keyboard", spec: "30x12,top", keyboard: true, note: "30×12 · set by Rig Mac"),
+        Scene(id: "top-30x12-tab", spec: "30x12,top", embedded: true, note: "30×12 · set by Rig Mac"),
         Scene(id: "shell-120x60", spec: "120x60", note: "120×60 · set by Rig Mac"),
         Scene(id: "tui-120x60", spec: "120x60,tui", note: "120×60 · set by Rig Mac"),
     ]

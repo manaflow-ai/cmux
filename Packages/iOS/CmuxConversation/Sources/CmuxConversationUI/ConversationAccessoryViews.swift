@@ -541,6 +541,9 @@ final class TypingIndicatorView: UIView {
             CATransaction.setDisableActions(true)
             dot.opacity = 0.2
             CATransaction.commit()
+            // The dots' gentle opacity change says "typing" and stays under
+            // Reduce Motion; the breathing pulse below does not.
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.2
             fade.toValue = 0.45
@@ -556,7 +559,9 @@ final class TypingIndicatorView: UIView {
 
     /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
     /// own start, `delay` after now.
+    /// None under Reduce Motion (a decorative scale loop): the circles hold still.
     private func addPulses(after delay: CFTimeInterval) {
+        guard !UIView.reducesMotion else { return }
         let now = CACurrentMediaTime()
         for part in parts where part.view.layer.animation(forKey: "pulse") == nil {
             let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
@@ -581,7 +586,12 @@ final class TypingIndicatorView: UIView {
     /// 0.25 s `hidden` animation from the start, so the first visible frame
     /// already shows the grow under way. Each part's pulse begins as its
     /// scale-up ends (0.25 / 0.315 / 0.37 s).
+    /// Under Reduce Motion the parts appear at rest at once, with no scale-up or swing.
     func grow() {
+        guard !UIView.reducesMotion else {
+            for part in parts { part.view.layer.removeAnimation(forKey: "pulse") }
+            return
+        }
         let now = CACurrentMediaTime()
         let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
         for part in parts {

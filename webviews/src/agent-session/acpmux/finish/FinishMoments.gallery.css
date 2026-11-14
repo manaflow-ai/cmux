@@ -32,6 +32,10 @@
   opacity: 1;
   animation: none;
 }
+/* The rejected tint: the label in the success ink, which the shipped row never draws. */
+[data-finish-look="tint"] .cv-worked[data-finish] > .cv-worked__label {
+  color: var(--agent-status-success);
+}
 [data-finish-look="shine"] .cv-worked[data-finish] > .cv-worked__label {
   color: inherit;
   animation: none;
