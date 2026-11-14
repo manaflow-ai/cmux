@@ -2293,3 +2293,30 @@ fn cmux_setup_mcp_keeps_package_runner_and_pypi_entries() {
         assert!(world.take_mcp_calls().is_empty(), "{name}: setup touched the entry");
     }
 }
+
+/// An entry whose runtime is there but whose cmux launcher script is gone
+/// (`node …/node_modules/cmux/bin/cmux.js mcp serve` after an uninstall)
+/// runs nothing: setup replaces it like a moved app's.
+#[test]
+fn cmux_setup_mcp_replaces_an_entry_whose_launcher_script_is_gone() {
+    let world = World::new("mcpscript").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    World::executable(&world.bin.join("node"), "#!/bin/sh\nexit 0\n");
+    let gone = world.home.parent().unwrap().join("gone/lib/node_modules/cmux/bin/cmux.js");
+    let entry = json!({"command": "node", "args": [gone.to_str().unwrap(), "mcp", "serve"]});
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": entry}}).to_string(),
+    )
+    .unwrap();
+    let result = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(result["state"], "changed", "{result}");
+    let cli = world.cli();
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            "claude mcp remove --scope user cmux".to_owned(),
+            format!("claude mcp add --scope user cmux -- {cli} mcp serve"),
+        ]
+    );
+}
