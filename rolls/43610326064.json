@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43610326064",
+  "recorded_at": "2026-11-14T15:36:29Z",
+  "reason": "cmux-tui e263f4fbb45c changes the image's cmux-tui (pinned dd953bf4f98c)",
+  "dry_run": false,
+  "cmux_tui": "e263f4fbb45c59c45f58354c693d88ebf2c101c7",
+  "fixes": [
+    {
+      "sha": "e263f4fbb45c59c45f58354c693d88ebf2c101c7",
+      "mergedAt": "2026-11-14T07:07:33-08:00",
+      "subject": "acpmux v2 3b (part two): the book tee from v1's appends, its drain and background pass (#43003)"
+    },
+    {
+      "sha": "a63facd06d7f001aa6f4610581332e5967687664",
+      "mergedAt": "2026-11-14T07:06:21-08:00",
+      "subject": "acpmux: preserve explicit message class through send relay (#43105)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:36:29Z",
+    "snapshot_id": "sh-d5b7c405c38d4c1c913ce56006d3e2f4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43610326064): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "79f762c440b05c789a628ca89117258674bb29c3",
+    "image": "cloud-native-auto-e263f4fb-43610326064-1",
+    "revision": "ci-43610326064-1",
+    "at": "2026-11-14T15:36:29Z"
+  },
+  "rolled_back": false
+}
