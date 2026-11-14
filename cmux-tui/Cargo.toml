@@ -510,7 +510,7 @@ smoltcp = { path = "vendor/smoltcp" }
 # acpmux; that build cost is intentional for release artifacts and must be
 # checked against the startup benchmark before landing.
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
