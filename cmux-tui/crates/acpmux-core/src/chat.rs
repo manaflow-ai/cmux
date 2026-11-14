@@ -63,9 +63,103 @@ impl source::RawSource for EmptySource {
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
-/// How often a caught-up actor with an empty mailbox looks at its source's hint. A notice that
-/// the source grew wakes it at once; the hint finds the lines a dropped notice told of.
-pub const HINT_POLL: Duration = Duration::from_millis(250);
+/// How often a caught-up actor with an empty mailbox looks at its source's hint: a backstop. A
+/// notice that the source grew wakes it at once (v1's tee sends one for each line it appends);
+/// the hint finds the lines a dropped notice told of.
+pub const HINT_POLL: Duration = Duration::from_secs(5);
+
+/// The permits an actor reading history takes, one per chunk (the design doc's "Migration"
+/// step 1): an actor that has had no `at_end` since it started is reading history. Two
+/// permits, given first come first served, so at most two chats read history at once, they
+/// take turns by the chunk, and a live chat's short gap waits for at most one chunk of each.
+pub struct HistoryPermits {
+    state: Mutex<Permits>,
+    turn: std::sync::Condvar,
+    /// The most permits held at once, for tests and gates.
+    held_max: AtomicU64,
+}
+
+struct Permits {
+    free: usize,
+    held: usize,
+    /// Tickets of the actors waiting, in the order they came.
+    waiting: std::collections::VecDeque<u64>,
+    next: u64,
+}
+
+/// One chunk's permit; given back when dropped.
+pub struct HistoryPermit {
+    permits: Arc<HistoryPermits>,
+}
+
+impl Drop for HistoryPermit {
+    fn drop(&mut self) {
+        let mut state = self.permits.lock();
+        state.free += 1;
+        state.held -= 1;
+        drop(state);
+        self.permits.turn.notify_all();
+    }
+}
+
+impl HistoryPermits {
+    pub fn new(permits: usize) -> Self {
+        Self {
+            state: Mutex::new(Permits {
+                free: permits,
+                held: 0,
+                waiting: std::collections::VecDeque::new(),
+                next: 0,
+            }),
+            turn: std::sync::Condvar::new(),
+            held_max: AtomicU64::new(0),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Permits> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Waits for a permit in turn; None once `stop` is set (a close, a purge), so a stop never
+    /// waits behind another chat's chunk.
+    pub fn acquire(self: &Arc<Self>, stop: &AtomicBool) -> Option<HistoryPermit> {
+        let mut state = self.lock();
+        let ticket = state.next;
+        state.next += 1;
+        state.waiting.push_back(ticket);
+        loop {
+            if stop.load(Ordering::Acquire) {
+                state.waiting.retain(|waiting| *waiting != ticket);
+                drop(state);
+                self.turn.notify_all();
+                return None;
+            }
+            if state.free > 0 && state.waiting.front() == Some(&ticket) {
+                state.waiting.pop_front();
+                state.free -= 1;
+                state.held += 1;
+                self.held_max.fetch_max(state.held as u64, Ordering::Relaxed);
+                drop(state);
+                // The next in line may take the other permit.
+                self.turn.notify_all();
+                return Some(HistoryPermit { permits: self.clone() });
+            }
+            state = self
+                .turn
+                .wait_timeout(state, Duration::from_millis(50))
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+    }
+
+    pub fn held(&self) -> usize {
+        self.lock().held
+    }
+
+    pub fn held_max(&self) -> u64 {
+        self.held_max.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Clone)]
 pub struct ChatConfig {
@@ -78,6 +172,22 @@ pub struct ChatConfig {
     pub supervision: crate::life::Policy,
     pub source_factory: SourceFactory,
     pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
+    /// The permits a chunk of history takes; None reads with none (an actor a test drives).
+    pub history: Option<Arc<HistoryPermits>>,
+    /// What woke the caught-up actor to read, shared with its handle.
+    pub wakes: Arc<Wakes>,
+    /// Records whose kind the translator has no line for (`translate/kinds.rs`), shared with its
+    /// handle: zero over every known log.
+    pub unknown_kinds: Arc<AtomicU64>,
+}
+
+/// How often a caught-up actor read because a notice came (a `wake`) or because its poll saw
+/// the hint move with no notice: the poll is the backstop, so a tee that tells every line
+/// shows no wake by poll.
+#[derive(Default, Debug)]
+pub struct Wakes {
+    pub by_notice: AtomicU64,
+    pub by_poll: AtomicU64,
 }
 
 impl ChatConfig {
@@ -92,6 +202,9 @@ impl ChatConfig {
             supervision: crate::life::Policy::default(),
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
             edition_random: Arc::new(system_random_edition),
+            history: None,
+            wakes: Arc::default(),
+            unknown_kinds: Arc::default(),
         }
     }
 
@@ -211,9 +324,8 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
-            Self::Page { page, .. } => {
-                size_of::<Page>() + page.sid.len() + page.stream.as_str().len() + size_of::<Reply>()
-            }
+            // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
+            Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
                 size_of::<Blob>()
                     + blob.id.len()
@@ -227,6 +339,23 @@ impl Request {
         };
         size_of::<Self>() + held
     }
+}
+
+/// How many bytes `value` takes as JSON, counted as it is written: nothing is held.
+fn encoded_len(value: &impl serde::Serialize) -> usize {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
 }
 
 impl ChatError {
@@ -246,17 +375,54 @@ pub struct ChatHandle {
     queued: Arc<Mutex<usize>>,
     health: tokio::sync::watch::Receiver<crate::life::Health>,
     failures: Arc<AtomicU64>,
+    wakes: Arc<Wakes>,
+    unknown_kinds: Arc<AtomicU64>,
 }
 
 impl ChatHandle {
+    pub fn wakes(&self) -> &Wakes {
+        &self.wakes
+    }
+
     pub fn failures(&self) -> u64 {
         self.failures.load(Ordering::Relaxed)
+    }
+
+    /// Records whose kind the translator has no line for, in this actor's life.
+    pub fn unknown_kinds(&self) -> u64 {
+        self.unknown_kinds.load(Ordering::Relaxed)
     }
 
     /// The chat is `ready`: a read from its cursor said `at_end` in this actor's life, so it
     /// follows its source from here and no window is cut from half a book.
     pub fn ready(&self) -> bool {
         *self.health.borrow() == crate::life::Health::Running
+    }
+
+    /// Waits until the chat is `ready` (true), or its actor ended or failed (false). A restart
+    /// in between is waited through.
+    pub async fn wait_ready(&self) -> bool {
+        let mut health = self.health.clone();
+        loop {
+            match *health.borrow_and_update() {
+                crate::life::Health::Running => return true,
+                crate::life::Health::Failed | crate::life::Health::Ended => return false,
+                crate::life::Health::Starting | crate::life::Health::Restarting => {}
+            }
+            if health.changed().await.is_err() {
+                return false;
+            }
+        }
+    }
+
+    /// The actor's health now.
+    pub fn health(&self) -> crate::life::Health {
+        *self.health.borrow()
+    }
+
+    /// The bytes waiting in the mailbox.
+    pub fn queued(&self) -> usize {
+        self.queued.lock().map_or(0, |queued| *queued)
     }
 
     /// Queues `request`, or gives it back with why it was refused, so its reply is answered at
@@ -370,6 +536,8 @@ impl ChatActor {
             queued: queued.clone(),
             health: health_receiver,
             failures: failures.clone(),
+            wakes: config.wakes.clone(),
+            unknown_kinds: config.unknown_kinds.clone(),
         };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
@@ -467,6 +635,8 @@ struct ActorState {
     /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
     /// empty and the source's hint is another; the hint is never taken for an end.
     seen_hint: Option<u64>,
+    /// A read from the cursor said `at_end` since this state opened: no permit is taken.
+    caught_up: bool,
     /// A read said `at_end` in this state's life: windows are cut from here on.
     ready: bool,
     subs: stream::Subscribers,
@@ -753,7 +923,7 @@ fn rebuild_from_raw(
     state.subs = std::mem::take(subs);
     rebuild_point("opened");
     loop {
-        match read_source(&mut state) {
+        match read_history(&mut state, stop) {
             Ok(at_end) => {
                 rebuild_point("chunk");
                 if stop.load(Ordering::Acquire) {
@@ -919,6 +1089,7 @@ fn open_state_from_log(
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
         seen_hint: None,
+        caught_up: false,
         ready: false,
         subs: stream::Subscribers::default(),
         people: saved_checkpoint.as_ref().map_or_else(Vec::new, |c| c.people.clone()),
@@ -969,7 +1140,7 @@ fn run_once(
             checkpoint(state)?;
             return Ok(true);
         }
-        let at_end = read_source(state)?;
+        let at_end = read_history(state, stop)?;
         if at_end && !state.ready {
             state.ready = true;
             stream::ready(state);
@@ -1000,6 +1171,7 @@ fn run_once(
             }
             Wait::Read => {}
             Wait::Idle => {
+                stream::prune(state);
                 if state.translate.open_rows().next().is_none()
                     && state.subs.is_empty()
                     && state.translate.queue_len() == 0
@@ -1025,8 +1197,15 @@ enum Wait {
 /// mailbox is empty), a stop, or `IDLE_AFTER` with none of them.
 fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) -> Wait {
     let started = Instant::now();
+    let mut polled = false;
     loop {
-        if stop.load(Ordering::Acquire) || state.source.hint().ok() != state.seen_hint {
+        if stop.load(Ordering::Acquire) {
+            return Wait::Read;
+        }
+        if state.source.hint().ok() != state.seen_hint {
+            if polled {
+                state.config.wakes.by_poll.fetch_add(1, Ordering::Relaxed);
+            }
             return Wait::Read;
         }
         // A subscriber with a resume frame or a window to take: a request first, if one waits.
@@ -1051,8 +1230,13 @@ fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) 
             wait = wait.min(at - now);
         }
         match rx.recv_timeout(wait) {
-            Ok(request) => return Wait::Request(request),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Ok(request) => {
+                if matches!(request, Request::Wake) {
+                    state.config.wakes.by_notice.fetch_add(1, Ordering::Relaxed);
+                }
+                return Wait::Request(request);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => polled = true,
             Err(mpsc::RecvTimeoutError::Disconnected) => return Wait::Closed,
         }
     }
@@ -1113,6 +1297,22 @@ fn handle_request(
     }
 }
 
+/// One chunk from the cursor, under a history permit until the first read that said `at_end`.
+/// A stop while waiting for the permit reads nothing: the caller's loop sees the stop.
+fn read_history(state: &mut ActorState, stop: &AtomicBool) -> Result<bool, ChatError> {
+    let permit = match (&state.config.history, state.caught_up) {
+        (Some(permits), false) => match permits.acquire(stop) {
+            Some(permit) => Some(permit),
+            None => return Ok(false),
+        },
+        _ => None,
+    };
+    let at_end = read_source(state)?;
+    drop(permit);
+    state.caught_up |= at_end;
+    Ok(at_end)
+}
+
 fn read_source(state: &mut ActorState) -> Result<bool, ChatError> {
     let chunk = state.source.read_chunk(state.raw_place)?;
     if chunk.stamp != state.source_stamp {
@@ -1158,13 +1358,13 @@ fn apply_ops(
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
     let mut changed = false;
-    let before = state.translate.counters();
+    let before = state.translate.line_failures();
     let ops =
         translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
-    let after = state.translate.counters();
-    if after.invalid_records != before.invalid_records || after.line_errors != before.line_errors {
+    if state.translate.line_failures() != before {
         return Err(translate::Error::InvalidRecord("raw line did not translate").into());
     }
+    state.config.unknown_kinds.store(state.translate.unknown_records(), Ordering::Relaxed);
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
             || matches!(&op.change, Change::Patch(_));
@@ -1197,7 +1397,7 @@ fn apply_ops(
                         let bytes = bytes.get(range.offset..end).ok_or(ChatError::Closed)?;
                         std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned()
                     }
-                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span)?,
+                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span, field)?,
                 };
                 let key = body_key(field);
                 let body =
@@ -1228,7 +1428,31 @@ fn apply_ops(
     Ok(())
 }
 
-fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<String, ChatError> {
+/// A body field of a logged line's record: its `msg` key for `field` (a prompt's `text` for its
+/// content, its `images`, `inlineParts` or `pasted`). A prompt's text is read in pieces through
+/// `read_at` ([`queue::read_text`]), never the line whole. A source that cannot read part of a
+/// line, a line whose text does not begin in its first 16 KB, a part refused (the source's lines
+/// changed) and every other key are read as a chunk, which says `SourceChanged` when they did.
+fn raw_body_value(
+    state: &mut ActorState,
+    place: u64,
+    span: u64,
+    field: BodyField,
+) -> Result<String, ChatError> {
+    let key = match field {
+        BodyField::Images => "images",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        _ => "text",
+    };
+    if key == "text"
+        && state.source.stamp() == state.source_stamp
+        && let Ok(Some(text)) = queue::read_text(state.source.as_mut(), place)
+    {
+        // Decoded and written again: the book holds the form a chunk read gives.
+        let text: String = serde_json::from_slice(&text).map_err(|_| ChatError::Closed)?;
+        return serde_json::to_string(&text).map_err(|_| ChatError::Closed);
+    }
     let chunk = state.source.read_chunk(place)?;
     if chunk.stamp != state.source_stamp {
         return Err(ChatError::SourceChanged);
@@ -1245,7 +1469,7 @@ fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<Strin
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
         let value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| ChatError::Closed)?;
-        let text = value.get("msg").and_then(|msg| msg.get("text")).ok_or(ChatError::Closed)?;
+        let text = value.get("msg").and_then(|msg| msg.get(key)).ok_or(ChatError::Closed)?;
         return serde_json::to_string(text).map_err(|_| ChatError::Closed);
     }
     Err(ChatError::Closed)
@@ -1323,10 +1547,12 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
     // A patch replaces a settled row's body. Keep its temporary body local: settled rows are
     // never checkpoint-open, so retaining one here would leak every superseded body until the
-    // actor next opened.
-    state.bodies.remove(&row.id);
+    // actor next opened. The bodies the translator sent for it just before (in this line's ops)
+    // are the patch's own: a settled row's fields come with its bodies read again.
+    let base = state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
-    let mut patch_body = Body::new(row.id).map_err(ChatError::Book)?;
+    state.gens.remove(&row.id);
+    let mut patch_body = base.map_or_else(|| Body::new(row.id), Ok).map_err(ChatError::Book)?;
     for (field, value) in &row.fields {
         state.blobs.set(&mut patch_body, field, value, false)?;
     }
@@ -1355,6 +1581,10 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Source => "source",
         BodyField::Images => "images",
         BodyField::Title => "title",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        BodyField::Request => "request",
+        BodyField::Outcome => "outcome",
     }
 }
 
