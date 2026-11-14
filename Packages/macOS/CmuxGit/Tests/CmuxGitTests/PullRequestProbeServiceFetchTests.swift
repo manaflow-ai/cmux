@@ -31,16 +31,20 @@ struct PullRequestProbeServiceFetchTests {
         number: Int,
         branch: String,
         state: String = "open",
-        mergedAt: String? = nil
+        updatedAt: String = "2026-07-01T12:00:00Z",
+        mergedAt: String? = nil,
+        closedAt: String? = nil
     ) -> String {
         let mergedField = mergedAt.map { "\"\($0)\"" } ?? "null"
+        let closedField = closedAt.map { "\"\($0)\"" } ?? "null"
         return """
         {
           "number": \(number),
           "state": "\(state)",
           "html_url": "https://github.com/\(repoSlug)/pull/\(number)",
-          "updated_at": "2026-07-01T12:00:00Z",
+          "updated_at": "\(updatedAt)",
           "merged_at": \(mergedField),
+          "closed_at": \(closedField),
           "head": {"ref": "\(branch)"},
           "base": {"ref": "main"}
         }
@@ -147,6 +151,26 @@ struct PullRequestProbeServiceFetchTests {
         }
         #expect(usedCache)
         #expect(PullRequestProbeStubURLProtocol.capturedRequests().count == 1)
+    }
+
+    @Test func longClosedPullRequestYieldsNoBadgeDespiteRecentActivity() async throws {
+        // REST `closed_at` anchors closed-PR staleness; a comment that bumps
+        // `updated_at` must not revive a months-old closed badge on `develop`.
+        let recentActivity = ISO8601DateFormatter().string(from: Date())
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: listBody(pullRequestJSON(
+                number: 959,
+                branch: "develop",
+                state: "closed",
+                updatedAt: recentActivity,
+                closedAt: "2026-03-06T12:00:00Z"
+            ))),
+        ])
+        let service = makeService()
+
+        let resolved = try #require(entry(from: await fetch(service: service, branches: ["develop"])))
+        #expect(resolved.pullRequestsByBranch["develop"] == nil)
+        #expect(resolved.knownAbsentBranches.contains("develop"))
     }
 
     @Test func multipleCandidateBranchesEachGetOwnHeadRequest() async throws {

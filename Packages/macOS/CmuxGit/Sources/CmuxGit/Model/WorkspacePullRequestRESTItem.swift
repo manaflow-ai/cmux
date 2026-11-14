@@ -12,6 +12,7 @@ struct WorkspacePullRequestRESTItem: Decodable, Sendable {
     let htmlURL: String
     let updatedAt: String?
     let mergedAt: String?
+    let closedAt: String?
     let head: Ref
     let base: Ref?
 
@@ -21,6 +22,7 @@ struct WorkspacePullRequestRESTItem: Decodable, Sendable {
         case htmlURL = "html_url"
         case updatedAt = "updated_at"
         case mergedAt = "merged_at"
+        case closedAt = "closed_at"
         case head
         case base
     }
