@@ -109,6 +109,9 @@ struct AgentCursorTail {
     private(set) var excitement = 0.0
     private(set) var calm = 0.0
     private var sinceEvent = 0.0
+    /// Seconds since anything stirred the tail beyond its idle life (pointer motion, an event, a
+    /// flick, a droop changing): ``isLively``.
+    private var sinceStir = 0.0
     private(set) var droop = 0.0
     var drooping = false
     private(set) var stretch = 0.0
@@ -171,12 +174,20 @@ struct AgentCursorTail {
     mutating func typing() {
         excitement = 1
         sinceEvent = 0
+        sinceStir = 0
     }
 
     /// Any other step of the agent: wakes it from calm.
     mutating func activity() {
         sinceEvent = 0
+        sinceStir = 0
     }
+
+    /// True while the tail does more than its slow idle life (following the pointer, flicking,
+    /// wiggling, drooping or settling, and 2 s after): the overlay draws it at the display's full
+    /// rate then, and at an idle rate (about 24 fps) otherwise, which the slow wave does not need
+    /// more than (the tip moves well under a point per idle frame).
+    var isLively: Bool { animates && sinceStir < 2 }
 
     /// The pointer jumped (a new screen, the first placement): not motion to follow.
     mutating func teleport() {
@@ -187,6 +198,7 @@ struct AgentCursorTail {
 
     private mutating func kick(_ amount: Double) {
         guard animates else { return }
+        sinceStir = 0
         for i in 0..<Self.segmentCount {
             spins[i] += amount * (0.35 + 0.65 * Double(i) / Double(Self.segmentCount - 1))
         }
@@ -239,6 +251,8 @@ struct AgentCursorTail {
     private mutating func substep(_ h: Double) {
         let n = Self.segmentCount
         sinceEvent += h
+        sinceStir += h
+        if hypot(velocity.dx, velocity.dy) > 2 || abs((drooping ? 1 : 0) - droop) > 0.01 { sinceStir = 0 }
         calm += ((sinceEvent > tuning.calmAfter ? 1 : 0) - calm) * (1 - exp(-h / tuning.calmEase))
         droop += ((drooping ? 1 : 0) - droop) * (1 - exp(-h / tuning.droopEase))
         excitement *= exp(-h / tuning.wiggleDecay)
@@ -252,6 +266,8 @@ struct AgentCursorTail {
         if untilFlick <= 0 {
             untilFlick = tuning.flickGap.lowerBound + (tuning.flickGap.upperBound - tuning.flickGap.lowerBound) * random.unit()
             kick(tuning.flickKick * (random.unit() < 0.5 ? 1 : -1) * moodAmplitude)
+            // An idle flick is small and quick: one second at full rate is enough for it.
+            sinceStir = 1
         }
         // The outside force (per unit mass): drag against the pointer's velocity, inertia
         // against its acceleration, each saturating so a fast fling stays bounded.

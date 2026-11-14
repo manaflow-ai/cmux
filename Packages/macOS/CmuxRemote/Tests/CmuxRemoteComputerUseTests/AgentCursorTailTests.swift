@@ -210,6 +210,24 @@ import UniformTypeIdentifiers
         #expect(drooped.points[AgentCursorTail.segmentCount].y < AgentCursorTail.rest.points[AgentCursorTail.segmentCount].y - 2)
     }
 
+    @Test func itAsksForFullRateOnlyWhileStirred() {
+        var tuning = AgentCursorTail.Tuning()
+        tuning.flickGap = 1000...1000
+        var tail = AgentCursorTail(session: "rate", animates: true, tuning: tuning)
+        let at = CGPoint(x: 300, y: 300)
+        Self.run(&tail, Self.hold(at, seconds: 3))
+        #expect(!tail.isLively, "at rest it runs at the idle rate")
+        tail.click()
+        #expect(tail.isLively, "a click wants the display's full rate")
+        Self.run(&tail, Self.hold(at, seconds: 2.2))
+        #expect(!tail.isLively)
+        var moving = false
+        Self.run(&tail, Self.glide(from: at, to: CGPoint(x: 900, y: 500))) { _, tail in moving = moving || tail.isLively }
+        #expect(moving, "following the pointer wants the full rate")
+        let still = AgentCursorTail(session: "rate", animates: false)
+        #expect(!still.isLively, "without animation it never asks for frames")
+    }
+
     @Test func thePointersTipNeverMovesWhileTheTailLives() throws {
         // A cursor that clicks, types and presses keys in place: every frame draws the pointer's tip
         // on the same pixels, whatever the tail does.

@@ -365,6 +365,7 @@ private final class SessionCursor {
     private var tailTicker: FrameTicker?
     private var lastTailFrame: CFTimeInterval?
     private var tailSpeed = 1.0
+    private var tailLively = true
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
     private let offscreen: CGRect?
@@ -417,6 +418,8 @@ private final class SessionCursor {
             layer.strokeColor = color.cgColor
             layer.lineWidth = width
             layer.lineCap = .round
+            // Drawn per frame by the living tail: never an implicit animation.
+            layer.actions = ["path": NSNull()]
         }
         tailEdge.shadowColor = NSColor.black.cgColor
         tailEdge.shadowOpacity = 0.22
@@ -793,6 +796,7 @@ private final class SessionCursor {
         let ticker = FrameTicker { [weak self] link in self?.tailFrame(link) }
         let link = view.displayLink(target: ticker, selector: #selector(FrameTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
+        tailLively = true
         tailTicker = ticker
         tailLink = link
         lastTailFrame = nil
@@ -813,6 +817,13 @@ private final class SessionCursor {
         lastTailFrame = now
         let pointer = (body.presentation() ?? body).position
         stepTail(dt: dt, pointer: pointer)
+        // Full refresh while the tail follows, flicks or settles; a slow idle rate for its calm
+        // idle life, so a waiting cursor costs little.
+        let lively = tailMotion.isLively
+        if lively != tailLively {
+            tailLively = lively
+            link.preferredFrameRateRange = lively ? .default : CAFrameRateRange(minimum: 15, maximum: 30, preferred: 24)
+        }
     }
 
     /// Steps the tail model and draws its path (the overlay's frames and the offscreen frames).
@@ -823,11 +834,10 @@ private final class SessionCursor {
     }
 
     private func setTailPath(_ path: CGPath) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        // The tail's layers have no implicit path animation (their `actions`), so this needs no
+        // transaction of its own: the frame's change commits with the run loop's.
         tail.path = path
         tailEdge.path = path
-        CATransaction.commit()
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
