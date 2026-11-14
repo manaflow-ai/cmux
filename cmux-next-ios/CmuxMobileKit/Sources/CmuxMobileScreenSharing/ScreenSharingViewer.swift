@@ -265,8 +265,17 @@ public final class ScreenSharingViewer: Identifiable {
         scheduleReattach(id)
     }
 
-    /// The link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
-    public nonisolated static let reattachBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+    /// The first try goes at once (the drop is already known and the hub answers in one round
+    /// trip), then the link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
+    public nonisolated static let reattachBackoff: [Duration] = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8),
+                                                                 .seconds(16), .seconds(30)]
+
+    /// The app came back to the foreground (or the network came back): a reattach waiting out
+    /// a long backoff step tries again now, from the start of the backoff.
+    public func reattachNow() {
+        guard case let .reconnecting(id, _) = phase else { return }
+        scheduleReattach(id)
+    }
 
     private func scheduleReattach(_ id: String) {
         reattachTask?.cancel()
