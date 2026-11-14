@@ -170,6 +170,11 @@ group. It stays a no-op until these repository variables are set:
 - `IOS_CLASSIC_ASC_APP_ID`: the numeric App Store Connect app id of cmux CLASSIC
 - `IOS_CLASSIC_INTERNAL_GROUP_ID`: the id of its internal TestFlight group
 
+Before setting the variables, register `dev.cmux.app.classic` with Push
+Notifications, Sign in with Apple and Time Sensitive Notifications, and
+`dev.cmux.app.classic.NotificationService` with App Groups (`group.dev.cmux.ios`).
+The upload refuses a profile without production push or Sign in with Apple, and
+an extension profile without the app group would silently drop it at re-sign.
 The provisioning profiles for the app and its notification extension are found
 or created through the App Store Connect API with the CI distribution
 certificate. The optional secrets `IOS_CLASSIC_PROVISIONING_PROFILE_BASE64` and

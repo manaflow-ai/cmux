@@ -1705,13 +1705,79 @@ def test_upload_classic_lane_refuses_the_com_cmux_app_record(tmp: Path, fakebin:
     )
 
 
-def test_profile_installer_names_the_classic_ci_profile_by_bundle() -> None:
-    installer = (ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh").read_text(encoding="utf-8")
-    _check(
-        'profile_name="cmux App Store CI $BUNDLE_IDENTIFIER $profile_suffix"' in installer
-        and 'profile_name="cmux App Store CI $profile_suffix"' in installer,
-        "profile installer keeps the com.cmux.app CI profile name and gives other bundles their own",
+def test_profile_installer_creates_an_active_classic_ci_profile(tmp: Path, fakebin: Path) -> None:
+    """The installer's App Store Connect path, for dev.cmux.app.classic.
+
+    A stale INVALID profile with the classic name (left by a run before the
+    bundle's capabilities were enabled) and com.cmux.app's historical
+    "cmux App Store CI <serial>" profile must both be ignored: the installer
+    creates "cmux App Store CI dev.cmux.app.classic <serial>" for the classic
+    bundle.
+    """
+    ascbin = tmp / "ascbin"
+    ascbin.mkdir(parents=True, exist_ok=True)
+    serial = subprocess.run(
+        ["openssl", "x509", "-inform", "DER", "-noout", "-serial"],
+        input=FIXTURE_CERTIFICATE_DER, capture_output=True, check=True,
+    ).stdout.decode().strip().split("=", 1)[1].upper()
+    suffix = serial[-8:]
+    _write_executable(
+        ascbin / "asc",
+        f"""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["CMUX_FAKE_ASC_LOG"]).open("a").write(json.dumps(args) + "\\n")
+def out(data):
+    print(json.dumps({{"data": data}}))
+if args[:2] == ["bundle-ids", "list"]:
+    out([{{"id": "B-CLASSIC", "attributes": {{"identifier": "{CLASSIC_BUNDLE_ID}"}}}},
+         {{"id": "B-CLASSIC-NSE", "attributes": {{"identifier": "{CLASSIC_EXTENSION_BUNDLE_ID}"}}}},
+         {{"id": "B-APPSTORE", "attributes": {{"identifier": "{APPSTORE_BUNDLE_ID}"}}}}])
+elif args[:2] == ["certificates", "list"]:
+    out([{{"id": "CERT1", "attributes": {{"serialNumber": "{serial}"}}}}])
+elif args[:2] == ["profiles", "list"]:
+    out([{{"id": "P-STALE", "attributes": {{"name": "cmux App Store CI {CLASSIC_BUNDLE_ID} {suffix}", "profileState": "INVALID"}}}},
+         {{"id": "P-APPSTORE", "attributes": {{"name": "cmux App Store CI {suffix}", "profileState": "ACTIVE"}}}}])
+elif args[:2] == ["profiles", "create"]:
+    out({{"id": "P-NEW"}})
+elif args[:2] == ["profiles", "download"]:
+    Path(args[args.index("--output") + 1]).write_text("fake profile")
+""",
     )
+    env = _base_env(tmp, fakebin)
+    env["PATH"] = f"{ascbin}{os.pathsep}{env['PATH']}"
+    env["CMUX_FAKE_APP_BUNDLE_ID"] = CLASSIC_BUNDLE_ID
+    env["IOS_APPSTORE_BUNDLE_IDENTIFIER"] = CLASSIC_BUNDLE_ID
+    env["IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER"] = CLASSIC_EXTENSION_BUNDLE_ID
+    env.pop("IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64", None)
+    env.pop("IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64", None)
+    env.update({"ASC_API_KEY_ID": "KEY123", "ASC_API_ISSUER_ID": "ISSUER123", "ASC_API_KEY_PATH": str(tmp / "key.p8")})
+    (tmp / "key.p8").write_text("fake p8")
+    env["RUNNER_TEMP"] = str(tmp / "runner")
+    env["HOME"] = str(tmp / "home")
+    env["GITHUB_ENV"] = str(tmp / "github-env")
+    Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
+    _run(
+        ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
+        env=env, tmp=tmp, log_failure=False,
+    )
+    calls = [json.loads(line) for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()]
+    creates = [call for call in calls if call[:2] == ["profiles", "create"]]
+    _check(bool(creates), "profile installer creates a profile for the classic bundle")
+    host = creates[0] if creates else []
+    _check(
+        host[host.index("--name") + 1] == f"cmux App Store CI {CLASSIC_BUNDLE_ID} {suffix}" if host else False,
+        "classic CI profile is named for its bundle, not com.cmux.app's historical name",
+    )
+    _check(host[host.index("--bundle") + 1] == "B-CLASSIC" if host else False, "classic CI profile targets dev.cmux.app.classic")
+    downloads = [call for call in calls if call[:2] == ["profiles", "download"]]
+    _check(
+        bool(downloads) and downloads[0][downloads[0].index("--id") + 1] == "P-NEW",
+        "installer downloads the new profile, never the stale INVALID or com.cmux.app one",
+    )
+    github_env = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8") if Path(env["GITHUB_ENV"]).exists() else ""
+    _check("IOS_APPSTORE_PROVISIONING_PROFILE_NAME=" in github_env, "installer exports the classic host profile name")
 
 
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
@@ -2258,7 +2324,7 @@ def main() -> None:
         test_upload_classic_lane_builds_the_classic_identity(tmp / "classic-upload-test", fakebin)
         test_upload_classic_lane_uploads_to_its_own_record(tmp / "classic-live-test", fakebin)
         test_upload_classic_lane_refuses_the_com_cmux_app_record(tmp / "classic-refuse-test", fakebin)
-        test_profile_installer_names_the_classic_ci_profile_by_bundle()
+        test_profile_installer_creates_an_active_classic_ci_profile(tmp / "classic-profile-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)

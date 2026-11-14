@@ -1035,6 +1035,9 @@ case "$LANE" in
     # signed with App Store distribution profiles, so it reads the profile
     # names install-app-store-provisioning-profile.sh exports.
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_CLASSIC_BUNDLE_ID:-dev.cmux.app.classic}"
+    # In CI the installer exported IOS_APPSTORE_PROVISIONING_PROFILE_NAME for
+    # dev.cmux.app.classic. Locally, set IOS_CLASSIC_PROVISIONING_PROFILE_NAME
+    # rather than reuse a com.cmux.app name; export would reject the mismatch.
     PROVISIONING_PROFILE_NAME="${IOS_CLASSIC_PROVISIONING_PROFILE_NAME:-${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux Classic Distribution}}"
     PRODUCT_DISPLAY_NAME="${IOS_CLASSIC_DISPLAY_NAME:-cmux CLASSIC}"
     CRASH_REPORTING_ENABLED="YES"
@@ -2275,7 +2278,7 @@ else
   # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
-  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (production version stream)"
+  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md ($LANE version stream)"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     # Keep generator stderr on the CI transcript (its fallback/unreachable-base
     # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup
