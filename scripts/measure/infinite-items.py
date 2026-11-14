@@ -326,7 +326,7 @@ class Run:
         os.chmod(os.path.join(self.acp_home, "config.json"), 0o600)
         ready = os.path.join(self.root, "acpmux.out")
         with open(ready, "w") as out, open(os.path.join(self.root, "acpmux.log"), "w") as err:
-            acp = subprocess.Popen([self.args.acpmux, "daemon", "run", "--ready-fd", "1", "--log", "warn"],
+            acp = subprocess.Popen([self.args.acpmux, "daemon", "run", "--ready-fd", "1", "--log", self.args.acpmux_log],
                                    stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=self.env(),
                                    start_new_session=True)
         self.procs.append(acp)
@@ -396,8 +396,32 @@ class Run:
                 os.kill(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+        self.hibernations()
         if not self.args.keep:
             shutil.rmtree(self.root, ignore_errors=True)
+
+    def hibernations(self):
+        """At --acpmux-log info: how fast acpmux hibernated idle agents (its `hibernated` lines: count, the span
+        from the first to the last, and each one's exit_ms), the rate a pass of the idle reaper reaches."""
+        try:
+            with open(os.path.join(self.root, "acpmux.log"), errors="replace") as f:
+                lines = [line for line in f if "hibernated:" in line]
+        except OSError:
+            return
+        if not lines:
+            return
+        import re
+        exits = sorted(int(m.group(1)) for line in lines if (m := re.search(r"exit_ms=(\d+)", line)))
+        stamps = [m.group(1) for line in lines if (m := re.match(r"\S*?(\d\d:\d\d:\d\d(?:\.\d+)?)", line))]
+
+        def secs(stamp):
+            h, m_, s = stamp.split(":")
+            return int(h) * 3600 + int(m_) * 60 + float(s)
+        span = secs(stamps[-1]) - secs(stamps[0]) if len(stamps) > 1 else 0.0
+        p50 = exits[len(exits) // 2] if exits else None
+        print(f"INFINITE-HIBERNATE {self.count} n={len(lines)} span_s={span:.1f} "
+              f"rate_per_s={(len(lines) / span) if span else 0:.1f} exit_ms_p50={p50} "
+              f"exit_ms_max={exits[-1] if exits else None}", flush=True)
 
     # -- items
 
@@ -692,6 +716,7 @@ def main():
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")
     p.add_argument("--root-dir", default=None)
     p.add_argument("--keep", action="store_true")
+    p.add_argument("--acpmux-log", default="warn", help="acpmux --log; at info, its hibernations are summarized")
     p.add_argument("--out")
     args = p.parse_args()
     for path in (args.acpmux, args.tui):
