@@ -178,7 +178,10 @@ def generated_claude_hook_settings() -> str:
             direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
             queued("pre-tool-use"),
         ],
-        "PostToolUse": [queued("push-notification", matcher="PushNotification")],
+        "PostToolUse": [
+            queued("post-tool-use", matcher="AskUserQuestion|ExitPlanMode"),
+            queued("push-notification", matcher="PushNotification"),
+        ],
         "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
     }
     return json.dumps(
