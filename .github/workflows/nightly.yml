@@ -2390,7 +2390,7 @@ jobs:
         # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
-        if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
+        if: inputs.nightly_next_unsigned_run == ''
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
       - &x13
@@ -5721,7 +5721,6 @@ jobs:
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
-      left: ${{ steps.one-leave.outputs.superseded }}
     # Visual coverage is advisory: route, capture, and verdict jobs still report findings, but
     # neither a display queue nor an enforce-mode verdict can hold publication.
     if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')"
@@ -7160,13 +7159,15 @@ jobs:
       - *x9
       - *checkout-publication-tooling-a
       - *claim-publication-mac
+      # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
+      - *x12
       # Latest wins at the slot too. Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the push slot to a newer nightly-next push
         id: one-leave
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
         env:
           GH_TOKEN: ${{ github.token }}
-          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
           REPOSITORY: ${{ github.repository }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
@@ -7182,7 +7183,6 @@ jobs:
       - *x10
       - *select-xcode-sdk-unless-resumed
       - *x11
-      - *x12
       - *x13
       - *x1
       - *x2
@@ -7492,7 +7492,7 @@ jobs:
 
   # nightly-next-one's end asks main's tick at once. Why: docs/ci/nightly-workflow-notes.md#note-19
   wake-nightly-next-tick:
-    needs: [decide, nightly-next-one]
+    needs: [decide, resolve-nightly-cmux-tui-client, nightly-next-one]
     if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && needs.nightly-next-one.result != 'skipped'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.

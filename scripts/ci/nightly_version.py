@@ -32,7 +32,7 @@
       Prints the cmux:sourceCommit of the feed's newest item (the highest
       sparkle:version), or nothing when that item names none. It is the
       commit the live feed serves, written by the publishing job itself
-      (publish-nightly-next-r2.py write-feed, a compare-and-swap that only
+      (the nightly-next R2 publisher's write-feed, a compare-and-swap that only
       moves to a descendant source), so it is current as soon as the feed
       is, before the release body and tag a run's tail writes after it.
 

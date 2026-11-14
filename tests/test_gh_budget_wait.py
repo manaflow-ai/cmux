@@ -406,8 +406,10 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
-    # The tick wake after nightly-next-one: on the nightly mini, where no release App key goes, like
-    # retry-nightly-next's dispatch (which reads github.token from its job env).
+    # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
+    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
+    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
+    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
