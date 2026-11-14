@@ -76,7 +76,8 @@ struct MacScreenActionRoutingTests {
         _ = try #require(services.pages.view(forStoreTab: ownedTab, in: otherStore, local: true, window: nil))
         let key = try #require(services.pages.storeKey(of: ownedTab.id))
         defer { services.pages.close(key) }
-        let viewer = try #require(services.macScreenPages.tab(key)?.pane.model.hub)
+        let screenPane = try #require(services.macScreenPages.tab(key)?.pane)
+        let viewer = try #require(screenPane.model.hub)
         viewer.phase = .streaming(sessionID: "owned-elsewhere", scope: .view)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: ownedTab.id), origin: .cli).onMachine("local")
         #expect(!services.registry.perform("macScreen.stopViewing", invocation: invocation))
