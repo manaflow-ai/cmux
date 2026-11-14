@@ -37,6 +37,22 @@ import Testing
         #expect(loader.failed)
         #expect(loader.session == nil)
     }
+    @Test func anOfflineConversationKnowsItsNameBeforeItsMacAnswers() async {
+        // The header of a conversation opened while its Mac is away names it (not a blank avatar).
+        let info = ConversationInfo(id: "c5", title: "Conversation 5", kind: .direct,
+                                    participants: [ChiefIdentity.standard.me, ChiefIdentity.standard.chief])
+        var events = ChiefOfflineBackend(reason: "away", info: info).events().makeAsyncIterator()
+        guard case let .conversationChanged(first)? = await events.next() else {
+            Issue.record("expected the conversation's info first")
+            return
+        }
+        #expect(first.title == "Conversation 5")
+        guard case .disconnected? = await events.next() else {
+            Issue.record("expected it to say it is disconnected next")
+            return
+        }
+    }
+
     @Test func aFailedFirstOpenShowsTheConversationNotAFullScreenError() async {
         // The user, 2026-11-13: a full-screen "Couldn't load this conversation." hid everything.
         // The conversation opens (title, what was kept, composer) under its own bar.

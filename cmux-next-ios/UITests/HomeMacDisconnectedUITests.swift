@@ -42,10 +42,13 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         attach(app, "2-row-opened-conversation")
         XCTAssertFalse(app.buttons["home.conversation.retry"].exists, "no full-screen error")
         XCTAssertTrue(composer.exists, "the composer stays\n\(app.debugDescription)")
-        XCTAssertTrue(app.descendants(matching: .any)["conversation.header.name"].exists, "the header\n\(app.debugDescription)")
+        // Its header names it, from what Home knows, before the Mac answers.
+        let name = app.descendants(matching: .any)["conversation.header.name"]
+        XCTAssertTrue(name.exists, "the header\n\(app.debugDescription)")
+        XCTAssertEqual(name.label, "Conversation 5", "the header names the conversation")
 
         // Back on Home: the Mac button says it, with Retry; the rows stay after it.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
         try openMacMenu(app, saying: "Offline · last known")
         attach(app, "1b-home-offline-mac-menu")

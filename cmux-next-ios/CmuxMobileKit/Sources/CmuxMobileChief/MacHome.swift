@@ -660,7 +660,9 @@ public final class MacHomeFeed {
         // Nothing kept on disk still opens the conversation (its title and composer, empty).
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
         let identity = ChiefIdentity(chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
-        let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason), identity: identity,
+        let info = ConversationInfo(id: route.conversationID, title: route.title, kind: .direct,
+                                    participants: [identity.me, identity.chief])
+        let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
                                    outbox: ChiefOutbox(file: nil), transcripts: key == nil ? nil : transcripts, transcriptKey: key)
         session.unavailableTitle = Self.keptTitle
         session.status = Self.keptReason
