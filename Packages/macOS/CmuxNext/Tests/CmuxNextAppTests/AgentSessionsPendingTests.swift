@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCompat
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
@@ -23,6 +23,10 @@ import Testing
         private(set) var waits: [Int] = []
         /// Runs in each wait, with the count of the reads before it.
         var onWait: (Int) -> Void = { _ in }
+        /// The source's first answer is on its way and nothing says that it is slow.
+        var startsQuietly = false
+        /// The source can answer a read now.
+        var answersNow = true
         private var held: (sessions: [AgentSession], complete: Bool) = ([], true)
         init(_ answers: [(sessions: [AgentSession], complete: Bool)]) { self.answers = answers }
         func refresh() async {
@@ -300,6 +304,81 @@ import Testing
         // The store says that the daemon failed.
         local.store.markFailed("no daemon")
         #expect(services.vault.showsNotCompleteMark, "a daemon that failed: the words show")
+    }
+
+    /// The vault's first read can be before the daemon's handshake: it asked no daemon. At the handshake the list
+    /// is still "not complete" from that read, and the words would show until the next read ends and then go.
+    /// They wait for a read that starts after the connection; a source that is slow or down shows them at once.
+    @Test func aReadFromTheQuietStartShowsNoWordsWhenTheSourceConnectsUntilTheNextRead() async {
+        let source = Source([([], false), ([], false), ([SessionVaultTests.session("s-new")], true), ([], false)])
+        let (_, vault) = Self.vault(source, onScreen: nil)
+        (source.startsQuietly, source.answersNow) = (true, false)
+        await vault.reload()
+        #expect(vault.isPartial)
+        #expect(!vault.showsNotCompleteMark, "the quiet start: no words")
+        (source.startsQuietly, source.answersNow) = (false, true)
+        #expect(vault.isPartial, "no read was made since the connection")
+        #expect(!vault.showsNotCompleteMark, "connected, and the last read asked no daemon: no words until the next read")
+        await vault.reload()
+        #expect(vault.showsNotCompleteMark, "a read after the connection says that the list is not complete: the words show")
+        await vault.reload()
+        #expect(!vault.isPartial)
+        #expect(!vault.showsNotCompleteMark)
+        // A read in a quiet start again, and then the source is slow or down (not connected): the words show at once.
+        (source.startsQuietly, source.answersNow) = (true, false)
+        await vault.reload()
+        #expect(!vault.showsNotCompleteMark)
+        source.startsQuietly = false
+        #expect(vault.showsNotCompleteMark, "a source that is slow or down after a quiet read: the words show")
+    }
+
+    /// In the quiet start the vault on screen reads each second (the wait of no read of a daemon), not at 1, 2,
+    /// 4 and 8 s: the list comes at most 1 s after the handshake. The reads after it wait 1, 2, 4 s again, and
+    /// the reads of the quiet start count for the bound of one reload.
+    @Test func inTheQuietStartEachWaitIsTheFirstOneAndTheWaitsStartAgainAfterTheHandshake() async {
+        let new = SessionVaultTests.session("s-new")
+        let source = Source([([], false), ([], false), ([], false), ([], false), ([], false), ([], false), ([new], true)])
+        let (_, vault) = Self.vault(source, onScreen: true)
+        (source.startsQuietly, source.answersNow) = (true, false)
+        // The handshake comes in the wait after the fourth read.
+        source.onWait = { _ in if source.refreshes == 4 { (source.startsQuietly, source.answersNow) = (false, true) } }
+        await vault.reload()
+        #expect(source.refreshes == 7)
+        #expect(source.waits == [0, 0, 0, 0, 1, 2], "4 reads asked no daemon: each wait after them is the first one; then the daemon's waits from their start")
+        #expect(vault.rows.map(\.session.sessionID) == ["s-new"])
+        #expect(!vault.isPartial)
+
+        let quiet = Source([([], false)])
+        let (_, stays) = Self.vault(quiet, onScreen: true)
+        (quiet.startsQuietly, quiet.answersNow) = (true, false)
+        await stays.reload()
+        #expect(quiet.refreshes == 40, "a quiet start that does not end holds no reader for ever")
+        #expect(quiet.waits == Array(repeating: 0, count: 39))
+    }
+
+    /// The same with the app's own source and this Mac's daemon: the vault's read is before the handshake. Then the
+    /// daemon is connected and lists agent sessions, and a read gets no answer from it (no connection object in
+    /// this test): the list stays "not complete" and is not the whole, empty list ("No agent sessions yet").
+    @Test func afterTheHandshakeTheVaultShowsNoWordsUntilItsNextReadAndADaemonWithNoAnswerHasNoWholeList() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let local = services.machines.local
+        await services.vault.reload()
+        #expect(services.vault.isPartial)
+        #expect(!services.vault.showsNotCompleteMark, "the quiet start: no words")
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"quiet-start","generation":"g1","capabilities":[""#
+            + DaemonHistoryClient.agentSessionsCapability + #""]}"#
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+        local.store.noteHandshake(identity)
+        local.store.connectionState = .connected(identity)
+        #expect(!local.isStartingQuietly)
+        #expect(services.vault.isPartial, "no read was made since the handshake")
+        #expect(!services.vault.showsNotCompleteMark, "the handshake came after the vault's read: no words until the next read")
+        await services.vault.reload()
+        #expect(!services.history.agents.isComplete, "a connected daemon that lists sessions gave no answer: no whole list")
+        #expect(services.vault.isPartial, "the view shows no text of an empty list")
+        #expect(services.vault.showsNotCompleteMark, "a read after the connection got no whole list: the words show")
     }
 
     /// Resume by id (`history.resumeAgentSession {session}`) reads one time and answers at once.
