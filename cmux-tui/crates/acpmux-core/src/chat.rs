@@ -63,6 +63,99 @@ pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
 /// the hint finds the lines a dropped notice told of.
 pub const HINT_POLL: Duration = Duration::from_secs(5);
 
+/// The permits an actor reading history takes, one per chunk (the design doc's "Migration"
+/// step 1): an actor that has had no `at_end` since it started is reading history. Two
+/// permits, given first come first served, so at most two chats read history at once, they
+/// take turns by the chunk, and a live chat's short gap waits for at most one chunk of each.
+pub struct HistoryPermits {
+    state: Mutex<Permits>,
+    turn: std::sync::Condvar,
+    /// The most permits held at once, for tests and gates.
+    held_max: AtomicU64,
+}
+
+struct Permits {
+    free: usize,
+    held: usize,
+    /// Tickets of the actors waiting, in the order they came.
+    waiting: std::collections::VecDeque<u64>,
+    next: u64,
+}
+
+/// One chunk's permit; given back when dropped.
+pub struct HistoryPermit {
+    permits: Arc<HistoryPermits>,
+}
+
+impl Drop for HistoryPermit {
+    fn drop(&mut self) {
+        let mut state = self.permits.lock();
+        state.free += 1;
+        state.held -= 1;
+        drop(state);
+        self.permits.turn.notify_all();
+    }
+}
+
+impl HistoryPermits {
+    pub fn new(permits: usize) -> Self {
+        Self {
+            state: Mutex::new(Permits {
+                free: permits,
+                held: 0,
+                waiting: std::collections::VecDeque::new(),
+                next: 0,
+            }),
+            turn: std::sync::Condvar::new(),
+            held_max: AtomicU64::new(0),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Permits> {
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Waits for a permit in turn; None once `stop` is set (a close, a purge), so a stop never
+    /// waits behind another chat's chunk.
+    pub fn acquire(self: &Arc<Self>, stop: &AtomicBool) -> Option<HistoryPermit> {
+        let mut state = self.lock();
+        let ticket = state.next;
+        state.next += 1;
+        state.waiting.push_back(ticket);
+        loop {
+            if stop.load(Ordering::Acquire) {
+                state.waiting.retain(|waiting| *waiting != ticket);
+                drop(state);
+                self.turn.notify_all();
+                return None;
+            }
+            if state.free > 0 && state.waiting.front() == Some(&ticket) {
+                state.waiting.pop_front();
+                state.free -= 1;
+                state.held += 1;
+                self.held_max.fetch_max(state.held as u64, Ordering::Relaxed);
+                drop(state);
+                // The next in line may take the other permit.
+                self.turn.notify_all();
+                return Some(HistoryPermit { permits: self.clone() });
+            }
+            state = self
+                .turn
+                .wait_timeout(state, Duration::from_millis(50))
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+    }
+
+    pub fn held(&self) -> usize {
+        self.lock().held
+    }
+
+    pub fn held_max(&self) -> u64 {
+        self.held_max.load(Ordering::Relaxed)
+    }
+}
+
 #[derive(Clone)]
 pub struct ChatConfig {
     pub id: String,
@@ -74,6 +167,8 @@ pub struct ChatConfig {
     pub supervision: crate::life::Policy,
     pub source_factory: SourceFactory,
     pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
+    /// The permits a chunk of history takes; None reads with none (an actor a test drives).
+    pub history: Option<Arc<HistoryPermits>>,
 }
 
 impl ChatConfig {
@@ -88,6 +183,7 @@ impl ChatConfig {
             supervision: crate::life::Policy::default(),
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
             edition_random: Arc::new(system_random_edition),
+            history: None,
         }
     }
 
@@ -198,6 +294,27 @@ impl ChatHandle {
     /// follows its source from here and no window is cut from half a book.
     pub fn ready(&self) -> bool {
         *self.health.borrow() == crate::life::Health::Running
+    }
+
+    /// Waits until the chat is `ready` (true), or its actor ended or failed (false). A restart
+    /// in between is waited through.
+    pub async fn wait_ready(&self) -> bool {
+        let mut health = self.health.clone();
+        loop {
+            match *health.borrow_and_update() {
+                crate::life::Health::Running => return true,
+                crate::life::Health::Failed | crate::life::Health::Ended => return false,
+                crate::life::Health::Starting | crate::life::Health::Restarting => {}
+            }
+            if health.changed().await.is_err() {
+                return false;
+            }
+        }
+    }
+
+    /// The actor's health now.
+    pub fn health(&self) -> crate::life::Health {
+        *self.health.borrow()
     }
 
     fn send(&self, request: Request) -> Result<(), ChatError> {
@@ -362,6 +479,8 @@ struct ActorState {
     /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
     /// empty and the source's hint is another; the hint is never taken for an end.
     seen_hint: Option<u64>,
+    /// A read from the cursor said `at_end` since this state opened: no permit is taken.
+    caught_up: bool,
 }
 
 fn run_supervised(
@@ -598,7 +717,7 @@ fn rebuild_from_raw(
     let mut state = restart_staging(&new_config, &mut basis)?;
     rebuild_point("opened");
     loop {
-        match read_source(&mut state) {
+        match read_history(&mut state, stop) {
             Ok(at_end) => {
                 rebuild_point("chunk");
                 if stop.load(Ordering::Acquire) {
@@ -761,6 +880,7 @@ fn open_state_from_log(
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
         seen_hint: None,
+        caught_up: false,
     };
     let stamp_changed = saved_checkpoint.as_ref().is_some_and(|checkpoint| {
         checkpoint.boot_id != actor.config.boot_id
@@ -805,7 +925,7 @@ fn run_once(
             checkpoint(state)?;
             return Ok(true);
         }
-        let at_end = read_source(state)?;
+        let at_end = read_history(state, stop)?;
         if !at_end {
             match rx.try_recv() {
                 Ok(request) => {
@@ -888,6 +1008,22 @@ fn handle_request(
             if failed { Err(ChatError::Failed) } else { Ok(false) }
         }
     }
+}
+
+/// One chunk from the cursor, under a history permit until the first read that said `at_end`.
+/// A stop while waiting for the permit reads nothing: the caller's loop sees the stop.
+fn read_history(state: &mut ActorState, stop: &AtomicBool) -> Result<bool, ChatError> {
+    let permit = match (&state.config.history, state.caught_up) {
+        (Some(permits), false) => match permits.acquire(stop) {
+            Some(permit) => Some(permit),
+            None => return Ok(false),
+        },
+        _ => None,
+    };
+    let at_end = read_source(state)?;
+    drop(permit);
+    state.caught_up |= at_end;
+    Ok(at_end)
 }
 
 fn read_source(state: &mut ActorState) -> Result<bool, ChatError> {
