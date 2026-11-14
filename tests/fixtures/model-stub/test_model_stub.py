@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.request
 
@@ -208,6 +209,28 @@ class ScriptAndCliTest(unittest.TestCase):
                     model_stub.load_script(f.name)
             finally:
                 os.unlink(f.name)
+
+    def test_load_script_refuses_a_bad_pause(self) -> None:
+        for pause in (-1, 11, "1", True):
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+                json.dump({"version": 1, "steps": [{"text": "a", "pause": pause}]}, f)
+            try:
+                with self.assertRaises(ValueError, msg=pause):
+                    model_stub.load_script(f.name)
+            finally:
+                os.unlink(f.name)
+
+    def test_a_step_with_a_pause_answers_after_it(self) -> None:
+        server, _ = model_stub.serve({"version": 1, "steps": [{"tool": {"name": "Read", "input": {"file_path": "/x"}}, "pause": 0.4}]}, "N")
+        try:
+            body = {"model": "claude-x", "messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Read", "input_schema": {}}]}
+            started = time.monotonic()
+            _, text = post(f"http://127.0.0.1:{server.server_address[1]}/v1/messages", body)
+            self.assertGreaterEqual(time.monotonic() - started, 0.4)
+            self.assertEqual(json.loads(text)["content"][0]["name"], "Read")
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_shipped_scripts_load(self) -> None:
         for name in sorted(os.listdir(HERE)):
