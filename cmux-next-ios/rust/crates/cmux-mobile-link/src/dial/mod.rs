@@ -168,6 +168,11 @@ pub struct DialOptions {
     /// Always sends it on every datagram, about 2-3x the bytes.
     /// `CMUX_WG_ULTRA` still wins over it.
     pub ultra: UltraSetting,
+    /// Settings → Transport → Align Keepalives (phone only, off by default):
+    /// the WireGuard tunnel sends no persistent keepalive, because the link
+    /// dialed with [`crate::LinkConfig::aligned`] pings on every 10 s beat
+    /// instead ([`crate::keepalive`]).
+    pub aligned_keepalives: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -226,6 +231,7 @@ impl Default for DialOptions {
             video_blackout: None,
             stock_ice_waits: false,
             ultra: UltraSetting::Auto,
+            aligned_keepalives: false,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),

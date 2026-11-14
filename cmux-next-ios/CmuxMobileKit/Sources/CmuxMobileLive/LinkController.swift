@@ -32,6 +32,8 @@ public final class LinkController {
     /// The last dial was refused with 401: the next dial mints a fresh token.
     @ObservationIgnored private var refreshTokenNextDial = false
     @ObservationIgnored private let clock: any Clock<Duration>
+    /// Settings → Transport → Align Keepalives: the heartbeat's beats.
+    @ObservationIgnored private let beat: KeepaliveBeat
     /// Every dial, phase, probe, drop and roam, for connectivity telemetry (team: verbose).
     @ObservationIgnored private let events: LinkConnectivityEvents
     @ObservationIgnored private var dialTask: Task<Void, Never>?
@@ -93,11 +95,13 @@ public final class LinkController {
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
         telemetry: ConnectivityTelemetry = .shared,
+        beat: KeepaliveBeat = .live,
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
         machine = LinkMachine(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP)
         self.dialer = dialer
         self.clock = clock
+        self.beat = beat
         self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
     }
@@ -378,12 +382,21 @@ public final class LinkController {
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
         let clock = clock
-        let interval = machine.isBackgrounded ? Self.backgroundHeartbeat : Self.heartbeat
+        let beat = beat
+        // Align Keepalives keeps the 2.5 s foreground beat and moves the
+        // background one to the 10 s keepalive beat (never longer than 15 s).
+        let interval = machine.isBackgrounded
+            ? (beat.isOn ? KeepaliveBeat.period : Self.backgroundHeartbeat)
+            : Self.heartbeat
         heartbeatTask = Task { [weak self] in
-            var wait = interval
+            var wait = beat.delay(toNextBeatOf: interval) ?? interval
             while !Task.isCancelled {
                 do { try await clock.sleep(for: wait) } catch { return }
                 guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
+                if let toBeat = beat.delay(toNextBeatOf: interval) {
+                    wait = self.alignedHeartbeat(generation: generation, interval: interval, toBeat: toBeat)
+                    continue
+                }
                 // A frame from the Mac within the beat proves the link alive as
                 // a pong would: probe only a link quiet for a whole beat, and
                 // look again one beat after its last frame. Silence is then
@@ -398,6 +411,26 @@ public final class LinkController {
                 self.run(.probe(generation: generation))
             }
         }
+    }
+
+    /// How far past a beat a wake still counts as on it (timer lateness).
+    nonisolated static let beatTolerance: Duration = .milliseconds(50)
+
+    /// One heartbeat wake with Align Keepalives on; returns the next wait.
+    /// The rule above still holds (a link quiet for a whole beat is probed,
+    /// so the 5 s bound holds from the last frame, and a link with traffic
+    /// is not probed), and an idle link, whose only frames are keepalives,
+    /// is probed on the beat, with the link ping and the sockets' pings.
+    private func alignedHeartbeat(generation: Int, interval: Duration, toBeat: Duration) -> Duration {
+        let quiet = link?.receivedAgo
+        let onBeat = toBeat >= interval - Self.beatTolerance
+        let idle = link?.trafficAgo.map { $0 >= interval } ?? false
+        if quiet.map({ $0 >= interval }) ?? true || (onBeat && idle) {
+            run(.probe(generation: generation))
+            return toBeat
+        }
+        // The next beat, or one beat after the last frame, whichever is first.
+        return min(toBeat, interval - (quiet ?? .zero))
     }
 
     /// `operation`'s result, or a timeout failure after `timeout`, whichever

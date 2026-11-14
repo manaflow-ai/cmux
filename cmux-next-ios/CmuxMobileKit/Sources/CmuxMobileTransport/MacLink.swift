@@ -95,11 +95,17 @@ public protocol MacLink: AnyObject, Sendable {
     /// proves the link alive as a probe would, so the heartbeat probes only a
     /// link this long quiet.
     var receivedAgo: Duration? { get }
+    /// How long ago the link last received a frame other than a ping or a
+    /// pong; nil when the link cannot say. A link with no traffic for a beat
+    /// is idle: with Align Keepalives on, the heartbeat probes it on the
+    /// keepalive beat (``KeepaliveBeat``).
+    var trafficAgo: Duration? { get }
 }
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
     public var receivedAgo: Duration? { nil }
+    public var trafficAgo: Duration? { nil }
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

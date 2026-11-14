@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -111,8 +112,11 @@ private final class PresenceTestRig {
     var request: (@MainActor () async throws -> URLRequest)?
     var refresh: (@MainActor () async throws -> [LiveAPI.Mac])?
     var configureSocket: (@MainActor (PresenceTestSocket) -> Void)?
+    /// Align Keepalives for this rig (off unless a test sets it before `listener`).
+    var beat: KeepaliveBeat = .off
     lazy var listener = PresenceListener(
         clock: clock,
+        beat: beat,
         signalRequest: { [unowned self] in
             if let request { return try await request() }
             return URLRequest(url: URL(string: "https://presence.invalid/signal")!)
@@ -230,6 +234,36 @@ private func settle(until condition: (() -> Bool)? = nil) async {
         #expect(rig.sockets.count == 1)
         #expect(socket.cancellations == 0)
         #expect(rig.refreshes == 0)
+        await rig.finish()
+    }
+
+    /// Align Keepalives: the next ping waits for the 10 s keepalive beat (the
+    /// link ping's and the signaling ping's), not 15 s after the pong.
+    @Test func alignedPingsWaitForTheKeepaliveBeat() async {
+        let rig = PresenceTestRig()
+        // The grid's last beat was 3 s ago: the next is 7 s away.
+        let origin = rig.clock.now - .seconds(3)
+        let clock = rig.clock
+        rig.beat = KeepaliveBeat { period in
+            let into = (clock.now - origin).components.seconds * 1000
+                + (clock.now - origin).components.attoseconds / 1_000_000_000_000_000
+            let periodMs = period.components.seconds * 1000
+            return .milliseconds(periodMs - into % periodMs)
+        }
+        rig.listener.start()
+        await settle { rig.sockets.first?.pingCount == 1 }
+        guard let socket = rig.sockets.first else { Issue.record("No socket"); return }
+        socket.hello()
+        socket.pong()
+        await settle { rig.clock.pendingDelays == [.seconds(7)] }
+        #expect(rig.clock.pendingDelays == [.seconds(7)], "pending: \(rig.clock.pendingDelays)")
+        for expectedPings in 2...4 {
+            rig.clock.advance(by: rig.clock.pendingDelays.first ?? .zero)
+            await settle { socket.pingCount == expectedPings }
+            socket.pong()
+            await settle { rig.clock.pendingDelays == [KeepaliveBeat.period] }
+        }
+        #expect(rig.sockets.count == 1)
         await rig.finish()
     }
 
