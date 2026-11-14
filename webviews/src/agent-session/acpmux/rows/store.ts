@@ -331,8 +331,9 @@ class SidRows {
       for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1) {
         const entry = this.entries.get(this.ids[at]!)!;
         if (entry.unconfirmed) {
-          const { unconfirmed: _, ...rest } = entry;
-          this.entries.set(entry.id, rest);
+          const confirmed: { -readonly [K in keyof ChatRowEntry]: ChatRowEntry[K] } = { ...entry };
+          delete confirmed.unconfirmed;
+          this.entries.set(entry.id, confirmed);
         }
       }
     }
