@@ -199,6 +199,8 @@ mod terminal_lifecycle;
 #[cfg(unix)]
 mod terminal_talk;
 #[cfg(unix)]
+mod theme_file;
+#[cfg(unix)]
 mod theme_scheme;
 mod topology_help;
 mod wire;

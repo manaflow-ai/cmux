@@ -99,7 +99,14 @@ impl Timing {
         }
     }
 
-    fn frame(&mut self, shown: Option<(u64, u64)>, release_us: u64, encoded_us: u64) {
+    fn frame(
+        &mut self,
+        shown: Option<(u64, u64)>,
+        release_us: u64,
+        encoded_us: u64,
+        encoded_bytes: usize,
+        idr: bool,
+    ) {
         use std::io::Write;
         let line = serde_json::json!({
             "input_us": self.input_us.take(),
@@ -108,6 +115,8 @@ impl Timing {
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
+            "encoded_bytes": encoded_bytes,
+            "idr": idr,
         });
         let _ = writeln!(self.out, "{line}");
     }
@@ -347,7 +356,7 @@ impl MediaSession {
         let t0 = now_ns();
         let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
         if let Some(timing) = self.timing.as_mut() {
-            timing.frame(self.desktop.picked_times(), t_capture_us, now_us());
+            timing.frame(self.desktop.picked_times(), t_capture_us, now_us(), self.au.len(), idr);
         }
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
