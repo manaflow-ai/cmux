@@ -5,7 +5,7 @@
 // the only way that work goes, and Keep. The pill keeps where it stands, like Apply.
 import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
-import type { HeaderWorktree } from "./WorktreePill";
+import type { HeaderWorktree } from "./worktreePillModel";
 
 /// Where Remove stands. `key` is the action's idempotency key, kept for a retry of the same action:
 /// a failed "Remove anyway" retries as "Remove anyway" under its key, so the host replays it. A

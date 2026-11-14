@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 /// Native bindings for rows in an agent chat's header and "..." menu.
 /// Every binding resolves the focused pane at run time, then calls the page or
@@ -14,29 +15,36 @@ enum AgentChatMenuHandlers {
         bindRevealCwd(into: registry, context: context)
     }
 
+    /// The page commands the rows run (cmux-window-rules `chat::agent::tables`), and which a remote chat refuses.
     private static func bindPageCommands(into registry: ActionRegistry, context: AppActionContext) {
-        let commands: [(ActionID, (AgentPaneView) -> Void)] = [
-            ("agentPane.toggleDisplaySettings", { $0.toggleDisplaySettings() }),
-            ("agentPane.replayConversation", { $0.replayConversation() }),
-            ("agentPane.editInstructions", { $0.editProjectInstructions() }),
-            ("agentPane.addProjectFiles", { $0.addProjectFiles() }),
-            ("agentPane.moveToFloatingChat", { $0.moveToFloatingChat() }),
-            ("agentPane.toggleMinimap", { $0.toggleThreadMinimap() }),
-            ("agentPane.continueAfterError", { $0.continueAfterError() }),
-        ]
-        for (id, command) in commands {
-            registry.bind(id, run: { invocation in
+        for row in WindowRules.chatAgentTables?.pageCommands ?? [] {
+            guard let command = pageCommand(row.command) else { continue }
+            registry.bind(ActionID(rawValue: row.action), run: { invocation in
                 // `focuses` descriptors grant view-change permission through the task-local
                 // ActionRunScope for CLI/MCP runs; the raw invocation remains automation-scoped.
                 guard ActionRunScope.viewChangeAllowed() else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
                 guard let view = chatView(context, invocation) else { return }
-                if (id == "agentPane.editInstructions" || id == "agentPane.addProjectFiles"), view.model.remoteChat {
+                if row.refusesRemote, view.model.remoteChat {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
                 command(view)
             })
+        }
+    }
+
+    /// The page's method for a table command.
+    private static func pageCommand(_ command: String) -> ((AgentPaneView) -> Void)? {
+        switch command {
+        case "toggleDisplaySettings": return { $0.toggleDisplaySettings() }
+        case "replayConversation": return { $0.replayConversation() }
+        case "editProjectInstructions": return { $0.editProjectInstructions() }
+        case "addProjectFiles": return { $0.addProjectFiles() }
+        case "moveToFloatingChat": return { $0.moveToFloatingChat() }
+        case "toggleThreadMinimap": return { $0.toggleThreadMinimap() }
+        case "continueAfterError": return { $0.continueAfterError() }
+        default: return nil
         }
     }
 

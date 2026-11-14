@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -74,7 +75,7 @@ public struct TerminalConnectingView: View {
             }
             if showsLabel, let label = state.label {
                 HStack(spacing: 8) {
-                    if state.showsProgress { ProgressView().controlSize(.small) }
+                    if state.showsProgress { CmuxSpinner().controlSize(.small) }
                     Text(verbatim: label)
                     if let retry, !state.isAttached {
                         // Inside the glass pill: a text action after a dot, like the

@@ -22,3 +22,15 @@ export function installGalleryClock(start = GALLERY_NOW): void {
   }
   globalThis.Date = GalleryDate as DateConstructor;
 }
+
+/// How long ago a scene's finished work ended, at most, in minutes: a finished line stays in the
+/// composer hat only for its grace (subagents/trayLinger.ts TRAY_LINGER_MS, 2 min), so a scene that
+/// shows one ends it well inside that, with room for a slow capture.
+export const RECENT_END_MINUTES = 0.5;
+
+/// A finished run's start and end: it ran `ran` minutes and ended at most RECENT_END_MINUTES ago, or
+/// at `minutes - ran` when that is sooner. Its duration on the line stays `ran`.
+export function recentRun(minutes: number, ran: number): { startedAt: number; endedAt: number } {
+  const endedAgo = Math.max(0, Math.min(minutes - ran, RECENT_END_MINUTES));
+  return { startedAt: minutesAgo(endedAgo + ran), endedAt: minutesAgo(endedAgo) };
+}

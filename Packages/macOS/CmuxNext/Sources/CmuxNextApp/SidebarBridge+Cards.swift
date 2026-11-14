@@ -140,32 +140,27 @@ enum SidebarCardFeed {
     /// A notice button: the update status's actions (Release Notes is a link `open` shows like a popover
     /// link), the update cards' x menu, Use Real Feed, an announcement's Try It, a tip's Try It and x menu.
     static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
-        if card == updateCardID || card == SidebarUpdateCard.cardID, let option = UpdateCardCloseOption(rawValue: action) {
-            updater.closeUpdateCard(option)
-        } else if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
-            if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
-                open(url)
-            } else {
-                updater.performCardAction(action)
-            }
-        } else if card == testFeedCardID, action == useRealFeedActionID {
-            try? updater.useTestFeed(nil, pinned: false)
-        } else if card.hasPrefix(announcementPrefix), PageDescriptor.changelogTryItActions.contains(action) {
-            updater.runAllowListedAction?(action)
-        } else if card.hasPrefix(tipPrefix) {
-            updater.tipCardAction(String(card.dropFirst(tipPrefix.count)), action)
+        let option = UpdateCardCloseOption(rawValue: action), cardAction = UpdateCardAction(rawValue: action) // routed by `SidebarBridgeRules.noticeAction`
+        switch SidebarBridgeRules().noticeAction(card: card, action: action, closeOption: option != nil, cardAction: cardAction != nil,
+                                                 tryIt: PageDescriptor.changelogTryItActions.contains(action)) {
+        case .closeUpdate: if let option { updater.closeUpdateCard(option) }
+        case .updateAction:
+            if cardAction == .releaseNotes, let url = updater.cardReleaseNotesURL { open(url) } else if let cardAction { updater.performCardAction(cardAction) }
+        case .useRealFeed: try? updater.useTestFeed(nil, pinned: false)
+        case .announcementTry: updater.runAllowListedAction?(action)
+        case .tip(let tip): updater.tipCardAction(tip, action)
+        case .none: break
         }
     }
 
     /// A notice's x: the update status hides; an announcement or a tip never
     /// shows again. The test-feed notice has no x.
     static func dismissNotice(_ card: String, updater: UpdaterService) {
-        if card == updateCardID {
-            updater.dismissCard()
-        } else if card.hasPrefix(announcementPrefix) {
-            updater.dismissAnnouncement(String(card.dropFirst(announcementPrefix.count)))
-        } else if card.hasPrefix(tipPrefix) {
-            updater.dismissTip(String(card.dropFirst(tipPrefix.count)))
+        switch SidebarBridgeRules().dismissNotice(card) { // `SidebarBridgeRules.dismissNotice`
+        case .update: updater.dismissCard()
+        case .announcement(let id): updater.dismissAnnouncement(id)
+        case .tip(let id): updater.dismissTip(id)
+        case .none: break
         }
     }
 

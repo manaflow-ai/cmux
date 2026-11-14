@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -129,13 +130,49 @@ struct SubagentTabTitleTests {
 
     @Test func thePageReportsWhatThePaneShows() {
         let shown = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": "a2", "title": "Auditor", "tone": 2]])
-        guard case .subagentShown(let agent, let title, let tone) = shown else { Issue.record("not decoded: \(shown)"); return }
+        guard case .subagentShown(let agent, let title, let tone, _) = shown else { Issue.record("not decoded: \(shown)"); return }
         #expect(agent == "a2" && title == "Auditor" && tone == 2)
         let chat = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": [String: Any]()])
-        guard case .subagentShown(let none, let noTitle, let noTone) = chat else { Issue.record("not decoded: \(chat)"); return }
+        guard case .subagentShown(let none, let noTitle, let noTone, _) = chat else { Issue.record("not decoded: \(chat)"); return }
         #expect(none == nil && noTitle == nil && noTone == nil, "back on the chat: no subagent, no name")
         let bad = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": ""]])
         if case .subagentShown = bad { Issue.record("an empty subagent id was taken") }
+    }
+
+    /// Leo, 2026-11-07: a finished subagent's tab read "Working · 4m" and its chat's model, like
+    /// its chat ("is this your sub-agent, or is this literally just a duplicate of you?"). The page
+    /// sends the subagent's own state; the tab's hover card and spinner say it.
+    @Test func aSubagentTabSaysItsSubagentsOwnState() async {
+        let titles = SubagentTabTitles()
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagentFacts: { facts in
+            titles.showFacts(facts, inTab: "tab")
+        })
+        @MainActor func shown(_ params: [String: Any]) async {
+            let reply = await model.respondToHeader(AgentPaneRequest(body: ["method": "chat.subagentShown", "params": params]))
+            #expect(reply["ok"] as? Bool == true)
+        }
+        await shown(["subagent": "s/t1", "title": "Diagnose nightly lag", "state": "completed", "sinceMs": 1_794_000_000_000.0, "model": "claude-haiku-5-5"])
+        let facts = titles.facts(ofTab: "tab")
+        #expect(facts?.state == .completed)
+        #expect(facts?.since == Date(timeIntervalSince1970: 1_794_000_000))
+        #expect(facts?.model == "claude-haiku-5-5")
+
+        var item = StripTabItem(id: "tab", title: "Diagnose nightly lag")
+        item.indicator = .working(progress: nil)
+        item.hover = TabHoverFacts(kind: .agentChat, activity: .working, model: "claude-opus-5-5")
+        if let facts { item.showSubagent(state: facts.state.rawValue, since: facts.since, model: facts.model, spins: true) }
+        #expect(item.hover.activity == .done, "a finished subagent's tab read its chat's Working")
+        #expect(item.hover.model == "claude-haiku-5-5")
+        #expect(item.indicator == .idle, "a finished subagent's tab spun with its chat")
+
+        await shown(["subagent": "s/t1", "state": "disconnected"])
+        #expect(titles.facts(ofTab: "tab")?.state == .cancelled)
+        await shown(["subagent": "s/t1"])
+        #expect(titles.facts(ofTab: "tab") == nil, "no state sent: the tab keeps no guess")
+        await shown(["subagent": "s/t1", "state": "running"])
+        await shown([:])
+        #expect(titles.facts(ofTab: "tab") == nil, "back on the chat: the chat's own state again")
     }
 
     @Test func thePagesRequestCarriesTheName() throws {

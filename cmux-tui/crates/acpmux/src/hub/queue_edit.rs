@@ -370,7 +370,7 @@ impl Hub {
                 message_id: None,
                 message_sender: None,
             });
-            q.preview = short_text(&text, 200);
+            q.preview = short_text(super::inbox::relay_body(&text), 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {

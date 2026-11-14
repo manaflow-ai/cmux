@@ -155,6 +155,10 @@ void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
 }
 
+void cmux_shim_set_audio_muted(int browser_id, int muted) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetAudioMuted(muted != 0);
+}
+
 void cmux_shim_set_accessibility(int browser_id, int enabled) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);

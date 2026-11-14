@@ -36,7 +36,4 @@ nonisolated enum AgentPaneEditedFilesSettingsSchema {
             ),
         ]
     }
-
-    /// Looks only: agents may change all three.
-    static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
 }

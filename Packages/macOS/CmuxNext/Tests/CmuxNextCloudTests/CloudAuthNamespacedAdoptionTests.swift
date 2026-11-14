@@ -12,7 +12,7 @@ import Testing
             selection.authNamespace = "origin-0"
             selection.legacyStorage = legacy
             selection.authStorageNamespace = storageNamespace
-            configuration.runtimeSelection = selection
+            configuration = configuration.selecting(selection)
         }
         return configuration
     }

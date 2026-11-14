@@ -68,6 +68,27 @@ input {
   outline: none;
 }
 
+/* Native popup anchors carry the pointer's page coordinates without adding a box to the page. */
+.page-menu-native-anchor {
+  position: fixed;
+  z-index: var(--layer-backdrop);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.page-menu-native-anchor > .ui-button {
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
+}
+
 .page-menu-item {
   display: flex;
   align-items: center;

@@ -32,9 +32,8 @@ export const FOLLOW_GLIDE_OFF = '[data-follow-glide="off"]';
 
 /// The room under the last row a rise may land new text in: the running turn's live line as its last
 /// row (`below`, conversation/turns.ts codexLiveTurn), which keeps the footer's line and turn gap and
-/// reads "Writing" while the reply streams over it (`quietKey`, Thinking.tsx). 0 without one (Debug
-/// `liveLineBelow` or `codexToolRuns` off, a line that names a call, a queue's cards last): there the
-/// view steps as before. O(1): the last row only.
+/// reads "Writing" while the reply streams over it (`quietKey`, Thinking.tsx). 0 without one (a line
+/// that names a call, a queue's cards last): there the view steps as before. O(1): the last row only.
 export function followRoom(rows: readonly AcpmuxRow[], layout: GeometrySource): number {
   const last = rows.length - 1;
   const row = rows[last];

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextWindowRules
 
 /// Terminal actions: clipboard, selection, find, clear and reset, font size
 /// and scrolling (Ghostty binding actions on the live surface), and input
@@ -51,19 +52,9 @@ enum TerminalHandlers {
     }
 
     private static func bindSurfaceBindings(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let bindings: [(ActionID, String)] = [
-            ("resetTerminal", "reset"),
-            ("terminal.increaseFontSize", "increase_font_size:1"),
-            ("terminal.decreaseFontSize", "decrease_font_size:1"),
-            ("terminal.resetFontSize", "reset_font_size"),
-            ("terminal.scrollPageUp", "scroll_page_up"),
-            ("terminal.scrollPageDown", "scroll_page_down"),
-            ("terminal.scrollToTop", "scroll_to_top"),
-            ("terminal.scrollToBottom", "scroll_to_bottom"),
-            ("terminal.scrollToSelection", "scroll_to_selection"),
-        ]
-        for (id, binding) in bindings {
-            registry.bind(id, invoke: { perform(binding, $0, ctx) })
+        // The actions that run one Ghostty binding action: Rust's table (`tabs::panes::TERMINAL_BINDINGS`).
+        for (id, binding) in WindowRules().terminalBindings() {
+            registry.bind(ActionID(rawValue: id), invoke: { perform(binding, $0, ctx) })
         }
         // Cmd-K (decision K1): the daemon owns the terminal state, so the clear happens there and
         // reaches every view; Ghostty's clear_screen on the app's mirror alone is undone by the
@@ -116,12 +107,9 @@ enum TerminalHandlers {
         }, body)
     }
 
-    /// The daemon's refusal reason without user content (no paths or screen text).
+    /// The daemon's refusal reason without user content (no paths or screen text): Rust's `tabs::panes::clear_failure_kind`.
     static func failureKind(_ message: String) -> String {
-        let known = ["active terminal input extends into retained history", "safe clear-history boundary",
-                     "does not support clear-history", "terminal host has exited", "terminal process has exited",
-                     "did not acknowledge ClearHistory", "not connected", "timed out"]
-        return known.first { message.contains($0) } ?? "other"
+        WindowRules().clearFailureKind(message)
     }
 
     /// `terminal keep [--on false]`: the tab's terminal outlives its last

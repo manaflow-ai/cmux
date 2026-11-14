@@ -50,7 +50,6 @@ nonisolated extension ContextMenuCatalog {
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
         ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
         ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
-        ["name": "taskAssignee", "source": "CmuxNextTasks/Views/AssigneeMenu.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.

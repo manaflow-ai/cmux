@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSettings
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -148,7 +149,7 @@ struct TeamSidebar: View {
             HStack(spacing: SidebarTeamRow.avatarGap) {
                 ZStack {
                     if shell.isFetchingInvite {
-                        ProgressView()
+                        CmuxSpinner()
                     } else {
                         Image(systemName: "person.badge.plus").font(.system(size: 17))
                     }

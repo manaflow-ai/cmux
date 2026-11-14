@@ -96,6 +96,10 @@ cmux agent inbox
 ```
 
 The agent-room path stores, delivers, and records delivery state for provider-neutral messages.
+Its messages are text only. To hand another session an image, attach the file with
+`acpmux send <target> --no-wait "..." --attach /abs/shot.png` (or `attach` in the acpmux MCP `send`
+tool) so it shows as a preview. Never pass a provider's own file id (ChatGPT's `libfile_...`, an
+upload id): nobody here can open one.
 Do not emulate it with raw `session/prompt` or `_acpmux/mail/*` calls. Use the low-level
 daemon-local mailbox only for a caller that has a local daemon connection and a clear need for its
 internal inter-session primitives. It is not a second user-facing message store.

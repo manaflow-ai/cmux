@@ -87,6 +87,8 @@ async fn run(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
+    // As `agent.rs` spawns: never the daemon's OOM protection (`oom_rank.rs`).
+    crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child =
         cmd.spawn().map_err(|e| RpcError::internal(format!("cannot start {harness}: {e}")))?;
     let mut stdin =

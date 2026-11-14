@@ -21,6 +21,10 @@ pub(crate) enum StartGrant {
     Preset,
     /// The caller session's own mode.
     Inherit,
+    /// The full-access mode a start that names no mode gets here anyway: the
+    /// person's start level (`agents.defaultPermissionMode`) is full access
+    /// (`Hub::names_start_level`, cmux#37392).
+    StartLevel,
 }
 
 impl Hub {

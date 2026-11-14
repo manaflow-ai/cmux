@@ -25,10 +25,18 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
+    /// The room, in points, the Updated card's open hover preview needs above its slot's bottom
+    /// (the card and the preview's rows); 0 while the preview is closed.
+    var overlayHeight: CGFloat { get }
+    /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
+    /// page no pointer moves while another of the app's windows, a Chromium page's, has the key.
+    func setPointerInside(_ inside: Bool)
 }
 
 extension SidebarSurfaceIsland {
     public var contentWidth: CGFloat { 0 }
+    public var overlayHeight: CGFloat { 0 }
+    public func setPointerInside(_ inside: Bool) {}
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).

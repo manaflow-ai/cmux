@@ -88,7 +88,8 @@ pub(super) fn plain_tool_ask(request: &Value) -> bool {
 
 fn not_interactive(request: &Value) -> bool {
     let tool = &request["toolCall"];
-    request.get("interactive").and_then(Value::as_bool) != Some(true)
+    !super::permissions::external::is_external(request)
+        && request.get("interactive").and_then(Value::as_bool) != Some(true)
         && request.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/claude/interactive").and_then(Value::as_bool) != Some(true)

@@ -6,7 +6,6 @@
 /// so a change applies at once.
 nonisolated enum ChiefRoutingSettingsSchema {
     static let autoRoutePath = ["chief", "autoRouteSubagents"]
-    static let keys: Set<String> = [autoRoutePath.joined(separator: ".")]
 
     static var descriptors: [SettingDescriptor] {
         [

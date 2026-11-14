@@ -162,10 +162,10 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     default: true,
   },
   {
-    key: "debugSettings.surface",
+    key: "coderouter.surface",
     section: "pages",
-    label: "Debug Settings page",
-    help: "Shows Debug Settings as the React page. Reopen Debug Settings to apply.",
+    label: "CodeRouter page",
+    help: "Opens the CodeRouter app as the React page. New tabs use it.",
     control: {
       type: "choice",
       options: [
@@ -173,7 +173,7 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
         { value: "web", title: "Web (React page)" },
       ],
     },
-    default: "web",
+    default: "native",
   },
 ];
 

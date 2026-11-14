@@ -126,8 +126,8 @@ test("the Updated card says what it updated to, What's new in this build and has
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The title's version is the copy button (CopyVersion), then the card's own two.
-  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
+  // The title's version is the copy button (CopyVersion), What's New on the title line, the x.
+  expect(buttons).toEqual(["Nightly", "What's New ↗", "Close"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they

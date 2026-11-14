@@ -69,7 +69,7 @@ struct KeyboardResizeContentHoldTests {
     }
 
     /// The app's pane content with a terminal in each pane (cmux-ad m18: in every frame each terminal's surface has its
-    /// pane's size and its text is re-wrapped at that size; the PTY gets the view's grid coalesced, about 25 ms, ending at
+    /// pane's size and its text is re-wrapped at that size; the PTY gets the view's grid coalesced, one per refresh, ending at
     /// the landing's grid): in every frame of the spring each terminal host (the container) takes its pane's content area,
     /// and its surface takes the size the host shows it at. No grid goes in the key's turn (m6 sent the final grid there,
     /// one per press: m18 replaces it), and the last grid each PTY gets is the grid its view rests at. FRAME OWNER S3 held

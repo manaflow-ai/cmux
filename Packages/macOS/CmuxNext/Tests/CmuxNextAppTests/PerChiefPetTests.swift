@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextFloating
-@testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import Foundation

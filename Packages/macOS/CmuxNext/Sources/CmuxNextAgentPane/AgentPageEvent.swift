@@ -88,6 +88,20 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
     }
 
+    /// A newly listening port on the Cloud machine running this chat.
+    public static func cloudPreviewPort(port: Int, process: String?, machineID: String? = nil,
+                                        state: String = "up", known: Bool = false) -> AgentPageEvent {
+        var value: [String: Any] = ["port": port]
+        if let process, !process.isEmpty { value["process"] = process }
+        if let machineID, !machineID.isEmpty { value["machineID"] = machineID }
+        value["state"] = state
+        value["known"] = known
+        return AgentPageEvent(kind: "cloudPreviewPort", value: JSONValue(foundation: value) ?? .null)
+    }
+
+    /// The old host's script for a ``cloudPreviewPort(port:process:machineID:state:known:)`` event.
+    var cloudPreviewPortScript: String { "window.cmuxAcpmuxCloudPreviewPort?.(\(value.compactText));" }
+
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
 }

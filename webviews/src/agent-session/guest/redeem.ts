@@ -114,9 +114,16 @@ export const joinedAs = (shareId: string, storage: Storage, invite = false) => {
 /** The name this tab joined the share with. */
 export const joinedName = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "name")) ?? undefined;
 
-/** The role this tab's invitee joined with, when the room named one (on an invite page, an invite's only). */
-export const joinedRole = (shareId: string, storage: Storage, invite = false) =>
-  invite && joinedVia(shareId, storage) !== "invite" ? undefined : role(storage.getItem(key(shareId, "role")));
+/**
+ * The role this tab joined with (on an invite page, an invite's only). A tab that joined by the
+ * link alone watches only: sending takes an invited, signed-in account.
+ */
+export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
+  const via = joinedVia(shareId, storage);
+  if (invite && via !== "invite") return undefined;
+  if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return "view";
+  return role(storage.getItem(key(shareId, "role")));
+};
 
 export function rememberJoined(
   shareId: string,

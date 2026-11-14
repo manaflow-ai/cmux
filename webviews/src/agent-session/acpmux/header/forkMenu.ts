@@ -1,4 +1,4 @@
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import type { Translate } from "../i18n";
 import { openForkMenu } from "../conversation/messageMenu";
 

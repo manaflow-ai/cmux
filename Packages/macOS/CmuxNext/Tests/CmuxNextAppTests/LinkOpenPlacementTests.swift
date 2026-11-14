@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 import CmuxNextSettings
 import CoreGraphics
 import Testing
@@ -15,6 +16,39 @@ struct LinkOpenPlacementTests {
     @Test func withNoPaneOnTheRightALinkOpensInANewSplitThere() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "terminal", takesTabs: true, right: nil) == .splitRight(of: "terminal"))
+    }
+
+    /// Leo 2026-11-07: "if you click open on GitHub, it's already in the second pane, and it
+    /// therefore doesn't need to open the right split. It can just open the tab in its existing
+    /// pane." A page that already sits beside another pane (`left`) and has nothing on its own right
+    /// opens a tab in its own pane; it split again, so the screen gained a third column.
+    @Test func aPageAlreadyBesideAnotherPaneOpensATabInItsOwnPane() {
+        let rule = Rule(setting: .splitRight)
+        #expect(rule.target(source: "github", takesTabs: true, right: nil, left: "chat") == .pane("github"))
+        // A pane already on its right still gets the open, as before.
+        #expect(rule.target(source: "github", takesTabs: true, right: "browser", left: "chat") == .pane("browser"))
+        // Nothing on its left: the first open beside it still splits right.
+        #expect(rule.target(source: "github", takesTabs: true, right: nil, left: nil) == .splitRight(of: "github"))
+        // A pane that takes no tabs still opens beside itself, and a chosen new column stays a column.
+        #expect(rule.target(source: "dock", takesTabs: false, right: nil, left: "chat") == .besideDock("dock"))
+        #expect(Rule(setting: .newColumn).target(source: "github", takesTabs: true, right: nil, left: "chat")
+                == .newColumn(rightOf: "github"))
+    }
+
+    /// Review of #37573 at bf2ce583: the GitHub page, a file, a diff and What's New are conversation
+    /// tabs with a page source, so they count as pages; an agent chat and a terminal do not.
+    @Test func internalPagesAndBrowserTabsArePagesButChatsAndTerminalsAreNot() {
+        func tab(_ kind: TabKind, _ conversation: ConversationTabRef? = nil) -> TabModel {
+            var snapshot = TabSnapshot(surface: 1, kind: kind, cwd: nil)
+            snapshot.conversation = conversation
+            return TabModel(snapshot)
+        }
+        #expect(tab(.conversation, ConversationTabRef(page: "github", route: "https://github.com/o/r/pull/1")).showsPage)
+        #expect(tab(.conversation, ConversationTabRef(page: "files", route: "/tmp/a.swift")).showsPage)
+        #expect(tab(.browser).showsPage)
+        #expect(!tab(.conversation, ConversationTabRef(agentSession: AgentSessionRef(host: "h", session: "s", harness: "claude"))).showsPage)
+        #expect(!tab(.pty).showsPage)
+        #expect(!tab(.remoteTerminal).showsPage)
     }
 
     /// With the right column not measured, the pane on the right gets the tab.

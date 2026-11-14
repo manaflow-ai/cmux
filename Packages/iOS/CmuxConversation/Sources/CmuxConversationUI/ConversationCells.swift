@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 import UIKit
 
 /// One message: optional sender name, reply quote, images, text bubble or
@@ -851,7 +852,7 @@ final class LoadingCell: UICollectionViewCell {
     static let reuseID = "loading"
     /// ChatKit's load-more row (CKTranscriptHeaderCell.defaultCellHeight).
     static let height: CGFloat = 20
-    let spinner = UIActivityIndicatorView(style: .medium)
+    let spinner = CmuxSpinnerView(side: 20)
 
     override init(frame: CGRect) {
         super.init(frame: frame)

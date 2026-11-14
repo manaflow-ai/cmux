@@ -143,7 +143,9 @@ public struct WindowTitlebar {
     ///   sidebar under the lights): the card starts `gutter` below their row
     ///   (the lights and the toolbar band's buttons on their line).
     public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
-        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        guard minimal, let window = root.window else { return gutter }
+        // Under a minimal titlebar the card meets the window's top edge: it stays under the window's lit rim.
+        guard let lights = trafficLightsFrame(in: window) else { return Metrics.windowEdgeInset(gutter, in: window) }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {
             let row = max(local.height, TitlebarBandButton.side)
@@ -152,7 +154,7 @@ public struct WindowTitlebar {
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
         let centerFromTop = root.bounds.maxY - local.midY
-        return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
+        return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor)), in: window)
     }
 
     /// Whether `view` sits in the window's titlebar band (a full-size

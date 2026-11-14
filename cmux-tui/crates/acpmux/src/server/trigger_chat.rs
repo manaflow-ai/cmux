@@ -314,6 +314,12 @@ async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError>
                 cwd: Some(PathBuf::from(&scope.cwd)),
                 workspace_id: Some(scope.workspace.clone()),
                 remote: true,
+                // A Cloud trigger is a script, run from its workspace (`hub/created_by.rs`).
+                created_by: Some(crate::store::CreatedBy {
+                    kind: crate::store::CreatorKind::Script,
+                    workspace: Some(scope.workspace.clone()),
+                    session: None,
+                }),
                 ..Default::default()
             },
             Some(scope.session.clone()),

@@ -19,7 +19,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
                             CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
-                            CatalogArgument.repoString],
+                            CatalogArgument.repoString, CatalogArgument.environmentString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(

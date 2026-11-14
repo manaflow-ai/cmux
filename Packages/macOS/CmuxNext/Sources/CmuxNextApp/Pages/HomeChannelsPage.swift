@@ -22,7 +22,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -39,7 +39,7 @@ extension PageFactory {
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
-        guard let page = homeWebPage(.homeChannels, dock: dock) else { return nil }
+        guard let page = homeWebPage(.homeChannels, dock: dock, extra: [PageRoute(prefix: PageNativeOp.actionRun, provider: PageGestureActionProvider(page: .homeChannels, wrapping: AppPageNativeProvider(services: services, page: .homeChannels)))]) else { return nil }
         services.home.homeDidOpen(asked: true)
         return page
     }

@@ -33,3 +33,9 @@ export const hoverCardGlass: SeeThroughOptions = {
   owner: "hover-card",
   keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(".acpmux-dock"),
 };
+
+/** A menu or popover on the App's glass (ui/glass/hostGlass.ts): like a hover card it is portaled out
+ * of the shell, covers the stage's blocks, and keeps its underlay over the composer. */
+export const hostGlassCover: SeeThroughOptions = {
+  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(".acpmux-dock"),
+};

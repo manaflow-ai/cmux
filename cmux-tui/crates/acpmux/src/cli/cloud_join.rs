@@ -90,6 +90,30 @@ pub(crate) enum CloneCheck {
     AlreadyCloned,
 }
 
+/// The non-secret part of a joined machine identity. The bearer credential is
+/// intentionally absent so callers cannot accidentally serialize it.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct MachineIdentity {
+    pub machine_id: String,
+    pub team_id: String,
+    pub name: String,
+    pub hub_origin: String,
+    pub revoked: bool,
+}
+
+impl MachineIdentity {
+    /// Copy only the non-secret fields used by local capability reporting.
+    pub(crate) fn from_record(record: &MachineCredential) -> Self {
+        Self {
+            machine_id: record.machine_id.clone(),
+            team_id: record.team_id.clone(),
+            name: record.name.clone(),
+            hub_origin: record.hub_origin.clone(),
+            revoked: record.revoked,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Consent {
     pub screen: ConsentState,
@@ -323,6 +347,12 @@ fn record_user_id(token: &str, user_id: Option<String>) -> Result<()> {
         save(&record)?;
     }
     Ok(())
+}
+
+/// This box's joined identity. A record copied here from the box that joined it names that other
+/// box, so it is not this one's: the same check [`machine_credential`] makes.
+pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
+    Ok(machine_credential()?.as_ref().map(MachineIdentity::from_record))
 }
 
 /// A stored hub origin, checked as `host join` checks it.
@@ -637,7 +667,7 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
-    use super::{origin, parse_token_text};
+    use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
 
     #[test]
     fn join_token_is_shell_safe_after_shared_line_reader() {
@@ -862,6 +892,28 @@ mod tests {
         for bad in ["", "cmm_secret", "a\nb"] {
             assert_eq!(super::safe_id(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn identity_projection_drops_the_bearer_credential() {
+        let record = MachineCredential {
+            credential: "do-not-leak-secret-value".into(),
+            machine_id: "machine-1".into(),
+            team_id: "team-1".into(),
+            name: "cloud-machine".into(),
+            hub_origin: "https://cmux.example".into(),
+            last_heartbeat: None,
+            revoked: false,
+            wg_public_key: "public-key".into(),
+            credential_generation: 1,
+            user_id: None,
+            host_fingerprint: None,
+            cloned: false,
+        };
+        let identity = MachineIdentity::from_record(&record);
+        let serialized = serde_json::to_string(&identity).unwrap();
+        assert!(!serialized.contains(&record.credential));
+        assert!(serialized.contains("machine-1"));
     }
 
     #[test]

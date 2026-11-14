@@ -82,14 +82,13 @@ import Testing
         try Self.expectThemedCardSurface(card, "notice")
     }
 
-    /// Leo 2026-11-02, on the Updated card as a gray card over his themed sidebar: "why is the
-    /// update thing unthemed". The Updated card's veil is the theme's glass tint (the purple
-    /// theme's background) at the card veil's opacity, not the neutral gray.
-    @Test func theUpdatedCardTakesTheThemesTint() throws {
+    /// Leo 2026-11-07, on the Updated card beside the composer: "the border styles, the glass
+    /// intensity is different". The Updated card's glass is the composer's material, which its page
+    /// paints from the theme (webviews `ui/glass/composerMaterial.css`; updated-card-theme.test.ts
+    /// checks it mixes from the theme's surface): the host lays no sidebar-card veil under it.
+    @Test func theUpdatedCardDrawsNoSidebarCardVeilUnderItsPage() {
         let host = SidebarUpdatedCardHost(frame: NSRect(x: 0, y: 0, width: 216, height: 80))
-        #expect(host.surface.takesThemeTint, "the Updated card draws the neutral gray veil")
-        host.surface.frame = host.bounds
-        try Self.expectThemedCardSurface(host.surface, "Updated")
+        #expect(!host.subviews.contains { $0 is CardSurfaceView })
     }
 
     /// Leo 2026-11-03, on the Downloading Update card: "will this be themeed properly?". The

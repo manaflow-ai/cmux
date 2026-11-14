@@ -6,7 +6,8 @@ name: cmux-next iPhone INTERNAL builder trigger
 # no extra credential is needed. Rules: scripts/ci/ios_internal_builder.py plan
 # (iOS change since the last upload, or any change after 12 hours; skip a head
 # already uploaded, building or failed; skip a head whose shared iOS packages
-# drift from upstream, which the archive refuses; back off 30 min doubling to
+# drift from upstream, which the archive refuses, and fail this run red so
+# the drift is seen; back off 30 min doubling to
 # 6 h while builds keep failing). The schedule is the periodic fallback
 # and runs only once this file is on the default branch.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.

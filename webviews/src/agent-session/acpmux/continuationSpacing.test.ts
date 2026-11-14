@@ -255,13 +255,17 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line plus the 8px grid gap under its rule (Lucas, 2026-11-06).
-    expect(layout.heights[0]).toBe(30);
+    // The 22px activity line, 4 to its rule, then 12 to the next row, with no stack gap after it
+    // (Lucas, 2026-11-07).
+    expect(layout.heights[0]).toBe(38);
+    expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
-    expect(layout.gaps?.[replyIndex]).toBe(TRANSCRIPT_RUN_GAP);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(30);
+    // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
+    const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
+    expect(layout.gaps?.[replyIndex]).toBe(replyGap);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(38);
     const placed = placeRows(layout, () => 22);
-    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(TRANSCRIPT_RUN_GAP);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
   }
   const prompt = row("prompt", "user", { text: "Go" });
   expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);

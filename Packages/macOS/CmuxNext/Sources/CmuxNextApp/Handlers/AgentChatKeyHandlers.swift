@@ -1,14 +1,16 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextChiefPetWiring
 import WebKit
 
-/// Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app (cx-ncc.72):
+/// Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app (cx-ncc.72), and Show in Mini:
 /// the focused agent chat's page copies its latest answer's last code block, or archives the chat
 /// the way its menu's Archive does.
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentChatCopyHandlers.bind(into: registry, context: context)
+        context.services.chiefPetMini.bind(into: registry) { chatView(context, $0, refusal: nil)?.model }
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
             let registry = context.registry
@@ -43,10 +45,10 @@ enum AgentChatKeyHandlers {
             }
     }
 
-    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String) -> AgentPaneView? {
+    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String?) -> AgentPaneView? {
         guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
               let view = context.services.agentTabs.existingView(key) else {
-            context.refuse(refusal)
+            if let refusal { context.refuse(refusal) }
             return nil
         }
         return view

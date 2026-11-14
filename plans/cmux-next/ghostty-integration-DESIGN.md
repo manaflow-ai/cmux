@@ -182,8 +182,9 @@ redrew only after the animation and the daemon echo.
   frame. A key resize whose host follows its pane is the exception (cmux-ad m14, m18; switch on or off): its
   surface takes the pane's size in every frame, so the preview stays on and each frame draws the grid that size
   fits, with the cursor row in view (no low-prompt bottom hold). Its grid goes to the PTY through
-  `TerminalGridReportCoalescer` (Ghostty.app's 25 ms rule: the first change opens a window, the newest goes when it
-  ends, the landing flushes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
+  `TerminalGridReportCoalescer` (the first change opens a window, the newest goes at the next display refresh, the
+  landing flushes; RESIZE P0 6: Chromium's begin-frame rule, not Ghostty.app's 25 ms `min_ms`, which is only the
+  backstop when no refresh comes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
   that carries its bounds lands late (`TerminalFramePresenter.Stats.lateLandings`); nothing keeps an old size.
 - Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
   lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the

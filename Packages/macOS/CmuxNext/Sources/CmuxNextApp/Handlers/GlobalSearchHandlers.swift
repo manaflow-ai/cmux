@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
 import CmuxNextPalette
+import CmuxNextWindowRules
 
 /// Search All Windows (⌥⌘F): opens a palette page that searches as you type
 /// across every tab on every machine, in all windows and in workspaces no
@@ -82,7 +83,7 @@ enum GlobalSearchHandlers {
     }
 
     private static func agentSession(of tab: TabModel) -> AgentTranscriptText.Session? {
-        guard let status = tab.agent, let harness = TerminalChatRoute.harness(of: status.agent),
+        guard let status = tab.agent, let harness = WindowRules().agentHarness(status.agent),
               let sessionID = status.harnessSessionID else { return nil }
         return AgentTranscriptText.Session(harness: harness, sessionID: sessionID, cwd: tab.cwd)
     }

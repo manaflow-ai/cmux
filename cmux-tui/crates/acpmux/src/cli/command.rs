@@ -104,7 +104,7 @@ pub enum Command {
     Ensure {
         name: String,
         /// HARNESS[/MODEL]: a family or profile, optionally with a model (`claude/opus`, `opencode/zai/glm-5.1`).
-        #[arg(long, short)]
+        #[arg(long, short, visible_alias = "harness")]
         model: Option<String>,
         /// A preset from `acpmux preset`: harness plus model, effort, policy, env.
         #[arg(long, short)]
@@ -139,7 +139,7 @@ pub enum Command {
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
         /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
-        #[arg(long = "model", short = 'm', required = true)]
+        #[arg(long = "model", short = 'm', visible_alias = "harness", required = true)]
         harnesses: Vec<String>,
         /// The prompt.
         prompt: Vec<String>,
@@ -276,6 +276,8 @@ pub enum Command {
         class: Option<String>,
         #[command(flatten)]
         inbox: SendThread,
+        #[command(flatten)]
+        relay: SendRelay,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -318,7 +320,7 @@ pub enum Command {
     /// the flags are defaults for each new session the editor creates.
     Stdio {
         /// HARNESS[/MODEL] for new sessions (`claude`, `codex/gpt-5.5`).
-        #[arg(long, short)]
+        #[arg(long, short, visible_alias = "harness")]
         model: Option<String>,
         /// A preset from `acpmux preset`.
         #[arg(long, short)]
@@ -687,7 +689,7 @@ pub struct DispatchArgs {
     #[arg(long)]
     pub stop_condition: Option<String>,
     /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     #[arg(long)]
     pub preset: Option<String>,
@@ -1137,6 +1139,23 @@ pub struct SendThread {
     /// named (default: your messages about the PR its first line names, else all yours).
     #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
     pub thread: Option<String>,
+}
+
+/// `acpmux send --relay NAME --relayed-from MACHINE[/SESSION]`: a relay's word on where the
+/// message it carries came from (`_meta.acpmux.fromRelay`, `prompt_provenance::FROM_RELAY`). The
+/// daemon takes it only from a send run outside any acpmux session on its own machine (the
+/// lane-gh broker's); an agent's send drops it, and its sender reads as self-declared.
+#[derive(Args, Default)]
+pub struct SendRelay {
+    /// The relay carrying the message, as it names itself (`lane-gh`).
+    #[arg(long, value_name = "NAME", requires = "relayed_from")]
+    pub relay: Option<String>,
+    /// The machine the relay took the message from, and its session there.
+    #[arg(long, value_name = "MACHINE[/SESSION]", requires = "relay")]
+    pub relayed_from: Option<String>,
+    /// That session's harness family (`claude`, `codex`, `gemini`, ...), in the machine's word.
+    #[arg(long, value_name = "FAMILY", requires = "relay")]
+    pub relayed_harness: Option<String>,
 }
 
 /// `acpmux session inbox NAME`'s flags.
@@ -1778,6 +1797,21 @@ mod help_contract_tests {
         assert!(
             Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
         );
+    }
+
+    /// `--harness` is `-m` wherever a HARNESS[/MODEL] is asked for: `run --harness codex` starts
+    /// Codex instead of clap's guess `--harness-from`.
+    #[test]
+    fn harness_is_an_alias_of_model() {
+        use super::{Command, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let run = parse(&["acpmux", "run", "lane", "--harness", "codex", "hi"]);
+        assert!(matches!(run, Ok(Command::New(ref a)) if a.model.as_deref() == Some("codex")));
+        let ensure = parse(&["acpmux", "ensure", "lane", "--harness", "claude/opus"]);
+        assert!(matches!(
+            ensure,
+            Ok(Command::Ensure { ref model, .. }) if model.as_deref() == Some("claude/opus")
+        ));
     }
 
     /// `session inbox`: --thread [--mark-read] reads the inbox's threads, --digest [--dry-run]

@@ -23,11 +23,6 @@ nonisolated enum MarkdownViewerSettingsSchema {
     /// The page's default (`--cmux-md-code-scale`, as GitHub's 85%).
     static let codeScaleFallback: Double = 0.875
 
-    /// Display-only keys agents may set. Automatic web images are a person's privacy choice.
-    static var agentSettableKeys: Set<String> {
-        Set(descriptors.map(\.id)).subtracting(["markdown.remoteImages"])
-    }
-
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.markdownViewer", "Markdown Viewer")
         func row(_ path: [String], _ title: SettingText, help: SettingText? = nil, _ kind: SettingKind,

@@ -70,6 +70,13 @@ public final class AgentNeedsInputJump {
         store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
     }
 
+    /// How many of `tabs` (once per tab) run an agent turn (acpmux, hooks or an OSC 7501
+    /// `working` record): the menu bar's and Sleepy Mode's "Agents working" line.
+    public static func workingCount(_ tabs: [TabModel]) -> Int {
+        var seen = Set<String>()
+        return tabs.filter { seen.insert($0.id).inserted && StatusMapping.shared.isWorking(tabs: [$0]) }.count
+    }
+
     /// The target the next run opens, recorded as opened; nil when nothing waits.
     public func next() -> Target? {
         let targets = Self.targets(chats: chats, tabs: tabs(), needsInput: needsInput)

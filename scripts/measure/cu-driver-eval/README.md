@@ -135,6 +135,14 @@ per task in one `condition=`. Output: `bench-v2/` in the artifact, with the rows
 `preflight.json`, the bench's own report (`report.md`, `report.json`), `arms.json` (binaries, hashes,
 waivers) and a summary in `summary.md`.
 
+## Arena (`arena/`)
+
+`cu-driver-bench.sh suite=arena` runs the computer-use arena in the same VM: every engine the team
+is building (the shipped cmux-cua, upstream Cua Driver, and the open PRs, built at their heads) with
+Claude Code and Codex models on one task suite, N runs per task, with success, time, tool and
+model calls, tokens, screenshots, and the CPU and memory of every process involved. See
+[arena/README.md](arena/README.md).
+
 ## Not here yet
 
 - **Peekaboo** as a Bench v2 arm.

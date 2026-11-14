@@ -21,11 +21,13 @@ export default agentPaneEntry({
       note: "Session Info may move the text column left; the scrollbar stays at the pane's right edge.",
       snapshot,
       native,
+      sessionInfoOpen: true,
     },
     closed: {
       note: "Closing Session Info keeps the same pane-edge scrollbar and aligned transcript/composer column.",
       snapshot,
       native,
+      sessionInfoOpen: true,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Session Info" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-session-info"));

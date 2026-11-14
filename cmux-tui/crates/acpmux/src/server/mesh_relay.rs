@@ -941,6 +941,7 @@ pub async fn deliver(
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
+        relay: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     use super::outbox::Next;

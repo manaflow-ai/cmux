@@ -165,7 +165,10 @@ class GraphCoversThePackage(unittest.TestCase):
         graph target whose directory still exists, or it could let a stray directory through."""
         declared = manifest_target_paths()
         for name, target in GRAPH["targets"].items():
-            if target["path"] and (ROOT / target["path"]).is_dir():
+            directory = ROOT / target["path"] if target["path"] else None
+            # A folder with no Swift sources left (a fixture another language reads) is not a
+            # target, as above: a deleted target's leftover fixture waits for the graph's regeneration.
+            if directory and directory.is_dir() and any(directory.rglob("*.swift")):
                 with self.subTest(target=name):
                     self.assertIn(target["path"], declared)
 

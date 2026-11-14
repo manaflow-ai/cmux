@@ -50,6 +50,10 @@ export type IncomingMessage = {
   fromPerson?: true;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// What the sender's chat is asked for by when there is no `sessionId` (inboxNotice.ts
+  /// `senderKey`): acpmux's record of who sent it, never `name`, which may carry a note for the
+  /// reader. Absent: `name`.
+  lookup?: string;
   /// Who the sender is to this chat, for a sub-session family's message.
   relation?: IncomingRelation;
   /// The Chief whose turn sent it (acpmux `fromChief`, its participant id): the line shows that

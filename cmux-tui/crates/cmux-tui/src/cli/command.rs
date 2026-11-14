@@ -32,7 +32,9 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
-pub(super) use settings::{SettingsList, human_rows as settings_human_rows};
+#[cfg(test)]
+pub(super) use settings::KEY_ALIASES;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -3205,6 +3207,22 @@ mod tests {
         let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
         assert_eq!(literal.params["key"], "custom.label");
         assert_eq!(literal.params["value"], "--literal");
+    }
+
+    /// `cmux config set on cloud` sets `chat.on` through the daemon, the route CRUD takes.
+    #[cfg(unix)]
+    #[test]
+    fn settings_crud_reads_a_key_alias_as_its_key() {
+        assert!(super::super::daemon_settings_scope(&strings(&["config", "set", "on", "cloud"])));
+        let set = protocol(&["config", "set", "on", "cloud"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "chat.on", "value": "cloud", "machine": "current", "session": "current"})
+        );
+        for verb in ["get", "reset", "unset"] {
+            assert_eq!(protocol(&["settings", verb, "on"]).params["key"], "chat.on", "{verb}");
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@ import CmuxTheme
 import CmuxNextTestSupport
 import Testing
 
-/// Draws "Toggle Left Sidebar" on and off in every ``PaletteToggleStyle``, light and dark, into one
+/// The gallery of ``PaletteToggleStyle``: draws "Toggle Left Sidebar" on and off in every style, light and dark, into one
 /// PNG (`.build/toggle-sheet/toggle-styles.png` in the package), for the before/after comparison. It checks only that each style draws; the state itself is checked by
 /// `PaletteToggleStateTests`.
 @MainActor

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 /// The pane an agent chat that a script or agent asks for opens in (#23016): a pane named by id,
 /// or a workspace's most recently focused pane, on any machine and whether or not a window shows
@@ -12,60 +13,50 @@ struct AgentChatPlacement {
     let workspace: WorkspaceModel
     let daemon: DaemonService
 
-    /// Destination focus is client-local: prefer the active window's current/remembered
-    /// workspace and pane, then other windows, then the daemon's last focused available pane.
+    /// Destination focus is client-local: the active window's current/remembered workspace and
+    /// pane, then other windows, then the daemon's last focused pane (cmux-window-rules
+    /// `chat::destination`, then `chat::latest_pane`).
     @MainActor static func destination(on daemon: DaemonService, services: AppServices) -> AgentChatPlacement? {
+        let rules = WindowRules()
         let active = services.windows.active
-        let windows = [active].compactMap { $0 } + services.windows.controllers.filter { $0 !== active }
-        for window in windows {
+        let windows = ([active].compactMap { $0 } + services.windows.controllers.filter { $0 !== active }).map { window in
             let state = window.state
-            for id in [state.workspaceID].compactMap({ $0 }) + state.workspaceRecency {
-                guard let workspace = daemon.store.workspace(id: id), workspace.key != nil else { continue }
-                let panes = workspace.screens.flatMap(\.panes)
-                let remembered = state.focus.rememberedPanes()[id]
-                // The window's workspace changes before its focus topology. Never let the
-                // previous workspace's pane mask this destination's remembered focus.
-                let focused = state.workspaceID == id && state.focus.state.topology.workspace == id ? state.focus.state.pane : nil
-                let preferred = [focused, remembered].compactMap { candidate in
-                    candidate.flatMap { id in panes.first { $0.id == id } }
-                }.first
-                if let pane = preferred ?? panes.max(by: { $0.focusedAt < $1.focusedAt }) {
-                    return AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
-                }
-            }
+            return WindowRules.ChatWindow(workspace: state.workspaceID, recency: state.workspaceRecency,
+                                          focusWorkspace: state.focus.state.topology.workspace, focusedPane: state.focus.state.pane,
+                                          remembered: state.focus.rememberedPanes())
         }
-        return daemon.store.workspaces.filter { $0.key != nil }.flatMap { workspace in
-            workspace.screens.flatMap(\.panes).map { AgentChatPlacement(pane: $0, workspace: workspace, daemon: daemon) }
-        }.max(by: { $0.pane.focusedAt < $1.pane.focusedAt })
+        var seen = Set<String>()
+        let named = windows.flatMap { [$0.workspace].compactMap { $0 } + $0.recency }.filter { seen.insert($0).inserted }
+            .compactMap { daemon.store.workspace(id: $0) }
+        if let found = rules.chatDestination(windows: windows, workspaces: named.map(facts)) { return placement(found, named[found.workspace], daemon) }
+        let all = daemon.store.workspaces.filter { $0.key != nil }
+        return rules.latestChatPane(all.map(facts)).flatMap { placement($0, all[$0.workspace], daemon) }
     }
 
-    /// The pane `target` names (`pane_…` or a pane id, else a workspace's `ws_…`, key or id).
+    /// The pane `target` names (`pane_…` or a pane id, else a workspace's `ws_…`, key or id; `chat::target`).
     @MainActor static func resolve(_ target: ActionTargetRef, services: AppServices) -> AgentChatPlacement? {
-        for (workspace, daemon) in services.machines.allWorkspaces {
-            let panes = workspace.screens.flatMap(\.panes)
-            switch target.kind {
-            case .pane:
-                if let pane = panes.first(where: { $0.id == target.id || $0.resourceID?.rawValue == target.id }) {
-                    return AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
-                }
-            case .workspace:
-                guard [workspace.id, workspace.resourceID?.rawValue, workspace.key?.rawValue].contains(target.id) else { continue }
-                guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
-                return AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
-            default:
-                return nil
-            }
-        }
-        return nil
+        let kind = target.kind == .pane ? "pane" : target.kind == .workspace ? "workspace" : "other", all = services.machines.allWorkspaces
+        guard let found = WindowRules().chatTarget(kind: kind, id: target.id, workspaces: all.map { facts($0.0) }) else { return nil }
+        return placement(found, all[found.workspace].0, all[found.workspace].1)
+    }
+
+    /// `workspace` as the chat destination rules read it.
+    @MainActor private static func facts(_ workspace: WorkspaceModel) -> WindowRules.ChatWorkspace {
+        WindowRules.ChatWorkspace(id: workspace.id, resourceId: workspace.resourceID?.rawValue, key: workspace.key?.rawValue,
+                                  panes: workspace.screens.flatMap(\.panes).map {
+                                      WindowRules.ChatPane(id: $0.id, resourceId: $0.resourceID?.rawValue, focusedAt: $0.focusedAt)
+                                  })
+    }
+
+    /// The placement at `found`'s pane of `workspace` (the workspace the rule's index names).
+    @MainActor private static func placement(_ found: WindowRules.ChatDestination, _ workspace: WorkspaceModel, _ daemon: DaemonService) -> AgentChatPlacement? {
+        workspace.screens.flatMap(\.panes).first { $0.id == found.pane }.map { AgentChatPlacement(pane: $0, workspace: workspace, daemon: daemon) }
     }
 
     /// The folder a new chat here starts in: the caller's, the workspace's agent folder, else the
-    /// pane's selected tab's (as New Agent Chat inherits it, #16620).
+    /// pane's selected tab's (as New Agent Chat inherits it, #16620; `chat::cwd`).
     @MainActor func cwd(_ given: String?) -> String? {
-        if let given, !given.isEmpty { return given }
-        if let folder = workspace.agentFolder { return folder }
-        let tabs = pane.tabs
-        return tabs.indices.contains(pane.defaultTabIndex) ? tabs[pane.defaultTabIndex].cwd : tabs.first?.cwd
+        WindowRules().chatCwd(given: given, agentFolder: workspace.agentFolder, tabs: pane.tabs.map(\.cwd), selected: pane.defaultTabIndex)
     }
 
     /// Opens a new chat tab seeded with `seed` on the store in this pane and answers the new

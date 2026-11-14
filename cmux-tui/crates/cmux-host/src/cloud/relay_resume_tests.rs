@@ -76,3 +76,57 @@ fn a_wall_clock_leap_between_pings_reads_as_a_resume() {
     assert!(!slept_through(1_000, 1_000 + PING_EVERY.as_millis() as u64));
     assert!(!slept_through(1_000, 500), "a clock set back is not a pause");
 }
+
+/// Fails its first attempt the way a fresh machine's network attach does (the count moves while the token request is
+/// in flight), then records when the retry came and stops.
+struct ChangedOnce {
+    network: watch::Sender<u64>,
+    stop: watch::Sender<bool>,
+    change: bool,
+    calls: Vec<std::time::Instant>,
+}
+
+impl Dial for ChangedOnce {
+    fn reset_transport(&mut self) {}
+
+    fn serve(
+        &mut self,
+        _rt: &tokio::runtime::Runtime,
+        _stop: &mut watch::Receiver<bool>,
+        _link: &mut Link,
+        _resumes: &mut watch::Receiver<u64>,
+        _seen: u64,
+    ) -> Option<Result<Ended, String>> {
+        self.calls.push(std::time::Instant::now());
+        if self.calls.len() == 1 {
+            if self.change {
+                self.network.send_modify(|n| *n += 1);
+            }
+            return Some(Err("token: Cloud authentication unavailable".to_owned()));
+        }
+        self.stop.send_replace(true);
+        None
+    }
+}
+
+fn retry_gap(change: bool) -> Duration {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (stop, mut stopping) = watch::channel(false);
+    let (_resume, mut resumes) = watch::channel(0u64);
+    let (network, changes) = watch::channel(0u64);
+    let mut dial = ChangedOnce { network, stop, change, calls: Vec::new() };
+    let detached = Arc::new(AtomicBool::new(false));
+    relay_loop(&rt, &mut dial, |_| {}, &mut stopping, &mut resumes, &changes, detached);
+    assert_eq!(dial.calls.len(), 2);
+    dial.calls[1] - dial.calls[0]
+}
+
+#[test]
+fn a_token_the_network_change_failed_is_retried_at_once() {
+    assert!(retry_gap(true) < Duration::from_millis(500), "retried after {:?}", retry_gap(true));
+}
+
+#[test]
+fn an_ordinary_token_failure_still_backs_off() {
+    assert!(retry_gap(false) >= Duration::from_secs(1));
+}

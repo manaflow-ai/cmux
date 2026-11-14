@@ -246,7 +246,7 @@ impl Follower {
             Event::ForgetOld => self.prune(),
             Event::Poll { id, heard } => self.poll(&id, heard),
             Event::Answer { id, body, status, failed, cancelled } => {
-                self.answer(&id, body, status, failed, cancelled)
+                self.answer(&id, body, status, failed, cancelled);
             }
         }
     }

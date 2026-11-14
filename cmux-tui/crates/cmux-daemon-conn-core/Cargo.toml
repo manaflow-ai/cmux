@@ -1,0 +1,16 @@
+[package]
+name = "cmux-daemon-conn-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The rules of the cmux app's control connection to a cmux-tui daemon: retry pacing, the heartbeat, the handshake's verdicts, compatibility, error classes, the request-latency probe, the owner idle probe and the action command scope (no I/O)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

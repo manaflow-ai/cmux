@@ -149,21 +149,17 @@ test("the page renders the exported layout", () => {
 
 // Live QA 7c: Mobile's `iphone` (and Import's `square.and.arrow.down`) had no icon, so the sidebar
 // drew the General gear for them. Every symbol the layout names, in the exported schema and in the
-// Swift source it is exported from, has its own icon.
+// layout source it is exported from, has its own icon.
 test("every category and section symbol has its own icon", () => {
   const exportedSymbols = [
     ...categories.map((category) => category.symbol),
     ...sections.map((section) => section.symbol),
   ];
-  const layout = readFileSync(
-    new URL(
-      "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const swiftSymbols = [...layout.matchAll(/\bsymbol: "([^"]+)"/g)].map((match) => match[1]);
-  expect(swiftSymbols).toContain("iphone");
-  const missing = [...new Set([...exportedSymbols, ...swiftSymbols])].filter((symbol) => !hasIcon(symbol));
+  const layout = JSON.parse(
+    readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
+  ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
+  const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
+  expect(layoutSymbols).toContain("iphone");
+  const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });

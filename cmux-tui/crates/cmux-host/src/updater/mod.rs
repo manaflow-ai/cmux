@@ -6,7 +6,7 @@
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on
-//! every resume, and every five minutes. When the channel names another
+//! every resume, and every minute. When the channel names another
 //! build than the current profile links, it:
 //!
 //! 1. waits until no acpmux session runs a turn or waits on a permission

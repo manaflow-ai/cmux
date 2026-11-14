@@ -8,7 +8,11 @@
 //! `shadow-admission {JSON}`, with `ts`, `site` (`place`, `pick`, `subsession`,
 //! `admit`, or `over-cap` for the peer a create past the lane cap is pointed
 //! to), `pick`, the pick's `would_defer`, `reason`, `inputs_digest`,
-//! `formula_version`, and `hosts`, one compact verdict per host weighed.
+//! `pressure_digest`, `formula_version`, and `hosts`, one compact verdict per
+//! host weighed. Each host carries `host_short` (its name up to the first dot)
+//! and `pressure_digest`, the digest of only the readings that decide the
+//! verdict, so this log joins lane-place's on them even though each keeps its
+//! own clock and hysteresis state (`inputs_digest` needs both to match).
 //!
 //! The readings come from `_acpmux/host_health` (this machine's, read now, or a
 //! peer's last one). A reading's time is when it arrived (`healthAt`, or now for
@@ -116,6 +120,8 @@ fn compact(v: &ShadowVerdict) -> Value {
         "mem": v.mem.state,
         "health_age_s": v.health_age_s,
         "inputs_digest": v.inputs_digest,
+        "pressure_digest": v.pressure_digest,
+        "host_short": v.host_short,
     })
 }
 
@@ -129,6 +135,7 @@ pub fn line(site: &str, pick: Option<&str>, verdicts: &[ShadowVerdict], now_ms: 
         "would_defer": picked.map(|v| v.would_defer),
         "reason": picked.map(|v| v.reason),
         "inputs_digest": picked.map(|v| v.inputs_digest.as_str()),
+        "pressure_digest": picked.map(|v| v.pressure_digest.as_str()),
         "formula_version": crate::host_pressure::SHADOW_FORMULA_VERSION,
         "hosts": verdicts.iter().map(compact).collect::<Vec<_>>(),
     })

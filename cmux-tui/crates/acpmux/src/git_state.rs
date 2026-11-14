@@ -99,6 +99,13 @@ pub fn linked_worktree(dir: &Path) -> Option<(PathBuf, PathBuf)> {
     Some((top.to_path_buf(), std::fs::canonicalize(git_dir.join(common)).ok()?))
 }
 
+/// The repository root containing `dir`, when the folder is inside a Git
+/// checkout. This reads Git's marker files and never invokes the Git process.
+pub fn repo_root(dir: &Path) -> Option<PathBuf> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    dir.ancestors().find(|folder| folder.join(".git").exists()).map(Path::to_path_buf)
+}
+
 /// The folder holding `dir`'s HEAD file (its worktree's git directory, a
 /// linked worktree's under `.git/worktrees/`), resolved as FSEvents reports
 /// it, for a watch that sees a checkout (`hub/git_watch.rs`). `None` outside

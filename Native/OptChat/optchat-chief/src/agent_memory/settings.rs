@@ -86,15 +86,34 @@ pub fn document(home: &Path) -> Option<Value> {
     settings_file(home)
 }
 
+/// The user's settings document as `document` finds it, telling a missing
+/// file (`Ok(None)`) from one that is there but does not read or parse
+/// (`Err`), for a read that must fail closed (`chief.permissionMode`,
+/// cmux#37392), as acpmux's own read of the file does.
+pub fn document_checked(home: &Path) -> Result<Option<Value>, String> {
+    let read = |path: &Path| match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    };
+    let text = match crate::cli::env(CONFIG_OVERRIDE) {
+        Some(path) => read(&expand_tilde(&path, home))?,
+        None => match read(&home.join(".config/cmux/cmux-next.json"))? {
+            Some(text) => Some(text),
+            None => read(&home.join(".config/cmux/cmux.json"))?,
+        },
+    };
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    serde_json::from_str(&strip_jsonc(&text))
+        .map(Some)
+        .map_err(|e| format!("the settings file does not parse: {e}"))
+}
+
 /// The parsed settings file, or None when there is none or it does not parse.
 fn settings_file(home: &Path) -> Option<Value> {
-    let read = |path: &Path| std::fs::read_to_string(path).ok();
-    let text = match crate::cli::env(CONFIG_OVERRIDE) {
-        Some(path) => read(&expand_tilde(&path, home)),
-        None => read(&home.join(".config/cmux/cmux-next.json"))
-            .or_else(|| read(&home.join(".config/cmux/cmux.json"))),
-    }?;
-    serde_json::from_str(&strip_jsonc(&text)).ok()
+    document_checked(home).ok().flatten()
 }
 
 /// The value at a dotted key, nested or as one flat key (both forms the

@@ -14,7 +14,7 @@ import {
   setCloudMachinesForTest,
   type CloudMachine,
 } from "../src/agent-session/acpmux/cloudMachines";
-import type { ChatMenuItem } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import type { ChatMenuItem } from "../src/agent-session/acpmux/header/chatHeaderToolsModel";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 
 const machines: CloudMachine[] = [

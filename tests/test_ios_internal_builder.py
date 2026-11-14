@@ -573,6 +573,25 @@ class GitHubApiTests(unittest.TestCase):
         self.assertEqual(gh.calls, 1)
 
 
+class DriftExitTests(unittest.TestCase):
+    """Nov 2026: a drifted head made every decide run green while cmux INTERNAL shipped nothing for 26 hours."""
+
+    def run_plan(self, drift):
+        with mock.patch.object(ib, "builder_runs", return_value=[]), \
+                mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.object(ib, "changed_files", return_value=["cmux-next-ios/x"]), \
+                mock.patch.object(ib, "package_drift", return_value=drift), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
+            return ib.cmd_plan(A, ".")
+
+    def test_drift_fails_the_decide_run(self):
+        self.assertEqual(self.run_plan("Packages/iOS/CmuxTabsKit differs from origin/feat-cmux-next-tabs-kit"), 1)
+
+    def test_no_drift_still_passes(self):
+        self.assertEqual(self.run_plan(None), 0)
+
+
 class TriggerRunnerTests(unittest.TestCase):
     def test_push_decision_reads_the_linux_pool(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()

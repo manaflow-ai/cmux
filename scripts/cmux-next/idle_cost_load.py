@@ -59,10 +59,22 @@ def private_write(path: str, data: bytes):
         handle.write(data)
 
 
-def read_chat(home: str, session: str) -> dict:
+# acpmux journals a chat's metadata and writes `session.json` only at a checkpoint: one every 30 s
+# (store/journal_store.rs CHECKPOINT_EVERY) and one at its shutdown (#37118). A read from a running
+# daemon waits for the next one; a seeder that is done with its daemon reads after `stop()` instead.
+CHECKPOINT_WAIT = 75.0
+
+
+def read_chat(home: str, session: str, wait: float = CHECKPOINT_WAIT) -> dict:
     """A chat as its daemon stored it: session.json and its event log segments."""
     folder = os.path.join(home, "sessions", session)
-    with open(os.path.join(folder, "session.json"), "rb") as handle:
+    path = os.path.join(folder, "session.json")
+    deadline = time.monotonic() + wait
+    while not os.path.exists(path) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    if not os.path.exists(path):
+        raise RuntimeError(f"chat {session} has no session.json in {folder} after {wait:.0f} s (no acpmux checkpoint)")
+    with open(path, "rb") as handle:
         meta = handle.read()
     events = {}
     for path in sorted(glob.glob(os.path.join(folder, "events", "*.ndjson"))):

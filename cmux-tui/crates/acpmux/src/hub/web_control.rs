@@ -296,6 +296,28 @@ impl Hub {
             .err(),
         };
         let Some(e) = refused else { return Ok(()) };
+        // No trust answer read once the shutdown began is the shutdown's, not the person's: a
+        // SIGTERM during a first prompt's check answered `trust.pending` for a trusted folder
+        // (chaos fault `daemon-restart-session-new`, e0a62c8d7). The prompt hears the daemon
+        // restarts, and no `prompt_refused` settles it: the next daemon queues it again
+        // (`unstarted_prompt.rs`, `lost_start.rs`) and its own gate reads the folder.
+        // Decided and written under the shutdown's lock, which the shutdown begins under
+        // (`start_shutdown`), as an unstarted turn's end is (`fail_unless_shutdown_settles`): the
+        // refusal is written wholly before the shutdown began, or the shutdown is seen.
+        let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        if crate::server::trust_gate::is_pending(&e) && self.shutting_down() {
+            tracing::info!(session = %session.id, "trust check ended by the shutdown: {e}");
+            return Err(super::shutdown::shutting_down_error());
+        }
+        // Tests only: hold here, between the shutdown check and the write.
+        #[cfg(test)]
+        {
+            let seam = self.refuse_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = tokio::task::block_in_place(|| release.blocking_recv());
+            }
+        }
         self.append(
             session,
             "mux",

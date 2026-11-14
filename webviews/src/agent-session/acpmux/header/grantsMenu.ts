@@ -7,7 +7,7 @@
 // visible way back with default settings.
 import { type Translate, translate } from "../i18n";
 import type { AccessGrant } from "../session-info/EnvironmentSection";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export type GrantSources = {
   /// The chat's folder is trusted (decided, not asked): `useFolderTrustAsk().trusted`.

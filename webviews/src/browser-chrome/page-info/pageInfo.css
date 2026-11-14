@@ -1,0 +1,247 @@
+/* PAGE INFO BUBBLE (PageInfoBubble.tsx). The native PageInfoStyle at the Standard density: a 320 pt
+   card with a 6 pt padding, 28 pt rows (42 with a subtitle), a 6 pt row inset, a 26 pt icon column (from the card edge),
+   2 pt between rows, 12 pt text (10.5 pt captions draw at the caption step, 11). The numbers are the
+   native metrics, named here once, so a density change edits one block. Theme grays only: the "on"
+   switch is the text color, danger is the theme's red. In the app the host sets --pi-host-* to its
+   density's metrics. */
+.pi-bubble {
+  --pi-width: var(--pi-host-width, 320px);
+  --pi-padding: var(--pi-host-padding, 6px);
+  --pi-row: var(--pi-host-row, 28px);
+  --pi-row-subtitle: var(--pi-host-row-subtitle, 42px);
+  --pi-row-inset: var(--pi-host-row-inset, 6px);
+  --pi-icon-column: 20px; /* the 26 pt column less the row inset before it */
+  --pi-row-gap: 2px;
+  --pi-row-radius: var(--ds-radius-sm);
+  --pi-header-button: 24px;
+  --pi-note-top: 2px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-row-gap);
+  width: var(--pi-width);
+  padding: var(--pi-padding);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Groups: a hairline between them (parity, dense) or each on its own inset card (grouped). */
+.pi-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-row-gap);
+}
+.pi-section + .pi-section {
+  padding-block-start: var(--pi-row-gap);
+  border-block-start: 1px solid var(--ds-color-separator);
+}
+.pi-bubble[data-look="grouped"] {
+  gap: var(--pi-padding);
+}
+.pi-bubble[data-look="grouped"] .pi-section {
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-hover);
+}
+.pi-bubble[data-look="grouped"] .pi-section + .pi-section {
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+.pi-choices {
+  display: contents;
+}
+
+/* HEADER: the site (main page), or back + subpage title and site, then close. */
+.pi-header {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-padding);
+  min-height: var(--pi-header-button);
+  padding-inline-start: var(--pi-row-inset);
+}
+.pi-header[data-back] {
+  padding-inline-start: 0;
+}
+.pi-header-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.pi-header-title {
+  overflow: hidden;
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/*
+ * A site name cuts its head first; a tail wider than the line (one very long label) is cut at
+ * its start, so the registrable domain's end and the port always show.
+ */
+.pi-site-name {
+  display: flex;
+  min-width: 0;
+}
+.pi-site-name-head {
+  flex: 0 100000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-site-name-tail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-header-subtitle {
+  overflow: hidden;
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  width: var(--pi-header-button);
+  height: var(--pi-header-button);
+  padding: 0;
+  border: 0;
+  border-radius: var(--pi-row-radius);
+  background: transparent;
+  color: var(--ds-color-muted);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+
+/* ROWS: icon column, title over subtitle, then a chevron, an external mark or a switch. */
+.pi-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-row-inset);
+  width: 100%;
+  min-height: var(--pi-row);
+  padding: 0;
+  padding-inline: var(--pi-row-inset);
+  border: 0;
+  border-radius: var(--pi-row-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.pi-row[data-subtitle] {
+  min-height: var(--pi-row-subtitle);
+}
+.pi-row > .pi-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--pi-row-inset);
+  align-self: stretch;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pi-row-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.pi-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--pi-icon-column);
+}
+.pi-row[data-danger] {
+  color: var(--ds-color-danger);
+}
+.pi-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.pi-row-title,
+.pi-row-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-row-subtitle {
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.pi-row-mark {
+  flex: none;
+  color: var(--ds-color-muted);
+}
+.pi-note {
+  margin: 0;
+  padding-block: var(--pi-note-top) var(--pi-row-inset);
+  padding-inline: calc(var(--pi-icon-column) + 2 * var(--pi-row-inset)) var(--pi-row-inset);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: pre-line;
+}
+
+/* Dense: the state trails the title on one 28 pt line. */
+.pi-bubble[data-look="dense"] .pi-row[data-subtitle] {
+  min-height: var(--pi-row);
+}
+.pi-bubble[data-look="dense"] .pi-row-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--pi-row-inset);
+}
+.pi-bubble[data-look="dense"] .pi-row-title {
+  flex: none;
+  max-width: 60%;
+}
+.pi-bubble[data-look="dense"] .pi-row-subtitle {
+  flex: 1;
+  text-align: end;
+}
+
+/* Gray hover and press fills; a gray ring for the keyboard (no accent). */
+:is(button.pi-row, .pi-row:has(> .pi-row-main), .pi-icon-button):hover {
+  background: var(--ds-color-hover);
+}
+:is(button.pi-row, .pi-row:has(> .pi-row-main), .pi-icon-button):active {
+  background: var(--ds-color-pressed);
+}
+:is(.pi-row-main, .pi-icon-button):focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: -1px;
+}
+.pi-row > .pi-row-main:focus-visible {
+  outline-offset: 1px;
+}
+.pi-switch.ui-switch[data-checked] {
+  background: var(--ds-color-fg);
+}
+.pi-switch.ui-switch[data-checked] .ui-switch-thumb {
+  background: var(--ds-color-elevated);
+}
+
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.pi-row, .pi-icon-button) {
+  transition: none;
+}

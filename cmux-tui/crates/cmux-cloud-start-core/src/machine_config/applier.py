@@ -34,6 +34,7 @@ RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV"
             "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
 MAX_BYTES, MAX_NAMES, MAX_COMMANDS = 64 * 1024, 100, 50
 BOOTSTRAP_WAIT_S = 3 * 3600
+LOCK_WAIT_S = 5  # see take_lock
 STARTING_S = 60
 
 
@@ -582,9 +583,7 @@ def main():
             raise Refused(f"{os.path.join(D, 'lock')} is not a file of this user")
         code = 0
         while pending_requests():
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            if not take_lock(lock):
                 return code  # the applier that holds it takes what is staged
             try:
                 while (request := take_request()) is not None:
@@ -598,6 +597,21 @@ def main():
     except Exception as e:  # noqa: BLE001  a startup error ends in a status too, never a stale one
         status("failed", error=f"{type(e).__name__}: {e}"[:500])
         return 1
+
+
+def take_lock(lock):
+    """The applier lock, tried for up to LOCK_WAIT_S: the session daemon holds it for a moment while it
+    writes machine-secrets.env (so no apply runs between its read of the declared names and its write),
+    and an applier that started then must not take that for a running apply and leave its request."""
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
 
 
 def own_folders():

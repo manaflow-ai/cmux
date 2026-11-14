@@ -118,8 +118,10 @@ impl LinuxPlatform {
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
         // The Cloud role writes carrier.json at its bind, which can come
         // after this start: make its dir (0700, as the role does) so the
-        // watch is there first.
-        let wd_state = carrier_dir(paths).and_then(|dir| inotify.watch_dir(&dir).ok());
+        // watch is there first. Its removal is watched too: a session host
+        // started with the route must lose it when the file goes.
+        let wd_state =
+            carrier_dir(paths).and_then(|dir| inotify.watch_dir_with_removals(&dir).ok());
         let config_watch =
             match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
                 Some(file) => match file.parent().filter(|dir| dir.is_dir()) {
@@ -269,7 +271,7 @@ impl LinuxPlatform {
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
-        let carrier = carrier_args(&paths, &layout.bin);
+        let carrier = carrier_args(&paths, &host_entry(&self.cfg)?);
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
@@ -339,10 +341,7 @@ impl LinuxPlatform {
     }
 
     fn rekey(&mut self, id: &str) -> io::Result<Option<Input>> {
-        let mut argv = self.cfg.self_argv.clone();
-        if argv.is_empty() {
-            argv.push(std::env::current_exe()?.display().to_string());
-        }
+        let mut argv = host_entry(&self.cfg)?;
         let program = argv.remove(0);
         argv.extend([
             "rekey".to_owned(),
@@ -675,11 +674,16 @@ impl Platform for LinuxPlatform {
         Some(pid)
     }
 
+    /// Whether the running session host's route differs from carrier.json's.
+    /// Called on every carrier.json write and removal: it also rewrites the
+    /// grant config ([`carrier_args`]), so a rotated keyset reaches the
+    /// running host's verifier without a respawn, and a removed file
+    /// respawns the host without the carrier flags.
     fn carrier_changed(&mut self) -> bool {
-        let Some(bin) = self.layout().ok().map(|layout| layout.bin.clone()) else {
+        let Ok(host) = host_entry(&self.cfg) else {
             return false;
         };
-        let want = carrier_args(&self.cfg.paths, &bin);
+        let want = carrier_args(&self.cfg.paths, &host);
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
@@ -785,10 +789,24 @@ fn remote_entry(paths: &crate::config::Paths) -> crate::remote_entry::RemoteEntr
 /// others may write it. Empty without the file; a refused file is logged
 /// and gives no carrier. With it, the session host's grant config
 /// ([`crate::carrier_entry::GRANT_CONFIG_FILE`], 0644, public fields only)
-/// is written first, so a session host started with these flags finds it;
-/// a newer keyset in it is picked up by the running host at its next
-/// unknown kid.
-fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<String> {
+/// is written first (temp file, then rename), so a session host started
+/// with these flags finds it. Each carrier.json change writes it again, and
+/// the running host's verifier re-reads it at the first grant signed by a
+/// kid it does not hold (a rotated keyset, `cloud/carrier_keyset.rs`).
+/// The command that runs this supervisor's verbs, the program first: the
+/// `cmux host` it was started as (`[<current>/bin/cmux, host]`), else this
+/// executable (the standalone `cmux-host`, whose verbs need no noun).
+fn host_entry(cfg: &Config) -> io::Result<Vec<String>> {
+    if cfg.self_argv.is_empty() {
+        Ok(vec![std::env::current_exe()?.display().to_string()])
+    } else {
+        Ok(cfg.self_argv.clone())
+    }
+}
+
+/// The session host's carrier flags; `host` is [`host_entry`], whose
+/// `cloud carrier-ticket` is the ticket command.
+fn carrier_args(paths: &crate::config::Paths, host: &[String]) -> Vec<String> {
     use crate::carrier_entry::GRANT_CONFIG_FILE;
     let Some(file) = carrier_file(paths) else { return Vec::new() };
     let grant_config = paths.at(GRANT_CONFIG_FILE);
@@ -797,7 +815,7 @@ fn carrier_args(paths: &crate::config::Paths, bin: &std::path::Path) -> Vec<Stri
         eprintln!("cmux-host: {}: {e}; carrier off", grant_config.display());
         return Vec::new();
     }
-    file.route.args(bin, &grant_config)
+    file.route.args(host, &grant_config)
 }
 
 fn carrier_file(paths: &crate::config::Paths) -> Option<crate::carrier_entry::CarrierFile> {
@@ -868,42 +886,91 @@ mod carrier_file_tests {
     /// With carrier.json, the session host's flags name its grant config,
     /// written first with only the public fields (0644); without it, no
     /// flags and no file.
-    #[test]
-    fn the_carrier_flags_come_with_a_public_grant_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::new(dir.path());
-        let bin = std::path::Path::new("/home/cmux/.cmux/bin/cmux-tui");
-        assert!(carrier_args(&paths, bin).is_empty());
-        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
-        let carrier = serde_json::json!({
+    fn carrier(kid: &str) -> serde_json::Value {
+        serde_json::json!({
             "relay": "relay+do://relay.cmux.dev",
             "machine": "vm_0123456789abcdefghij",
             "slot": "AAAAAAAAAAAAAAAAAAAAAA",
             "team": "team_0123456789abcdefghij",
             "issuer": "cmux:cloud:production",
-            "keyset": {"version": "0123456789abcdef", "keys": {"k1": {
-                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+            "keyset": {"version": "0123456789abcdef", "keys": {kid: {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid,
                 "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             }}},
-        });
+        })
+    }
+
+    fn write_carrier(paths: &Paths, carrier: &serde_json::Value) {
         let file = paths.at(CARRIER_FILE);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, carrier.to_string()).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn grant_config(paths: &Paths) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(paths.at(GRANT_CONFIG_FILE)).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn the_carrier_flags_come_with_a_public_grant_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        assert!(carrier_args(&paths, bin).is_empty());
+        assert!(!paths.at(GRANT_CONFIG_FILE).exists());
+        let carrier = carrier("k1");
+        write_carrier(&paths, &carrier);
         let args = carrier_args(&paths, bin);
         let grant = paths.at(GRANT_CONFIG_FILE);
         let at = args.iter().position(|arg| arg == "--carrier-grant-config").unwrap();
         assert_eq!(args[at + 1], grant.display().to_string());
-        let written: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&grant).unwrap()).unwrap();
         assert_eq!(
-            written,
+            grant_config(&paths),
             serde_json::json!({
                 "issuer": carrier["issuer"], "machine": carrier["machine"],
                 "team": carrier["team"], "keyset": carrier["keyset"],
             })
         );
         assert_eq!(std::fs::metadata(&grant).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
+    /// A rotated keyset in carrier.json rewrites the grant config the running
+    /// host's verifier re-reads, with the same flags: no respawn.
+    #[test]
+    fn a_rotated_keyset_rewrites_the_grant_config_with_the_same_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        let before = carrier_args(&paths, bin);
+        let rotated = carrier("k2");
+        write_carrier(&paths, &rotated);
+        assert_eq!(carrier_args(&paths, bin), before);
+        assert_eq!(grant_config(&paths)["keyset"], rotated["keyset"]);
+    }
+
+    /// Removing carrier.json wakes the supervisor's watch (it is a change
+    /// of route, to none) and leaves no carrier flags for the respawn.
+    #[test]
+    fn a_removed_carrier_json_wakes_the_watch_and_drops_the_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let bin = &["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()][..];
+        write_carrier(&paths, &carrier("k1"));
+        assert!(!carrier_args(&paths, bin).is_empty());
+        let inotify = crate::linux::fds::Inotify::new().unwrap();
+        let state = paths.at(CARRIER_FILE).parent().unwrap().to_path_buf();
+        let wd = inotify.watch_dir_with_removals(&state).unwrap();
+        std::fs::remove_file(paths.at(CARRIER_FILE)).unwrap();
+        let events = inotify.read_events().unwrap();
+        assert!(
+            events.iter().any(|e| e.wd == wd
+                && e.name == crate::carrier_entry::CARRIER_FILE_NAME
+                && e.mask & libc::IN_DELETE != 0),
+            "no removal event"
+        );
+        assert!(carrier_args(&paths, bin).is_empty());
     }
 
     /// carrier.json counts only as a regular file owned by the agent's uid

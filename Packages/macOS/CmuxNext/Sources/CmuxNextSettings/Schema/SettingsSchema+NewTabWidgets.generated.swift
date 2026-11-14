@@ -38,6 +38,10 @@ extension NewTabWidgetSettings {
     /// `tabs.newTabWidgets.quote`: Off by default. On: a bundled public-domain quote, changing daily.
     public nonisolated static let quotePath = ["tabs", "newTabWidgets", "quote"]
     public nonisolated static let quoteDefault = false
+    /// `tabs.newTabWidgets.order`: The widgets the edit mode moves, in Settings' order (right-click New Tab > Edit New Tab); widgets left out follow in this order.
+    public nonisolated static let orderPath = ["tabs", "newTabWidgets", "order"]
+    public nonisolated static let orderDefault: [String] = ["projects", "actions", "chats"]
+    public nonisolated static let orderValues = ["projects", "actions", "chats"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -165,6 +169,20 @@ nonisolated enum NewTabWidgetSettingsSchema {
                 kind: .toggle,
                 default: .bool(NewTabWidgetSettings.quoteDefault),
                 keywords: ["new tab", "widget", "quote", "daily"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.orderPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.order", "New Tab Widget Order"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.order.help", "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."),
+                kind: .orderedChoices([
+                    SettingChoice("projects", SettingsText.keyed("settings.tabs.newTabWidgets.order.projects", "Projects")),
+                    SettingChoice("actions", SettingsText.keyed("settings.tabs.newTabWidgets.order.actions", "Quick Actions")),
+                    SettingChoice("chats", SettingsText.keyed("settings.tabs.newTabWidgets.order.chats", "Recent Chats")),
+                ]),
+                default: .array(NewTabWidgetSettings.orderDefault.map { .string($0) }),
+                keywords: ["new tab", "widget", "order", "arrange", "edit"]
             ),
         ]
     }

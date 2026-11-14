@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import os
 import SwiftUI
 
@@ -456,7 +457,7 @@ private struct ProviderButton<Icon: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 ZStack {
                     icon().opacity(isBusy ? 0 : 1)
-                    if isBusy { ProgressView().tint(isPrimary ? theme.colors.neutralOnAccent.color : theme.colors.label.color) }
+                    if isBusy { CmuxSpinner(tint: isPrimary ? theme.colors.neutralOnAccent.color : theme.colors.label.color) }
                 }
                 .frame(width: min(iconSlot, 30), height: min(iconSlot, 30))
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }

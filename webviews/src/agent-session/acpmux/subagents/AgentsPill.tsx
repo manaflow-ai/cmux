@@ -10,7 +10,7 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
-import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
+import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
 import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";

@@ -131,10 +131,18 @@ pub trait ReconnectGroupSource: Send + Sync {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 }
 
+/// Told how each attempt to reattach an established session's carrier (a
+/// resume) ended, for a caller that logs every connect.
+pub trait ResumeHooks: Send + Sync {
+    /// One attempt ended after `elapsed`.
+    fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration);
+}
+
 pub struct ClientConnection {
     config: ClientConnectionConfig,
     group: Arc<RwLock<Arc<dyn LinkGroup>>>,
     reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
+    resume_hooks: StdMutex<Option<Arc<dyn ResumeHooks>>>,
     session: Arc<RwLock<ReliableSession>>,
     generation: watch::Sender<u64>,
     diagnostics: StdMutex<ClientConnectionSnapshot>,
@@ -272,6 +280,7 @@ impl ClientConnection {
             config,
             group: Arc::new(RwLock::new(group)),
             reconnect_groups,
+            resume_hooks: StdMutex::new(None),
             session: Arc::new(RwLock::new(session)),
             generation,
             diagnostics: StdMutex::new(diagnostics),
@@ -294,6 +303,15 @@ impl ClientConnection {
 
     pub fn session_id(&self) -> SessionId {
         self.config.session
+    }
+
+    /// Install hooks that every later resume attempt calls.
+    pub fn set_resume_hooks(&self, hooks: Arc<dyn ResumeHooks>) {
+        *self.resume_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hooks);
+    }
+
+    fn resume_hooks(&self) -> Option<Arc<dyn ResumeHooks>> {
+        self.resume_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn daemon_public_key(&self) -> [u8; 32] {
@@ -839,6 +857,7 @@ impl ClientConnection {
                         .min(deadline.saturating_duration_since(tokio::time::Instant::now()))
                 })
                 .unwrap_or(self.config.reconnect.attempt_timeout);
+            let attempt_started = tokio::time::Instant::now();
             let reconnect = tokio::select! {
                 biased;
                 _ = close_state.changed() => return Err(ConnectionError::Closed),
@@ -860,6 +879,9 @@ impl ClientConnection {
             };
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
+            }
+            if let Some(hooks) = self.resume_hooks() {
+                hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
             }
             match result {
                 Ok(()) => {

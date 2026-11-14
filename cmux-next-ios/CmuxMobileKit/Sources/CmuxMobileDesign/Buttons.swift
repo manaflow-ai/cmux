@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -105,7 +106,7 @@ private struct CapsuleLabel: View {
             }
             .opacity(isLoading ? 0 : 1)
             if isLoading {
-                ProgressView().tint(spinnerTint)
+                CmuxSpinner(tint: spinnerTint)
             }
         }
     }

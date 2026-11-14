@@ -107,6 +107,7 @@ mod holder_runtime;
 #[cfg(feature = "hotpatch")]
 pub mod hotpatch;
 mod surface;
+mod tasks_link;
 mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;

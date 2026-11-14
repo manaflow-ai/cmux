@@ -14,11 +14,14 @@ extension ChatSettings {
     /// `agents.chats.sessionRecap`.
     public nonisolated static let sessionRecapPath = ["agents", "chats", "sessionRecap"]
     public nonisolated static let sessionRecapDefault = true
+    /// `chat.on`: The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: "cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret".
+    public nonisolated static let chatOnPath = ["chat", "on"]
+    public nonisolated static let chatOnDefault = ""
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum ChatSettingsSchema {
-    /// Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage.
+    /// Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage. The default `cmux chat` target is a CLI default the person may ask an agent to set.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chats", "Chats")
         return [
@@ -62,6 +65,16 @@ nonisolated enum ChatSettingsSchema {
                 kind: .toggle,
                 default: .bool(ChatSettings.sessionRecapDefault),
                 keywords: ["agents", "chats", "recap", "summary", "away", "claude"]
+            ),
+            SettingDescriptor(
+                ChatSettings.chatOnPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.on", "Default Chat Target"),
+                help: SettingsText.keyed("settings.chats.on.help", "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."),
+                kind: .text,
+                default: .string(ChatSettings.chatOnDefault),
+                keywords: ["chat", "cli", "target", "on", "device", "vm", "cloud", "default"]
             ),
         ]
     }

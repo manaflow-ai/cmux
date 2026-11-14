@@ -288,7 +288,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("low", "CI and tooling", (
         ".claude/*", ".codex/*", ".agents/*", "tools/*", "biome.json", ".coderabbit.yaml", ".greptile/*",
-        "dogfood/*", "Prototypes/*", "KeyboardPinningLab/*", "samples/*", "examples/*",
+        "dogfood/*", "Prototypes/*", "samples/*", "examples/*",
     )),
 )
 

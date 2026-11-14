@@ -29,7 +29,7 @@ extension MainPaneGutterSuites {
 
         /// Loads `json` as the cmux.json, the way a settings load applies it. These cases measure the
         /// `default` chrome style's surfaces (curved main pane), so a file without
-        /// `appearance.chromeStyle` pins it: the app's default is flat-sidebar-line since 2026-10-16.
+        /// `appearance.chromeStyle` pins it: the app's default is flat (no card) since 2026-11-07.
         @discardableResult
         func load(_ json: JSONValue) -> [SettingsDiagnostic] {
             var members = json.objectValue ?? [:]

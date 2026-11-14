@@ -261,13 +261,16 @@ await requireBrowserLane("transcript-expand-under-load.test.ts", async () => {
           settledAt: true,
         });
       }
-      // Leo, 2026-11-06: "way too discontinuous". With frames dropping, the fold lands in one step: at
-      // most one painted frame shows it mid-flight, never a run of partial heights a frame apart.
+      // Leo, 2026-11-06: "way too discontinuous". With frames dropping, the fold lands in one step,
+      // never a run of partial heights a frame apart. One late frame is not load (Leo, 2026-11-07:
+      // "sometimes it doesn't play ythe animation"), so it lands on the second in a row: at most two
+      // painted frames show it mid-flight, the fold's first and the one its restarted clock draws
+      // (fold.ts `settleOnDroppedFrames`), both near its start.
       if (load === "jank") {
         const midFlight = frames.filter((frame) => frame.folding).length;
         // The painted frames' times, `*` where the fold is mid-flight: a slow page or a missed drop.
         const seen = frames.map((frame) => `${Math.round(frame.at)}${frame.folding ? "*" : ""}`).join(" ");
-        expect({ load, midFlight, seen, oneStep: midFlight <= 1 }).toEqual({ load, midFlight, seen, oneStep: true });
+        expect({ load, midFlight, seen, oneStep: midFlight <= 2 }).toEqual({ load, midFlight, seen, oneStep: true });
       }
       await page.close();
     });

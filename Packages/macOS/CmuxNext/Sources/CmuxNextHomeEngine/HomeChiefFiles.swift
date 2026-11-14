@@ -1,4 +1,4 @@
-public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 import CmuxNextDaemon
 import ImageIO

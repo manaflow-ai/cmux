@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 /// Open Terminal as Chat (`palette.openTerminalChatView`; the palette and `cmux agent
 /// open-terminal-as-chat`, so MCP's action run too): the Claude Code or Codex session the focused
@@ -18,16 +19,22 @@ enum TerminalChatHandler {
             throw ActionFailure(message: MiscHandlerStrings.noTerminal)
         }
         let services = context.services
-        switch TerminalChatRoute.route(tab.agent, openTab: { services.agentTabs.tab(resuming: $0) }) {
-        case .noSession:
+        // The route is Rust's (cmux-window-rules `tabs::terminal_chat`): the harness's own id is a hook
+        // report's `agent_session_id` (its `session` is a label).
+        switch WindowRules().terminalChat(agent: tab.agent?.agent, session: tab.agent?.harnessSessionID) {
+        case .noSession?, nil:
             throw ActionFailure(message: MiscHandlerStrings.terminalChatNoSession)
-        case .unsupportedHarness:
+        case .unsupportedHarness?:
             throw ActionFailure(message: MiscHandlerStrings.terminalChatHarness)
-        case .reveal(let existing):
-            // Showing it is a view change; a headless run leaves the user's focus alone.
-            guard invocation.allowsViewChange else { return }
-            _ = services.revealTab(existing)
-        case .open(let adopt):
+        case .adopt(let harness, let session)?:
+            let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session)
+            // A tab that already resumes this session is shown instead of a duplicate.
+            if let existing = services.agentTabs.tab(resuming: adopt) {
+                // Showing it is a view change; a headless run leaves the user's focus alone.
+                guard invocation.allowsViewChange else { return }
+                _ = services.revealTab(existing)
+                return
+            }
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, adopt: adopt))
             let pending: AgentTabPending
             do {

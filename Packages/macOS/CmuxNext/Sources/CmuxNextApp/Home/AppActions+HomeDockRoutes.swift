@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
@@ -49,8 +50,8 @@ extension AppActions {
         return true
     }
 
-    /// Open Chief Dock: the docked Chief's message box takes the keys. A run that may not move the focus (the
-    /// CLI, MCP: socket focus policy) docks the Chief and leaves the keys where they are, with no refusal.
+    /// Show/Hide Chief over Home: the Chief's message box takes the keys. A run that may not move the focus (the
+    /// CLI, MCP: socket focus policy) leaves the keys where they are, with no refusal.
     static func focusDockComposer(_ services: AppServices) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         withDock(services) { $0.focusPrimaryInput() }

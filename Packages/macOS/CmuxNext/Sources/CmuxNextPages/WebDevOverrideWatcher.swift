@@ -1,5 +1,6 @@
 import CmuxNextSettings
 public import Foundation
+import os
 public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
@@ -72,6 +73,9 @@ public final class WebDevOverrideWatcher {
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
+        if let refusal = value.refusal {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("overlay refused: \(refusal, privacy: .public)")
+        }
         Self.reloadPages()
     }
 

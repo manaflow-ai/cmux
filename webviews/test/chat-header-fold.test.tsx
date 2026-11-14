@@ -111,7 +111,8 @@ test("the header shows Changes, Terminal and Browser; New tab, Files and Split D
 
 test("a hidden Changes or Preview folds into the chat menu while it applies; the rows read the state as the menu opens", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");

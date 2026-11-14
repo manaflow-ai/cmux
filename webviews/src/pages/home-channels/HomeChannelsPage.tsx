@@ -12,7 +12,7 @@ import { Composer } from "./Composer";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
-import { ConversationList, useStamp } from "./ConversationList";
+import { ConversationList, useStamp, type CloudEntryLook } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
   activityAt,
@@ -55,15 +55,23 @@ import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
 
+/** The page op that runs one of this page's allowed app actions (HomeChannelsPage.swift). */
+export const APP_ACTION_RUN = "cmux.app.action.run";
+/** The app's New Cloud Machine action (CloudActionCatalog): its sheet makes the machine. */
+export const NEW_CLOUD_MACHINE = "newCloudMachine";
+
 export function HomeChannelsPage({
   store,
   strings,
   pane: fixedPane,
+  cloudEntry,
 }: {
   store: HomeChannelsStore;
   strings: Strings;
   /** The pane a narrow page shows, instead of the hash's (the gallery, whose hash is its own). */
   pane?: Pane;
+  /** Where the list shows New Cloud Machine (default: a row under the search field). */
+  cloudEntry?: CloudEntryLook;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const presentation = usePresentation(snap.selected);
@@ -208,6 +216,20 @@ export function HomeChannelsPage({
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
+  // New Cloud Machine runs the app's own action, which shows its sheet; only the app host has it.
+  const host = store.host;
+  const newCloudMachine = host
+    ? () =>
+        void host.call<{ ran?: boolean }>(APP_ACTION_RUN, { action: NEW_CLOUD_MACHINE }).then(
+          // An action the app did not run (turned off, unavailable) answers `ran: false`; one that
+          // ran and then stopped (sign-in declined) says so in the app.
+          (reply) => {
+            if (reply?.ran === false) say(t("notice.cloudNotRun"));
+          },
+          // A refusal (the host's own words) shows as the page's short notice.
+          (error: unknown) => say(error instanceof Error && error.message ? error.message : t("notice.cloudNotRun")),
+        )
+    : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
     if (!conversation || !navigator.clipboard) return;
     // The notice only when the copy happened.
@@ -541,6 +563,8 @@ export function HomeChannelsPage({
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
                 onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
+                onNewCloudMachine={newCloudMachine}
+                cloudEntry={cloudEntry}
                 actions={rowActions}
                 chiefs={sheetState.chiefs}
               />
@@ -792,7 +816,14 @@ export function HomeChannelsPage({
                 conversations={conversations}
                 me={me}
               />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {palette && (
+                <Palette
+                  items={paletteItems}
+                  rank={store.rankPalette}
+                  strings={strings}
+                  onClose={() => setPalette(false)}
+                />
+              )}
             </div>
           </div>
         </PicturesContext.Provider>

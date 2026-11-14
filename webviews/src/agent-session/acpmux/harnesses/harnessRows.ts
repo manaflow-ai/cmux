@@ -21,6 +21,7 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   // No tty here: never ask to start Codex or to remove another install.
   codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
 };
 
 export type HarnessRow = {

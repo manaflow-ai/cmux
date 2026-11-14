@@ -64,7 +64,8 @@ impl std::fmt::Display for ChatTargetRefusal {
 impl std::error::Error for ChatTargetRefusal {}
 
 /// Resolves `selector` (`cloud`, or a machine id) against `catalog`, the
-/// result of `machine.list` with `catalog: true` read for this call, and
+/// result of `machine.list` with `catalog: true` read for this call (the
+/// daemon's array of machines, or an object holding it as `machines`), and
 /// whether the person is signed in to cmux Cloud now.
 ///
 /// Cloud and every cloud-origin device need the sign-in. A device must be
@@ -83,7 +84,7 @@ pub fn resolve_chat_target(
         return if signed_in { Ok(ChatTarget::Cloud) } else { Err(ChatTargetRefusal::SignedOut) };
     }
     let id = selector.to_owned();
-    let machines = catalog.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let machines = catalog_machines(catalog);
     let Some(machine) = machines.iter().find(|machine| text(machine, "id") == Some(selector))
     else {
         return Err(ChatTargetRefusal::UnknownDevice { id });
@@ -107,6 +108,15 @@ pub fn resolve_chat_target(
         }
     }
     Ok(ChatTarget::Device { id, local })
+}
+
+/// The machine records of a catalog: the daemon answers `machine.list` with an array of them;
+/// an object that holds them under `machines` is read the same way.
+pub fn catalog_machines(catalog: &Value) -> &[Value] {
+    match catalog {
+        Value::Array(machines) => machines,
+        _ => catalog.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+    }
 }
 
 /// A machine record's string field.
@@ -179,6 +189,23 @@ mod tests {
                 id: "machine_nap".into(),
                 status: "sleeping".into()
             })
+        );
+    }
+
+    /// The daemon answers `machine.list` with a bare array (resource_api.rs `MachineList`).
+    #[test]
+    fn the_daemons_array_resolves_like_the_object() {
+        let array = catalog()["machines"].clone();
+        for selector in ["machine_local", "machine_vm", "machine_box", "machine_nap", "gone"] {
+            assert_eq!(
+                resolve_chat_target(selector, &array, true),
+                resolve_chat_target(selector, &catalog(), true),
+                "{selector}"
+            );
+        }
+        assert_eq!(
+            resolve_chat_target("machine_vm", &array, true),
+            Ok(ChatTarget::Device { id: "machine_vm".into(), local: false })
         );
     }
 

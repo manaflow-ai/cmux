@@ -71,6 +71,8 @@ public final class HandsService {
     /// Signed in: follow the user socket; each subscribe reads the hands and their waiting requests.
     public func start() {
         started = true
+        // A fresh sign-in owes nothing to an earlier session's crashes.
+        relaunch.reset()
         engine.send(startCommand)
     }
 
@@ -125,8 +127,10 @@ public final class HandsService {
                 self?.engine.send(["t": "token", "id": id, "credential": credential])
             }
         case "hands":
-            hands = decode(object["hands"], as: [HandSummary].self) ?? []
-            if !hands.isEmpty { relaunch.reset() }
+            // Any list the engine read, an empty one too, means it runs: the next exit waits the least again.
+            let listed = decode(object["hands"], as: [HandSummary].self)
+            hands = listed ?? []
+            if listed != nil { relaunch.reset() }
         case "pending":
             guard let approval = decode(object["approval"], as: HandApproval.self), pending[approval.key] == nil else { return }
             pending[approval.key] = approval

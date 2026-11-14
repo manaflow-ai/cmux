@@ -81,6 +81,20 @@ const review = Array.from({ length: 120 }, (_, index) => {
   };
 });
 
+function reviewComment(id: string, filePath: string, line: number, message: string) {
+  return {
+    id,
+    filePath,
+    side: "additions" as const,
+    startLine: line,
+    endLine: line,
+    lineText: "",
+    message,
+    createdAt: "2026-11-07T00:00:00.000Z",
+    updatedAt: "2026-11-07T00:00:00.000Z",
+  };
+}
+
 export default diffPageEntry({
   id: "pages.diff",
   title: "Diff viewer",
@@ -195,6 +209,21 @@ export default diffPageEntry({
       height: 760,
       layout: "unified",
       files: review,
+    },
+    "review-comments": {
+      note: "Two saved review comments with Send to agent in the Comments section (hq #7563).",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      commentsSend: true,
+      comments: [
+        reviewComment("r1", "src/net/client.ts", 3, "Three attempts is low for uploads; take it from config."),
+        reviewComment("r2", "src/net/retry.ts", 5, "Back off between attempts instead of retrying at once."),
+      ],
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
+      },
     },
     "collapsed-files": {
       note: "Three files, the first collapsed from its header: the bar stays, its chevron turns.",

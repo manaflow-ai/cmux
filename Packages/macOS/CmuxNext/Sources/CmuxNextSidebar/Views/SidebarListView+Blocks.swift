@@ -231,7 +231,9 @@ extension SidebarListViewComponents {
             drag.docAcceptance = keepingFixed(doc.begin([id.rawValue]))
             self.drag = drag
             setHovered(nil)
+            SidebarEmptyZones.keepPinned(self, drag)
             showDragLayout() // the tile's slot closes on the drag's spring
+            SidebarEmptyZones.begin(self, drag)
         }
         updateDrag(windowPoint: event.locationInWindow)
         return true

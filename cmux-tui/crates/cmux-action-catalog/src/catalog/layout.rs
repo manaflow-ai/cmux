@@ -446,7 +446,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "layout.toggleStripScrollbar",
         group: GROUP,
-        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Toggle Column Scroll Bar"),
+        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Column Scroll Bar"),
         keywords: &["scrollbar", "column", "strip", "visible range", "overview"],
         category: "settings",
         symbol: "scroll",
@@ -589,8 +589,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.openChiefDock",
         group: GROUP,
-        title: t("LayoutActions", "action.home.openChiefDock", "Open Chief Dock"),
-        keywords: &["chief", "dock", "window", "home", "chat", "side", "left", "focus", "open"],
+        title: t("LayoutActions", "action.home.openChiefDock", "Show/Hide Chief"),
+        keywords: &["chief", "dock", "window", "home", "chat", "float", "panel", "show", "hide", "toggle", "focus", "open"],
         default_shortcut: Some(Shortcut { key: "i", modifiers: CMD }),
         category: "window",
         symbol: "sidebar.left",

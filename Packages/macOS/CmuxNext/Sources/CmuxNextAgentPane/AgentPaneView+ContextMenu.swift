@@ -299,7 +299,13 @@ extension AgentPaneView {
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
             open: { [weak self] url in self?.openLink(url) },
-            linkItems: { LinkMenu().linkItems(for: $0) },
+            linkItems: { [weak self] url in
+                // A pull request link's row opens the GitHub page or github.com beside this chat.
+                var menu = LinkMenu()
+                menu.offersGitHubPage = true
+                menu.source = self.flatMap { LinkRouter.shared.sourceTab($0) }
+                return menu.linkItems(for: url)
+            },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             openSession: { [weak self] session, sender in
                 guard let self else { return }

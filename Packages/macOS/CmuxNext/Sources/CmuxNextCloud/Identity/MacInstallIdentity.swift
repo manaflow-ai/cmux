@@ -55,16 +55,10 @@ public actor MacInstallIdentity {
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
+    /// the token is not a JWT with a team (Rust's `identity::claims`).
     public nonisolated static func team(ofToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return nil }
-        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let team = claims["team"] as? String, !team.isEmpty else { return nil }
-        return team
+        struct Claims: Decodable { var team: String? }
+        return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
     /// A valid install token for the signed-in user.

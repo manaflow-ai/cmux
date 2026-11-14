@@ -1,7 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 

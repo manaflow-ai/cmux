@@ -6,8 +6,7 @@
 /// frame; `ui.animationSpeed` "off" and Reduce Motion stop every animation.
 public nonisolated struct PaneAnimationsSetting {
     public nonisolated init() {}
-    public static let configPath = ["ui", "paneAnimations"]
-    public static let fallback = true
+    // The path and default are generated from schemas/settings/source/appearance.json.
 
     /// Absent is on; a value that is not a bool is on plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {

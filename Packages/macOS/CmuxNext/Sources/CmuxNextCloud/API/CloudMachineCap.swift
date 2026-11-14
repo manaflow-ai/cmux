@@ -13,7 +13,7 @@ public import Foundation
 /// free plan has nothing to pause: Upgrade or Run on This Mac. Never another workspace's machine, never a teammate's.
 public nonisolated struct CloudMachineCap: Equatable, Sendable {
     /// One of the person's own machines that counts against the cap.
-    public struct Busy: Equatable, Sendable {
+    public struct Busy: Equatable, Sendable, Codable {
         public var machine: String
         public var name: String
         /// Its last activity, when the server knows it.
@@ -54,48 +54,38 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         self.freePlan = freePlan
     }
 
+    /// The card as cmux-cloud-machine `cap.rs` answers it.
+    private struct Card: Decodable {
+        var busy: [Busy]
+        var freePlan: Bool
+    }
+
     /// The card for an app-server refusal at the cap (`cmux.cloud.quota_exceeded`, upstream `cloud.quota.exceeded`, its
     /// `details.busy`); nil for any other error.
     public static func refusal(_ error: any Error) -> CloudMachineCap? {
-        guard let failure = error as? CloudAppOpFailure,
-              failure.code.hasSuffix("quota_exceeded") || failure.code.hasSuffix("quota.exceeded"),
-              failure.details?["resource"]?.stringValue ?? "active" == "active" else { return nil }
-        return CloudMachineCap(busy: busy(details: failure.details))
+        guard let failure = error as? CloudAppOpFailure else { return nil }
+        struct Request: Encodable { var code: String, details: JSONValue? }
+        struct Reply: Decodable { var cap: Card? }
+        let reply = CloudMachineRules().call("cloud_machine_cap_refusal", Request(code: failure.code, details: failure.details), as: Reply.self)
+        return reply?.cap.map { CloudMachineCap(busy: $0.busy, freePlan: $0.freePlan) }
     }
 
-    /// `details.busy` of a cap refusal: `[{machine, name, last_active_at}]` (epoch ms), in the server's order.
-    public static func busy(details: JSONValue?) -> [Busy] {
-        (details?["busy"]?.arrayValue ?? []).compactMap { entry in
-            guard let id = entry["machine"]?.stringValue, !id.isEmpty else { return nil }
-            let at = entry["last_active_at"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) }
-            return Busy(machine: id, name: entry["name"]?.stringValue?.nonEmpty ?? id, lastActiveAt: at)
-        }
-    }
-
-    /// The card for a refusal the app read itself (its plan gate, the classic link's 402): `user`'s own machines
-    /// (``busy(machines:user:)``) only when pausing one frees what refused the create (`pauseFrees`), else no pause.
-    /// The classic link's machine allowance counts paused machines too (web/services/vms/repository.ts), so there only
-    /// its vCPU and memory pool refusal, which counts running machines alone, offers Pause (cmux#32710).
+    /// The card for a refusal the app read itself (its plan gate, the classic link's 402): `user`'s own live machines,
+    /// newest activity first, only when pausing one frees what refused the create (`pauseFrees`), else no pause.
+    /// The classic link's machine allowance counts paused machines too, so there only its vCPU and memory pool refusal,
+    /// which counts running machines alone, offers Pause (cmux#32710). Never a teammate's machine.
     public static func plan(freePlan: Bool, pauseFrees: Bool, machines: [CloudMachine], user: String?) -> CloudMachineCap {
-        CloudMachineCap(busy: freePlan || !pauseFrees ? [] : busy(machines: machines, user: user), freePlan: freePlan)
-    }
-
-    /// The classic link's card: `user`'s own machines that count against the cap (running or on their way), newest
-    /// activity first. With no user known, none: never a teammate's.
-    public static func busy(machines: [CloudMachine], user: String?) -> [Busy] {
-        guard let user, !user.isEmpty else { return [] }
-        return machines
-            .filter { $0.createdBy == user && $0.status.isLive && $0.pendingChange == nil }
-            .map { machine in
-                let api = machine.idlePause?.lastApiActivityAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
-                return Busy(machine: machine.id, name: machine.title, lastActiveAt: api ?? machine.runningSince)
-            }
-            .sorted { ($0.lastActiveAt ?? .distantPast) > ($1.lastActiveAt ?? .distantPast) }
+        struct Request: Encodable { var freePlan: Bool, pauseFrees: Bool, machines: [CloudMachine], user: String? }
+        let request = Request(freePlan: freePlan, pauseFrees: pauseFrees, machines: machines, user: user)
+        let card = CloudMachineRules().call("cloud_machine_cap_plan", request, as: Card.self)
+        return CloudMachineCap(busy: card?.busy ?? [], freePlan: freePlan)
     }
 
     /// The machine a create's answer paused to make room (`made_room.machine`), nil when it paused none.
     public static func madeRoom(_ answer: JSONValue) -> JSONValue? {
-        answer["made_room"]?["machine"]
+        struct Request: Encodable { var answer: JSONValue }
+        struct Reply: Decodable { var machine: JSONValue? }
+        return CloudMachineRules().call("cloud_machine_cap_made_room", Request(answer: answer), as: Reply.self)?.machine ?? nil
     }
 
     /// A create at the cap. Runs `create(false)`; when `person` started it and `cap` reads a cap refusal from its

@@ -183,6 +183,25 @@ pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
     verified_prompt_text(meta, cfg).is_some()
 }
 
+/// What a remote viewer (a WebSocket or peer link) gets: harness-reported counts, never cmux-owned
+/// prompt text, the saved override contents or this machine's paths (a memory file keeps only its file name).
+pub fn redact_for_remote(inventory: &mut ContextInventory) {
+    inventory.can_edit_overrides = false;
+    for part in &mut inventory.parts {
+        part.text = None;
+        if part.source == "memory" {
+            let name = Path::new(&part.label).file_name().and_then(|n| n.to_str());
+            part.label = name.unwrap_or("Memory file").to_owned();
+        }
+    }
+    inventory.overrides.project_key.clear();
+    inventory.overrides.cwd.clear();
+    inventory.overrides.default_text = None;
+    inventory.overrides.user = None;
+    inventory.overrides.project = None;
+    inventory.overrides.parts.clear();
+}
+
 /// Build an inventory from the latest harness report and cmux-owned state.
 pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let mut parts = Vec::new();
@@ -434,6 +453,28 @@ mod tests {
         assert_eq!(got.provider_total_tokens, Some(20));
         assert!(got.parts.iter().any(|p| p.source == "harness" && p.tokens == 20 && !p.editable));
         assert!(got.parts.iter().any(|p| p.source == "cmux-user" && p.editable));
+    }
+
+    #[test]
+    fn a_remote_viewer_gets_counts_but_no_local_paths_or_cmux_text() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/Users/me/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        meta.context_breakdown = Some(json!({
+            "categories":[{"id":"memory","name":"Memory files","tokens":30,"kind":"used"}],
+            "memoryFiles":[{"path":"/Users/me/.claude/CLAUDE.md","tokens":30}],
+            "totalTokens":30,"maxTokens":100
+        }));
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut got = inventory(&meta, &cfg);
+        redact_for_remote(&mut got);
+        let memory = got.parts.iter().find(|p| p.source == "memory").expect("memory part");
+        assert_eq!(memory.tokens, 30);
+        assert_eq!(memory.label, "CLAUDE.md");
+        let wire = serde_json::to_string(&got).unwrap();
+        assert!(!wire.contains("/Users/me"), "a local path reached a remote viewer: {wire}");
+        assert!(!wire.contains("read concurrently"), "cmux text reached a remote viewer: {wire}");
+        assert!(!got.can_edit_overrides);
     }
 
     #[test]

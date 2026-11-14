@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import enum CmuxNextLayout.ChatColumnPlacement
 
 // Tab moves out of the pane (split, column, workspace, window), unread
@@ -17,18 +18,18 @@ extension TabHandlers {
     private static func bindLayoutMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("tab.moveToNewSplit", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let edge: PaneEdge = switch invocation["direction"]?.stringValue {
-            case "left": .left
-            case "up": .top
-            case "down": .bottom
-            default: .right
-            }
             let keepFocus = invocation["keepFocus"]?.boolValue == true
             // The chat dock never splits (ChatDockRules): a chat moved out of it to its right, when the
             // dock keeps another tab, gets a new column right after the dock, so a docked chat's
-            // subagents open beside it. A lone docked chat is still refused (the dock would close).
-            if edge == .right, pane.tabs.count > 1, ChatDockRules.isChatDock(pane, services: ctx.services),
-               ChatColumnPlacement.isChat(tab, services: ctx.services), let dock = ctx.services.columnHandle(containing: pane) {
+            // subagents open beside it. Every other split of the dock is refused, a lone docked chat's
+            // too (the dock would close). The decision is Rust's (cmux-window-rules `tabs::move_to_split`).
+            let dock = ctx.services.columnHandle(containing: pane)
+            let facts = WindowRules.MoveToSplitFacts(direction: invocation["direction"]?.stringValue, group: false, tabsInPane: pane.tabs.count,
+                                                     chatDock: ChatDockRules.isChatDock(pane, services: ctx.services),
+                                                     chat: ChatColumnPlacement.isChat(tab, services: ctx.services), dockColumn: dock != nil)
+            guard let move = WindowRules().moveToSplit(facts), move.decision != "refuse" else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
+            let edge = move.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
+            if move.decision == "columnAfterDock", let dock {
                 let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
                 return TabMoves.toNewColumn(tab, anchor: pane, afterColumn: dock, services: ctx.services, keepFocus: keepFocus) { ok in
                     if !ok { ctx.services.restoreDetachedTab(tab.id) }
@@ -208,7 +209,7 @@ extension TabHandlers {
         registry.bindEffect("palette.copyIdentifiers", requires: nil, effect: { invocation in
             guard let (tab, pane) = context.daemonTab(invocation) else { return .done }
             let workspace = context.services.daemon(for: pane).store.workspace(containing: pane.handle)
-            copy(((workspace.map { ["workspace_id=\(publicID($0))"] } ?? []) + ["pane_id=\(pane.id)", "surface_id=\(tab.id)"]).joined(separator: "\n"))
+            if let text = WindowRules().identifiersText(workspace: workspace.map(publicID), pane: pane.id, surface: tab.id) { copy(text) }
             return .done
         })
     }
@@ -216,12 +217,9 @@ extension TabHandlers {
     /// The id `cmux … --workspace` and `--target workspace:` accept: the resource id on registry daemons.
     private static func publicID(_ workspace: WorkspaceModel) -> String { workspace.resourceID?.rawValue ?? workspace.id }
 
-    /// One block per workspace, a blank line between them; with `refs`, each block leads with its `--target` form.
+    /// One block per workspace, a blank line between them; with `refs`, each block leads with its
+    /// `--target` form (Rust's `tabs::workspace_id_text`).
     private static func workspaceIDText(_ workspaces: [WorkspaceModel], refs: Bool) -> String {
-        workspaces.map { workspace in
-            let id = publicID(workspace)
-            return ((refs ? ["workspace_ref=\(ActionTargetRef(kind: .workspace, id: id))"] : []) + ["workspace_id=\(id)"]).joined(separator: "\n")
-        }
-        .joined(separator: "\n\n")
+        WindowRules().workspaceIDText(workspaces.map(publicID), refs: refs) ?? ""
     }
 }

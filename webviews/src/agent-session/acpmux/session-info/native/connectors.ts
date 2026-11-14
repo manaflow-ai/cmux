@@ -3,6 +3,7 @@
 import type { AcpmuxSnapshot } from "../../model";
 import type { Translate } from "../../i18n";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { summarizeConnectors } from "../connectorState";
 import { imessageError, type IMessageView } from "../imessage";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
@@ -34,7 +35,7 @@ export function connectorsSection(
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
   if (servers.length === 0 && !input.imessage) return undefined;
-  const reconnect = servers.filter((server) => server.status === "failed").length;
+  const summary = summarizeConnectors(servers);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -163,17 +164,18 @@ export function connectorsSection(
     group: "about",
     title: t("rail.connectors"),
     symbol: CONNECTORS_SYMBOL,
-    // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+    // The harness inventory, not provider auth: a loaded MCP server is not proof its account is
+    // usable, so it never reads as a green connected count (connectorState.ts).
     meta:
-      reconnect > 0
-        ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-        : servers.length === 0 && imessage && imessage.data.status !== "connected"
-          ? t("imessage.connect")
-          : t("rail.connected", {
-              count:
-                servers.filter((server) => server.status === "connected").length +
-                (servers.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-            }),
+      servers.length === 0 && imessage
+        ? imessage.data.status === "connected"
+          ? t("rail.connected", { count: 1 })
+          : t("imessage.connect")
+        : summary.kind === "reconnect"
+          ? t("sessionInfo.connectors.reconnect", { count: summary.count })
+          : summary.kind === "connecting"
+            ? t("sessionInfo.connectors.connecting", { count: summary.count })
+            : t("sessionInfo.connectors.loaded", { count: summary.count }),
     open: input.open,
     foldable: true,
     reorderable: true,

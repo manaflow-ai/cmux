@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import CmuxNextTestSupport
 import Foundation

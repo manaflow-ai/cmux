@@ -261,6 +261,9 @@ final class GroupLineView: NSView {
             layer?.maskedCorners = SidebarGroupLine.barCorners(open: false, flipped: true)
             railShape.path = nil
             rim.frame = bounds
+            // The rim lights the block's top and corners only: down a tall group's sides it read as a hard edge (Leo
+            // 2026-11-07: "we want to make sure probably that we don't have this right edge going on ... for the groupings").
+            rim.fadeDepth = SidebarDensityTokens.rowHeight
             light.frame = bounds
             light.locations = [0, NSNumber(value: Double(min(1, 2 * SidebarDensityTokens.rowHeight / max(bounds.height, 1)))), 1]
             return

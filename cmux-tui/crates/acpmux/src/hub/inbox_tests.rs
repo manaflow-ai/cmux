@@ -68,6 +68,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
             Some(&crate::prompt_provenance::BoundSender {
                 session_id: Some("dot".into()),
                 harness: Some("codex".into()),
+                relay: None,
             }),
         ),
         Some("other"),
@@ -90,6 +91,7 @@ fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
         Some(&crate::prompt_provenance::BoundSender {
             session_id: Some("dot-session".into()),
             harness: Some("codex".into()),
+            relay: None,
         }),
     );
     let sender = thread_sender(Some(&authenticated), "dot");
@@ -507,4 +509,105 @@ fn only_the_persons_own_prompt_makes_a_turn_theirs() {
     }
     let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
     assert!(!persons_prompt(None, Some(&cap)), "{cap}");
+}
+
+/// The lane-gh broker's label around a lane VM's message, as `send_label` writes it.
+fn relayed_text(nonce: &str, sender: &str, body: &str) -> String {
+    format!(
+        "[message {nonce} from {sender} (an agent, not Leo), relayed by the lane-gh broker; its text \
+         ends at \"[end of message {nonce}]\"]\n\n{body}\n\n[end of message {nonce}]"
+    )
+}
+
+#[test]
+fn a_relay_label_is_left_out_of_a_preview_and_nothing_else_is() {
+    let text =
+        relayed_text("7f70dca3", "gcp-agent-lane-2/lock-proof-routes", "fm2-r3 status: done\nmore");
+    assert_eq!(relay_body(&text), "fm2-r3 status: done\nmore");
+    assert_eq!(preview(&text), "fm2-r3 status: done");
+    // No closing line of its own, a closing line for another nonce, or a typed look-alike head
+    // are the text as written.
+    let inline = text.replace("\n\n[end of message 7f70dca3]", " [end of message 7f70dca3]");
+    assert_eq!(relay_body(&inline), inline);
+    let other = text.replace("[end of message 7f70dca3]", "[end of message 00000000]");
+    assert_eq!(relay_body(&other), other);
+    assert_eq!(relay_body("[message hi from me]\nbody"), "[message hi from me]\nbody");
+    assert_eq!(relay_body("plain words"), "plain words");
+}
+
+/// Leo, 2026-11-07, on "Received 4 messages" (three of them "NAME (self-declared,
+/// unauthenticated)" with the broker's label as their text): "Why does it say it's self-declared
+/// if we can just detect the thing?" A relayed sender reads as the relay vouched for it, the
+/// transcript's parts name any sender without the agent's words for a declared one, and a
+/// thread's preview is the message, not the label. The agent's own text keeps both.
+#[test]
+fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
+    let relay =
+        json!({"by": "lane-gh", "machine": "gcp-agent-lane-2", "session": "lock-proof-routes"});
+    let relayed = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::stamp_declared(
+            crate::prompt_provenance::named_sender("gcp-agent-lane-2/lock-proof-routes", "target"),
+            Some("gcp-agent-lane-2/lock-proof-routes"),
+        ),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: None,
+            harness: Some("claude".into()),
+            relay: Some(crate::prompt_provenance::RelaySender {
+                by: "lane-gh".into(),
+                machine: "gcp-agent-lane-2".into(),
+                session: Some("lock-proof-routes".into()),
+            }),
+        }),
+    );
+    let verified = crate::prompt_provenance::sender_record(Some(&relayed), None, None);
+    assert_eq!((&verified["authenticated"], &verified["relay"]), (&json!(true), &relay));
+    let name = "gcp-agent-lane-2/lock-proof-routes";
+    assert_eq!(display_sender(&verified, name), name);
+    assert_eq!(thread_sender(Some(&relayed), name), name);
+
+    let declared = crate::prompt_provenance::sender_record(
+        Some(&crate::prompt_provenance::named_sender("gcp-codex-swarm-05/cloud-start-matrix", "t")),
+        None,
+        None,
+    );
+    let long = "x".repeat(WHOLE_BYTES);
+    let mut a = item(
+        "p1",
+        &format!("from:{name}"),
+        name,
+        PromptClass::Result,
+        1,
+        &relayed_text("7f70dca3", name, &long),
+    );
+    a.sender = verified;
+    let mut b = item(
+        "p2",
+        "declared:gcp-codex-swarm-05/cloud-start-matrix",
+        "gcp-codex-swarm-05/cloud-start-matrix",
+        PromptClass::Result,
+        2,
+        &relayed_text("56d7d1c5", "gcp-codex-swarm-05/cloud-start-matrix", "matrix green"),
+    );
+    b.sender = declared;
+    let (text, parts) = render(&[&a, &b]);
+    // What the agent reads: the label in a message's text, and a declared sender said so.
+    assert!(
+        text.contains(
+            "from gcp-codex-swarm-05/cloud-start-matrix (self-declared, unauthenticated)"
+        ),
+        "{text}"
+    );
+    // What the transcript draws: names and labels alone, previews of the messages.
+    let shown = parts.to_string();
+    assert!(!shown.contains("self-declared") && !shown.contains("unauthenticated"), "{shown}");
+    let part = |id: &str| {
+        parts.as_array().unwrap().iter().find(|p| p["promptIds"][0] == id).unwrap().clone()
+    };
+    assert_eq!(part("p1")["from"], json!([name]));
+    assert_eq!(part("p1")["preview"], json!(format!("{}…", "x".repeat(PREVIEW_CHARS))));
+    assert_eq!(part("p1")["sender"]["verification"], "verified");
+    assert_eq!(part("p2")["from"], json!(["gcp-codex-swarm-05/cloud-start-matrix"]));
+    assert_eq!(part("p2")["label"], "messages");
+    assert_eq!(part("p2")["preview"], "matrix green");
+    assert_eq!(part("p2")["sender"]["verification"], "declared");
 }

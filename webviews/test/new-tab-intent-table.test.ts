@@ -7,7 +7,6 @@ import { expect, test } from "bun:test";
 import table from "./fixtures/new-tab-intents.json";
 import { classifyNewTabInput, type NewTabIntent } from "../src/agent-session/acpmux/newTabIntent";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
-import { omniboxAction } from "../src/agent-session/acpmux/omniboxAction";
 import {
   defaultSelection,
   isAddress,
@@ -47,7 +46,6 @@ test("a pairing link offers no web search, no Ask and no address", () => {
   // Not even New chat or New browser tab: both would carry the field's text.
   expect(list).toEqual([]);
   expect(isAddress(link)).toBe(false);
-  expect(omniboxAction(link)).toEqual({ kind: "none" });
   expect(pairingLinkRefused(link)).toBe(true);
   expect(pairingLinkRefused(`please open ${link}`)).toBe(true);
   expect(pairingLinkRefused("github.com")).toBe(false);

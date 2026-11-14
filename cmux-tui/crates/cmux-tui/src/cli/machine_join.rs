@@ -1349,7 +1349,9 @@ fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Valu
     let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
     let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
     let now = now_ms();
-    Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
+    let rows = entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect();
+    // A machine `cmux device remove` removed leaves the list; one only revoked stays, as revoked.
+    Ok(crate::devices::removed::without(rows, &crate::devices::removed::ids()))
 }
 
 /// The cmux credential `cmux device …` signs in with: `--cloud-token-stdin`, else

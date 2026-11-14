@@ -287,7 +287,7 @@ public final class AcpmuxHub {
         // Mac app decides. The peer counts only a one-time allow from this phone, as the Mac's own signer
         // checks first (`signPeerAllow`): anything else is refused here, before the key is asked.
         let peer = personInstance.map { instance != $0 } ?? false
-        if peer, kind != "allow_once" { throw PeerAllowOnceOnly() }
+        if peer, !Self.peerMayAllow(pending["request"], optionID: optionID) { throw PeerAllowOnceOnly() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
         // What is approved: the chosen answers, or the Mac's own title (review M1, L3).
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
@@ -308,6 +308,19 @@ public final class AcpmuxHub {
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
             expiresAt: expiresAt, answers: answers)
         return payload.meta(signature: try sign(payload.message))
+    }
+
+    /// Whether a peer could count this phone's signature for `optionID` (acpmux `mac_approvers::may_allow`): the
+    /// option offered once, as a one-time allow, of a prompt that is not a plan or a mode switch (each widens
+    /// what runs). The peer still checks the rest; this only keeps the phone from asking for a signature that
+    /// can never count.
+    nonisolated static func peerMayAllow(_ request: JSONValue?, optionID: String) -> Bool {
+        let offered = (request?["options"]?.arrayValue ?? []).filter { $0["optionId"]?.stringValue == optionID }
+        guard offered.count == 1, offered.first?["kind"]?.stringValue == "allow_once" else { return false }
+        let tool = request?["toolCall"]
+        let widens = tool?["kind"]?.stringValue == "switch_mode"
+            || tool?["_meta"]?["claude"]?["tool"]?.stringValue == "ExitPlanMode"
+        return !widens
     }
 
     /// The approval reason of an answer: the labels (and free text) chosen, so

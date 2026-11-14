@@ -27,8 +27,6 @@ public nonisolated struct ChiefReactionSettings: Sendable, Hashable {
     /// Claude Haiku, the compactor's model too (Lawrence 2026-10-21: "use claude haiku as the cheap model by default").
     public static let defaultModel = "claude-haiku-5-5"
     public static let fallback = ChiefReactionSettings()
-    /// Every key, for the agent policy (a Chief may configure its own reactions).
-    public static let keys: Set<String> = Set([canWakePath, harnessPath, modelPath, promptPath].map { $0.joined(separator: ".") })
 
     /// The values in `root`; a value of the wrong type is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (ChiefReactionSettings, [SettingsDiagnostic]) {

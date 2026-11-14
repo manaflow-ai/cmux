@@ -6,7 +6,7 @@
 import pendingHtml from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-with-html-preview.json";
 import pendingPreview from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-with-preview.json";
 import { componentEntry } from "../../../gallery/format";
-import { HtmlPreviewLookContext, type HtmlPreviewLook } from "./HtmlPreview";
+import { HtmlPreviewLookContext, type HtmlPreviewLook } from "./htmlPreviewModel";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
 

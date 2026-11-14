@@ -156,7 +156,9 @@ pub fn plan(request: &Request) -> Plan {
     plan.first_sight = first_sight;
     if let Some(until) = snooze {
         plan.due.clear();
-        plan.next_check = Some(plan.next_check.map_or(until, |next| next.max(until)));
+        // Never sooner than a minute, also when the snooze ends sooner and nothing else is pending.
+        let floor = request.now + MINIMUM_RECHECK;
+        plan.next_check = Some(plan.next_check.map_or(until, |next| next.max(until)).max(floor));
         plan.snoozed = true;
     }
     plan

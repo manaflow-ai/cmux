@@ -42,7 +42,7 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
-    /// Whether a grid report waits: held for a spring's landing, or in the coalescer's 25 ms window.
+    /// Whether a grid report waits: held for a spring's landing, or in the coalescer's window (to the next refresh).
     var isGridReportPending: Bool { geometry.held || gridReports.isWaiting }
 
     /// Hidden, closed or detached from its session: the grid that waits in the coalescer's window goes nowhere. Only if
@@ -84,7 +84,7 @@ public final class TerminalSurfaceView: NSView {
         (superview as? TerminalHostView)?.releaseSurfaceHold()
         if isHeldGridPending { updateSurfaceSize() }
         resendShownGrid(atRest: true)
-        // A key resize's last grid goes at its landing, not up to 25 ms later.
+        // A key resize's last grid goes at its landing, not at the next refresh.
         gridReports.flush()
     }
 
@@ -505,7 +505,7 @@ public final class TerminalSurfaceView: NSView {
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) and a drag (its release's spring too, cmux-ad m29) are live instead: their
-        // grids go coalesced (``TerminalGridReporter``), at most once per 25 ms and the newest, ending at the landing's.
+        // grids go coalesced (``TerminalGridReporter``), at most once per refresh (the first at once, RESIZE P0 7), ending at the landing's.
         let followsKeyHold = (superview as? TerminalHostView)?.surfaceFollowsArea ?? false
         let live = followsKeyHold || isFollowingResizeGesture
         // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane

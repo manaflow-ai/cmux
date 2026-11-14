@@ -3,7 +3,7 @@
 // white rounded ring round the queued prompt being edited, and a blue ring that kept appearing).
 //
 // - The composer box and the New Tab box: at rest one device pixel in the composer edge (18% text);
-//   focused, the same one device pixel a step brighter (28% text). No wider line, no extra shadow,
+//   focused, the same one device pixel a step brighter (22% text). No wider line, no extra shadow,
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
@@ -24,7 +24,7 @@ type Inset = { spread: number; alpha: number };
 await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   /** The composer edge's alpha over the harness's transparent page, at rest and focused. */
   const REST = 0.18;
-  const FOCUSED = 0.28;
+  const FOCUSED = 0.22;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();

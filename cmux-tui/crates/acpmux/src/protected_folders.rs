@@ -15,6 +15,7 @@ const PROTECTED_FOLDERS_JSON: &str = include_str!("../data/protected-folders.jso
 #[derive(serde::Deserialize)]
 struct ProtectedEntry {
     path: String,
+    kind: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -38,6 +39,23 @@ fn protected_list() -> Option<&'static ProtectedList> {
         }
     })
     .as_ref()
+}
+
+/// A known privacy-protected location, without the broader startup refusal for `/` or home.
+/// This is a hint for an OS-denied read, not proof that TCC caused the denial.
+pub fn protected_kind_in(path: &Path, home: Option<&Path>) -> Option<&'static str> {
+    let list = protected_list()?;
+    let path = fold(path);
+    let under = |root: &str| path == root || path.starts_with(&format!("{root}/"));
+    for entry in &list.roots {
+        if under(&entry.path.to_lowercase()) {
+            return Some(&entry.kind);
+        }
+    }
+    let home = fold(home?);
+    list.in_home.iter().find_map(|entry| {
+        under(&format!("{home}/{}", entry.path.to_lowercase())).then_some(entry.kind.as_str())
+    })
 }
 
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.

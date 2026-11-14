@@ -45,9 +45,11 @@ rust_root="$repo_root/cmux-next-ios/rust"
 # change to them (a --working-tree fleet build), so a stale build is never reused.
 # cmux-mobile-host links the remote-desktop crates through cmux-mobile-link;
 # include those path trees or an rd-only edit could reuse stale host bytes.
+# cmux-wg's smoltcp is the vendored copy ([patch.crates-io]), so its tree is one too.
 inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transport
   cmux-tui/crates/cmux-rd-proto cmux-tui/crates/cmux-rd-core
-  cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-ffi cmux-tui/Cargo.toml)
+  cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-ffi cmux-tui/Cargo.toml
+  cmux-tui/vendor/smoltcp)
 key_material=""
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'

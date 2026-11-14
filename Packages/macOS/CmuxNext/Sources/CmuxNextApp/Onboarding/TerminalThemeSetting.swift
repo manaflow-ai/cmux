@@ -17,7 +17,7 @@ import Observation
 /// pictures here, the one place both are applied.
 @MainActor
 final class TerminalThemeSetting {
-    static let path = AppThemeSetting().configPath
+    static let path = AppThemeSetting.configPath
     static let fontSizePath = TerminalFontSetting().sizePath
 
     private struct State: Equatable {

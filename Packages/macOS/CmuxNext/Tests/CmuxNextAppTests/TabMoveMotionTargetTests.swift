@@ -65,7 +65,7 @@ struct TabMoveMotionTargetTests {
     /// A strip of `count` tabs in a window on a screen, with Reduce Motion off; `change` edits the model's tabs and the
     /// strip syncs, as the App's model echo does. Records every tab still shown after the change: its x before the
     /// change (frame 0), then at the move's begin plus k/120 s to its end and one frame past it, then its rest after one
-    /// more layout pass. A close moves on `ui.animations.newTab` (on by default): the rig turns it on.
+    /// more layout pass. A close moves on `Motion.tabs` alone, an open on `ui.animations.newTab` too (on by default): the rig turns it on.
     static func trace(count: Int, _ change: (inout [TabItem]) -> Void) throws -> MotionTargetTrace {
         let tabs = Self.ids(count).enumerated().map { TabItem(id: $0.element, title: "Tab \($0.offset)") }
         let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)

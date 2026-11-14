@@ -2,6 +2,7 @@
 @testable import CmuxNextChiefPetWiring
 import CmuxNextFloating
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import Foundation

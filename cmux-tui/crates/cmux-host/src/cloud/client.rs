@@ -50,6 +50,20 @@ pub trait Http {
         Err("continuous Cloud transport unavailable".into())
     }
 
+    /// [`Http::request_with_deadline`] with the response's `Retry-After`.
+    /// A transport without headers answers none.
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.request_with_deadline(url, body, bearer, deadline).map(|(status, bytes)| {
+            cmux_server::cloud_http::Response { status, retry_after: None, bytes }
+        })
+    }
+
     /// Optional for POST-only test transports; production implements both methods.
     fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("GET is not supported by this transport".to_owned())
@@ -474,6 +488,26 @@ impl<H: Http> CloudClient<H> {
             return Err("bounded Cloud response unavailable".into());
         }
         Ok(result)
+    }
+
+    /// [`Self::request_until`] with the response's `Retry-After`: the same
+    /// origin check and size bound.
+    pub(super) fn request_with_headers(
+        &self,
+        path: &str,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+            return Err("bounded Cloud request unavailable".into());
+        }
+        let response = self
+            .http
+            .request_with_headers(&self.url(path), None, None, deadline)
+            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
+        if response.bytes.len() > 1024 * 1024 || deadline.remaining().is_none() {
+            return Err("bounded Cloud response unavailable".into());
+        }
+        Ok(response)
     }
 
     pub(super) fn install_public_jwk(&self) -> Value {

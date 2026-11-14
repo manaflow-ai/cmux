@@ -49,6 +49,7 @@ pub(super) fn tool() -> Value {
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
                 "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as acpmux send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
                 "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
@@ -63,6 +64,7 @@ pub(super) fn tool() -> Value {
                             "tag": {"type": "string"},
                             "text": {"type": "string"},
                             "file": {"type": "string"},
+                            "attach": {"type": "array", "items": {"type": "string"}},
                             "steer": {"type": "boolean"},
                             "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
                             "pr": {"type": "integer"},
@@ -145,6 +147,8 @@ pub(super) struct Item {
     pub tag: Option<String>,
     pub text: Option<String>,
     pub file: Option<String>,
+    /// Files sent with the message (`acpmux send --attach`): absolute paths.
+    pub attach: Vec<std::path::PathBuf>,
     pub steer: bool,
     pub class: Option<String>,
     pub pr: Option<u64>,
@@ -236,6 +240,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
         tag: arg(who, "tag").map(str::to_owned),
         text: body.get("text").and_then(Value::as_str).map(str::to_owned),
         file: arg(body, "file").map(str::to_owned),
+        attach: attach_arg(field("attach"))?,
         steer: field("steer").and_then(Value::as_bool).unwrap_or(true),
         class: send_class(&class_of)?,
         pr: field("pr").and_then(Value::as_u64),
@@ -263,6 +268,18 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
         (None, None) => Err("text (or file) is required".to_owned()),
         _ => Ok(item),
     }
+}
+
+/// `attach`: absolute file paths, or none.
+fn attach_arg(raw: Option<&Value>) -> Result<Vec<std::path::PathBuf>, String> {
+    let Some(raw) = raw.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let refused = || "attach must be a list of absolute file paths".to_owned();
+    raw.as_array()
+        .ok_or_else(refused)?
+        .iter()
+        .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
+        .collect::<Option<_>>()
+        .ok_or_else(refused)
 }
 
 /// Where an item's pair of fields (to or tag, text or file) comes from: the item when it gives
@@ -720,9 +737,14 @@ const RELAY_WAIT: Duration = Duration::from_secs(45);
 /// carries text only). The relay's sender is the session this tool runs for, and the send is a
 /// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
 /// what's expected. Just do the magic."
-async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
+    }
+    // The relay carries text alone: a send with files is refused, never sent without them.
+    if !target.item.attach.is_empty() {
+        let why = "no session here or on a peer, and the send relay carries no attachments";
+        return Some(target.row(false, "failed", Some(format!("{why}: {e:#}"))));
     }
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
@@ -787,6 +809,19 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
             &|line| eprintln!("{line}"),
         )
         .await?;
+    }
+    // Any size and number, as `acpmux send --attach`: inline when they fit, else uploaded to the
+    // chat first and named by reference (`attach.rs`).
+    if !target.item.attach.is_empty() {
+        let blocks = crate::attach::blocks_for(
+            daemon,
+            &target.key,
+            &target.text,
+            &target.item.attach,
+            &|line| eprintln!("{line}"),
+        )
+        .await?;
+        prompt.attachments.extend(blocks);
     }
     let request = prompt.params(&target.key, &target.text, target.item.steer, None);
     let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
@@ -871,8 +906,8 @@ fn sent_line(row: &Value) -> String {
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
+delivering it, retrying while the target is slow or its peer is down. Do not send it again; \
+send_status with this deliveryId says where it is."
             );
         }
     };

@@ -10,6 +10,7 @@ import {
   type ListResult,
   type NewsLayout,
   type SheetLayout,
+  type SheetLinks,
   type ReleaseNotes,
 } from "./types";
 
@@ -72,6 +73,12 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+export function parseSheetLinks(hash: string): SheetLinks {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const prs = new URLSearchParams(query).get("prs");
+  return prs === "end" || prs === "row" ? prs : "hover";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */

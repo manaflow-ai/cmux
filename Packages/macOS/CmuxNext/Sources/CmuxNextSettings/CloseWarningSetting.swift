@@ -4,19 +4,10 @@
 /// question and its own toggle. Both are on when unset or invalid; the
 /// question's "Don't ask again" turns its toggle off.
 nonisolated extension CmuxConfigSnapshot {
-    public static let warnBeforeClosingTabPath = ["app", "warnBeforeClosingTab"]
-    public static let warnBeforeClosingAgentSessionPath = ["app", "warnBeforeClosingAgentSession"]
-    /// Both warnings when unset or invalid.
-    public static let closeWarningFallback = true
-
     /// `app.warnBeforeClosingTab`.
-    public var warnBeforeClosingTab: Bool { closeWarning(Self.warnBeforeClosingTabPath) }
+    public var warnBeforeClosingTab: Bool { root.value(at: Self.warnBeforeClosingTabPath)?.boolValue ?? Self.warnBeforeClosingTabDefault }
     /// `app.warnBeforeClosingAgentSession`.
-    public var warnBeforeClosingAgentSession: Bool { closeWarning(Self.warnBeforeClosingAgentSessionPath) }
-
-    private func closeWarning(_ path: [String]) -> Bool {
-        root.value(at: path)?.boolValue ?? Self.closeWarningFallback
-    }
+    public var warnBeforeClosingAgentSession: Bool { root.value(at: Self.warnBeforeClosingAgentSessionPath)?.boolValue ?? Self.warnBeforeClosingAgentSessionDefault }
 
     /// One diagnostic per close warning key set to something other than a bool.
     static func closeWarningDiagnostics(_ root: JSONValue) -> [SettingsDiagnostic] {

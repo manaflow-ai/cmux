@@ -398,8 +398,8 @@ bool cmux_motion_tween_base(uint8_t token, CmuxMotionTween *out);
 
 /*
  Seconds of tween token `token` under `policy`: 0 under speed off,
- Reduce Motion, or with the token's kind switched off (tabOpen and
- tabClose follow newTab); 0 for an unknown token.
+ Reduce Motion, or with the token's kind switched off (tabOpen follows
+ newTab); 0 for an unknown token.
  */
 double cmux_motion_tween_seconds(uint8_t token, CmuxMotionPolicy policy);
 

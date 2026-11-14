@@ -2263,11 +2263,12 @@ jobs:
             # The files are independent reads, each to its own name: 8 at once.
             # A name is read once: the legacy mux/ manifest also lists its
             # checksums file, and two reads of one name would race on the
-            # same file and its .partial.
-            local -A seen=()
+            # same file and its .partial. A string, not an associative array: macOS
+            # runners have Bash 3.2, which has no associative arrays.
+            local seen=" "
             for name in $checksums $names; do
-              [[ "$name" == manifest.json || -n "${seen[$name]:-}" ]] && continue
-              seen[$name]=1
+              [[ "$name" == manifest.json || "$seen" == *" $name "* ]] && continue
+              seen="$seen$name "
               pool_run fetch_published "$name"
             done
             pool_wait
@@ -2465,7 +2466,7 @@ jobs:
           publish_prefix "$legacy_assets" "mux/$GITHUB_SHA" "public, max-age=31536000, immutable" true &
           side_pids+=("$!")
           side_status=0
-          for pid in "${side_pids[@]}"; do
+          for pid in ${side_pids[@]+"${side_pids[@]}"}; do
             wait "$pid" || side_status=$?
           done
           [[ "$side_status" == 0 ]] || exit "$side_status"
@@ -2747,7 +2748,7 @@ jobs:
               --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi
           status=0
-          for pid in "${pids[@]}"; do
+          for pid in ${pids[@]+"${pids[@]}"}; do
             wait "$pid" || status=$?
           done
           exit "$status"
@@ -3198,6 +3199,8 @@ jobs:
           # Each companion of one commit prefix at once (they were read one
           # after another: 1.6 min a key in run 40804446248). Every read is
           # waited on, and the step fails on the first one that failed.
+          # `${pids[@]+...}`: macOS bash 3.2 under `set -u` calls an empty array
+          # unbound (tooling-tests on a Mac runner, cmux#37927).
           fetch_each() {
             local prefix="$1" asset pid status=0
             shift
@@ -3206,7 +3209,7 @@ jobs:
               fetch "$prefix/$asset" "assets/tree/$asset" &
               pids+=("$!")
             done
-            for pid in "${pids[@]}"; do
+            for pid in ${pids[@]+"${pids[@]}"}; do
               wait "$pid" || status=$?
             done
             return "$status"
@@ -3343,9 +3346,9 @@ jobs:
             --source-commit "$source_commit" \
             --assets-dir assets/tree \
             --manifest-file manifest.json \
-            "${source_args[@]}" \
-            "${windows_args[@]}" \
-            "${completion_args[@]}" \
+            ${source_args[@]+"${source_args[@]}"} \
+            ${windows_args[@]+"${windows_args[@]}"} \
+            ${completion_args[@]+"${completion_args[@]}"} \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
@@ -3453,7 +3456,7 @@ jobs:
             verify_one "$base" "$name" &
             pids+=("$!")
           done
-          for pid in "${pids[@]}"; do
+          for pid in ${pids[@]+"${pids[@]}"}; do
             wait "$pid" || rc=$?
           done
           [[ "$rc" == 0 ]] || exit "$rc"

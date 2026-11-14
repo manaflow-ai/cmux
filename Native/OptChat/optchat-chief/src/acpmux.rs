@@ -113,6 +113,26 @@ pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> 
     (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
 }
 
+/// The mode a Chief turn session takes before each prompt: a codex one's as
+/// [`chief_session_mode`]; a Claude one under approve-all, the Chief's
+/// permission mode (`claude`, `engine::permission_mode`, cmux#37392:
+/// `bypassPermissions` unless the person or `chief engine set --mode`
+/// chose `auto` or `default`). Under `ask`, only Manual (`default`), which a
+/// Manual owner turn runs under (brain/turns.rs); else its own (a turn that
+/// carries another person's text): never wider than that policy.
+pub fn chief_turn_mode<'a>(
+    family: Family,
+    policy: &str,
+    claude: Option<&'a str>,
+) -> Option<&'a str> {
+    match family {
+        // Under approve-all, the Chief's mode; under `ask` (a Manual owner
+        // turn), only Manual, which never widens what `ask` allows.
+        Family::Claude if policy == "approve-all" || claude == Some("default") => claude,
+        _ => chief_session_mode(family, policy),
+    }
+}
+
 impl Family {
     pub fn from_name(family: &str) -> Family {
         match family {

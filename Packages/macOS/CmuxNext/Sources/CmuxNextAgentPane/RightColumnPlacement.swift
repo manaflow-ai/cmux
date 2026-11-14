@@ -135,4 +135,20 @@ public extension RightColumnPlacement.Kind {
     }
 }
 
+public extension TabModel {
+    /// Whether this tab is a page (GitHub, a file, a diff, What's New) or a browser tab, not a
+    /// terminal or a chat: a page beside another pane opens what it links in its own pane
+    /// (``LinkOpenPlacement``), while a terminal or a chat keeps its split, so the place someone
+    /// types never goes behind a tab.
+    /// Internal pages are conversation tabs with a page source (`page-tabs-v1`), so a conversation
+    /// tab counts only by its ``page`` (review of #37573 at bf2ce583).
+    var showsPage: Bool {
+        switch kind {
+        case .browser, .other: true
+        case .conversation: page != nil && agentSession == nil
+        case .pty, .remoteTerminal: false
+        }
+    }
+}
+
 extension RightColumnPlacement.Decision: Sendable where Pane: Sendable {}

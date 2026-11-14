@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -533,7 +534,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.borderless)
         .disabled(sources.isChanging)
         if sources.isChanging {
-            ProgressView().controlSize(.small)
+            CmuxSpinner().controlSize(.small)
         }
         if let error = sources.changeError {
             Text(error)
@@ -814,7 +815,7 @@ struct MacConversationScreen: View {
                     .accessibilityIdentifier("home.conversation.retry")
                 }
             } else {
-                ProgressView().accessibilityIdentifier("home.conversation.loading")
+                CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
         }
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.

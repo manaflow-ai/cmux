@@ -1,5 +1,5 @@
 public import CoreGraphics
-import AppKit
+public import AppKit
 public import Foundation
 public import CmuxNextDesignTokens
 
@@ -82,8 +82,8 @@ extension Metrics {
     /// Its 10 pt compact default is concentric with the 16 pt window across the 6 pt
     /// gutter, and the tabs nested in it keep Helium's 8 pt (it was Helium's 14 pt
     /// content corner, 2026-10-31, which no tab inset 2 pt inside could follow).
-    /// Without a gutter the pane's corners at the window's are
-    /// the window's own, so the two are one outline; a square window
+    /// Without a gutter the pane's corners sit just inside the window's
+    /// lit rim (``windowEdgeInset(_:in:)``), concentric with it; a square window
     /// (fullscreen) gets a square pane, rounding only at real edges. Under a
     /// standard titlebar strip the pane's top corners sit below it, against
     /// the window's straight side, so the pane is square too (the window
@@ -92,10 +92,20 @@ extension Metrics {
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
-        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
+        if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
         // The one outer radius, never rounder than the window's own; fullscreen (square window) keeps it too.
         let radius = cornerRadius
         return windowCornerRadius > 0 ? min(radius, windowCornerRadius) : radius
+    }
+    /// How far the main pane stays inside a window edge it meets: `inset`, and at least the window's
+    /// lit rim (``PaneTabRowRim/height``, the edge highlight the window's glass draws just inside its
+    /// frame) in a titled window that is not fullscreen, so the rim runs unbroken over the main pane
+    /// as it does over the sidebar. Leo 2026-11-07, on a pane that met the window's edge: "the window
+    /// at the edges, it just doesn't show through ... this doesn't look cohesive". A fullscreen or
+    /// borderless window has no rim.
+    public static func windowEdgeInset(_ inset: CGFloat, in window: NSWindow?) -> CGFloat {
+        guard let window, window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return inset }
+        return max(inset, PaneTabRowRim.height)
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the

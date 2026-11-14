@@ -16,6 +16,15 @@ pub use deadline::RequestDeadline;
 mod transport;
 use transport::Transport;
 
+/// A bounded Cloud response: its status, its `Retry-After` (at most 64
+/// bytes, as sent) and its body (at most 1 MiB).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Response {
+    pub status: u16,
+    pub retry_after: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
 pub struct JsonPoster {
     transport: Mutex<Option<Transport>>,
     allow_http: bool,
@@ -30,6 +39,17 @@ static NETWORK: LazyLock<watch::Sender<u64>> = LazyLock::new(|| watch::Sender::n
 /// fails at once, so its caller retries, and every pooled connection is dropped before its next request.
 pub fn network_changed() {
     NETWORK.send_modify(|changes| *changes += 1);
+}
+
+/// How many times the addresses changed so far: an attempt that failed after the count moved failed on the change,
+/// and its retry can go at once.
+pub fn network_changes() -> u64 {
+    *NETWORK.borrow()
+}
+
+/// The count of [`network_changed`] calls, to wait on.
+pub fn network_watch() -> watch::Receiver<u64> {
+    NETWORK.subscribe()
 }
 
 #[cfg(test)]
@@ -90,7 +110,8 @@ impl JsonPoster {
             .map_err(|_| format!("bad method {method}"))?;
         let deadline = RequestDeadline::from_active(Instant::now() + Duration::from_secs(20))
             .ok_or("Cloud request unavailable")?;
-        let (status, bytes) = self.transport_request(verb, url, body, bearer, &deadline)?;
+        let Response { status, bytes, .. } =
+            self.transport_request(verb, url, body, bearer, &deadline)?;
         let parsed =
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
         Ok((status, parsed))
@@ -125,6 +146,18 @@ impl JsonPoster {
         bearer: Option<&str>,
         deadline: &RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
+        self.request_with_deadline_headers(url, body, bearer, deadline)
+            .map(|response| (response.status, response.bytes))
+    }
+
+    /// [`Self::request_with_deadline`], with the response's `Retry-After`.
+    pub fn request_with_deadline_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<Response, String> {
         check_url(url, self.allow_http).map_err(|_| "Cloud request unavailable")?;
         deadline.remaining().ok_or("Cloud request unavailable")?;
         if body.is_none() && bearer.is_some() {
@@ -141,7 +174,7 @@ impl JsonPoster {
         body: Option<&Value>,
         bearer: Option<&str>,
         deadline: &RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
+    ) -> Result<Response, String> {
         // This synchronous owner is serial. Contention cannot queue a request
         // beyond its original budget.
         let mut slot = self.transport.try_lock().map_err(|_| "Cloud transport unavailable")?;

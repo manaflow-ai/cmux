@@ -4,6 +4,20 @@
 use crate::model::*;
 use crate::text::t;
 
+/// What only a Debug build of the app has (its handlers or views are compiled out of Release):
+/// these actions, and these values of an action's enumeration argument (action, argument,
+/// value). A Release build drops them when it loads the catalog.
+pub static DEBUG_BUILD_ONLY_ACTIONS: &[&str] = &[
+    "home.agentMessagePlayground",
+    "home.mcpConnectPlayground",
+    "home.compareTablePlayground",
+    "home.chiefTeleportPlayground",
+];
+
+/// The pane's VNC client is development-only (`RemoteViewAvailability`).
+pub static DEBUG_BUILD_ONLY_CASES: &[(&str, &str, &str)] =
+    &[("cloudOpenDesktop", "viewer", "native")];
+
 /// Ids from before the catalog or renamed since, mapped to the catalog id (users keep them in
 /// cmux.json `shortcuts`).
 #[rustfmt::skip]

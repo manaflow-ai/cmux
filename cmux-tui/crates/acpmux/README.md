@@ -1323,7 +1323,8 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    a direct send did.
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
    `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
-   first. `acpmux session inbox SESSION` ends with the messages that session sent and their
+   first. The `acpmux` MCP server's `send_status` tool is the same for an agent: a `deliveryId`
+   from `send`, or none for the messages its chat sent. `acpmux session inbox SESSION` ends with the messages that session sent and their
    state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 

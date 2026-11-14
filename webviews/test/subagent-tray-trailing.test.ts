@@ -59,7 +59,7 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           row: box(head)!,
           title: box(head.querySelector(".acpmux-running-tray__title"))!,
           time: box(head.querySelector(".acpmux-running-tray__time"))!,
-          chevron: box(head.querySelector(".acpmux-running-tray__status > svg"))!,
+          chevron: box(head.querySelector(".acpmux-running-tray__status svg"))!,
         },
         more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
         lines: [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")].map((line) => ({

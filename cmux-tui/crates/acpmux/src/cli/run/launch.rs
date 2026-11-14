@@ -129,7 +129,8 @@ impl Launch {
         if let Some(to) = &args.report_to {
             parts.push(format!(
                 "You were started by the acpmux session {to}. Report back to it with: \
-                 acpmux send --no-wait {to} '<report>'"
+                 acpmux send --no-wait {to} '<report>'. Hand it an image with \
+                 --attach /abs/path.png, never a provider's file id (libfile_…)."
             ));
         }
         if let Some(w) = created.pointer("/_meta/acpmux/worktree") {

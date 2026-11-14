@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import OSLog
 import SwiftUI
 import UIKit
@@ -102,7 +103,7 @@ struct CopyLogsRow: View {
         } label: {
             HStack {
                 SettingsLabel("Copy Logs", symbol: "doc.on.clipboard", value: copied ? String(localized: "Copied") : nil)
-                if copying { Spacer(); ProgressView() }
+                if copying { Spacer(); CmuxSpinner() }
             }
         }
         .disabled(copying)

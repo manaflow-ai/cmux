@@ -6,10 +6,6 @@ public import CmuxNextLayout
 // round trip (the frame is window view state). A switch of the stage never touches a docked workspace's view: it
 // stays mounted and on screen, so the Chief's draft, scroll position and selection are kept.
 public extension WindowDockFrame {
-    /// How long a link from the Chief may take to show its workspace and still dock the Chief (``ChiefDockLeave``):
-    /// a subagent link may first make its workspace (one daemon round trip).
-    static var chiefDockLinkWindow: Duration { .seconds(10) }
-
     // MARK: Docked workspaces
 
     /// Docks workspace `id` (one this window lists) at `edge` (W1, W2). A workspace the edge held goes back to the
@@ -67,44 +63,6 @@ public extension WindowDockFrame {
     /// Column-major <-> row-major corners (W7).
     func toggleDockOrientation() {
         frameDocks.orientation = frameDocks.orientation == .columnMajor ? .rowMajor : .columnMajor
-        frameDidChange()
-    }
-
-    // MARK: Chief dock
-
-    /// Arms the Chief dock for a link about to open from Home (`home`, the workspace this window shows): the next
-    /// workspace shown goes on the stage with Home docked at `edge` (``dockChiefOnLeave(for:now:)``). Nothing while
-    /// the window shows something else, Home is docked already, or window docks are off.
-    func armChiefDock(home: String, edge: DockEdge, now: ContinuousClock.Instant = ContinuousClock.now) {
-        guard LayoutTunables.dockedWorkspaces.value, frameShownWorkspaceID == home, !frameDocks.isDocked(home) else { return }
-        chiefDockOnLeave = ChiefDockLeave(home: home, edge: edge, until: now.advanced(by: Self.chiefDockLinkWindow))
-    }
-
-    /// A show of `target` is about to replace the shown workspace: when a link from the Chief armed it and Home is
-    /// still the shown workspace, Home docks first, so it stays on screen beside `target` with the same view. Any
-    /// show of another workspace takes the arm, used or not.
-    func dockChiefOnLeave(for target: String, now: ContinuousClock.Instant = ContinuousClock.now) {
-        guard let leave = chiefDockOnLeave, target != leave.home else { return }
-        chiefDockOnLeave = nil
-        guard now < leave.until, LayoutTunables.dockedWorkspaces.value, frameShownWorkspaceID == leave.home,
-              !frameDocks.isDocked(leave.home), !frameDocks.isDocked(target) else { return }
-        let keep = frameDocks.dock(at: leave.edge)
-        frameDocks.dock(leave.home, at: leave.edge, mode: keep?.mode ?? .docked,
-                        extentPermille: keep?.extentPermille ?? WindowDocks.defaultExtentPermille, byLink: true)
-        frameStageWorkspaceID = target
-    }
-
-    /// Open Chief Dock (Cmd-I): Home (`home`, this window's) docks at `edge` unless it is docked already (a hidden
-    /// dock shows again, at its own edge), and takes the focus. The stage keeps the workspace it showed (Home
-    /// itself, when it filled the window, gives the stage the most recent other workspace, or a new one).
-    func openChiefDock(_ home: String, edge: DockEdge) {
-        if frameDocks.isDocked(home) {
-            _ = frameDocks.reveal(home)
-            frameDocks.choose(home) // Cmd-I on a Home a link docked: now the person's choice (cmux#37365).
-        } else {
-            dockWorkspace(home, at: edge)
-        }
-        frameShow(home, thisWindow: true)
         frameDidChange()
     }
 

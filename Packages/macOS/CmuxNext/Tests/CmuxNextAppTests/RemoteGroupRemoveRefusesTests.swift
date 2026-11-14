@@ -13,8 +13,15 @@ import Testing
         return SidebarDocRecords(revision: 1, sections: ["sec_m_mini": section])
     }
 
+    /// A store showing `records` (the reducer plans on the document as shown).
+    private func store(hostGroup: Bool?) -> SidebarDocStore {
+        let store = SidebarDocStore(remote: nil)
+        store.loadProvisional(SidebarDocTestDocument(rows: [], records: records(hostGroup: hostGroup), revision: 1).json)
+        return store
+    }
+
     @Test func aRemoteGroupIsUnmarked() throws {
-        let ops = try RemoteGroupHandlers.removalOps(session: "mini", records: records(hostGroup: true))
+        let ops = try RemoteGroupHandlers.removalOps(session: "mini", store: store(hostGroup: true))
         #expect(ops.count == 1)
         #expect(ops.first?["op"] as? String == "section.update")
     }
@@ -22,7 +29,7 @@ import Testing
     @Test(arguments: [false, nil] as [Bool?])
     func aSectionThatIsNotARemoteGroupIsRefused(_ hostGroup: Bool?) {
         #expect(throws: ActionFailure.self) {
-            try RemoteGroupHandlers.removalOps(session: "mini", records: records(hostGroup: hostGroup))
+            try RemoteGroupHandlers.removalOps(session: "mini", store: store(hostGroup: hostGroup))
         }
     }
 }

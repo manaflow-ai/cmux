@@ -30,13 +30,14 @@ extension CloudStartChat {
 
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
+    /// Its questions show where ``asker`` shows them: the start's card for a composer start, else a dialog in the active window.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true, ask: CloudHarnessLoginAsk = .init()) async -> Bool {
-        let cloud = services.cloud, userID = cloud.auth.user?.id
+        let cloud = services.cloud, userID = cloud.auth.user?.id, asker = self.asker ?? .window(services)
         let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
         let otherTeams = Self.loginScopes(cloud) // the person's cached login under any of their teams, or their personal scope: one per person
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
-        let gate = Self.loginCopyGate(services)
+        let gate = Self.loginCopyGate(services, asker: asker)
         await gate.read(into: &decision)
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
         // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
@@ -69,7 +70,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = Self.loginDeclined; return false }
+                guard provider == .claude, await asker.ask(CloudPresenter.firstLoginAsk(machine: machine.machine.title, services: services)) == CloudPresenter.firstLoginAccept else { decision.outcome = Self.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -77,9 +78,9 @@ extension CloudStartChat {
                 // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
                 if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
                 try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true,
-                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, in: nil) }) { [weak services] prompt in
-                    guard codexPrompt, let window = services?.windows.active?.window else { return false }
-                    return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
+                                                askLocalSignIn: { [services] in await Self.askCodexSignIn(services, mayAsk: codexPrompt, asker: asker) }) { prompt in
+                    guard codexPrompt else { return false }
+                    return await CloudPresenter.codexDeviceCode(prompt, asker: asker)
                 }
             } else {
                 let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,

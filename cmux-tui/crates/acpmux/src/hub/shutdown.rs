@@ -116,9 +116,15 @@ impl Hub {
         let ends_by = now.checked_add(SHUTDOWN_GRACE).unwrap_or(now);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
+        // Fence new sessions and agent starts before draining the notice loop. The drain can take
+        // up to its cache-write deadline; a start admitted in that window would be absent from the
+        // snapshot below and outlive this daemon.
+        let (end_agents, keep) = self.start_shutdown();
+        // The notice loop owns the trailing cache flush; join its bounded exit before the
+        // shutdown budget can tear down the Tokio runtime.
+        self.wait_peer_notice_loop().await;
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let (end_agents, keep) = self.start_shutdown();
         // A start that waits to be tried again ends its wait (`start_retry.rs`).
         self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).

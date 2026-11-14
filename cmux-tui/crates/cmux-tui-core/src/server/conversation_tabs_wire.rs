@@ -141,7 +141,13 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
             })?;
         }
-        Ok(TabSplit { pane, direction, pane_id: self.pane_id, split_id: self.split_id })
+        Ok(TabSplit {
+            pane,
+            direction,
+            pane_id: self.pane_id,
+            split_id: self.split_id,
+            ratio: None,
+        })
     }
 }
 

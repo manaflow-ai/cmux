@@ -22,6 +22,9 @@
             "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesChannelSetting"
+          },
           "choices": [
             {
               "value": "stable",
@@ -179,6 +182,9 @@
             "text": "While downloads wait, a found update shows on Settings and one click downloads it."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesMeteredSetting"
+          },
           "choices": [
             {
               "value": "defer-low-data",
@@ -223,6 +229,9 @@
             "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesWebSetting"
+          },
           "choices": [
             {
               "value": "every-merge",
@@ -307,6 +316,9 @@
             "text": "When an Update Is Ready"
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesNotifySetting"
+          },
           "choices": [
             {
               "value": "badge",

@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDesign
 import Foundation
 import Testing
@@ -97,7 +98,7 @@ struct CloudLivePreviewTests {
     }
 
     @Test func pickerShowsDetectedOriginsAndOpensTheSelectedPort() throws {
-        let spec = CloudHandlers.previewPicker(try inventory(), machineName: "My machine")
+        let spec = CloudPreviewPresentation(try inventory()).picker(machineName: "My machine", cancelTitle: "Cancel")
         let view = CmuxDialogView(spec: spec)
         #expect(view.setValue(.text("3000"), for: "port"))
         #expect(view.values["port"] == .text("3000"))

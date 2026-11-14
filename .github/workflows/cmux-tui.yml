@@ -1168,6 +1168,12 @@ jobs:
         # threads, flaking test_parse_ansi_fg/bg intermittently.
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
+      - name: smoltcp patch tests
+        if: inputs.mode == 'full'
+        working-directory: cmux-tui
+        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it.
+        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
+
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'
         working-directory: cmux-tui

@@ -196,7 +196,7 @@ test("a finished Claude turn of the loop draws the group's line, not 8 rows", ()
   // Claude's in-place arm (claudeTurnFold.experiment.ts; the default folds the turn under "Worked
   // for"): its run draws in place, and that run is the one line.
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
-  const view = turnView(rows, new Set(), { liveRuns: true, agentFamily: "claude" });
+  const view = turnView(rows, new Set(), { agentFamily: "claude" });
   globalThis.cmuxExperiments = undefined;
   expect(view.some((row) => row.kind === "worked")).toBe(false);
   const run = view.find((row) => row.id === "run")!;

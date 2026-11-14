@@ -1,7 +1,8 @@
 import AppKit
 
 /// The pet's reply box: a click on the pet opens it over the pet (in the bubble's place) on the
-/// newest notice, or the Chief when there is none. Return sends the text, or opens a notice
+/// newest notice, or the mini's chat when there is none (the Chief, or the chat Show in Mini
+/// picked, whose newest reply it shows under the field). Return sends the text, or opens a notice
 /// that takes no typed reply; ⌘Return opens the target; a sent reply closes it.
 extension ChiefPetController {
     func toggleReply() {
@@ -14,7 +15,8 @@ extension ChiefPetController {
         guard let panel else { return }
         if let replyPanel, replyPanel.isVisible { return replyPanel.present() }
         let reply = replyPanelOnce()
-        reply.show(targets: ChiefPetReply.targets(feed))
+        reply.show(targets: ChiefPetReply.targets(feed, home: home.target))
+        reply.show(latest: home.latest, of: home.target)
         place(reply, over: panel)
         hideBubble()
         // A child of the pet, as the notices are: a drag moves it with the pet.
@@ -30,7 +32,7 @@ extension ChiefPetController {
 
     private func place(_ reply: ChiefPetReplyPanel, over panel: ChiefPetPanel) {
         guard let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
-        let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
+        let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible, height: reply.preferredHeight)
         if frame != reply.frame { reply.setFrame(frame, display: false) }
     }
 
@@ -67,6 +69,9 @@ extension ChiefPetController {
                 // Not sent: the text stays in the box to try again or open the target.
                 guard sent else { return NSSound.beep() }
                 self.replyPanel?.field.stringValue = ""
+                // To the chat Show in Mini picked the box stays open, for its reply and the next
+                // message (a persistent session you keep typing to); the Chief's and a notice's close.
+                if case .chat = target { return }
                 self.closeReply()
             }
         }
@@ -77,6 +82,7 @@ extension ChiefPetController {
         let made = ChiefPetReplyPanel()
         made.onSubmit = { [weak self] target, text, command in self?.submit(target, text: text, command: command) }
         made.onClose = { [weak self] in self?.closeReply() }
+        made.onResize = { [weak self] in self?.placeReply() }
         replyPanel = made
         return made
     }

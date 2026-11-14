@@ -2,6 +2,7 @@
 import AppKit
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 
 /// A flipped, layer-backed view so layouts share UIKit's top-left origin.
 class MacFlippedView: NSView {
@@ -896,16 +897,13 @@ final class MacTimestampRowView: MacFlippedView {
 }
 
 final class MacSpinnerRowView: MacFlippedView {
-    let spinner = NSProgressIndicator()
+    let spinner = CmuxSpinnerView(side: 16)
     /// ChatKit's load-more row on the Mac too (CKTranscriptHeaderCell
     /// defaultCellHeight 20, under CKUIBehaviorMac).
     static let height: CGFloat = 20
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
         addSubview(spinner)
         spinner.startAnimation(nil)
         setAccessibilityIdentifier("conversation.loadingOlder")

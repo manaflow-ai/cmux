@@ -39,6 +39,7 @@ import {
 } from "./model";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
+import { shownPreview, previewText } from "./questionCardModel";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -638,28 +639,6 @@ function PendingQuestion({
   );
 }
 
-/// The option whose preview shows: the first of `rows` (the hovered row, then the highlighted one)
-/// that has a preview, else the first option with one. The Other row has none.
-export function shownPreview(options: Option[], rows: (number | undefined)[]): Option | undefined {
-  for (const row of rows) {
-    const option = row === undefined ? undefined : options[row];
-    if (option?.preview) return option;
-  }
-  return options.find((option) => option.preview);
-}
-
-/// A preview's text as Claude Code draws it, Markdown in a monospace box: an agent often wraps its
-/// mockup or code in a fence, which the box stands for, so the fence lines go (a fence and its info
-/// string alone on a line, never a line with an inline code span) and the rest keeps every space
-/// and line break (ASCII mockups line up only that way).
-export function previewText(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !/^\s*(`{3,}|~{3,})[^`~]*$/.test(line))
-    .join("\n")
-    .replace(/^\n+|\s+$/g, "");
-}
-
 /// The highlighted (or hovered) option's preview, labelled with its option. In the `inline` layout
 /// it opens under that option's row.
 function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; option: Option; inline: boolean }) {
@@ -832,7 +811,8 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
 }
 
 /// An ask that ended unanswered: the same card, its questions, and in the answer's place how it
-/// ended when the record says (Skipped, or the turn stopped before an answer), else Not answered.
+/// ended when the record says (Skipped, the turn stopped before an answer, or Answered in chat when
+/// the person replied in their own words instead), else Not answered.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
@@ -841,7 +821,9 @@ function CancelledQuestion({ question }: { question: AgentQuestion }) {
       ? "question.outcome.skipped"
       : reason === "stopped"
         ? "question.outcome.stopped"
-        : "question.outcome.none";
+        : reason === "answeredInChat"
+          ? "question.outcome.answeredInChat"
+          : "question.outcome.none";
   return (
     <div className="acpmux-question-cancelled" data-reason={reason}>
       {question.items.map((item) => (

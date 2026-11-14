@@ -14,7 +14,10 @@ export interface VirtualListProps {
   activeIndex?: number;
   /** Changes when the same index names a different result set or active item. */
   activeScrollKey?: string;
-  renderRow(index: number, style: CSSProperties): ReactNode;
+  /** `measure` is set when `measureRows` is on: the row passes it as its `ref`, with `data-index={index}`. */
+  renderRow(index: number, style: CSSProperties, measure?: (element: Element | null) => void): ReactNode;
+  /** Rows size to their content: each is measured once rendered, and `estimateSize` is only the first guess. */
+  measureRows?: boolean;
   className?: string;
   id?: string;
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
@@ -51,6 +54,7 @@ export function VirtualList({
   label,
   overscan = 6,
   scrollParent,
+  measureRows = false,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const space = useRef<HTMLDivElement | null>(null);
@@ -133,14 +137,18 @@ export function VirtualList({
         style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}
       >
         {items.map((item) =>
-          renderRow(item.index, {
-            position: "absolute",
-            top: 0,
-            insetInlineStart: 0,
-            width: "100%",
-            transform: `translateY(${item.start - scrollMargin}px)`,
-            height: item.size,
-          }),
+          renderRow(
+            item.index,
+            {
+              position: "absolute",
+              top: 0,
+              insetInlineStart: 0,
+              width: "100%",
+              transform: `translateY(${item.start - scrollMargin}px)`,
+              ...(measureRows ? {} : { height: item.size }),
+            },
+            measureRows ? virtualizer.measureElement : undefined,
+          ),
         )}
       </div>
     </div>

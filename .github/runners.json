@@ -441,6 +441,7 @@
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
     "iroh-release-gate.yml#tailscale-version-skew": "macos-runtime-tests",
+    "gateway-e2e.yml#mac": "macos-runtime-tests",
     "iroh-v2.yml#client": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"

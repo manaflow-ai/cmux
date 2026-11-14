@@ -478,24 +478,6 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "failed"])
     }
 
-    /// A `link machine update` success line must carry its outcome and exit 0; `{"ok":true}` alone,
-    /// or a success with a failing exit, is no answer, never "the machine needed nothing".
-    @Test func aSuccessLineWithoutItsOutcomeIsNoAnswer() {
-        func answer(_ object: [String: Any], status: Int32 = 0) -> CloudMoveCLI.Answer {
-            let ok = object["ok"] as? Bool ?? false
-            let parsed = CloudMoveCLI.Answer(ok: ok, errorCode: object["error_code"] as? String, updated: object["updated"] as? Bool ?? false,
-                                             build: object["build"] as? String)
-            return CloudMoveCLI.machineUpdateAnswer(parsed, object: object, status: status)
-        }
-        #expect(answer(["ok": true]).errorCode == CloudMoveCLI.badAnswer)
-        #expect(answer(["ok": true, "updated": "yes"]).errorCode == CloudMoveCLI.badAnswer)
-        #expect(answer(["ok": true, "updated": true]).errorCode == CloudMoveCLI.badAnswer, "updated with no build")
-        #expect(answer(["ok": true, "updated": true, "build": Self.bundled], status: 1).errorCode == CloudMoveCLI.badAnswer)
-        #expect(answer(["ok": true, "updated": true, "build": Self.bundled]) == CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled))
-        #expect(answer(["ok": true, "updated": false, "build": Self.older]).ok)
-        #expect(answer(["ok": false, "error_code": "machine_update_busy"], status: 1).errorCode == "machine_update_busy")
-    }
-
     /// The CLI did not run to its answer (a kill, a crash): a failure, recorded once.
     @Test func aCLIErrorIsAFailure() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: [])

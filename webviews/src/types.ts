@@ -18,6 +18,8 @@ export type DiffViewerPayload = {
    * (Native/DiffSidecar/src/protocol.rs): `session.ignoreWhitespace` turns on Hide white space.
    */
   sessionCapabilities?: string[];
+  /** The host sends the saved comments to the chat that owns this diff (`comments.send`). */
+  commentsSend?: boolean;
   [key: string]: any;
 };
 

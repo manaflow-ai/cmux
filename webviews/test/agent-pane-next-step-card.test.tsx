@@ -67,12 +67,14 @@ describe("a tagged ask in the transcript", () => {
     expect(answerText(turnView(turn(ANSWER, "cancelled"), new Set()))).toBe(ANSWER);
   });
 
-  test("another agent's notice after the turn leaves the ask in the prose", () => {
+  // Leo, 2026-11-06: another agent's message answers nothing; the question stays the person's.
+  test("another agent's notice after the turn keeps the card waiting", () => {
     const drawn = turnView(
       [...turn(ANSWER), user("Report from the timer helper", 1, { incoming: { kind: "notice", text: "Timer fixed" } })],
       new Set(),
     );
-    expect(nextSteps(drawn)).toHaveLength(0);
+    expect(nextSteps(drawn)[0]?.nextStep?.ask.question).toBe("Add a hook that pushes them to the background?");
+    expect(nextSteps(drawn)[0]?.nextStep?.answer).toBeUndefined();
   });
 });
 

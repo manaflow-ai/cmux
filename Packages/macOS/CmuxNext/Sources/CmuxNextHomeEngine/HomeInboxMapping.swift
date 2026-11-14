@@ -1,6 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The owner's `home-inbox` rows as the Messages list's rows, field for field: each owned row is the

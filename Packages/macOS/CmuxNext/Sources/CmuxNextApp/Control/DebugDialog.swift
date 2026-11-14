@@ -160,7 +160,8 @@ enum DebugDialog {
     private static func fixtures(origin: String?) -> [String: CmuxDialogSpec] {
         [
             // Inert native auth fixtures: no account, VM, browser, or credentials are accessed.
-            "cloudCodexDevice": CloudPresenter.codexDeviceDialogSpec(code: "DEMO-CODE"),
+            "cloudCodexDevice": AgentPaneCloudAsker.spec(CloudPresenter.codexDeviceAsk(CloudCodexLoginPrompt(
+                verificationURL: URL(string: "https://example.com/device") ?? URL(fileURLWithPath: "/"), userCode: "DEMO-CODE"))),
             "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
             "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
             "confirm": CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],

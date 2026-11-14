@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -160,7 +161,7 @@ final class AgentTabStore {
     /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
     var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
-    let retirer = AgentPageRetirer()
+    let retirer = AgentPageRetirer { BenchSpans.measure($0, $1) }
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -189,12 +190,16 @@ final class AgentTabStore {
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
     /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
     var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
+    /// The Share dialog's op on tab `key`'s own chat (``AgentShareActions/pane(_:tab:host:)``).
+    var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
+    /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).
+    var mini: ChiefPetMini?
     /// A Chief's name and avatar as the sidebar shows them, by participant id (`chief.face`).
     var chiefFace: (@MainActor (String) async -> [String: String])?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
@@ -266,7 +271,7 @@ final class AgentTabStore {
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) } + retirer.keptPages, live: isAgentTab)
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
@@ -416,7 +421,7 @@ final class AgentTabStore {
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.listedElsewhereCode, machine: machine))
             let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
-            (model.remoteChat, model.neverPooled) = (true, true)
+            (model.remoteChat, model.neverPooled, model.miniUnreachable) = (true, true, true)
             guard let view = makeView(model) else { return nil }
             views[key] = view
             track(key, in: store)
@@ -450,6 +455,18 @@ final class AgentTabStore {
             onPageBuilt?(key)
             return spare
         }
+        // Reopen Closed of a chat of this Mac closed a moment ago: its kept page (``AgentPageRetirer``), drawn, with today's settings.
+        if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
+           let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
+            (views[key], kept.customization, kept.shortcuts) = (kept, customization.current, shortcuts)
+            pageSettings.apply(to: kept)
+            customization.start()
+            if let turn = pendingTurns.removeValue(forKey: key) { kept.revealTurn(turn) }
+            wire(kept.model, key: key)
+            track(key, in: store)
+            onPageBuilt?(key)
+            return kept
+        }
         // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
         // spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[key] ?? record.session,
@@ -473,7 +490,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
-        model.onCloudRepositoryLocal = cloudRepositoryLocal
+        (model.onCloudRepositoryLocal, model.miniUnreachable) = (cloudRepositoryLocal, kind != .local) // the mini sends through this Mac's acpmux
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -572,6 +589,7 @@ final class AgentTabStore {
             }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
+        model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional), op, session) }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }

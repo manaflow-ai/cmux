@@ -443,7 +443,7 @@ snapshot test in light and dark at Large and AX3 Dynamic Type.
 | Component | Spec |
 | --- | --- |
 | `GlassCircleButton(symbol:)` | 44 pt, toolbar item where possible; elsewhere `.glassEffect(.regular.interactive(), in: .circle)`. Symbol 17 regular. |
-| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `ProgressView().tint(onAccent)`, width kept. |
+| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `CmuxSpinner(tint: onAccent)` (the shared spinner, on the period every cmux spinner turns at), width kept. |
 | `SecondaryCapsule` | `.buttonStyle(.glass)`, same sizes, `label` text. |
 | `TextCTA` | Plain `label` text button, `cta` font (e.g. "Enter code manually", `chatgpt-11`). |
 | `DestructiveRow` | `danger` text and icon in its own inset group ("Log out"). |

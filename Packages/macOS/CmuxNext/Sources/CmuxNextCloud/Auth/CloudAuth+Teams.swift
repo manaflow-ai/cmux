@@ -59,24 +59,34 @@ extension CloudAuth {
     ///   - teamID: The team.
     /// - Returns: The answer; never throws.
     public func inviteOne(_ email: String, toTeam teamID: String) async -> CloudTeamInviteAnswer {
+        let outcome: (code: String?, alreadyMember: Bool?)
         do {
             let result = try await inviteToTeam(id: teamID, emails: [email])
-            guard let failure = result.failed.first else { return .sent }
-            return failure.isAlreadyMember ? .alreadyMember : .sendFailed
+            outcome = (nil, result.failed.first.map(\.isAlreadyMember))
         } catch CMUXTeamError.forbidden {
-            return .notAllowed
+            outcome = ("forbidden", nil)
         } catch {
-            return .unreachable
+            outcome = ("unavailable", nil)
         }
+        struct Request: Encodable { var error: String?, firstFailureAlreadyMember: Bool? }
+        struct Reply: Decodable { var answer: CloudTeamInviteAnswer }
+        // Rust's `invite_answer`; an FFI that does not answer says cmux.com could not be reached.
+        return CloudStartCore().call("cloud_auth_invite_answer", Request(error: outcome.code, firstFailureAlreadyMember: outcome.alreadyMember),
+                                     as: Reply.self)?.answer ?? .unreachable
     }
 
-    /// What the team's plan says about one more member; nil when the detail cannot be read.
+    /// What the team's plan says about one more member (Rust's `seat_facts`); nil when the detail cannot be read.
     public func seatFacts(teamID: String) async -> CloudTeamSeatFacts? {
         guard let detail = try? await teamDetail(id: teamID) else { return nil }
+        struct Request: Encodable {
+            var inviteMembers: Bool, role: String?, planId: String?, hasActiveSubscription: Bool?
+            var memberCount: Int?, memberLimit: Int?, members: Int
+        }
         let billing = detail.billing
-        return CloudTeamSeatFacts(canInvite: detail.viewer.permissions.inviteMembers || detail.viewer.role == .admin,
-                                  planID: billing?.planId, hasSubscription: billing?.hasActiveSubscription ?? false,
-                                  memberCount: billing?.memberCount ?? detail.members.count, memberLimit: billing?.memberLimit)
+        let request = Request(inviteMembers: detail.viewer.permissions.inviteMembers, role: detail.viewer.role?.rawValue,
+                              planId: billing?.planId, hasActiveSubscription: billing?.hasActiveSubscription,
+                              memberCount: billing?.memberCount, memberLimit: billing?.memberLimit, members: detail.members.count)
+        return CloudStartCore().call("cloud_auth_seat_facts", request, as: CloudTeamSeatFacts.self)
     }
 
     private static func teamErrors<T>(_ work: () async throws -> T) async throws -> T {

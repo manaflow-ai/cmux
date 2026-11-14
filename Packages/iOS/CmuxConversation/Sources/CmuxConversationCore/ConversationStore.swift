@@ -126,6 +126,86 @@ public final class ConversationStore {
         transcriptRevision &+= 1
         if transcriptJournal.count == Self.transcriptJournalLimit { transcriptJournal.removeFirst() }
         transcriptJournal.append((transcriptRevision, max(0, index)))
+        scheduleTranscriptSave()
+    }
+
+    // MARK: Kept transcript
+
+    /// Where the newest messages are kept between runs, and under which key
+    /// (`useTranscriptCache`). Nil keeps nothing.
+    private var transcriptCache: ConversationTranscriptCache?
+    private var transcriptCacheKey: String?
+    /// The messages shown are the kept ones from an earlier run or store, not
+    /// yet the server's: the server's newest page replaces them.
+    public private(set) var isShowingKeptTranscript = false
+    private var transcriptSaveScheduled = false
+
+    /// Shows the newest messages kept for `key` until the server's newest page
+    /// arrives, and keeps the transcript there from then on. From memory in
+    /// the same turn when this run already read or wrote them (a store built
+    /// again after the app came back), else read off the main thread.
+    public func useTranscriptCache(_ cache: ConversationTranscriptCache?, key: String?) {
+        // Another conversation's kept rows (an offline store whose Mac changed) never stay.
+        if isShowingKeptTranscript, cache !== transcriptCache || key != transcriptCacheKey { dropKeptRows() }
+        transcriptCache = cache
+        transcriptCacheKey = key
+        guard let cache, let key, !hasLoadedNewest else { return }
+        if let held = cache.cached(key) {
+            showKept(held)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let kept = await cache.load(key), let self,
+                  self.transcriptCache === cache, self.transcriptCacheKey == key else { return }
+            self.showKept(kept)
+        }
+    }
+
+    /// The kept messages become the transcript, unless the server's already did.
+    private func showKept(_ kept: ConversationTranscriptSnapshot) {
+        guard !hasLoadedNewest, !kept.messages.isEmpty, !messages.contains(where: { $0.seq != nil }) else { return }
+        if info == nil, let keptInfo = kept.info { info = keptInfo }
+        if meID == nil { meID = kept.meID }
+        let local = messages
+        messages = []
+        indexByID = [:]
+        for message in kept.messages { upsert(message) }
+        for message in local { upsert(message) }
+        sortAndReindex()
+        isShowingKeptTranscript = true
+        notify(.reset)
+    }
+
+    /// Sign-out: keeps nothing more, and the kept rows shown (not the server's) go.
+    public func discardKeptTranscript() {
+        transcriptCache = nil
+        transcriptCacheKey = nil
+        if isShowingKeptTranscript { dropKeptRows() }
+    }
+
+    /// Back to no rows from the server: only sends not yet acknowledged stay.
+    private func dropKeptRows() {
+        isShowingKeptTranscript = false
+        messages.removeAll { $0.seq != nil }
+        sortAndReindex()
+        notify(.reset)
+    }
+
+    /// Saves the transcript once per main-actor turn, after the server's newest page arrived.
+    private func scheduleTranscriptSave() {
+        guard transcriptCache != nil, hasLoadedNewest, !transcriptSaveScheduled else { return }
+        transcriptSaveScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.transcriptSaveScheduled = false
+            self.saveTranscript()
+        }
+    }
+
+    /// Keeps the newest messages now (also called when the app leaves the foreground).
+    public func saveTranscript() {
+        guard let transcriptCache, let transcriptCacheKey, hasLoadedNewest else { return }
+        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages)
     }
 
     /// Runs `body`, a change to `messages` that leaves every message before
@@ -762,6 +842,7 @@ public final class ConversationStore {
             older = (pages.last ?? newest).hasMore ? .idle : .exhausted
         }
         hasLoadedNewest = true
+        isShowingKeptTranscript = false
         recoveryBaseline = nil
         liveDuringRecovery = []
         recoveryPollBaseline = nil
@@ -770,6 +851,7 @@ public final class ConversationStore {
         for message in buffered { ingestBuffered(message) }
         notify(retained == nil || reset ? .reset : .live(insertedRowIDs: inserted, sentByMe: false))
         refreshReadState()
+        scheduleTranscriptSave()
         if olderWanted { loadOlder() }
     }
 

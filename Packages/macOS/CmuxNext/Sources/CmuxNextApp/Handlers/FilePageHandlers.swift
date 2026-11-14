@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// The code editor page's actions (diff-host S7; the markdown page's are PageCommandHandlers').
 /// Each sends its page command (``EditorPageCommand/forAction``) to the focused editor page; the
@@ -11,9 +12,6 @@ import CmuxNextSettings
 /// (`codeEditorFocused`). The shared find actions reach the editor
 /// through ``sendFind(_:_:_:)`` from their terminal and browser handlers.
 enum FilePageHandlers {
-    /// The shared actions bound elsewhere (TerminalHandlers' find) that also drive the editor.
-    static let sharedFindActions: Set<String> = ["find", "findNext", "findPrevious", "useSelectionForFind", "hideFind"]
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         services.pages.register(services.viewers.markdownPages)
@@ -56,10 +54,13 @@ enum FilePageHandlers {
                                   relativeTo: context.activeWindow?.window)
             return .done
         })
-        for (action, command) in EditorPageCommand.forAction where !sharedFindActions.contains(action) {
-            registry.bind(ActionID(rawValue: action), run: { invocation in
+        // Every editor action but the shared find actions, which reach the editor through sendFind (`files::editor_bindings`).
+        let actions = EditorPageCommand.forAction.map { WindowRules.EditorAction(action: $0.key, runsEditorCommand: $0.value == EditorPageCommand.editorAction) }
+        for binding in WindowRules().editorBindings(actions) ?? [] {
+            guard let command = EditorPageCommand.forAction[binding.action] else { continue }
+            registry.bind(ActionID(rawValue: binding.action), run: { invocation in
                 var arguments: [String: JSONValue] = [:]
-                if command == EditorPageCommand.editorAction {
+                if binding.needsText {
                     guard let id = invocation["text"]?.stringValue, !id.isEmpty else {
                         throw ActionFailure(message: RefusalStrings.textArgumentRequired)
                     }

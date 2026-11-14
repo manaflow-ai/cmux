@@ -404,8 +404,9 @@ production's `VM_BOOT_IMAGES`):
    deploy or product smoke that isn't green, or a create that booted another
    image, lands `cmux-vm: image rollback <id> ...`, which takes the image out of
    both lists, so the entry before it boots again. A failed, cancelled or timed
-   out deploy all roll back; only a tip whose first image is no longer this one
-   (a newer roll or rollback commit owns production) skips it.
+   out deploy all roll back. The image leaves the lists even when a newer roll
+   already sits above it, so that roll's own rollback can never bring it back;
+   only an image already gone from both lists needs nothing.
 5. The rollback's own deploy is settled too: its product create must boot the
    entry now first. If not, `image-roll-settle` dispatches `deploy-production`
    again, at most 3 production deploys in all, then records `rollback_failed`

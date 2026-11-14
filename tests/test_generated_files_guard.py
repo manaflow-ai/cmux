@@ -62,8 +62,10 @@ class Repo:
 
     def git(self, *args: str) -> str:
         return subprocess.run(
+            # gc.auto and maintenance.auto off: a detached auto-gc kept writing objects/pack while tearDown
+            # removed the directory ("Directory not empty: 'pack'", run 42355070552).
             ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=/dev/null",
-             "-c", "commit.gpgsign=false", *args],
+             "-c", "commit.gpgsign=false", "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
             cwd=self.root, check=True, capture_output=True, text=True).stdout.strip()
 
     def write(self, files: dict[str, str | None]) -> None:

@@ -114,7 +114,7 @@ import Testing
     }
 
     @Test func theSettingTakesAPlainNameOnly() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.path))
+        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
         #expect(descriptor.accepts("tokyo night"))
         for bad in ["", "../x", "a/b", ".hidden", "tokyo.json", " tokyo"] { #expect(!descriptor.accepts(.string(bad)), "\(bad)") }
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.themeFile"))
@@ -177,7 +177,7 @@ import Testing
         #expect(note.pageMessage.hasPrefix("themes/tokyo.json: set by the theme file"))
 
         // Previewing another file shows it whole, and ending the preview restores the active one.
-        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.path))
+        let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
         #expect(settings.preview(descriptor, "ember"))
         #expect(settings.applied.accent == .red)
         #expect(settings.applied.borders == BorderMode.default)

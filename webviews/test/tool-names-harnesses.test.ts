@@ -9,7 +9,7 @@ import { agentCall } from "../src/agent-session/acpmux/conversation/agentCalls";
 import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
-import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
@@ -191,7 +191,7 @@ test("the live line names a running search by its pattern, not the folder it sea
         { kind: "tool", text: search.title, tool: search },
       ],
     };
-    const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
+    const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === THINKING);
     expect(live?.doing, harness).toMatch(/ useTool$/);
   }
 });

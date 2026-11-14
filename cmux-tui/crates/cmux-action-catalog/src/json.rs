@@ -268,6 +268,13 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
             "yields_to_web_content": bindings::YIELDS_TO_WEB_CONTENT,
             "text_input_keys": text_input_keys(),
         },
+        "debug_build_only": {
+            "actions": tables::DEBUG_BUILD_ONLY_ACTIONS,
+            "cases": tables::DEBUG_BUILD_ONLY_CASES
+                .iter()
+                .map(|(action, argument, value)| json!({ "action": action, "argument": argument, "value": value }))
+                .collect::<Vec<_>>(),
+        },
         "palette": {
             "daily": palette::DAILY,
             "niche": palette::NICHE,

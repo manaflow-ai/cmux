@@ -58,6 +58,12 @@ pub(crate) struct ResourceMutationPlan {
     /// The state step changes no column, dock flag, column membership or
     /// pane tab list (see [`Self::keeping_dock_columns`]).
     keeps_dock_columns: bool,
+    /// The deltas restate every live topology resource (a full projection):
+    /// the commit may seed the registry's public fold with them.
+    pub(crate) restates_all: bool,
+    /// The deltas are a topology projection's: the commit drops the upserts
+    /// the journal already states (the registry's public fold).
+    pub(crate) prunes_stated: bool,
     state_step: StateStep,
 }
 
@@ -77,6 +83,8 @@ impl ResourceMutationPlan {
             state_write: None,
             layout_op: None,
             keeps_dock_columns: false,
+            restates_all: false,
+            prunes_stated: false,
             state_step: StateStep::Apply(Box::new(apply)),
         }
     }

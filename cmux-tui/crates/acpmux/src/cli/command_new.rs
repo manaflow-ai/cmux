@@ -34,7 +34,7 @@ pub struct NewArgs {
     pub mode: Option<String>,
     /// HARNESS[/MODEL]: a family or profile name (`claude`, `codex`, `omp`), optionally with a model
     /// (`claude/opus`, `codex/gpt-5.5`, `opencode/zai/glm-5.1`). Omitted: the default harness and its defaults.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
     #[arg(long, short)]

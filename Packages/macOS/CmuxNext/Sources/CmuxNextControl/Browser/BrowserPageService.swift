@@ -43,7 +43,7 @@ public struct BrowserPageService: Sendable {
         self.leases = leases
         self.passkeys = passkeys
         self.mirrors = mirrors
-        self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
+        self.agentMouse = agentMouse ?? { AgentMouseSetting.fallback }
         self.allowsUnsafeCapture = allowsUnsafeCapture
     }
 

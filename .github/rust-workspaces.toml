@@ -129,6 +129,10 @@ run = true
 root = "cmux-tui/crates/cmux-rd-ffi"
 run = true
 
+[[workspace]]
+root = "cmux-tui/crates/cmux-sdk-ffi"
+run = true
+
 # The bench feature set is the one that builds without x264 (OpenH264 from source),
 # as in scripts/ci/cmux-tui-rust-check.sh rd-host.
 [[workspace]]
@@ -157,16 +161,8 @@ root = "cmux-tui/vendor/crossterm"
 skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 
 [[workspace]]
-root = "experiments/iroh-byte-transport"
-skip = "experiment, unchanged since 2026-05"
-
-[[workspace]]
-root = "experiments/iroh-swift-ffi-spike/rust"
-skip = "experiment, unchanged since 2026-06"
-
-[[workspace]]
-root = "experiments/remote-desktop/rdhost"
-skip = "prototype superseded by cmux-tui/crates/cmux-rd-host"
+root = "cmux-tui/vendor/smoltcp"
+skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 
 [[workspace]]
 root = "scripts/cmux-next/rust-change-class"

@@ -595,6 +595,68 @@ async fn a_senders_session_and_harness_come_from_a_proven_caller_or_a_peer_link_
     );
 }
 
+/// A relay's word on where a message came from (`fromRelay`: the lane-gh broker's `acpmux send
+/// --relay lane-gh --relayed-from VM/LANE`) is taken from a send on this machine's unix socket that
+/// proved no session, and over a peer link; an agent's own send drops it, so no session can pass
+/// as a relayed, verified sender (Leo, 2026-11-07: "Why does it say it's self-declared if we can
+/// just detect the thing?").
+#[tokio::test]
+async fn a_relayed_sender_comes_from_a_relay_outside_any_session_or_a_peer_link_only() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let relayed = |id: &str| {
+        let mut p = prompt(&receiver, id, "report", None);
+        let mux = &mut p["_meta"]["acpmux"];
+        mux["fromAgent"] = json!("gcp-agent-lane-2/lock-proof-routes");
+        mux["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "gcp-agent-lane-2", "session": "lock-proof-routes"});
+        mux["fromHarness"] = json!("claude");
+        p
+    };
+    for (origin, id) in [(Origin::Local, "p-relay"), (Origin::Peer, "p-peer")] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", relayed(id)).await;
+    }
+    let mut lane = open_in_session(&hub, &sender).await;
+    lane.call("session/prompt", relayed("p-lane")).await;
+    // A relay record that is not one names nobody.
+    let mut odd = relayed("p-odd");
+    odd["_meta"]["acpmux"]["fromRelay"] = json!({"by": "lane gh", "machine": "x"});
+    Client::open(&hub).call("session/prompt", odd).await;
+
+    let p = |m: &Value| m["_meta"]["provenance"].clone();
+    let want =
+        json!({"by": "lane-gh", "machine": "gcp-agent-lane-2", "session": "lock-proof-routes"});
+    for id in ["p-relay", "p-peer"] {
+        let got = p(&person.user_message(&receiver, id).await);
+        assert_eq!(
+            (&got["fromRelay"], &got["fromHarness"]),
+            (&want, &json!("claude")),
+            "{id}: {got}"
+        );
+        assert!(got.get("fromSessionId").is_none(), "a relay proves no session here: {got}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&got), None, None);
+        assert_eq!(
+            (&record["authenticated"], &record["verification"], &record["relay"]),
+            (&json!(true), &json!("verified"), &want),
+            "{id}: {record}"
+        );
+    }
+    // The agent's own send: its proven session is the sender, its relay claim is dropped.
+    let lane_said = p(&person.user_message(&receiver, "p-lane").await);
+    assert!(lane_said.get("fromRelay").is_none(), "{lane_said}");
+    assert_eq!(lane_said["fromSessionId"], json!(sender), "{lane_said}");
+    let odd_said = p(&person.user_message(&receiver, "p-odd").await);
+    assert!(
+        odd_said.get("fromRelay").is_none() && odd_said.get("fromHarness").is_none(),
+        "{odd_said}"
+    );
+    let record = acpmux::prompt_provenance::sender_record(Some(&odd_said), None, None);
+    assert_eq!(record["verification"], "declared", "{record}");
+}
+
 /// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran
 /// `acpmux send --from` there over ssh, naming themselves only in `fromAgent`; each report
 /// recorded no provenance and read as the person's own words.

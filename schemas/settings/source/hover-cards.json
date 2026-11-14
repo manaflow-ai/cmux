@@ -71,6 +71,9 @@
             "text": "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "HoverCardLayoutSetting"
+          },
           "choices": [
             {
               "value": "timeline",
@@ -342,6 +345,9 @@
             "text": "Which part of a group's card comes first."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "GroupHoverCardOrderSetting"
+          },
           "choices": [
             {
               "value": "status",

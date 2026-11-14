@@ -78,7 +78,10 @@ afterEach(() => {
   for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // A popover update left outside act() queues React scheduler work on setImmediate; let it run
+  // while the JSDOM globals still exist, or it throws "window is not defined" between tests.
+  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

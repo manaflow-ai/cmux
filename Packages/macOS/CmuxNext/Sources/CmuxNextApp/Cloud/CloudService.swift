@@ -13,7 +13,6 @@ import Foundation
 import Observation
 import os
 import CmuxNextWakeups
-
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
@@ -37,7 +36,7 @@ final class CloudService {
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
-    let codexBroker: CloudCodexBrokerAdapter
+    let codexBroker: CloudCodexHolder
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
@@ -82,6 +81,8 @@ final class CloudService {
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
+    @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth)
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
@@ -192,40 +193,34 @@ final class CloudService {
         let shareDefault = shareAPI == ownerAPI ? identity : install(shareAPI, "install-share")
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
+        let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                                   machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
-        let machineAPI = machineAPI
+                                                   machineIO: machineIO)
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
         let userHome = FileManager.default.homeDirectoryForCurrentUser
-        codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
-            currentScope: {
-                guard auth.isSignedIn, let user = auth.user else { return nil }
-                return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-            },
-            launch: {
-                try await work.run(.userVisible, mayBlock: .files) {
-                    guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
-                        environment: environment, userHome: userHome) else { throw CloudCodexBrokerError.brokerUnavailable }
-                    let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-                        + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
-                    guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
-                        .first(where: { FileManager.checked.isExecutableFile(atPath: $0.path) }) else {
-                        throw CloudCodexBrokerError.brokerUnavailable
+        codexBroker = CloudCodexHolder(
+            configuration: .init(binary: machineIO?.binary, root: paths.root, userHome: userHome, api: configuration.ownerAPIBaseURL(),
+                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next"),
+            answers: .init(
+                credential: { try? await auth.tokens().access },
+                acpmux: {
+                    try? await work.run(.userVisible, mayBlock: .files) {
+                        AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment, userHome: userHome)?.executable
                     }
-                    return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
-                }
-            }, target: { [weak machines] scope, machineID in
+                },
+                currentScope: {
+                    guard auth.isSignedIn, let user = auth.user else { return nil }
+                    return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+                },
                 // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
-                return CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope, callerOwnsVM: {
-                    guard let link = await MainActor.run(body: { machines?.session(machineID)?.appLink }) else { return false }
+                ownsMachine: { [weak machines] machineID in
+                    guard let link = machines?.session(machineID)?.appLink else { return false }
                     return await link.ownerLink != nil
-                }, isLive: {
-                    await MainActor.run { machines?.session(machineID)?.machine.status.isLive ?? false }
-                })
-            })
+                },
+                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
@@ -334,9 +329,12 @@ final class CloudService {
             guard let self else { return }
             await auth.awaitRestored()
             // The account and selected team: a team switch stays signed in but
-            // must fence the old Native mesh and link before reconnecting.
+            // must fence the old Native mesh, link and machine wire before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
+                    self.machineWire.stop()
+                    // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
+                    if self.mayCallCloud { self.machineWire.start { [weak self] change in self?.portChanged(change) } }
                     AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
@@ -349,9 +347,9 @@ final class CloudService {
                     await self.ensureLink()
                     await self.refresh()
                 } else {
+                    // Signing out invalidates the wire's bearer: stop it first so no event races a new account.
+                    self.machineWire.stop()
                     self.dropAllMachines()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
@@ -401,6 +399,8 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
+            machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
@@ -413,6 +413,7 @@ final class CloudService {
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
+            if auth.isSignedIn, mayCallCloud { machineWire.start { [weak self] change in self?.portChanged(change) } }
             changes.start()
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
@@ -426,6 +427,8 @@ final class CloudService {
     }
 
     func stop() {
+        // Stop the socket before cancelling the remaining Cloud observers.
+        machineWire.stop()
         refreshGate.cancel()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }

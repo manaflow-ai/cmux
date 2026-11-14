@@ -21,7 +21,9 @@ pub(super) fn handle(
     let max_bytes = Some(crate::hub::page_bytes(params));
     // A client that bounds its page wants the transcript in it, not superseded tool output.
     let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
-        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
+        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
+        // One subagent's own records, for its pane (`EventFilter::of_subagent`).
+        .of_subagent(str_param(params, "subagent"));
     let (last, created) = {
         let meta = s.meta();
         (meta.last_seq, meta.created_at)

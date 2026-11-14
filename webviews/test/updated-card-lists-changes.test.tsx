@@ -77,14 +77,16 @@ async function renderCard(d: UpdateHighlights) {
   );
 }
 
-test("the Updated card is the title, the one top change and What's New", async () => {
+test("the Updated card is the title with What's New on its line, and the one top change", async () => {
   await renderCard(data);
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   const notes = [...host.querySelectorAll(".wn-card-note")].map((n) => n.textContent);
   expect(notes).toEqual(["Composer: dictation progress is announced to VoiceOver"]);
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The version in the title is the copy button (CopyVersion), then the card's own two.
-  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
+  // The version in the title is the copy button (CopyVersion), then What's New on the title line
+  // (Leo 2026-11-07: "update it to Nightly, and then What's New with the up and to the right
+  // arrow"), then the x.
+  expect(buttons).toEqual(["Nightly", "What's New ↗", "Close"]);
   // No date, build, list or count.
   expect(host.querySelector(".wn-card-eyebrow, .wn-card-build, .wn-card-areas, .wn-card-more")).toBeNull();
   const text = host.textContent ?? "";

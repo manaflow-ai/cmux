@@ -33,6 +33,9 @@ export const UNDER_FILTER_PROPERTY = "--glass-under-filter";
 export const ownerFilterProperty = (owner: string) => `${UNDER_FILTER_PROPERTY}-${owner}`;
 /** On the surface while it blurs what is under it: glass.css drops its underlay. */
 export const OVER_ATTRIBUTE = "data-glass-over";
+/** On the surface while it lies over an element it may not blur (keepUnderlayOver: the composer):
+ * its underlay hides what is under it there, so the App's glass under the page must not clear it. */
+export const KEEPS_UNDERLAY_ATTRIBUTE = "data-glass-keeps-underlay";
 /** The blur when the surface's own backdrop names none, CSS px (the plain glass blur). */
 const FALLBACK_BLUR = 24;
 
@@ -275,6 +278,7 @@ export function attachSeeThroughBlur(
         if (overlaps(rect, element.getBoundingClientRect())) unblurrable = true;
       }
     surface.toggleAttribute(OVER_ATTRIBUTE, blurrable && !unblurrable);
+    surface.toggleAttribute(KEEPS_UNDERLAY_ATTRIBUTE, unblurrable);
     const keep = new Set(under.map((entry) => entry.target));
     for (const target of covered.keys()) if (!keep.has(target)) release(target);
     for (const { target, box, hole, key } of under) {
@@ -347,6 +351,7 @@ export function attachSeeThroughBlur(
     view.removeEventListener("resize", kick);
     for (const target of covered.keys()) release(target);
     surface.removeAttribute(OVER_ATTRIBUTE);
+    surface.removeAttribute(KEEPS_UNDERLAY_ATTRIBUTE);
     svg.remove();
   };
 }

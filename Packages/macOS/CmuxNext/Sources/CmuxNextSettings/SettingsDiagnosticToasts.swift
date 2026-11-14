@@ -94,7 +94,7 @@ final class SettingsDiagnosticToasts {
         if more { message += " " + SettingsDiagnosticStrings.more }
         let destination = Self.destination(notice.path, file: notice.file)
         let rowPath = notice.file != nil && SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: notice.path))?.isShownOnSettingsPage != true
-            ? ThemeFileSetting.path.joined(separator: ".") : notice.path
+            ? ThemeFileSetting.configPath.joined(separator: ".") : notice.path
         let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))

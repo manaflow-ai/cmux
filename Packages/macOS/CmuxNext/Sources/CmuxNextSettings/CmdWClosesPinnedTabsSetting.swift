@@ -7,9 +7,6 @@ public nonisolated enum CmdWClosesPinnedTabsSetting {
 }
 
 nonisolated extension CmdWClosesPinnedTabsSetting {
-    public static let configPath = ["tabs", "cmdWClosesPinnedTabs"]
-    public static let fallback = true
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {

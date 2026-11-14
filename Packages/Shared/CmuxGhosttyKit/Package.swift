@@ -139,6 +139,12 @@ import PackageDescription
 // held; the live terminal is copied under the lock only when it changed. No C
 // API change (cmux-ad m18, T-REWRAP).
 //
+// Since 850bb9849..1740c4452 (fork PR #85): a resize's OSC 133 prompt clear
+// waits for the shell's next byte and runs only if the grid differs from the
+// grid the shell drew at (option PROMPT_REDRAW_WAITS_FOR_SHELL, 1028; the
+// app's surfaces turn it on in termio Manual). A size bounce the shell reads
+// as one SIGWINCH no longer leaves a new pane empty (close-then-type P0).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -162,8 +168,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "f8b0c65707292cce8fa34fa195b529206a45b6f2b53b187c5b401339e233006f"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "ba1abb11322710dca12ebf6d07753f66e87f7475141298417421a4cd4b4ec426"
         ),
     ]
 )

@@ -30,7 +30,7 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.dockWorkspaceGone", "The dock's workspace is gone.")
     }
 
-    /// Open Chief Dock while this window has no Home to dock (classic Home, or Home not ready).
+    /// Show/Hide Chief while this window has no Home to show the Chief from (classic Home, or Home not ready).
     public static var chiefDockUnavailable: String {
         text("handlers.refusal.chiefDockUnavailable", "The Chief can't dock yet. Open Home first.")
     }

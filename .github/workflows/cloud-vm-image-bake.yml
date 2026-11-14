@@ -103,6 +103,14 @@ on:
       layered: { type: boolean, required: false, default: true }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
+    # The Freestyle key and the UI test login are repository secrets, which a called workflow gets only when its
+    # caller passes them (the image roll passes exactly these three). Optional, so a direct dispatch is unchanged.
+    # A secret of the bake job's environment still takes precedence over a passed one. prod-copy never runs this
+    # way: workflow_call has no dev_snapshot input, so "Check the production copy inputs" refuses it.
+    secrets:
+      FREESTYLE_API_KEY: { required: false }
+      CMUX_UITEST_STACK_EMAIL: { required: false }
+      CMUX_UITEST_STACK_PASSWORD: { required: false }
     outputs:
       candidate:
         description: The kept image's record (native-image.json, one line of JSON); empty unless every gate passed

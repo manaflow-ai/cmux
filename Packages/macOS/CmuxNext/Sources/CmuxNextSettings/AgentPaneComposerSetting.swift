@@ -240,14 +240,4 @@ nonisolated enum AgentPaneComposerSettingsSchema {
             ),
         ]
     }
-
-    /// The visual composer choices agents may change; send behavior remains a user-only choice.
-    static var agentSettableKeys: Set<String> {
-        Set([AgentPaneComposerSetting.showContextUsagePath,
-             AgentPaneComposerSetting.composerRingPath,
-             AgentPaneComposerSetting.showDictationPath,
-             AgentPaneComposerSetting.spellCheckingPath,
-             AgentPaneComposerSetting.attachmentViewPath,
-             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
-    }
 }

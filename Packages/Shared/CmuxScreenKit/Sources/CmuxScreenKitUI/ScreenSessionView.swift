@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxScreenKit
+import CmuxSpinner
 import SwiftUI
 
 /// The parts of `ScreenSessionView` an app opts into. `.all` is the cmux
@@ -212,7 +213,7 @@ public struct ScreenSessionView: View {
         switch session.phase {
         case .connecting:
             card {
-                ProgressView()
+                CmuxSpinner()
                 Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
             }
         case let .failed(message, needsSignIn):

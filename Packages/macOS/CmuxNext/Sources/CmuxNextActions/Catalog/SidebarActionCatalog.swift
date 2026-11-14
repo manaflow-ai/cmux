@@ -247,7 +247,7 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleMatchTerminalBackground",
-                title: String(localized: "action.palette.toggleMatchTerminalBackground", defaultValue: "Toggle Match Terminal Background", bundle: .module),
+                title: String(localized: "action.palette.toggleMatchTerminalBackground", defaultValue: "Match Terminal Background", bundle: .module),
                 keywords: ["sidebar", "theme"], category: .sidebar, symbol: "paintbrush", surfaces: [.palette],
                 cliName: "sidebar toggle-match-terminal-background"
             ),

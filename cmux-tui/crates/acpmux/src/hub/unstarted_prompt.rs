@@ -15,7 +15,8 @@
 //! here, so the restored queue runs it, a crash before it ran restores it again as any queued
 //! prompt (`lost_start.rs`), and a client's resend of its id joins that run (the ledger entry
 //! the restore makes). It keeps what the prompt came with that the run checks again: its
-//! control and `cloudMobile` (the mobile asking-mode rule, `turns.rs`).
+//! control, `cloudMobile` (the mobile asking-mode rule, `turns.rs`) and `trustGate` (the
+//! folder-trust gate, `server/trust_gate.rs`; a record without it is gated).
 //! What settles it first: its turn's start, result or removal, a refusal, a copy queued or run
 //! under another turn id, and a Stop (`logged_prompt`, checked when it would go back).
 

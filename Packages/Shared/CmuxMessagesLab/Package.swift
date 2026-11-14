@@ -25,6 +25,7 @@ let package = Package(
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
         .package(path: "../CmuxAgentBrands"),
+        .package(path: "../CmuxSpinner"),
     ],
     targets: [
         .target(
@@ -34,6 +35,7 @@ let package = Package(
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),

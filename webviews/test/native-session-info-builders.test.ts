@@ -134,7 +134,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
       new NativeInfoActions(),
       t,
     )!;
-    expect(connected.meta).toBe(t("rail.connected", { count: 1 }));
+    expect(connected.meta).toBe(t("sessionInfo.connectors.loaded", { count: 1 }));
     const failed = connectorsSection(
       {
         servers: [
@@ -153,7 +153,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
       new NativeInfoActions(),
       t,
     )!;
-    expect(pending.meta).toBe(t("rail.connected", { count: 0 }));
+    expect(pending.meta).toBe(t("sessionInfo.connectors.connecting", { count: 1 }));
   }
   expect(
     connectorsSection({ servers: [], open: false, imessage: imessageView() }, new NativeInfoActions(), t)!.meta,

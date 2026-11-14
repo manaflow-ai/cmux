@@ -6,8 +6,13 @@
 // page solid. The host now draws the sidebar cards' native glass under the page
 // (SidebarUpdatedCardHost: CardSurfaceView), so the surface document paints only the words: the card
 // has no `.ui-glass` (so the lens draws no wallpaper copy over the host's glass either), and the html
-// has no fill, even against the bootstrap's !important rule. The card elsewhere (the gallery) keeps
-// its CSS glass.
+// has no fill, even against the bootstrap's !important rule.
+//
+// Leo 2026-11-07, on that card beside the composer: "the border styles, the glass intensity is
+// different". The card now wears the composer's own material (ui/glass/composerMaterial.css), which
+// the page paints: still translucent over the sidebar's glass (the composer's fill at the popover
+// level's share, never near opaque), with the composer's edge and rim, and still no `.ui-glass`, no
+// blur of its own in the sidebar and no html fill.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -28,6 +33,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
   const css = [
     "pages/shared/desktop.css",
     "ui/glass/glass.css",
+    "ui/glass/composerMaterial.css",
     "pages/shared/pageBase.css",
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
@@ -114,29 +120,26 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           };
         });
 
+      /** The alpha of a computed color ("rgba(r, g, b, a)", "color(srgb r g b / a)", or opaque). */
+      const alpha = (color: string) => {
+        const match = /\/\s*([\d.]+)\)$/.exec(color) ?? /rgba\([^)]*,\s*([\d.]+)\)$/.exec(color);
+        return match ? Number(match[1]) : 1;
+      };
+
       for (const glassMode of ["plain", "lens"]) {
-        test(`the Updated surface paints nothing under or around the words (${glassMode})`, async () => {
+        test(`the Updated surface paints the composer's translucent material and nothing around it (${glassMode})`, async () => {
           const page = await open("updated", glassMode, false);
-          expect(await paint(page)).toEqual({
-            glassInDocument: 0,
-            html: "rgba(0, 0, 0, 0)",
-            card: "rgba(0, 0, 0, 0)",
-            shadow: "none",
-            backdrop: "none",
-          });
+          const got = await paint(page);
+          expect(got.glassInDocument).toBe(0);
+          expect(got.html).toBe("rgba(0, 0, 0, 0)");
+          expect(got.backdrop).toBe("none");
+          expect(alpha(got.card)).toBeGreaterThan(0.3);
+          expect(alpha(got.card)).toBeLessThan(0.9);
+          expect(got.shadow).not.toBe("none");
           expect(await page.locator(".wn-card").innerText()).toContain("What's New");
           await page.close();
         });
       }
-
-      test("the card elsewhere keeps its CSS glass", async () => {
-        const page = await open(null, "plain", undefined);
-        const { glassInDocument, card, shadow } = await paint(page);
-        expect(glassInDocument).toBe(1);
-        expect(card).not.toBe("rgba(0, 0, 0, 0)");
-        expect(shadow).not.toBe("none");
-        await page.close();
-      });
     });
   }
 });

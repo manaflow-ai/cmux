@@ -14,10 +14,11 @@
 //! a time; messages that come meanwhile go in the line written after it, keeping their order.
 //!
 //! A dropped line is always written again with all it held, so Claude Code always has a line to
-//! echo and a turn whose result came meanwhile still ends. So a withdraw of a batched or held
-//! message takes nothing back (`withdrawn: false`), as for one read first; the person's steers,
-//! which withdraws are for, are never batched, nor is one read now (`steerNow`). A turn that ends
-//! before a held message was written answers it `STEER_NO_TURN`, and the hub queues it.
+//! echo and a turn whose result came meanwhile still ends. A withdraw of one message in a line of
+//! several drops the line and writes the others again without it (`steer_withdraw.rs`); one of a
+//! line being written again, or held for one, takes nothing back (`withdrawn: false`) until that
+//! drop is answered, as for one read first. One read now (`steerNow`) is never batched. A turn
+//! that ends before a held message was written answers it `STEER_NO_TURN`, and the hub queues it.
 
 use super::*;
 
@@ -49,7 +50,7 @@ fn part_bytes(content: &[Value]) -> usize {
 
 /// `parts` in order, as lines that each hold whole messages and at most [`BATCH_MAX_BYTES`]
 /// (a larger message alone).
-fn lines_of(parts: Vec<Part>) -> Vec<Vec<Part>> {
+pub(super) fn lines_of(parts: Vec<Part>) -> Vec<Vec<Part>> {
     let mut lines: Vec<Vec<Part>> = Vec::new();
     let mut size = 0;
     for part in parts {
@@ -76,7 +77,7 @@ pub(super) struct Batches {
     /// that came meanwhile, oldest first, which go in the line written next.
     pub(super) rewrite: Option<(String, Vec<Part>)>,
     /// Claude Code refused a drop (one without `cancel_async_message`): each line stands.
-    no_drop: bool,
+    pub(super) no_drop: bool,
 }
 
 /// The content of one line of `parts` (two or more): how many messages from how many sessions,
@@ -174,7 +175,7 @@ impl Translator {
 
     /// The line of `parts` (one steer as it was sent, or several sessions' messages), each
     /// waiting for its echo under the line's uuid and named by its promptId for a withdraw.
-    async fn steer_line(
+    pub(super) async fn steer_line(
         &self,
         steers: &mut std::collections::VecDeque<(String, String)>,
         parts: &[Part],
@@ -198,21 +199,12 @@ impl Translator {
         (uuid, line)
     }
 
-    /// Whether `MUX_STEER_WITHDRAW` of `prompt_id` names a message batched with others (line
-    /// `uuid` holds more than one), in the line being written again, or held for it: it is not
-    /// taken back.
-    pub(super) fn batched(
-        batches: &Batches,
-        prompt_id: &str,
-        uuid: Option<&str>,
-        steers: &std::collections::VecDeque<(String, String)>,
-    ) -> bool {
-        let held = batches.rewrite.as_ref().is_some_and(|(line, held)| {
+    /// Whether `MUX_STEER_WITHDRAW` of `prompt_id` names a message in the line being written
+    /// again (line `uuid`), or held for it: it is not taken back until that drop is answered.
+    pub(super) fn rewriting(batches: &Batches, prompt_id: &str, uuid: Option<&str>) -> bool {
+        batches.rewrite.as_ref().is_some_and(|(line, held)| {
             uuid == Some(line.as_str())
                 || held.iter().any(|p| p.prompt_id.as_deref() == Some(prompt_id))
-        });
-        held || uuid.is_some_and(|u| {
-            batches.lines.contains_key(u) && steers.iter().filter(|(s, _)| s == u).count() > 1
         })
     }
 

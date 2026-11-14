@@ -144,6 +144,9 @@ export function Popover({
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx(popupClassName, fade && "ui-scroll-edge-fade")}
+            // The App's popover glass under the page (glass/hostGlass.ts).
+            data-host-glass="popover"
+            data-host-glass-cover=""
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

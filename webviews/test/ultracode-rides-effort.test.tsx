@@ -149,7 +149,7 @@ test("Ultracode on and off ride the free effort option, never acpmux's ultracode
           onEffort={(configId, value) => sent.push(`${configId}=${value}`)}
           onHarness={() => undefined}
           // A chat that can fork keeps the harness rail, so the menu is the columns menu.
-          fork={{ to: () => undefined, ready: true }}
+          fork
           showPlan={false}
         />
       </QueryClientProvider>,

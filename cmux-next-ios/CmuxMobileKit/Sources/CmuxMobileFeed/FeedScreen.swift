@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 /// SPEC 8.1 Feed tab: an X-style live timeline of agent events across every
@@ -233,7 +234,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// No events known yet and the Mac has not answered: not "Nothing yet".
     private var connectingState: some View {
         VStack(spacing: 10) {
-            ProgressView()
+            CmuxSpinner()
             Text("Connecting to your Mac…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

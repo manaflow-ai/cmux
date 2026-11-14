@@ -1,0 +1,46 @@
+/* A question still waiting on the person, pinned in the asks stack above the composer
+   (PendingAsks.tsx): a quiet "Needs your input" line with Dismiss over the transcript's own next-step
+   card. It enters as every part of the stack does (bottomStack.css, the shared entry tokens), so its
+   space opens in one frame and only the drawing travels. */
+.acpmux-pending-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+}
+.acpmux-pending-ask__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2, 8px);
+  min-height: var(--ui-row-height, var(--ds-control-row, 28px));
+  padding: 0 var(--ds-space-1, 4px);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-pending-ask__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-pending-ask__dismiss {
+  flex: none;
+  padding: 0 var(--ds-space-2, 8px);
+  min-height: var(--ds-control-row, 28px);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.acpmux-pending-ask__dismiss:hover {
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+}
+.acpmux-pending-ask__dismiss:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}

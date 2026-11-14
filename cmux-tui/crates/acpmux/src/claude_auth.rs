@@ -502,23 +502,25 @@ fn compose(
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
     let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
+    // Each fix names `claude auth login`, never `claude /login`: the REPL asks to trust the
+    // folder before it signs in, and on a fresh home that dialog stops a scripted sign-in.
     let fix = if routed && api_key {
         "Replace the credential in the selected model route, or select another route, then start a new chat."
             .to_owned()
     } else if agent.endpoint.is_none() && api_key {
-        // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
+        // Claude Code prefers ANTHROPIC_API_KEY over a `claude auth login` sign-in, so logging in
         // again does not help while a rejected key is set. Not with an endpoint: a route or a
         // proxy set that key (routes.rs), and removing it would break the route.
         format!(
-            "Claude uses ANTHROPIC_API_KEY before your `claude /login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
+            "Claude uses ANTHROPIC_API_KEY before your `claude auth login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
             rc_file(shell)
         )
     } else if agent.signed_in() {
-        "Run `claude /login` in a terminal, or check that key, then send the message again."
+        "Run `claude auth login` in a terminal, or check that key, then send the message again."
             .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
         format!(
-            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude /login`, then send the message again.",
+            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude auth login`, then send the message again.",
             tilde(&agent.home),
             tilde(&terminal.home),
             agent.home.display()
@@ -540,7 +542,7 @@ fn compose(
         )
     } else {
         format!(
-            "Run `claude /login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
+            "Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
             rc_file(shell)
         )
     };
@@ -597,7 +599,7 @@ mod tests {
         assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
     }
 
-    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
+    /// A rejected ANTHROPIC_API_KEY wins over `claude auth login`, so the fix names the key, not a
     /// login that would not help.
     #[test]
     fn a_rejected_env_api_key_says_to_remove_it() {
@@ -615,7 +617,7 @@ mod tests {
             false,
         );
         assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
-        assert!(!text.contains("Run `claude /login`"), "{text}");
+        assert!(!text.contains("Run `claude auth login`"), "{text}");
 
         // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
         let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
@@ -633,7 +635,7 @@ mod tests {
     fn a_subscription_route_without_a_key_keeps_login_advice() {
         let agent = Found::default();
         let text = compose(&agent, &agent, None, "Not logged in", true);
-        assert!(text.contains("Run `claude /login`"), "{text}");
+        assert!(text.contains("Run `claude auth login`"), "{text}");
         assert!(!text.contains("selected model route"), "{text}");
     }
 

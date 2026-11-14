@@ -237,6 +237,19 @@ impl CarrierGrantVerifier {
         noise_key: &[u8; 32],
         link_group: [u8; 32],
     ) -> Result<CarrierGrant, TokenRefusal> {
+        self.verify_with(token, noise_key, link_group, |_| true)
+    }
+
+    /// [`Self::verify`], with the caller's own last check: a grant `accept`
+    /// refuses (one naming no service this daemon serves) is refused as
+    /// `no_known_service` before its `jti` is spent.
+    pub fn verify_with(
+        &self,
+        token: &str,
+        noise_key: &[u8; 32],
+        link_group: [u8; 32],
+        accept: impl FnOnce(&CarrierGrant) -> bool,
+    ) -> Result<CarrierGrant, TokenRefusal> {
         use TokenRefused::{Expired, Invalid};
         let no = TokenRefusal::new;
         if token.is_empty() || token.len() > MAX_GRANT_BYTES {
@@ -284,6 +297,16 @@ impl CarrierGrantVerifier {
         {
             return Err(no(Invalid, "services"));
         }
+        let grant = CarrierGrant {
+            team: c.team,
+            subject: c.sub,
+            services: c.svc,
+            expires_at: c.exp,
+            vm_kind: c.vmk,
+        };
+        if !accept(&grant) {
+            return Err(no(Invalid, "no_known_service"));
+        }
         state.spent.retain(|_, spent| spent.exp > now);
         match state.spent.get_mut(&c.jti) {
             Some(spent)
@@ -302,7 +325,7 @@ impl CarrierGrantVerifier {
                 state.spent.insert(
                     c.jti,
                     Spent {
-                        exp: c.exp,
+                        exp: grant.expires_at,
                         noise_key: *noise_key,
                         link_group,
                         presentations: 1,
@@ -311,13 +334,7 @@ impl CarrierGrantVerifier {
                 );
             }
         }
-        Ok(CarrierGrant {
-            team: c.team,
-            subject: c.sub,
-            services: c.svc,
-            expires_at: c.exp,
-            vm_kind: c.vmk,
-        })
+        Ok(grant)
     }
 
     /// The session `link_group` was presenting for has registered: the

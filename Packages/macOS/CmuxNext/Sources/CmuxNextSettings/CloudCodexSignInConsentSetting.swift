@@ -12,26 +12,12 @@
 /// would need a Codex sign-in. Only the person sets it, in every build: agents are refused (privacy),
 /// and any managed source makes it no (``CloudLoginCopyConsentSetting``'s rule).
 public nonisolated struct CloudCodexSignInConsentSetting: Sendable {
-    public static let path = ["cloud", "useMyCodexLoginOnMyCloudMachines"]
-    public static let key = path.joined(separator: ".")
+    public static let key = configPath.joined(separator: ".")
 
     public init() {}
 
     /// The person's answer: nil when never asked, else yes or no. Only the person's own cmux.json says yes.
     public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
-        CloudLoginCopyConsentSetting.consent(at: Self.path, file: file, effective: effective, managed: managed)
-    }
-
-    static var descriptors: [SettingDescriptor] {
-        [
-            SettingDescriptor(
-                path, section: .machines, group: SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces"),
-                title: SettingsText.keyed("settings.cloud.useMyCodexLogin", "Use My Codex Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyCodexLogin.help",
-                                         "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."),
-                kind: .toggle, default: .bool(false),
-                keywords: ["cloud", "codex", "chatgpt", "login", "sign in", "token", "credential", "machine", "consent"]
-            ),
-        ]
+        CloudLoginCopyConsentSetting.consent(at: Self.configPath, file: file, effective: effective, managed: managed)
     }
 }

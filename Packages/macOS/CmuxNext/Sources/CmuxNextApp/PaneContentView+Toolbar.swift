@@ -14,11 +14,8 @@ extension PaneContentView {
         needsLayout = true
     }
 
-    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip).
-    func toolbarWidth(shown: CGFloat) -> CGFloat {
-        guard let view = toolbar?.view, shown > 0 else { return 0 }
-        return min(view.intrinsicContentSize.width, bounds.width / 2)
-    }
+    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row.
+    func toolbarWidth(shown: CGFloat, sharing: Bool = false) -> CGFloat { shown > 0 ? toolbar?.view.paneWidth(in: bounds.width, sharing: sharing) ?? 0 : 0 }
 
     /// "…"'s pins beside a strip pinned to a browser's band.
     func toolbarBandPins() -> [NSLayoutConstraint] {

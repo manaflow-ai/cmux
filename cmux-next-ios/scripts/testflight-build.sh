@@ -336,7 +336,8 @@ git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
   "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-wg")" \
-  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" | shasum | cut -c1-16)
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" \
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/vendor/smoltcp")" | shasum | cut -c1-16)
 xcf_dest="$work/src/cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 mkdir -p "$(dirname "$xcf_dest")"
 if [[ -n "${CMUX_MOBILE_XCFRAMEWORK:-}" ]]; then

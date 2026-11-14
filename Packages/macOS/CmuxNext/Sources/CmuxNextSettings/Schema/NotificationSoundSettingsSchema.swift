@@ -67,7 +67,4 @@ nonisolated enum NotificationSoundSettingsSchema {
         }
         return rows
     }
-
-    /// Looks and sound only: an agent (the CLI, MCP) may set every one.
-    static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
 }

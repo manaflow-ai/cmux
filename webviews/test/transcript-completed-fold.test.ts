@@ -39,6 +39,10 @@ const received = (id: string) =>
     },
   });
 
+/// The ids a view draws, each row a run of messages folds (conversation/messageRuns.ts) included.
+const shownIds = (view: readonly AcpmuxRow[]) =>
+  view.flatMap((entry) => (entry.messageRun ? [entry.id, ...entry.messageRun.rows] : [entry.id]));
+
 const completedTurn = () => {
   at = 0;
   const prompt = row("prompt", "user", { text: "Ship the retry fix" });
@@ -66,7 +70,10 @@ test("a completed turn folds all pre-answer work and received reports under one 
   const opened = turnView(rows, new Set([`${WORKED}-prompt`]))
     .filter((entry) => entry.kind !== "date")
     .map((entry) => entry.id);
-  expect(opened).toEqual(["prompt", "worked-prompt", "read", "progress", "test", "report", "final", "summary"]);
+  // Opened, the work and the report between it fold under one line of messages (messageRuns.ts).
+  expect(opened).toEqual(["prompt", "worked-prompt", "messageRun-read", "final", "summary"]);
+  const run = turnView(rows, new Set([`${WORKED}-prompt`])).find((entry) => entry.messageRun);
+  expect(new Set(run?.messageRun?.rows)).toEqual(new Set(["read", "progress", "test", "report"]));
   expect(
     turnFoldFor(
       rows,
@@ -79,7 +86,7 @@ test("a running turn keeps intermediate prose, tools, and received reports visib
   const rows = completedTurn().slice(0, -1);
   const live = turnView(rows, new Set(), { working: true });
   expect(live.some((entry) => entry.kind === WORKED)).toBe(false);
-  const ids = live.map((entry) => entry.id);
+  const ids = shownIds(live);
   for (const id of ["prompt", "read", "progress", "test", "report", "final"]) expect(ids).toContain(id);
 });
 
@@ -100,7 +107,7 @@ test("the completed disclosure state is keyed by the turn prompt, so a later sna
     expanded,
   );
   expect(first.map((entry) => entry.id)).toEqual(next.map((entry) => entry.id));
-  expect(next).toContainEqual(expect.objectContaining({ id: "report" }));
+  expect(shownIds(next)).toContain("report");
 });
 
 test("Find resolves a completed fold when history starts at a landed steer", () => {
@@ -119,11 +126,11 @@ test("an expanded provisional steer fold stays open when its older prompt arrive
   const partial = [full[reportAt]!, tool("late-test"), ...full.slice(reportAt + 1)];
   const expanded = new Set([`${WORKED}-report`]);
 
-  expect(turnView(partial, expanded)).toContainEqual(expect.objectContaining({ id: "late-test" }));
+  expect(shownIds(turnView(partial, expanded))).toContain("late-test");
 
   const loaded = turnView(full, expanded);
   expect(loaded).toContainEqual(expect.objectContaining({ id: `${WORKED}-prompt` }));
-  expect(loaded).toContainEqual(expect.objectContaining({ id: "report" }));
+  expect(shownIds(loaded)).toContain("report");
 });
 
 test("App's toggle call shape (raw snapshot rows) closes a fold a provisional steer key opened", () => {

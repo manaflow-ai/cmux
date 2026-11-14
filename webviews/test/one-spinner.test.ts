@@ -28,6 +28,9 @@ const CSS_ALLOWED: Record<string, string> = {
   "styles.css .base-picker-spinner": "diff viewer page loading",
   'styles.css #status[data-pending="true"]::before, body[data-loading="true"] #status::before':
     "diff viewer page loading",
+  // A gallery-only alternate look of the background-command row (not shipped): a pseudo-element.
+  'agent-session/acpmux/conversation/BackgroundCommandInline.gallery.css .bg-command-inline[data-look="edge-spinner"] .cv-command__bg-state[data-state="running"]::before':
+    "gallery alternate, not shipped",
 };
 
 test("on the web only `cv-spinner` turns on the spinner keyframes", () => {

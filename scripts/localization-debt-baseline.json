@@ -396,10 +396,6 @@
       "identical": 6,
       "needs_review": 354
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/Localizable.xcstrings": {
-      "identical": 4,
-      "needs_review": 271
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/WorkspaceChecklist.xcstrings": {
       "needs_review": 120
     },

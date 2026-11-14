@@ -496,3 +496,104 @@ fn output_flags_may_come_before_device_or_the_verb() {
     assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
     assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
 }
+
+/// A removed joined machine leaves the machine list; one that was only revoked stays.
+#[test]
+fn removed_joined_machines_leave_the_list_and_revoked_ones_stay() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty(), "no file: nothing hidden");
+    removed::add_in(dir.path(), "m_1", 1).unwrap();
+    removed::add_in(dir.path(), "m_1", 2).unwrap();
+    let ids = removed::ids_in(dir.path());
+    assert_eq!(ids.len(), 1, "recorded once");
+    let rows = vec![
+        json!({"kind": "joined", "id": "m_1", "name": "lane-vm-3", "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_2", "name": "build-box", "state": "revoked"}),
+        json!({"kind": "joined", "name": "no id"}),
+    ];
+    let shown = removed::without(rows, &ids);
+    let names: Vec<&str> = shown.iter().filter_map(|r| r["name"].as_str()).collect();
+    assert_eq!(names, ["build-box", "no id"], "only the removed one leaves; a revoked one stays");
+}
+
+/// A removed-machines file that cannot be read hides nothing, and a removal refuses to write
+/// over it (that would bring back every machine it hid).
+#[test]
+fn an_unreadable_removed_file_hides_nothing() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(removed::FILE);
+    std::fs::write(&path, b"{not json").unwrap();
+    assert!(removed::ids_in(dir.path()).is_empty());
+    assert!(removed::add_in(dir.path(), "m_9", 3).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"{not json", "left as it was");
+    std::fs::remove_file(&path).unwrap();
+    removed::add_in(dir.path(), "m_9", 3).unwrap();
+    assert!(removed::ids_in(dir.path()).contains("m_9"));
+    assert!(!dir.path().join(format!("{}.{}.tmp", removed::FILE, std::process::id())).exists());
+}
+
+/// Removing a joined machine without a revoke needs the hub's own list to show it revoked: a
+/// list that could not be read, or a machine still live or unknown, is never a quiet removal.
+#[test]
+fn only_a_machine_the_hub_lists_as_revoked_leaves_without_a_revoke() {
+    use super::removed::listed_revoked;
+    let rows = || {
+        Some(Ok(vec![
+            json!({"id": "m_gone", "state": "revoked"}),
+            json!({"id": "m_live", "state": "online"}),
+        ]))
+    };
+    assert!(listed_revoked(rows(), "m_gone").unwrap());
+    assert!(!listed_revoked(rows(), "m_live").unwrap(), "a live machine is revoked first");
+    assert!(!listed_revoked(rows(), "m_unknown").unwrap(), "an unknown id proves nothing");
+    assert!(listed_revoked(Some(Err("hub down".into())), "m_gone").is_err(), "an unread list");
+    assert!(listed_revoked(None, "m_gone").is_err(), "signed out");
+}
+
+/// Removals at once all stay recorded: the read, append and write hold the file's lock.
+#[test]
+fn removals_at_once_all_stay_recorded() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let threads: Vec<_> = (0..16)
+        .map(|n| {
+            let path = path.clone();
+            std::thread::spawn(move || removed::add_in(&path, &format!("m_{n}"), n).unwrap())
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(removed::ids_in(&path).len(), 16);
+}
+
+/// `cmux device --help` prints the device verbs (it fell through to the resource grammar), and
+/// the usage names the verbs `device` runs as `machine …` and sends VMs to `cmux vm`
+/// (cmuxterm-hq#7487 item 6). `device add` without `--yes` stays the app's Add Device card.
+#[test]
+fn device_help_names_every_device_verb_and_points_vms_at_vm() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    for help in ["--help", "-h", "help"] {
+        assert_eq!(super::device_args(&words(&["device", help])), Some(words(&[help])), "{help}");
+        assert_eq!(super::verb_and_args(&words(&[help])).0, help);
+    }
+    assert_eq!(super::device_args(&words(&["device", "add", "studio"])), None);
+    assert_eq!(super::device_args(&words(&["device", "mac-mini", "show"])), None);
+    assert_eq!(super::device_args(&words(&["device", "revoke", "m_1"])), None);
+    for verb in [
+        "device list",
+        "device add",
+        "device invite",
+        "device remove",
+        "SELECTOR show",
+        "device revoke|rotate",
+        "device doctor",
+        "cmux vm --help",
+        "`cmux machine` is the old name",
+    ] {
+        assert!(super::USAGE.contains(verb), "{verb} missing:\n{}", super::USAGE);
+    }
+}

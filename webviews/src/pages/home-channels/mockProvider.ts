@@ -4,6 +4,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
+import { fixtureRank, type PaletteRankRequest } from "./paletteRank";
 import {
   HomeOps,
   type HomeAttachment,
@@ -926,6 +927,9 @@ export class MockHomeProvider implements PageClient {
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
       case HomeOps.avatar:
         return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
+      case HomeOps.paletteRank:
+        // The fixture ranker (a case-insensitive substring filter in row order), not the daemon's.
+        return fixtureRank(params as unknown as PaletteRankRequest) as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {

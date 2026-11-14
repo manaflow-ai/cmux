@@ -1,0 +1,651 @@
+[
+ {
+  "name": "a harness owner is tied to its process",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "cnd-bd-test",
+   "exitWithPid": 4242
+  },
+  "expect": [
+   "--session",
+   "cnd-bd-test",
+   "--json",
+   "server",
+   "ensure",
+   "--terminal-reap-grace-seconds",
+   "30",
+   "--exit-with-pid",
+   "4242"
+  ]
+ },
+ {
+  "name": "the app's owner outlives it",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "cmux-app"
+  },
+  "expect": [
+   "--session",
+   "cmux-app",
+   "--json",
+   "server",
+   "ensure",
+   "--terminal-reap-grace-seconds",
+   "30"
+  ]
+ },
+ {
+  "name": "a binary without the reap grace gets no option",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "cmux-app",
+   "reapGrace": false
+  },
+  "expect": [
+   "--session",
+   "cmux-app",
+   "--json",
+   "server",
+   "ensure"
+  ]
+ },
+ {
+  "name": "the bundled binary with a key, progress and page origins",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "cmux-app-dev",
+   "reapGraceSeconds": 45,
+   "installKey": true,
+   "progress": true,
+   "binaryIsBundled": true,
+   "pageOrigins": [
+    "cmux-page://a",
+    "cmux-page://b"
+   ]
+  },
+  "expect": [
+   "--session",
+   "cmux-app-dev",
+   "--json",
+   "server",
+   "ensure",
+   "--terminal-reap-grace-seconds",
+   "45",
+   "--install-key-stdin",
+   "--restore-progress",
+   "--ws-loopback",
+   "--ws-allow-origin",
+   "cmux-page://a,cmux-page://b"
+  ]
+ },
+ {
+  "name": "an external binary never gets the page listener",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "s",
+   "reapGrace": false,
+   "binaryIsBundled": false,
+   "pageOrigins": [
+    "cmux-page://a"
+   ]
+  },
+  "expect": [
+   "--session",
+   "s",
+   "--json",
+   "server",
+   "ensure"
+  ]
+ },
+ {
+  "name": "Restart cmux-tui replaces an unresponsive owner",
+  "op": "ensure_arguments",
+  "request": {
+   "session": "s",
+   "progress": true,
+   "binaryIsBundled": true,
+   "replaceUnresponsive": true
+  },
+  "expect": [
+   "--session",
+   "s",
+   "--json",
+   "server",
+   "ensure",
+   "--terminal-reap-grace-seconds",
+   "30",
+   "--restore-progress",
+   "--replace-unresponsive"
+  ]
+ },
+ {
+  "name": "status",
+  "op": "status_arguments",
+  "request": {
+   "session": "cmux-app"
+  },
+  "expect": [
+   "--session",
+   "cmux-app",
+   "--json",
+   "server",
+   "status"
+  ]
+ },
+ {
+  "name": "ensure environment: state, config, fixed runtime base, no XDG_RUNTIME_DIR",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin",
+    "XDG_RUNTIME_DIR": "/run/u",
+    "TMPDIR": "/var/x"
+   },
+   "stateDirectory": "/s/tui",
+   "configFile": "/c.json",
+   "runtimeBase": "/var/folders/u/T"
+  },
+  "expect": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "CMUX_TUI_STATE_DIR": "/s/tui",
+    "CMUX_TUI_CONFIG": "/c.json",
+    "TMPDIR": "/var/folders/u/T"
+   },
+   "skipsStatus": false
+  }
+ },
+ {
+  "name": "a Cloud runtime launch is the launcher and skips the status fast path",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1"
+   },
+   "runtimeBase": "/t"
+  },
+  "expect": {
+   "environment": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1",
+    "TMPDIR": "/t"
+   },
+   "skipsStatus": true
+  }
+ },
+ {
+  "name": "status never takes the Cloud launcher authority",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1"
+   },
+   "runtimeBase": "/t",
+   "forStatus": true
+  },
+  "expect": {
+   "environment": {
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "TMPDIR": "/t"
+   },
+   "skipsStatus": false
+  }
+ },
+ {
+  "name": "the bundled binary is bounded by its restore progress",
+  "op": "ensure_timing",
+  "request": {
+   "binaryIsBundled": true,
+   "ensureTimeoutMs": 20000
+  },
+  "expect": {
+   "progress": true,
+   "timeoutMs": 150000,
+   "progressIdleMs": 20000
+  }
+ },
+ {
+  "name": "an external binary is bounded by the restore cap",
+  "op": "ensure_timing",
+  "request": {
+   "binaryIsBundled": false,
+   "ensureTimeoutMs": 200000
+  },
+  "expect": {
+   "progress": false,
+   "timeoutMs": 200000,
+   "progressIdleMs": null
+  }
+ },
+ {
+  "name": "a replace stays silent at most 30 s",
+  "op": "ensure_timing",
+  "request": {
+   "binaryIsBundled": true,
+   "replace": true
+  },
+  "expect": {
+   "progress": true,
+   "timeoutMs": 180000,
+   "progressIdleMs": 30000
+  }
+ },
+ {
+  "name": "the last JSON stdout line is the answer",
+  "op": "parse_ensure",
+  "request": {
+   "status": 0,
+   "stdout": "progress 1\n{\"restore\":1}\n  {\"status\":\"started\",\"session\":\"cmux-app\",\"socket\":\"/t/s.sock\",\"pid\":42,\"generation\":\"g1\"}  \n",
+   "stderr": ""
+  },
+  "expect": {
+   "ok": {
+    "status": "started",
+    "session": "cmux-app",
+    "socket": "/t/s.sock",
+    "pid": 42,
+    "generation": "g1"
+   }
+  }
+ },
+ {
+  "name": "a restore past the daemon's bound is typed",
+  "op": "parse_ensure",
+  "request": {
+   "status": 3,
+   "stdout": "",
+   "stderr": "warn\n{\"code\":\"server.restore_timeout\",\"message\":\"still restoring\"}\n"
+  },
+  "expect": {
+   "restoreTimeout": "still restoring"
+  }
+ },
+ {
+  "name": "any other failure carries stderr",
+  "op": "parse_ensure",
+  "request": {
+   "status": 3,
+   "stdout": "out",
+   "stderr": " {\"code\":\"server.busy\",\"message\":\"m\"}\n"
+  },
+  "expect": {
+   "launchFailed": "exit 3: {\"code\":\"server.busy\",\"message\":\"m\"}"
+  }
+ },
+ {
+  "name": "with no stderr, stdout",
+  "op": "parse_ensure",
+  "request": {
+   "status": 1,
+   "stdout": "  boom \n",
+   "stderr": ""
+  },
+  "expect": {
+   "launchFailed": "exit 1: boom"
+  }
+ },
+ {
+  "name": "exit 0 without an answer is a failure",
+  "op": "parse_ensure",
+  "request": {
+   "status": 0,
+   "stdout": "not json",
+   "stderr": ""
+  },
+  "expect": {
+   "launchFailed": "exit 0: not json"
+  }
+ },
+ {
+  "name": "a refused replace is typed",
+  "op": "parse_ensure",
+  "request": {
+   "status": 3,
+   "stdout": "",
+   "stderr": "{\"code\":\"server.replace_refused\",\"message\":\"answers\"}",
+   "replace": true
+  },
+  "expect": {
+   "replaceRefusal": {
+    "code": "server.replace_refused",
+    "message": "answers"
+   }
+  }
+ },
+ {
+  "name": "a replace that failed otherwise reads as an ensure",
+  "op": "parse_ensure",
+  "request": {
+   "status": 3,
+   "stdout": "",
+   "stderr": "{\"code\":\"server.spawn_failed\"}",
+   "replace": true
+  },
+  "expect": {
+   "launchFailed": "exit 3: {\"code\":\"server.spawn_failed\"}"
+  }
+ },
+ {
+  "name": "the probes",
+  "op": "reap_grace_probes",
+  "request": {},
+  "expect": [
+   [
+    "--help"
+   ],
+   [
+    "help",
+    "start"
+   ]
+  ]
+ },
+ {
+  "name": "help that lists the reap grace",
+  "op": "lists_reap_grace",
+  "request": {
+   "text": "Options:\n  --terminal-reap-grace-seconds <S>  keep\n"
+  },
+  "expect": true
+ },
+ {
+  "name": "help that only mentions it",
+  "op": "lists_reap_grace",
+  "request": {
+   "text": "see --terminal-reap-grace-seconds\n"
+  },
+  "expect": false
+ },
+ {
+  "name": "the app's knobs reach the daemon under its names",
+  "op": "diagnostic_knobs",
+  "request": {
+   "environment": {
+    "CMUX_NEXT_TRACE_FLOWS": "/tmp/flows",
+    "CMUX_NEXT_TUI_DEBUG_SPANS": "",
+    "CMUX_TUI_DEBUG_SPANS": "/tmp/stale",
+    "PATH": "/usr/bin"
+   }
+  },
+  "expect": {
+   "CMUX_TRACE_FLOWS": "/tmp/flows"
+  }
+ },
+ {
+  "name": "the terminal host model reaches the daemon",
+  "op": "diagnostic_knobs",
+  "request": {
+   "environment": {
+    "CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": "holder"
+   }
+  },
+  "expect": {
+   "CMUX_TUI_TERMINAL_HOST_MODEL": "holder"
+  }
+ },
+ {
+  "name": "the input lane switch reaches the daemon",
+  "op": "diagnostic_knobs",
+  "request": {
+   "environment": {
+    "CMUX_NEXT_TUI_RDS_INPUT": "1"
+   }
+  },
+  "expect": {
+   "CMUX_TUI_RDS_INPUT": "1"
+  }
+ },
+ {
+  "name": "a stale owner keepers knob reaches no daemon",
+  "op": "diagnostic_knobs",
+  "request": {
+   "environment": {
+    "CMUX_NEXT_TUI_OWNER_KEEPERS": "0"
+   }
+  },
+  "expect": {}
+ },
+ {
+  "name": "no knobs pass nothing",
+  "op": "diagnostic_knobs",
+  "request": {
+   "environment": {
+    "CMUX_TRACE_FLOWS": "/tmp/x"
+   }
+  },
+  "expect": {}
+ },
+ {
+  "name": "the Chief owner gets no stale keepers knob",
+  "op": "chief_environment",
+  "request": {
+   "environment": {
+    "HOME": "/h",
+    "CMUX_NEXT_TUI_OWNER_KEEPERS": "0"
+   }
+  },
+  "expect": {
+   "HOME": "/h"
+  }
+ },
+ {
+  "name": "the input lane switch reaches the Chief owner",
+  "op": "chief_environment",
+  "request": {
+   "environment": {
+    "HOME": "/h",
+    "CMUX_NEXT_TUI_RDS_INPUT": "0",
+    "CMUX_NEXT_TRACE_FLOWS": "/tmp/x"
+   }
+  },
+  "expect": {
+   "HOME": "/h",
+   "CMUX_TUI_RDS_INPUT": "0"
+  }
+ },
+ {
+  "name": "the Chief owner keeps only its variables, never a build's identity",
+  "op": "chief_environment",
+  "request": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "CMUX_TUI_CHIEF_BRAINS": "{}",
+    "CMUX_TAG": "a-build"
+   }
+  },
+  "expect": {
+   "PATH": "/usr/bin",
+   "CMUX_TUI_CHIEF_BRAINS": "{}"
+  }
+ },
+ {
+  "name": "a person's own launch publishes the CLI pointer",
+  "op": "last_app_cli_publishes",
+  "request": {
+   "environment": {}
+  },
+  "expect": true
+ },
+ {
+  "name": "an isolated agent launch does not",
+  "op": "last_app_cli_publishes",
+  "request": {
+   "environment": {
+    "CMUX_NEXT_NO_ACTIVATE": "1"
+   }
+  },
+  "expect": false
+ },
+ {
+  "name": "release keeps cmux-app",
+  "op": "session_name",
+  "request": {},
+  "expect": "cmux-app"
+ },
+ {
+  "name": "a tag is one safe path component",
+  "op": "session_name",
+  "request": {
+   "tag": "my tag/x."
+  },
+  "expect": "cmux-app-my-tag-x"
+ },
+ {
+  "name": "a tag of nothing safe is refused",
+  "op": "session_name",
+  "request": {
+   "tag": "--.."
+  },
+  "expect": null
+ },
+ {
+  "name": "a tag's state directory",
+  "op": "tag_state_directory",
+  "request": {
+   "tag": "nightly",
+   "applicationSupport": "/Users/u/Library/Application Support"
+  },
+  "expect": "/Users/u/Library/Application Support/cmux/tags/nightly/tui"
+ },
+ {
+  "name": "an unusable tag's state directory is default",
+  "op": "tag_state_directory",
+  "request": {
+   "tag": "..",
+   "applicationSupport": "/A"
+  },
+  "expect": "/A/cmux/tags/default/tui"
+ },
+ {
+  "name": "the channel builds",
+  "op": "channel_bundle_ids",
+  "request": {},
+  "expect": [
+   {
+    "bundleId": "com.cmuxterm.app.nightly",
+    "channel": "nightly"
+   },
+   {
+    "bundleId": "com.cmuxterm.app.rc",
+    "channel": "rc"
+   },
+   {
+    "bundleId": "com.cmuxterm.app.staging",
+    "channel": "staging"
+   }
+  ]
+ },
+ {
+  "name": "the override wins when executable",
+  "op": "resolve_binary",
+  "request": {
+   "override": "/dev/cmux-tui",
+   "resources": "/A.app/Contents/Resources",
+   "fs": {
+    "executables": [
+     "/dev/cmux-tui",
+     "/A.app/Contents/Resources/bin/cmux-tui"
+    ]
+   }
+  },
+  "expect": {
+   "binary": "/dev/cmux-tui"
+  }
+ },
+ {
+  "name": "a missing override falls back to the bundle",
+  "op": "resolve_binary",
+  "request": {
+   "override": "/dev/cmux-tui",
+   "resources": "/A.app/Contents/Resources",
+   "fs": {
+    "executables": [
+     "/A.app/Contents/Resources/bin/cmux-tui"
+    ]
+   }
+  },
+  "expect": {
+   "binary": "/A.app/Contents/Resources/bin/cmux-tui"
+  }
+ },
+ {
+  "name": "nothing executable lists what was searched",
+  "op": "resolve_binary",
+  "request": {
+   "override": "/dev/cmux-tui",
+   "resources": "/A.app/Contents/Resources",
+   "fs": {}
+  },
+  "expect": {
+   "searched": [
+    "/dev/cmux-tui",
+    "/A.app/Contents/Resources/bin/cmux-tui"
+   ]
+  }
+ },
+ {
+  "name": "the bundled cmux",
+  "op": "bundled_executable",
+  "request": {
+   "resources": "/A.app/Contents/Resources",
+   "name": "cmux"
+  },
+  "expect": "/A.app/Contents/Resources/bin/cmux"
+ },
+ {
+  "name": "CMUX_NEXT_TUI_BIN runs in place of the bundled cmux",
+  "op": "bundled_executable",
+  "request": {
+   "resources": "/A.app/Contents/Resources",
+   "name": "cmux",
+   "override": "/src/target/debug/cmux"
+  },
+  "expect": "/src/target/debug/cmux"
+ },
+ {
+  "name": "no resources, no executable",
+  "op": "bundled_executable",
+  "request": {
+   "name": "cmux"
+  },
+  "expect": null
+ },
+ {
+  "name": "a status call drops an inherited Cloud launcher marker and keeps the fast path",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "forStatus": true,
+   "runtimeBase": "/r"
+  },
+  "expect": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_RUNTIME": "1",
+    "TMPDIR": "/r"
+   },
+   "skipsStatus": false
+  }
+ },
+ {
+  "name": "an inherited Cloud launcher marker without the Cloud runtime is dropped",
+  "op": "ensure_environment",
+  "request": {
+   "base": {
+    "PATH": "/usr/bin",
+    "CMUX_NEXT_CLOUD_LAUNCHER": "1"
+   },
+   "runtimeBase": "/r"
+  },
+  "expect": {
+   "environment": {
+    "PATH": "/usr/bin",
+    "TMPDIR": "/r"
+   },
+   "skipsStatus": false
+  }
+ }
+]

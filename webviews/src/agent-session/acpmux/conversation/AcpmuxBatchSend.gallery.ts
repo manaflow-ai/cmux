@@ -65,11 +65,6 @@ const MCP_BATCH = tool("mcp__cmux__acpmux_send", "other", "completed", {
     failed: 0,
   }),
 });
-const RUNNING = bash(
-  'for lane in tests docs; do acpmux send "$lane" "$(cat "/tmp/briefs/$lane.md")"; done',
-  "Brief tests and docs and wait for replies",
-  "in_progress",
-);
 
 const turn = (calls: ReturnType<typeof tool>[], working = false) =>
   chat(
@@ -161,11 +156,6 @@ export default agentPaneEntry({
       note: 'The same group opened: a row per recipient, none repeating "and 1 more command", no Copy on any row.',
       snapshot: turn([LOOP_EIGHT]),
       play: openTurn,
-    },
-    "batch-sending": {
-      note: "A loop batch in flight: one live group line for its messages, with no spinner on the row.",
-      theme: { codexToolRuns: false },
-      snapshot: turn([RUNNING], true),
     },
   },
 });

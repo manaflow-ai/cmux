@@ -81,7 +81,7 @@ public struct TabItemMapping {
         item.hover = hover.facts
         if isConversation { item.subtitle = hover.folder }
         if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
-            if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
+            if item.icon == .terminalDead { item.icon = .terminal }
             if item.status == .failure { item.status = .none }
             if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
         }
@@ -106,10 +106,10 @@ public struct TabItemMapping {
             return harnessIcons.tabIcon(for: tab.agentSession?.harness)
                 ?? tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
-        if isBrowser { return .icon(.browser) }
-        if tab.dead { return .icon(.terminalDead) }
+        if isBrowser { return .browser }
+        if tab.dead { return .terminalDead }
         if let brand = tab.agentBrand { return .agentMark(brand) }
-        return .icon(.terminal)
+        return .terminal
     }
 
     /// A browser tab whose page was never shown keeps the record the daemon

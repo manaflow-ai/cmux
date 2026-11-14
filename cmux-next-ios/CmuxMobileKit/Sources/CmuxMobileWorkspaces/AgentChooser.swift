@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -46,7 +47,7 @@ struct AgentChooser: View {
     private var content: some View {
         switch phase {
         case .loading:
-            ProgressView("Loading agents…")
+            CmuxSpinner(label: Text("Loading agents…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
             ContentUnavailableView {

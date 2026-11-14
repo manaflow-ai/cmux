@@ -41,7 +41,7 @@ extension LayoutRootView {
             if view.frame.origin != origin { view.setFrameOrigin(origin) }
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
-            if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {
+            if id != model.layoutPassReads.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {
                 view.isHidden = true
                 // No frame steps a hidden screen: its pane springs land now, not when it shows again.
                 view.settleMotion()

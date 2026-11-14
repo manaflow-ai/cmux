@@ -56,7 +56,7 @@ enum RemoteGroupHandlers {
             guard let store = context.services.sidebarDoc.activeStore else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
             }
-            let ops = try removalOps(session: session, records: store.records)
+            let ops = try removalOps(session: session, store: store)
             do throws(SidebarDocSendRefusal) {
                 try store.sendChecked(ops: ops, title: RemoteStrings.newGroupTitle)
             } catch {
@@ -89,8 +89,8 @@ enum RemoteGroupHandlers {
 
     /// The ops that turn daemon session `session`'s remote group back into rows of the one list.
     /// Throws when its machine section is not a remote group: nothing to remove is not a success.
-    static func removalOps(session: String, records: SidebarDocRecords) throws(ActionFailure) -> [[String: Any]] {
-        let ops = SidebarDocHostGroupPlan(session: session, records: records, on: false).ops
+    static func removalOps(session: String, store: SidebarDocStore) throws(ActionFailure) -> [[String: Any]] {
+        let ops = store.hostGroupRemovalOps(session: session)
         guard !ops.isEmpty else { throw ActionFailure.invalidTarget(RemoteStrings.notARemoteGroup) }
         return ops
     }

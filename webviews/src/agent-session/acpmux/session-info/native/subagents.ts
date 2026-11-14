@@ -12,7 +12,7 @@ import { nestAgents } from "../../subagents/AgentsPill";
 import { elapsed } from "../../subagents/SubagentGroup";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { retrying } from "../../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/SubagentStatusList";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "../ChildSessionRows";
 import type { SubsessionLimits } from "../../model";
 import type { StartedSession } from "../../started/startedSessions";

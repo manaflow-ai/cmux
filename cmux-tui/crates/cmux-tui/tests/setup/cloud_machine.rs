@@ -235,7 +235,7 @@ fn cmux_setup_cloud_machine_makes_one_with_the_persons_ok_and_never_a_second() {
     let signed_out = world.follow(&fix);
     assert_eq!(signed_out["state"], "needs_user", "{signed_out}");
     assert_eq!(signed_out["user_action"]["kind"], "sign_in", "{signed_out}");
-    assert_eq!(signed_out["user_action"]["command"], "cmux cloud sign-in");
+    assert_eq!(signed_out["user_action"]["command"], "cmux login");
     app.signed_in.store(true, Ordering::SeqCst);
 
     let planned = world.json(&["setup", "cloud-machine", "--dry-run"]);

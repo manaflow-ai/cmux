@@ -207,7 +207,7 @@ impl Mux {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
             }
-            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id }) => {
+            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id, .. }) => {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});

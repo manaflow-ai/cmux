@@ -167,6 +167,9 @@ try {
   if (field(exec.body, "exitCode") !== 0 || field(exec.body, "stdout") !== "cmux-vm-product-smoke\n") {
     throw new Error(`exec returned ${JSON.stringify(exec.body)}`);
   }
+  // The step output done_at: when a production machine ran the image, the roll record's smoke_done_at (goal
+  // cloud-fix-to-machine). Before the delete below, which is cleanup, not rollout.
+  if (githubOutput !== "") appendFileSync(githubOutput, `done_at=${new Date().toISOString().replace(/\.\d{3}Z$/u, "Z")}\n`);
 } catch (error) {
   failed = true;
   console.error(`FAIL ${error instanceof Error ? error.message : String(error)}`);

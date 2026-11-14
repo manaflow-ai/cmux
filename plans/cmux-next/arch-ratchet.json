@@ -382,10 +382,6 @@
       "assume_isolated_total": 10,
       "observer_sites": 4
     },
-    "CmuxNextTasks": {
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2
-    },
     "CmuxNextTerminal": {
       "stateful_singletons": 1,
       "global_mutable_statics": 23,

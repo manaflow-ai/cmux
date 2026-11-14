@@ -141,7 +141,8 @@ impl PtyTerminalRuntime {
         if marks.is_empty() {
             return Vec::new();
         }
-        let mut tracker = self.command_tracker.lock().unwrap();
+        let mut tracker =
+            self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let recording = recording();
         if recording == Recording::Off {
             tracker.reset();
@@ -156,13 +157,17 @@ impl PtyTerminalRuntime {
 
     /// The newest finished command the tracker kept, if any.
     pub(super) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
-        self.command_tracker.lock().unwrap().last().cloned()
+        self.command_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .cloned()
     }
 
     /// The command a park keeps: the running one, else the newest finished one.
     pub(super) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
         let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        self.command_tracker.lock().unwrap().kept(now_ms)
+        self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kept(now_ms)
     }
 
     pub(super) fn terminal_osc_progress(&self) -> String {

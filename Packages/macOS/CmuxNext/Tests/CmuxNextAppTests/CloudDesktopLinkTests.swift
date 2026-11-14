@@ -101,7 +101,7 @@ import Testing
         await #expect(throws: DaemonError.self) { _ = try await dial.open(cli: cli) }
     }
 
-    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() {
+    @Test func openDesktopDefaultsAndGateFollowTheDesktopCapability() throws {
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
@@ -111,8 +111,8 @@ import Testing
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
         #expect(undeclared.allows(.desktop), "an older record keeps its noVNC desktop")
-        let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
-        #expect(platform.desktop, "the app server's name list says desktop")
+        let platform = try #require(CloudMachine(next: .object(["id": .string("vm-4"), "provider_operations": .array([.string("exec"), .string("desktop"), .string("agent_session")])])))
+        #expect(platform.capabilities.desktop, "the app server's name list says desktop")
     }
 
     /// The page session opens a Cloud desktop watching; Take over makes the next session's

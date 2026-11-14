@@ -9,7 +9,6 @@ nonisolated enum ChiefSidebarSettingsSchema {
     static let showWordsPath = ["chief", "subagentSidebarShowWords"]
     static let hideWordsPath = ["chief", "subagentSidebarHideWords"]
     static let minWordsPath = ["chief", "subagentSidebarMinWords"]
-    static let keys: Set<String> = Set([modePath, showWordsPath, hideWordsPath, minWordsPath].map { $0.joined(separator: ".") })
 
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefSubagents", "Subagents")

@@ -53,7 +53,7 @@ enum BrowserTabIconState: Equatable {
             item.isBusy = true
             item.isWaiting = waiting
         case .favicon(let image): item.icon = .image(image)
-        case .globe: item.icon = .icon(.browser)
+        case .globe: item.icon = .browser
         case .page(let name): item.icon = .icon(name)
         }
     }

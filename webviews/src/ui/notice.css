@@ -205,3 +205,216 @@
 .ui-notice-stack > * {
   pointer-events: auto;
 }
+
+/* A repeat's count after the text (NoticeStack folds the same toast shown again into one): a small
+   rect in the quiet ink, never a capsule. */
+.ui-notice-count {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ui-notice-ink) 10%, transparent);
+  color: var(--ui-notice-ink-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The stacked layout (NoticeDeck.tsx): a compact deck at each of six anchors (anchors.ts), newest
+   in front at the anchor's edge, spreading while the pointer or focus is in it. The stack's box is
+   the surface toasts may rest in, inset from its edges; it takes no pointer and no room, so
+   nothing under it moves. A deck clips at its edge only while a card comes or goes behind it.
+   Clipping (overflow), never a clip-path or opacity on an ancestor of the cards: their glass blurs
+   what is behind the deck, which either would cut off. */
+.ui-notice-stack[data-layout="stacked"] {
+  --ui-notice-deck-width: 360px;
+  --ui-notice-deck-shadow-room: var(--ds-space-5);
+  --ui-notice-deck-motion: var(--cmux-motion-standard, 180ms);
+  --ui-notice-deck-ease: var(--ui-enter-ease, cubic-bezier(0.2, 0, 0, 1));
+  top: var(--ui-notice-stack-top, var(--ds-space-4));
+  display: block;
+  padding: 0;
+}
+.ui-notice-stack-top {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+  pointer-events: none;
+}
+.ui-notice-anchor {
+  position: absolute;
+  bottom: 0;
+  width: min(var(--ui-notice-deck-width, 360px), 100%);
+  pointer-events: none;
+}
+.ui-notice-anchor[data-row="top"] {
+  top: 0;
+  bottom: auto;
+}
+.ui-notice-anchor[data-column="start"] {
+  left: 0;
+}
+.ui-notice-anchor[data-column="center"] {
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+}
+.ui-notice-anchor[data-column="end"] {
+  right: 0;
+}
+.ui-notice-anchor > .ui-notice-deck {
+  position: relative;
+  height: var(--ui-notice-deck-h, 0px);
+  pointer-events: none;
+}
+.ui-notice-deck-cards {
+  position: absolute;
+  /* The deck's box with room for the cards' shadows. Never larger: a box past the deck's own
+     reach would be scrollable overflow of whatever pane holds it (a top deck under a pane's header
+     scrolled the pane by its offset; test/agent-pane-short-pane-composer.test.ts). The deck is as
+     tall as what it shows, so a card is inside it except while it comes, goes or is held. */
+  inset: calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+.ui-notice-deck[data-edge="top"] > .ui-notice-deck-cards {
+  inset: 0 calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px));
+}
+.ui-notice-deck[data-clip] > .ui-notice-deck-cards {
+  overflow: hidden;
+}
+.ui-notice-deck-card {
+  --ui-notice-deck-origin: 50% 100%;
+  position: absolute;
+  inset-inline: var(--ui-notice-deck-shadow-room, 24px);
+  bottom: 0;
+  contain: layout;
+  transform-origin: var(--ui-notice-deck-origin);
+  transform: translate(var(--ui-notice-drag-x, 0px), var(--ui-notice-drag-y, 0px))
+    translateY(var(--ui-notice-deck-y, 0px)) scale(var(--ui-notice-deck-scale, 1));
+  translate: 0 0;
+  pointer-events: auto;
+  transition:
+    transform var(--ui-notice-deck-motion) var(--ui-notice-deck-ease),
+    translate var(--ui-notice-deck-motion) var(--ui-notice-deck-ease),
+    opacity var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+.ui-notice-deck[data-edge="top"] .ui-notice-deck-card {
+  --ui-notice-deck-origin: 50% 0;
+  top: 0;
+  bottom: auto;
+}
+/* The card fills the deck's width; its height is its own, or the front card's while gathered. */
+.ui-notice-deck-card > .ui-notice {
+  width: 100%;
+  max-width: none;
+  height: var(--ui-notice-deck-card-h, auto);
+  overflow: hidden;
+  transition: height var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+/* Behind the front while gathered: an edge of glass, its text not shown until the deck spreads. */
+.ui-notice-deck-card > .ui-notice > * {
+  transition: opacity var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+.ui-notice-deck:not([data-expanded]) .ui-notice-deck-card:not([data-front]) > .ui-notice > * {
+  opacity: 0;
+}
+/* The gap between spread cards keeps the deck under the pointer. */
+.ui-notice-anchor > .ui-notice-deck[data-expanded] {
+  pointer-events: auto;
+}
+.ui-notice-deck-card[data-hidden] {
+  visibility: hidden;
+}
+/* Coming in from, and going back behind, the deck's edge. */
+.ui-notice-deck-card:is([data-phase="from"], [data-phase="leaving"]) {
+  translate: 0 calc(100% + var(--ds-space-2));
+}
+.ui-notice-deck[data-edge="top"] .ui-notice-deck-card:is([data-phase="from"], [data-phase="leaving"]) {
+  translate: 0 calc(-100% - var(--ds-space-2));
+}
+.ui-notice-deck-card:is([data-phase="from"], [data-phase="fly"]) {
+  transition: none;
+}
+.ui-notice-deck-card[data-phase="leaving"] {
+  pointer-events: none;
+  /* An exit is shorter than its entrance (ui/presence.ts). */
+  transition-duration: var(--cmux-motion-micro, 120ms);
+}
+
+/* Drag (anchors.ts): the card follows the pointer with no transition; let go, it settles on the
+   shared spring, into its own place or from where it was dropped into another anchor's deck. */
+.ui-notice-deck-card[data-draggable] {
+  touch-action: none;
+  cursor: grab;
+}
+.ui-notice-deck-card[data-draggable] :is(button, a[href], input, textarea, select, label) {
+  cursor: default;
+}
+.ui-notice-deck-card[data-dragging] {
+  cursor: grabbing;
+  transition: none;
+}
+.ui-notice-deck-card[data-settling] {
+  transition-duration: var(--cmux-motion-large, 240ms);
+  transition-timing-function: var(--cmux-ease-spring, var(--ui-notice-deck-ease));
+}
+.ui-notice-deck-card[data-phase="fly"] {
+  translate: var(--ui-notice-fly-x, 0px) var(--ui-notice-fly-y, 0px);
+}
+/* Flicked or dropped past the edge: it flies on the way it went and fades as it goes. */
+.ui-notice-deck-card[data-flung][data-phase="leaving"] {
+  translate: var(--ui-notice-fling-x, 0px) var(--ui-notice-fling-y, 0px);
+  opacity: 0;
+  transition-duration: var(--ui-notice-deck-motion);
+  transition-timing-function: var(--cmux-ease-out, ease-out);
+}
+/* The six anchors, outlined while a toast is held (the `ghosts` feel); the one it would settle at
+   is lit. Small-radius rects at the anchor's own edge and corner, inside the surface. */
+.ui-notice-anchor-ghost {
+  position: absolute;
+  width: min(96px, 30%);
+  height: var(--ds-space-6, 32px);
+  border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
+  border-radius: var(--surface-toast-radius);
+  pointer-events: none;
+  transition:
+    background-color var(--cmux-motion-quick, 80ms),
+    border-color var(--cmux-motion-quick, 80ms);
+}
+.ui-notice-anchor-ghost[data-anchor="top-left"] {
+  translate: 0 0;
+}
+.ui-notice-anchor-ghost[data-anchor="top"] {
+  translate: -50% 0;
+}
+.ui-notice-anchor-ghost[data-anchor="top-right"] {
+  translate: -100% 0;
+}
+.ui-notice-anchor-ghost[data-anchor="bottom-left"] {
+  translate: 0 -100%;
+}
+.ui-notice-anchor-ghost[data-anchor="bottom"] {
+  translate: -50% -100%;
+}
+.ui-notice-anchor-ghost[data-anchor="bottom-right"] {
+  translate: -100% -100%;
+}
+.ui-notice-anchor-ghost[data-near] {
+  border-style: solid;
+  border-color: var(--agent-accent, var(--cmux-accent, currentColor));
+  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent, currentColor)) 12%, transparent);
+}
+
+/* Motion off or Reduce Motion: each change is drawn in one frame. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"])
+  :is(.ui-notice-deck-card, .ui-notice-deck-card > .ui-notice, .ui-notice-deck-card > .ui-notice > *, .ui-notice-anchor-ghost) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ui-notice-deck-card, .ui-notice-deck-card > .ui-notice, .ui-notice-deck-card > .ui-notice > *, .ui-notice-anchor-ghost) {
+    transition: none;
+  }
+}

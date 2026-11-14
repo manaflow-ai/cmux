@@ -33,7 +33,7 @@ final class DensityController {
             notify(DensityStrings.alreadyUsing(name))
             return
         }
-        let densityPath = DensitySetting().configPath, customPath = CustomDensitySelectionSetting().configPath
+        let densityPath = DensitySetting.configPath, customPath = CustomDensitySelectionSetting.configPath
         try AppearanceHandlers.requireUnmanaged(densityPath, context)
         try AppearanceHandlers.requireUnmanaged(customPath, context)
         design.densityTokens = density
@@ -61,7 +61,7 @@ final class DensityController {
         var made = CustomDensitiesSetting.duplicate(base, name: trimmed, existing: design.customDensities)
         if let fontSize { made = DensityTokens(id: made.id, name: made.name, basedOn: made.basedOn, level: made.level,
                                                 spacing: made.spacing, fontSize: fontSize, tokens: made.tokens) }
-        let listPath = CustomDensitiesSetting().configPath, customPath = CustomDensitySelectionSetting().configPath
+        let listPath = CustomDensitiesSetting.configPath, customPath = CustomDensitySelectionSetting.configPath
         try AppearanceHandlers.requireUnmanaged(listPath, context)
         try AppearanceHandlers.requireUnmanaged(customPath, context)
         let list = design.customDensities + [made]

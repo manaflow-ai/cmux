@@ -69,6 +69,8 @@ export interface NoticeProps {
   className?: string;
   /** Forwarded for a host's checks and the stack's hover. */
   id?: string;
+  /** A toast shown again while it was up: how many times, drawn as `×2` after its text. */
+  count?: number;
 }
 
 /** The buttons in their order: an error's Retry first, then the actions; which one is filled. */
@@ -115,6 +117,7 @@ export function Notice({
   children,
   className,
   id,
+  count = 1,
 }: NoticeProps) {
   const titleId = useId();
   const messageId = useId();
@@ -154,6 +157,11 @@ export function Notice({
             </span>
           )}
         </div>
+        {count > 1 && (
+          <span className="ui-notice-count" data-count={count}>
+            ×{count}
+          </span>
+        )}
       </div>
       {children && <div className="ui-notice-extra">{children}</div>}
       {(buttons.length > 0 || check) && (

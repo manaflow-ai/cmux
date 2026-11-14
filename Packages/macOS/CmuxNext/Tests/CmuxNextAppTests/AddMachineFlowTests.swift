@@ -705,8 +705,8 @@ import Testing
         let report = store.reports["ssh-1"]
         let row = MachineSectionRow(id: "ssh-1", name: "hb", isConnected: true, isLocal: false, health: report?.health, healthStep: report?.worstStep?.step)
         #expect(row.health == .failing)
-        #expect(row.healthHelp == AddMachineStrings.healthFailing(AddMachineStrings.step(.daemon)))
-        #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).healthHelp == nil)
+        #expect(row.healthStep == .daemon, "the page's status mark names the step the check flagged")
+        #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).health == nil)
     }
 
     // MARK: - The machine's name

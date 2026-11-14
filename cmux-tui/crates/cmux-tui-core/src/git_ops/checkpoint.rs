@@ -9,7 +9,7 @@ mod capture;
 mod compare;
 pub(super) mod ledger;
 mod reads;
-mod record;
+pub(super) mod record;
 mod refs;
 mod scan;
 pub(super) mod store;

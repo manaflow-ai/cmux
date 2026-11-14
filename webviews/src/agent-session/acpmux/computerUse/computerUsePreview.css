@@ -166,7 +166,8 @@
 .acpmux-cu-preview__person-label {
   margin-top: 8px;
   padding: 0 var(--ds-space-2, 8px);
-  border-radius: 999px;
+  /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
   background: var(--agent-text);
   /* The opaque page colour, never the page background (clear in a see-through window). */
   color: var(--acpmux-base, var(--agent-accent-text, Canvas));

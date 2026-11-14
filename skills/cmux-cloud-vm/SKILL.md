@@ -36,18 +36,17 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 - No folder is needed: without `--cwd` the chat starts in a new folder of its own under
   `~/chats` on the machine; `--cwd FOLDER` starts it in that existing folder instead;
   `--timeout SECONDS` bounds `--wait` (default 900).
-- Follow-ups on the same chat, with `MACHINE_ID` and `SESSION_ID` from the answer (the
-  answer's `follow_up` has them filled in):
+- The next prompt to the same chat, with `SESSION_ID` from the answer (the answer's
+  `follow_up.send` has it filled in). The session id finds the chat's machine; `--wait`
+  prints the reply:
 
   ```sh
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID "next prompt"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  cmux chat send SESSION_ID 'next prompt' --wait
   ```
 
-  Each `cloud exec` stops after 25 s, so wait in 20-second slices until `wait` exits 0
-  (2: the agent asks for a permission, answered in the chat's tab).
-- Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
+  Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
+  chat's tab.
+- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
   Run from an agent chat, it starts at once, as from a terminal: nothing asks the

@@ -13,7 +13,9 @@
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
-//! own agent's level. A record that cannot be read is no answer. The check is
+//! own agent's level. A record that cannot be read is no answer. A queued or started
+//! prompt's check with no answer once the daemon's shutdown began answers that the daemon
+//! restarts instead (`Hub::check_dispatch`): the next daemon checks it again. The check is
 //! here, in the daemon, so a page cannot get around it.
 //!
 //! A Web client cannot answer the question (`acp.trust.set` is refused for it
@@ -137,13 +139,16 @@ fn running(session: &crate::hub::Session) -> bool {
 /// Web client still waits: its folder needs a person's decision.
 fn pending_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
     match answered {
-        Err(e)
-            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
-        {
-            Ok(())
-        }
+        Err(e) if is_pending(&e) => Ok(()),
         answered => answered,
     }
+}
+
+/// The gate's refusal for a folder with no answer (`trust.pending`): no answer was read, which
+/// is also what a record that cannot be read gives (`folder_answered`). Not `trust.untrusted`,
+/// the person's own No.
+pub(crate) fn is_pending(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending"))
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.

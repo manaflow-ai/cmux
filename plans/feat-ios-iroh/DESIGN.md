@@ -17,7 +17,7 @@ The codebase already reserved the seams for this:
 
 ## Spike results (gating risk: retired)
 
-Spike code: `experiments/iroh-swift-ffi-spike/` (full notes in its README).
+Spike code: `experiments/iroh-swift-ffi-spike/` (full notes in its README), removed from the tree in #37552; read it in git history.
 
 - Bindings: the official uniffi bindings (https://github.com/n0-computer/iroh-ffi) are archived, last release v0.35.0 tracks pre-1.0 iroh. n0's guidance is a custom wrapper. We use a ~400-line Rust staticlib over iroh `1.0.0-rc.1` exposing a minimal blocking C API (bind, id, route JSON, online, accept, connect, recv, send, close), consumed from Swift via a bridging header.
 - Proof: an arm64 iOS-simulator process (iPhone 17, iOS 26.4) dialed a macOS process by EndpointId alone (no address hints, n0 discovery plus relays) and round-tripped bytes; connect took 0.50 to 1.03s. Both sides exited clean.
@@ -110,7 +110,7 @@ The hive doc should be updated to say: default connectivity = registry routes di
 
 P1 is not bundled here because it carries a build-toolchain change for all CI and fleet builders; the seam work itself is mechanical. Stack, each independently revertable:
 
-1. **This PR**: spike (`experiments/iroh-swift-ffi-spike/`) plus this design doc. No app/runtime changes, no reload needed.
+1. **The spike PR**: spike (`experiments/iroh-swift-ffi-spike/`, since removed in #37552) plus this design doc. No app/runtime changes, no reload needed.
 2. **PR 2, packaging**: `native/cmux-iroh/` crate (FFI grown to caller-provided keys and error-kind codes), `scripts/ensure-cmux-iroh.sh`, Rust toolchain in CI, xcframework linked into both apps but referenced by nothing. Proves the build matrix everywhere without behavior change.
 3. **PR 3, phone dial lane**: `CmxIrohByteTransport` in `Packages/iOS/CmuxMobileTransport` plus registration, behind a feature flag (DEBUG default ON, release default OFF). Includes the EndpointId pin gate from the security section: pin at first trust in `MobilePairedMacStore`, refuse to send Stack tokens to a non-matching EndpointId, explicit re-trust UX on change. Unit tests with the existing transport test doubles; one loopback-style integration test dialing a local iroh listener.
 4. **PR 4, Mac host lane**: `MobileHostByteConnection` seam extraction in `MobileHostService` (pure refactor commit first, NWConnection adapter only, zero behavior change), then the iroh accept loop, Keychain key custody, route publication in `MobileRouteResolver`, registry propagation. Same feature flag.

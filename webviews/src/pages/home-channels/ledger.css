@@ -94,6 +94,37 @@
   color: var(--page-text-2);
   border-color: var(--page-hover);
 }
+/* New Cloud Machine (ConversationList's cloud entry): a quiet labeled row on the search field's
+   grid, its icon over the search glyph, so it reads as a place to go rather than a call to action. */
+.lg-nav-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  margin: 0 var(--ds-space-2) var(--ds-space-2);
+  padding: 0 var(--ds-space-2);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-align: start;
+  cursor: default;
+}
+.lg-nav-row:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.lg-nav-row:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: -2px;
+}
+.lg-nav-row[data-look="footer"] {
+  margin-top: var(--ds-space-1);
+}
 .lg-list-rows {
   flex: 1;
   min-height: 0;

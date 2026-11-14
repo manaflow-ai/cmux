@@ -5,6 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import fs from "node:fs";
+import path from "node:path";
 import { Button } from "./Button";
 import { Input } from "./Input";
 import { Switch } from "./Switch";
@@ -103,6 +105,13 @@ test("Button is a focusable button with our variant and size, and disabled silen
   expect(off!.disabled).toBe(true);
   click(off!);
   expect(pressed).toBe(1);
+});
+
+test("solid danger buttons keep a danger hover and open-popup fill", () => {
+  const css = fs.readFileSync(path.join(import.meta.dir, "controls.css"), "utf8");
+  expect(css).toContain('.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled])');
+  expect(css).toContain('.ui-btn[data-danger][data-variant="solid"][data-popup-open]');
+  expect(css).toContain("color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent))");
 });
 
 test("Switch is role switch, toggles on click and reports its state", () => {

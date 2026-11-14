@@ -126,3 +126,8 @@ export type NewsLayout = "alternate" | "stack" | "grid" | "lead";
     enough"): a row's title and its muted line on one line where they fit (default); the line
     tight under the title; or two columns of rows on a wide pane. */
 export type SheetLayout = "inline" | "stack" | "grid";
+/** How a sheet row from a public pull request shows it (SheetPage.tsx; the route's `prs=`, for the
+    gallery), quiet either way (Leo 2026-11-07: "this could maybe still be better with linking to
+    prs..."): the title links it and its `#N` shows at the row's end on hover (default); the `#N`
+    always shows, muted; or the whole row is the link, with a hover fill. */
+export type SheetLinks = "hover" | "end" | "row";

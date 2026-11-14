@@ -280,6 +280,11 @@ impl Hub {
                                     )),
                                     cwd: Some(run.cwd.clone()),
                                     starter: Some(run.owner_session_id.clone()),
+                                    // The workflow's owning agent (`created_by.rs`).
+                                    created_by: Some(super::created_by::owner(
+                                        self,
+                                        &run.owner_session_id,
+                                    )),
                                     env,
                                     ..Default::default()
                                 },
@@ -1106,6 +1111,13 @@ mod tests {
         };
         let (a, b) = (name(&first), name(&second));
         assert!(a.starts_with("Shared title · ") && b.starts_with("Shared title · "));
+        // Each is its owning agent's (`created_by.rs`).
+        let Child::Agent { session_id, .. } = &first.child else { unreachable!() };
+        let by = hub.resolve(session_id).unwrap().meta().created_by;
+        assert_eq!(
+            by.map(|b| (b.kind, b.session)),
+            Some((crate::store::CreatorKind::Agent, Some("owner".to_owned())))
+        );
         assert_ne!(a, b);
         cleanup(hub, run).await;
     }

@@ -65,12 +65,12 @@ struct CustomDensitySettingTests {
     }
 
     @Test func theSettingsWriteCheckAgrees() throws {
-        let list = try #require(SettingsSchema.descriptor(for: CustomDensitiesSetting().configPath))
+        let list = try #require(SettingsSchema.descriptor(for: CustomDensitiesSetting.configPath))
         #expect(list.accepts(.array([CustomDensitiesSetting.json(Self.tight)])))
         #expect(list.accepts(.array([])))
         #expect(!list.accepts(.string("my-tight")))
         #expect(!list.accepts(.array([.object([:])])))
-        let density = try #require(SettingsSchema.descriptor(for: DensitySetting().configPath))
+        let density = try #require(SettingsSchema.descriptor(for: DensitySetting.configPath))
         for preset in DensityPreset.allCases { #expect(density.accepts(.string(preset.rawValue))) }
         #expect(!density.accepts(.string("my-tight")), "a custom one is chosen by appearance.customDensity")
     }

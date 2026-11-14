@@ -7,11 +7,6 @@
 /// The tab list's empty-area menu (Use Vertical Tabs for All Workspaces, Auto-Expand Tabs on Hover),
 /// the palette and Settings write them.
 public nonisolated struct VerticalTabsSetting: Sendable {
-    public static let configPath = ["tabs", "verticalTabs"]
-    public static let fallback = false
-    public static let expandOnHoverPath = ["tabs", "verticalTabsExpandOnHover"]
-    public static let expandOnHoverFallback = true
-
     public init() {}
 
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
@@ -20,7 +15,7 @@ public nonisolated struct VerticalTabsSetting: Sendable {
     }
 
     static func parseExpandOnHover(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        parseToggle(root, path: expandOnHoverPath, fallback: expandOnHoverFallback)
+        parseToggle(root, path: expandOnHoverPath, fallback: expandOnHoverDefault)
     }
 
     private static func parseToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {

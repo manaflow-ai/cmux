@@ -207,11 +207,11 @@ async fn a_claude_api_retry_logs_turn_retrying_until_the_model_answers() {
 /// A model API that refuses the agent's sign-in (401): Claude Code retries it on its own backoff,
 /// about 160 s over 10 retries, before it fails the turn, and the person saw only "retrying"
 /// (cloud-chaos staging run 42292894478: seven retries, then the relay timed out). acpmux ends the
-/// turn at the third such retry (`hub/turn_retry.rs`), failed with the sign-in's kind and its
-/// recovery text, after 1.5 s of Claude's backoff. ACPMUX_TEST_RETRY_SCALE scales the fake's
+/// turn at the second such retry (`hub/turn_retry.rs`), failed with the sign-in's kind and its
+/// recovery text, after 0.5 s of Claude's backoff. ACPMUX_TEST_RETRY_SCALE scales the fake's
 /// waits (default 0.01); the test prints how long the typed error took.
 #[tokio::test]
-async fn a_claude_sign_in_the_model_api_refuses_fails_the_turn_typed_at_its_third_retry() {
+async fn a_claude_sign_in_the_model_api_refuses_fails_the_turn_typed_at_its_second_retry() {
     let scale = std::env::var("ACPMUX_TEST_RETRY_SCALE").unwrap_or_else(|_| "0.01".into());
     let env = BTreeMap::from([("FAKE_CLAUDE_RETRY_SCALE".to_owned(), scale.clone())]);
     let mut c = claude_client_with(env).await;
@@ -250,7 +250,7 @@ async fn a_claude_sign_in_the_model_api_refuses_fails_the_turn_typed_at_its_thir
     let error = answer.expect_err("the refused sign-in fails the turn");
     assert_eq!(error["data"]["errorKind"], "auth.signed_out", "{error}");
     assert!(error["data"]["recovery"].as_str().is_some_and(|r| r.contains("sign")), "{error}");
-    assert_eq!(retries.len(), 3, "the turn ends at its third refused retry: {retries:?}");
-    assert_eq!(retries[2]["msg"]["errorStatus"], 401);
-    assert_eq!(backoff_ms, 1500, "the person waits 0.5 s + 1 s of Claude's backoff, not 160 s");
+    assert_eq!(retries.len(), 2, "the turn ends at its second refused retry: {retries:?}");
+    assert_eq!(retries[1]["msg"]["errorStatus"], 401);
+    assert_eq!(backoff_ms, 500, "the person waits 0.5 s of Claude's backoff, not 160 s");
 }

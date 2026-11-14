@@ -193,7 +193,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`) and sends it now
     /// (`ResizeCoordinator.submitNow`): the view's `TerminalGridReporter` already let at most one grid
-    /// per 25 ms window go, and a second wait for the coordinator's next frame added one refresh to every
+    /// per display refresh go, and a second wait for the coordinator's next frame added one refresh to every
     /// grid of a key resize (T-KEYS 4). The echo rule and a full screen transition's hold still apply.
     @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         guard cols > 0, rows > 0 else { return true }

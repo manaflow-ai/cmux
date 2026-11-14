@@ -53,9 +53,11 @@ export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): voi
  * What the viewer does around a render besides the items: `prepared` gets the fingerprint of a diff
  * the host precomputed (`SessionOpened.prepared === "warm"`), the freshness check's baseline; and
  * `beforeReplace` runs right before a reconciling render swaps its files in (the viewer takes the
- * reader's place then, to put it back after).
+ * reader's place then, to put it back after). `retained` holds the session on screen while a reconcile
+ * streams: it stays the active one until the replacement commits, and stays shown if that fails.
  */
 export type RenderDiffHooks = {
+  retained?: React.MutableRefObject<ActiveDiffSession | null>;
   prepared?: (fingerprint: string | undefined) => void;
   beforeReplace?: () => void;
 };
@@ -88,12 +90,46 @@ export function useRenderDiff(
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
     // A reconciling render keeps the files on screen and swaps the new ones in when all have arrived.
     const reconciling = latestState.current.reconciling;
+    const retained = hooks?.current.retained;
+    // A render that is not a reconcile (a Refresh after one) ends whatever the reconcile kept.
+    if (!reconciling && retained?.current) {
+      const kept = retained.current;
+      retained.current = null;
+      if (activeSessionRef.current === kept) void closeActiveSession();
+      else if (transport) void closeDiffSession(transport, kept);
+    }
+    // The replacement's session and patch, made active only when its diff commits, with what its open
+    // said about the files (the diff on screen keeps its own until then).
+    let replacement: {
+      session: ActiveDiffSession;
+      patchURL: string;
+      generatedPaths: string[];
+      whitespaceHidden: boolean;
+    } | null = null;
+    const commitReplacement = () => {
+      const kept = retained?.current;
+      if (retained) retained.current = null;
+      if (kept && transport && kept !== replacement?.session) void closeDiffSession(transport, kept);
+      activeSessionRef.current = replacement?.session ?? null;
+      if (replacement) {
+        dispatch({ type: "set-generated-paths", paths: replacement.generatedPaths });
+        dispatch({ type: "set-whitespace-hidden", hidden: replacement.whitespaceHidden });
+        onPatchURL(replacement.patchURL);
+      }
+      replacement = null;
+    };
+    const closeReplacement = () => {
+      if (replacement && transport) void closeDiffSession(transport, replacement.session);
+      replacement = null;
+    };
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
+      closeReplacement();
+      streamAbortController.abort();
       void closeActiveSession();
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -104,6 +140,8 @@ export function useRenderDiff(
     // closed the active session) that would be the next run's open (CancellationError, "Could not
     // render this diff" on Hide imports and Hide white space).
     let opening = false;
+    // A reconcile's own generated list, which its stream classifies with before it commits.
+    let reconcileGenerated: string[] | null = null;
     const emptyMessage = () =>
       hidingWhitespace
         ? label("noChangesWithWhitespaceHidden")
@@ -145,34 +183,47 @@ export function useRenderDiff(
             await closeDiffSession(transport!, openedSession);
             return;
           }
-          activeSessionRef.current = openedSession;
           onResolvedSessionSource(result.value.source);
           // Older sidecars omit the field; the lockfile heuristic still applies.
           const generatedPaths = Array.isArray(result.value.generatedPaths)
             ? result.value.generatedPaths.filter((path): path is string => typeof path === "string")
             : [];
-          dispatch({ type: "set-generated-paths", paths: generatedPaths });
           // Older sidecars omit the field: white space is shown.
           hidingWhitespace = result.value.ignoreWhitespace === true;
-          dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
+          if (reconciling) {
+            replacement = {
+              session: openedSession,
+              patchURL: opened.patch.id,
+              generatedPaths,
+              whitespaceHidden: hidingWhitespace,
+            };
+            reconcileGenerated = generatedPaths;
+          } else {
+            activeSessionRef.current = openedSession;
+            dispatch({ type: "set-generated-paths", paths: generatedPaths });
+            dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
+          }
           // The host opened it before the page asked: while the page booted ("preopen"), or before
           // anyone clicked, when an agent's turn ended ("warm", with the fingerprint it had then).
           const extra = result.value as { prepared?: unknown; fingerprint?: unknown };
           markDiffAdopted(extra.prepared === "warm" || extra.prepared === "preopen");
-          hooks?.current.prepared?.(
-            extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
-          );
+          // A reconcile keeps the precomputed fingerprint: until its diff commits, that one is on screen.
+          if (!reconciling) {
+            hooks?.current.prepared?.(
+              extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
+            );
+          }
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
           return;
         }
-        onPatchURL(patchURL);
+        if (!reconciling) onPatchURL(patchURL);
         // The sidecar's generated list as a set, rebuilt only when the list itself changes.
         let declaredPaths: readonly string[] = [];
         let declaredSet: ReadonlySet<string> = new Set<string>();
         const declaredGenerated = (): ReadonlySet<string> => {
-          const paths = latestState.current.generatedPaths;
+          const paths = reconcileGenerated ?? latestState.current.generatedPaths;
           if (paths !== declaredPaths) {
             declaredPaths = paths;
             declaredSet = new Set(paths);
@@ -180,6 +231,8 @@ export function useRenderDiff(
           return declaredSet;
         };
         const streamedItems: DiffItem[] = [];
+        // A reconcile's renames, applied to the reader's file and the draft when its items commit.
+        const renames: { oldId: string; newId: string }[] = [];
         let heldTree: Parameters<StreamPatchOptions["onTreeSource"]>[0] | null = null;
         if (!reconciling) {
           dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
@@ -198,8 +251,9 @@ export function useRenderDiff(
           onComplete: (metrics) => {
             if (cancelled) return;
             if (reconciling) {
+              commitReplacement();
               hooks?.current.beforeReplace?.();
-              dispatch({ type: "replace-items", items: streamedItems });
+              dispatch({ type: "replace-items", items: streamedItems, renames });
               if (heldTree) dispatch({ type: "set-tree-source", source: heldTree });
             }
             dispatch({ type: "set-metrics", metrics });
@@ -236,6 +290,7 @@ export function useRenderDiff(
               dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
               return;
             }
+            renames.push({ oldId: rename.oldId, newId: rename.newId });
             const index = streamedItems.findIndex((item) => item.id === rename.oldId);
             if (index >= 0) streamedItems[index] = { ...streamedItems[index], id: rename.newId };
           },
@@ -255,10 +310,14 @@ export function useRenderDiff(
           return;
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
-        if (reconciling && empty) dispatch({ type: "replace-items", items: [] });
-        else if (reconciling) {
-          // The diff on screen stays; the freshness check offers Refresh again on the next change.
+        if (reconciling && empty) {
+          commitReplacement();
+          dispatch({ type: "replace-items", items: [] });
+        } else if (reconciling) {
+          // The diff on screen stays with its own session; the freshness check marks it stale.
           console.warn("cmux diff viewer reconcile failed", String((error as any)?.message ?? error));
+          closeReplacement();
+          if (retained) retained.current = null;
           dispatch({ type: "end-reconcile" });
           return;
         }
@@ -290,7 +349,10 @@ export function useRenderDiff(
       cancelled = true;
       streamAbortController.abort();
       window.removeEventListener("pagehide", handlePageHide);
-      if (opening || activeSessionRef.current) void closeActiveSession();
+      // The session a reconcile keeps on screen stays open for it; a replacement not yet committed closes.
+      closeReplacement();
+      const kept = retained?.current != null && activeSessionRef.current === retained.current;
+      if (opening || (activeSessionRef.current && !kept)) void closeActiveSession();
     };
   }, [
     activeSessionRef,

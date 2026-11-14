@@ -69,7 +69,17 @@ The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step r
 every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
+
+`--fork-open` runs fork-open-bench.py instead (a chat forked to a split, a tab or a workspace) with the
+other arguments, so scripts/measure/chat-open.sh measures a fork at any commit: a new scripts/measure
+script runs only once it is on feat-cmux-next.
 """
+import os as _os
+import sys as _sys
+
+if "--fork-open" in _sys.argv[1:]:
+    _fork = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "fork-open-bench.py")
+    _os.execv(_sys.executable, [_sys.executable, _fork, *[a for a in _sys.argv[1:] if a != "--fork-open"]])
 import argparse
 import json
 import os

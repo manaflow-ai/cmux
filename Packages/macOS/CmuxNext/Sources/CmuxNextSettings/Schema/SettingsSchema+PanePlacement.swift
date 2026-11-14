@@ -3,13 +3,6 @@ public import CmuxNextDesign
 /// Where new panes open (`CmuxConfigSnapshot+PanePlacement`), in the General
 /// section's Columns group.
 nonisolated enum PanePlacementSettingsSchema {
-    /// Agents may change them all: layout choices, like `layout.dockColumnMode`.
-    static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath,
-         MainPaneSetting.configPath]
-            .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
-    }
-
     static var descriptors: [SettingDescriptor] {
         let columns = SettingsText.keyed("settings.group.columns", "Columns")
         return [

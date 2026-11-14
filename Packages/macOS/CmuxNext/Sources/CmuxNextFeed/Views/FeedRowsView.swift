@@ -102,8 +102,7 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
+        SystemScrollers.follow(scroll)
         scroll.setAccessibilityIdentifier("cmux.feed.list")
         embed(scroll)
     }

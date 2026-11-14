@@ -83,8 +83,10 @@ pub fn reply_for(answer: &Answer) -> Value {
 }
 
 /// What `host cloud carrier-ticket` prints for an agent reply: the ticket
-/// alone on stdout (`Ok`), or the refusal's message (`Err`). The ticket
-/// never goes to stderr or a log.
+/// alone on stdout (`Ok`), or the refusal (`Err`), which leads with its
+/// dotted error code ([`printed_code`]). The ticket never goes to stderr or
+/// a log. The session host logs only the codes from this stderr (cmux-remote
+/// `relay.rs`, `stderr_summary`), so the code is the reason it keeps.
 pub fn ticket_of(reply: &Value) -> Result<String, String> {
     if reply.get("ok") == Some(&json!(true))
         && let Some(ticket) =
@@ -96,9 +98,30 @@ pub fn ticket_of(reply: &Value) -> Result<String, String> {
     let field = |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str);
     Err(format!(
         "{}: {}",
-        field("code").unwrap_or("carrier.bad_answer"),
+        printed_code(field("code")),
         field("message").unwrap_or("the Cloud agent gave no carrier ticket")
     ))
+}
+
+/// A refusal's code as printed: dotted lowercase segments of letters and
+/// `_` (`carrier.unavailable`). A shared agent code with no dot (`busy`,
+/// `rate_limited`) is printed under `carrier.`; a missing or other code is
+/// `carrier.bad_answer`.
+fn printed_code(code: Option<&str>) -> String {
+    let segment = |part: &str| {
+        part.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    };
+    match code {
+        Some(code) if code.len() <= 64 && code.split('.').all(segment) => {
+            if code.contains('.') {
+                code.to_owned()
+            } else {
+                format!("carrier.{code}")
+            }
+        }
+        _ => "carrier.bad_answer".to_owned(),
+    }
 }
 
 #[cfg(test)]

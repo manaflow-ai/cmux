@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxSpinner
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -56,7 +57,7 @@ struct AccountPage: View {
                 switch methods {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading").foregroundStyle(theme.colors.label2)
                     }
@@ -92,7 +93,7 @@ struct AccountPage: View {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
                         if deleting {
                             Spacer()
-                            ProgressView()
+                            CmuxSpinner()
                         }
                     }
                 }
@@ -198,7 +199,7 @@ struct TeamPage: View {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }

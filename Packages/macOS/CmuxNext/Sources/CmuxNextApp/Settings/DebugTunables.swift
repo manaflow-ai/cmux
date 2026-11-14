@@ -80,8 +80,6 @@ enum DebugTunables {
         let service = services.debugSettings
         var fields: [String: JSONValue] = [
             "available": .bool(service.isAvailable),
-            // `web`: the React page (cmux-page://cmux.debug-settings/, probe it with `debug.page`).
-            "surface": .string(PageTunables.debugSettings.value(in: store).rawValue),
             "active": .bool(store.isActive),
             "file": service.fileURL.map { .string($0.path) } ?? .null,
             "tunables": JSONValue(TunableCatalog.all.count),

@@ -68,19 +68,8 @@ pub(super) async fn handle(
     let meta = session.meta();
     let cfg = hub.config.read().await;
     let mut inventory = crate::context_inventory::inventory(&meta, &cfg);
-    // Remote viewers may inspect harness-reported counts, but never receive cmux-owned
-    // prompt text or the saved override contents over a WebSocket/peer link.
     if conn.origin.web_class() {
-        inventory.can_edit_overrides = false;
-        for part in &mut inventory.parts {
-            part.text = None;
-        }
-        inventory.overrides.project_key.clear();
-        inventory.overrides.cwd.clear();
-        inventory.overrides.default_text = None;
-        inventory.overrides.user = None;
-        inventory.overrides.project = None;
-        inventory.overrides.parts.clear();
+        crate::context_inventory::redact_for_remote(&mut inventory);
     }
     Ok(serde_json::to_value(inventory).unwrap_or(Value::Null))
 }

@@ -56,10 +56,21 @@ public final class SidebarMirror {
     /// One JSON call: JSON in, a reply string the caller frees, decoded at once.
     private func json(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
                       _ request: Data) -> JSONReply? {
+        json(name, entry, request, as: JSONReply.self)
+    }
+
+    private func json<Value: Decodable>(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                                        _ request: Data, as type: Value.Type) -> Value? {
+        reply(name, entry, request).flatMap { try? JSONDecoder().decode(Value.self, from: $0) }
+    }
+
+    /// One JSON call's reply bytes.
+    private func reply(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                     _ request: Data) -> Data? {
         Self.calls[name, default: 0] += 1
         guard let text = request.withUnsafeBytes({ entry(handle, $0.bindMemory(to: UInt8.self).baseAddress, request.count) }) else { return nil }
         defer { cmux_sidebar_mirror_string_free(text) }
-        return try? JSONDecoder().decode(JSONReply.self, from: Data(bytes: text, count: strlen(text)))
+        return Data(bytes: text, count: strlen(text))
     }
     private func applyBatch(raw: Data) -> Reply? { call("batch", cmux_sidebar_mirror_apply_batch_typed, raw, Reply.init) }
     private func applyIntent(raw: Data) -> Reply? { call("intent", cmux_sidebar_mirror_apply_intent_typed, raw, Reply.init) }
@@ -172,6 +183,26 @@ public final class SidebarMirror {
             guard let body = try? JSONEncoder().encode(request) else { return nil }
             return view(raw: body)
         }
+    }
+
+    /// The sections the rows of `request` draw, regrouped by the reducer (`sidebar_doc::project`) from the document as
+    /// shown, pending intents included. One JSON call, only on a structural rebuild; its rows are the next drag's.
+    func projection(_ request: SidebarViewRequest) -> SidebarDocWire.Projection? {
+        SidebarPerfCounters.timedMirror {
+            guard let body = try? JSONEncoder().encode(request) else { return nil }
+            return json("project", cmux_sidebar_mirror_project, body, as: SidebarDocWire.Projection.self)
+        }
+    }
+
+    /// The ops the reducer plans for `request` (`sidebar_doc::plan`: `{plan: "subgroup" | "host_group", ...}`) on the
+    /// document as shown: the ops, or the refusal's code.
+    func plan(_ request: [String: Any]) -> Result<[[String: Any]], Refusal> {
+        guard let body = try? JSONSerialization.data(withJSONObject: request), let answer = reply("plan", cmux_sidebar_mirror_plan, body),
+              let object = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else {
+            return .failure(Refusal(code: "unavailable"))
+        }
+        if let ops = object["ops"] as? [[String: Any]] { return .success(ops) }
+        return .failure(Refusal(code: object["refusal"] as? String ?? "unavailable"))
     }
 
     /// What a drop of `items` may do next to each row, by row key (one call per drag).

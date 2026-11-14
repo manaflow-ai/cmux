@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// DEBUG ONLY: `debug.home_native_fixture.open` opens the native Home

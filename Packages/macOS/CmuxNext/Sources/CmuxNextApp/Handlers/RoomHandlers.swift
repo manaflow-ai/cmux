@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -158,8 +159,9 @@ enum RoomHandlers {
         bind("space.selectByNumber") { invocation in
             guard let number = invocation["index"]?.intValue, let state = context.activeWindow?.state else { return }
             let order = context.services.machines.local.store.profileIDs
-            let pick = number >= 9 ? order[order.count - 1] : order[min(number - 1, order.count - 1)]
-            context.services.windows.switchProfile(pick, in: state)
+            // 9 and past the end are the last space (`targets::ordinal`).
+            guard let index = WindowRules().ordinal(number, count: order.count, pastEnd: .clamp), order.indices.contains(index) else { return }
+            context.services.windows.switchProfile(order[index], in: state)
         }
         bind("space.switch") { invocation in
             let room = try context.room(invocation)

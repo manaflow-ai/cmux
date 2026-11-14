@@ -11,8 +11,6 @@ import Foundation
 ///
 /// The same object is a density's export format, and import reads it back.
 public nonisolated struct CustomDensitiesSetting: Sendable {
-    /// The key's path.
-    public let configPath = ["appearance", "customDensities"]
     /// The most custom densities a file keeps.
     public let limit = 64
 
@@ -21,7 +19,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     /// The custom densities in `root`, in file order. An entry that is not a valid density, or
     /// whose id repeats or names a built-in, is skipped with a diagnostic.
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [DensityTokens] {
-        guard let value = root.value(at: configPath) else { return [] }
+        guard let value = root.value(at: Self.configPath) else { return [] }
         guard case .array(let items) = value else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.customDensities", message: "expected a list of densities"))
             return []

@@ -1,0 +1,35 @@
+[package]
+name = "cmux-sdk-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "A thin C ABI over the cmux SDK's daemon client (cmux-tui/bindings/rust), the client the cmux CLI uses: connect, call, command, subscribe"
+
+# Own workspace, like the other crates cmux-app-ffi links: built for the app
+# xcframework (scripts/cmux-next/build-app-ffi.sh) and tested on its own.
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# No hashed socket paths: the app passes its socket path.
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
+serde_json = "1"
+
+# Generates include/cmux_sdk_ffi.h (cbindgen.toml); tests/c_header.rs fails
+# when the committed header differs or does not compile as C.
+[dev-dependencies]
+cbindgen = { version = "=0.29.2", default-features = false }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug = false
+strip = "debuginfo"

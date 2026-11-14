@@ -74,7 +74,7 @@ describe("motion scale", () => {
       ".a { transition: background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out); }",
       ".a { transition: transform var(--motion-in); }",
       // Loops and their periods.
-      ".a { animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite; }",
+      ".a { animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite; }",
       ".a { animation: breathe 1.4s ease-out infinite alternate; animation-duration: 1.3s; }",
       // Delays: the second time of a shorthand, and the delay properties.
       ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }",

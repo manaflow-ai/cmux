@@ -13,7 +13,7 @@ public import CmuxNextDesignTokens
 /// frame (`MotionTrace.measure`). `bounce` with `value` ("none", "subtle") and `kind` with
 /// `name` ("paneAnimations", "newTab", "newWorkspace") and `value` true or false set
 /// `ui.animations.bounce`, `ui.paneAnimations` and `ui.animations.*` in memory the same way.
-/// The report lists the display links alive (`display_links`: 0 once every spring rests, so
+/// The report lists the display links running (`display_links`: 0 once every spring rests, so
 /// the window idles). Spans carry `at_ms` (from `start`); `samples` lists per-frame values
 /// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the points an
 /// animator has left to move); `notes` lists what an animator decided. `trajectory` (answered
@@ -86,7 +86,7 @@ public struct MotionDebug {
             "animations_enabled": policy.animationsEnabled,
             "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
-            "display_links": FrameScheduler.all.filter(\.hasLink).count,
+            "display_links": FrameScheduler.all.filter(\.isRunning).count,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),
             "spans": MotionTrace.spans.map { span -> [String: Any] in
                 ["name": span.name, "ms": (span.milliseconds * 10).rounded() / 10,

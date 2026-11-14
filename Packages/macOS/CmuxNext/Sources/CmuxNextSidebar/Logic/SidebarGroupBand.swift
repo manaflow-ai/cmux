@@ -36,11 +36,25 @@ nonisolated struct SidebarGroupBand: Sendable {
     /// The loose row of the same machine at display `y` that `dragged`
     /// could group with. Grouped rows, group headers, pinned rows and
     /// other machines keep the leading-edge rule.
-    static func hit(y: CGFloat, rows: [SidebarRow], hidden: Set<SidebarRowKey>, dragged: [WorkspaceID],
+    static func hit(y: CGFloat, layout: SidebarLayout, hidden: Set<SidebarRowKey>, dragged: [WorkspaceID],
                     sections: [SidebarSection]) -> Hit? {
-        guard let row = rows.first(where: { y >= $0.y && y < $0.maxY && !hidden.contains($0.key) }), row.height > 0,
+        guard let row = shownRow(at: y, in: layout, hidden: hidden), row.height > 0,
               case let .machine(machine) = row.section, case let .workspace(anchor) = row.key, row.group == nil,
               dragged.allSatisfy({ SidebarEdits.workspace($0, in: sections)?.machineID == machine }) else { return nil }
         return Hit(anchor: anchor, fraction: (y - row.y) / row.height)
+    }
+
+    /// The first row in `layout` that holds `y` and is not `hidden`, found from the rows starting at or above `y`
+    /// (the rows are in y order and do not overlap), so a move costs the same at any number of rows. A card over its
+    /// own hidden slot finds none, which a scan from the top paid for with every row.
+    static func shownRow(at y: CGFloat, in layout: SidebarLayout, hidden: Set<SidebarRowKey>) -> SidebarRow? {
+        guard var i = layout.lastIndex(startingAtOrBefore: y) else { return nil }
+        var found: SidebarRow?
+        while i >= 0, layout.rows[i].maxY > y || layout.rows[i].height == 0 {
+            let row = layout.rows[i]
+            if y < row.maxY, !hidden.contains(row.key) { found = row }
+            i -= 1
+        }
+        return found
     }
 }

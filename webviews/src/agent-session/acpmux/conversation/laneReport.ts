@@ -11,12 +11,17 @@ export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
 
 export type LaneNoticeDelivery = {
   readonly sender: string;
+  /// The key the sender's chat is asked for by (inboxNotice.ts `senderKey`), when acpmux recorded
+  /// who sent it; else `sender`.
+  readonly lookup?: string;
   readonly text: string;
   readonly promptId?: string;
 };
 export type LaneNoticeThread = {
   readonly id: string;
   readonly sender: string;
+  /// The newest sender's key (`LaneNoticeDelivery.lookup`).
+  readonly lookup?: string;
   readonly preview?: string;
   readonly messages?: readonly LaneNoticeDelivery[];
   readonly label?: string;

@@ -237,7 +237,7 @@ enum WorkspaceGroupHandlers {
     /// `workspaceGroups` (by the group's anchor folder), when it names a placement: after its first
     /// workspace (`top`, and `afterCurrent`, whose reference is the anchor for the header's + and the
     /// CLI), else last. Else `workspaces.newPlacement`, as for every new workspace made in a group
-    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): the group's top under the default `top`.
+    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): below its shown member, else its end, by default.
     private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, window: String?,
                                   _ context: AppActionContext) -> WorkspaceSlot {
         let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
@@ -266,10 +266,9 @@ enum WorkspaceGroupHandlers {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: .none,
-                                          records: store.records)
-        guard let ops = plan.ops else {
-            throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
+        let ops: [[String: Any]]
+        do throws(SidebarDocSubgroupRefusal) { ops = try store.subgroupOps(parent: parent, id: id, name: name, color: .none) } catch {
+            throw ActionFailure.invalidTarget(error == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
         }
         do {
             try store.sendChecked(ops: ops, title: SidebarDocStore.moveTitle)

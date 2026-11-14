@@ -107,7 +107,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         [{"id":"vm-1","status":"running","hourlyRateUsd":0.2645,"runningSince":1800000000000},
          {"id":"vm-2","status":"paused","hourlyRateUsd":null,"runningSince":null}]
         """#
-        let vms = try JSONDecoder().decode([CloudMachine].self, from: Data(body.utf8))
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
         #expect(vms[0].hourlyRateUsd == 0.2645)
         #expect(vms[0].runningSince == Self.now)
         #expect(vms[1].hourlyRateUsd == nil)
@@ -117,7 +117,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
     /// A cost this client cannot read drops the line, never the machine.
     @Test func malformedCostFactsKeepTheMachines() throws {
         let body = #"[{"id":"vm-1","status":"running","hourlyRateUsd":"cheap","runningSince":"soon"}]"#
-        let vms = try JSONDecoder().decode([CloudMachine].self, from: Data(body.utf8))
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
         #expect(vms.map(\.id) == ["vm-1"])
         #expect(vms[0].hourlyRateUsd == nil)
         #expect(vms[0].runningSince == nil)

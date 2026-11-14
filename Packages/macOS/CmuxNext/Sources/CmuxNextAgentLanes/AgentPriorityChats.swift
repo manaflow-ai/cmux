@@ -1,3 +1,6 @@
+public import AppKit
+import CmuxAgentBrands
+public import CmuxNextActions
 public import CmuxNextAgentActivity
 public import CmuxNextSidebar
 public import Foundation
@@ -147,6 +150,49 @@ public final class AgentPriorityChats {
             }
         }
         return AgentPriorityRanking.needingInput(waiting, marks: marks.state, now: now)
+    }
+
+    /// The menu bar's Unread chats (``AgentPriorityRanking/unread(_:marks:now:)``), from each
+    /// store's unread index (``AgentLaneStore/unread``), never every lane: this runs each time the
+    /// menu opens. This Mac's and the Chief home's chats only; the other machines' trees keep no
+    /// unread index.
+    public func unread(now: Date = Date()) -> [AgentActivityLane] {
+        AgentPriorityRanking.unread(indexed(\.unread), marks: marks.state, now: now)
+    }
+
+    /// The menu bar's Running chats (``AgentPriorityRanking/running(_:marks:now:)``), from each
+    /// store's working index (``AgentLaneStore/working``), as ``unread(now:)`` reads.
+    public func running(now: Date = Date()) -> [AgentActivityLane] {
+        AgentPriorityRanking.running(indexed(\.working), marks: marks.state, now: now)
+    }
+
+    /// ``unread(now:)`` and ``running(now:)`` as the menu bar's rows: the sidebar's title and harness.
+    public func menuBarChats(running: Bool) -> [MenuBarMenuState.Chat] {
+        (running ? self.running() : unread()).map { MenuBarMenuState.Chat(id: $0.id, title: $0.title, harness: $0.harness) }
+    }
+
+    /// A menu bar chat row's harness mark (the sidebar's), the sidebar's person mark for an unknown harness.
+    public static func menuBarImage(harness: String?) -> NSImage? {
+        let side = NSFont.menuFont(ofSize: 0).pointSize + 2
+        if let brand = AgentBrandCatalog.brand(for: harness), let image = AgentBrandCatalog.templateImage(brand: brand.rawValue, size: side) {
+            return image
+        }
+        let image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: harness)
+        image?.isTemplate = true
+        return image
+    }
+
+    /// The lanes of each store's `index`, a session an earlier store lists being that store's.
+    private func indexed(_ index: KeyPath<AgentLaneStore, Set<String>>) -> [AgentActivityLane] {
+        var out: [AgentActivityLane] = []
+        var seen = Set<String>()
+        for (position, store) in stores.enumerated() {
+            let lanes = store.lanes
+            for id in store[keyPath: index] where !stores[..<position].contains(where: { $0.lanes[id] != nil }) {
+                if let lane = lanes[id], seen.insert(id).inserted { out.append(lane) }
+            }
+        }
+        return out
     }
 
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).

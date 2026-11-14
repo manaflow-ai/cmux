@@ -29,7 +29,7 @@ public struct CookieBannerSwitch {
         let settings = settings
         // task-owner: one cmux.json write the person or caller asked for; `follow` applies it
         Task {
-            do { try await settings.setSetting(at: BrowserCookieBannerSetting().configPath, to: .bool(shown), by: writer) } catch {
+            do { try await settings.setSetting(at: BrowserCookieBannerSetting.configPath, to: .bool(shown), by: writer) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
                     .error("browser.import.cookieBanner write failed: \(String(describing: error), privacy: .public)")
             }

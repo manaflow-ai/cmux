@@ -46,6 +46,8 @@ pub async fn run(
     // Its own process group, so a timeout stops what it started too.
     #[cfg(unix)]
     cmd.process_group(0);
+    // A harness CLI: never the daemon's OOM protection (`oom_rank.rs`).
+    crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| RunError::Spawn(e.to_string()))?;
     // The group id, kept: once the leader is reaped `child.id()` is None.
     let group = child.id();

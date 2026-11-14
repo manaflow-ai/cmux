@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 /// the cap 6 min 50 s ago and told it more while it waited. Drawn dark and light into
 /// `.build/home-agent-chat-queued.png` (a fleet step returns it with `--artifact`). It checks only that both drew;
 /// `HomeAgentPaneTests` checks the words.
-@MainActor @Suite(.serialized) struct HomeAgentChatCaptureTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeAgentChatCaptureTests {
     /// What the Chief's projection gives a1017 here: Queued since the fix (Working before it).
     static let state: HomeAgentMessageRow.PeerState = .queued
 

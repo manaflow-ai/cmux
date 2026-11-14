@@ -40,8 +40,6 @@ public nonisolated struct TitlebarButtonsSetting {
 /// `tabs.plusButton` in cmux-next.json (R120): "hover" (default) or "always".
 public nonisolated struct PlusButtonSetting {
     public nonisolated init() {}
-    public static let configPath = ["tabs", "plusButton"]
-    public static let fallback: PlusButtonMode = .hover
 
     static func parse(_ root: JSONValue) -> (PlusButtonMode, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }

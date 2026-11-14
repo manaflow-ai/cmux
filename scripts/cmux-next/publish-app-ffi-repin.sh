@@ -6,12 +6,22 @@ staging="${branch}-stage-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 manifest=Packages/macOS/CmuxNext/Package.swift
 remote_head() { git ls-remote origin "refs/heads/$1" | cut -f1; }
 
-scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
+# Latest wins: pin the newest published release on feat-cmux-next, whichever run
+# published it, never this run's tag by default and never an unpublished head.
+# Step-A pushes change the FFI sources faster than releases publish, so the
+# base's sources may be ahead of the release picked here; it reads that
+# release's SOURCE_SHA and SHA256SUMS itself (a 404 skips the release), and
+# merge_hold accepts the pin once the app compiles against it.
+picked="$(python3 scripts/cmux-next/newest_app_ffi_release.py)"
+read -r pin_sha CHECKSUM <<<"$picked"
+[[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
+  || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
+TAG="cmux-app-ffi-$pin_sha"
+scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then
-  echo "feat-cmux-next already pins $TAG"
+  echo "feat-cmux-next already pins $TAG, the newest published release"
   exit 0
 fi
-scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 tip="$(git rev-parse HEAD)"
 previous="$(remote_head "$branch")"
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
@@ -53,7 +63,7 @@ if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_com
 fi
 [[ "$(remote_head "$branch")" == "$pin_commit" ]] || { echo "::error::the re-pin head moved" >&2; exit 1; }
 
-body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked it with check-app-ffi-pin.sh --verify-release. A newer publish updates this branch.
+body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), the newest published app FFI release on feat-cmux-next (latest wins: newer FFI commits whose release is not published are skipped). Run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID read its SOURCE_SHA and SHA256SUMS. A newer publish updates this branch.
 
 ## Changelog
 

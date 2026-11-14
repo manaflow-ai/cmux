@@ -1484,6 +1484,27 @@ export default agentPaneEntry({
       ready: { draft: "Which layout reads better?" },
       play: pasteTwoScreenshots,
     },
+    // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
+    // what we have right now". The room after each chip in the text (markdownField.css
+    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
+    // default, the same as from one chip to the next.
+    ...Object.fromEntries(
+      ([2, 4, 8] as const).map((room) => [
+        `attachment-inline-caret-room-${room}`,
+        {
+          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
+          snapshot: chat(finished),
+          ready: { draft: "Which layout reads better?" },
+          play: async (ctx: PlayContext) => {
+            ctx.document.documentElement.style.setProperty("--acpmux-inline-room", `${room}px`);
+            await pasteTwoScreenshots(ctx);
+            const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+            field.acpmuxMarkdownField!.focus();
+            field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length + 2);
+          },
+        },
+      ]),
+    ),
     "attachment-inline-reorder-hover": {
       note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
       snapshot: chat(finished),

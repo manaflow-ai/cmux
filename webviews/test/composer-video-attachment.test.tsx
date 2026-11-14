@@ -213,7 +213,7 @@ try {
       root.render(
         <AttachmentStrip
           attachments={[]}
-          pending={[{ ...chip, failed: "The upload timed out" }]}
+          pending={[{ ...chip, failed: "The upload timed out", retryable: true }]}
           onCancel={() => {}}
           onRetry={() => {}}
           onRemove={() => {}}

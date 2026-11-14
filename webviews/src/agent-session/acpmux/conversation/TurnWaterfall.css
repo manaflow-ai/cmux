@@ -11,15 +11,34 @@
   color: var(--cv-activity-text, var(--cv-text));
 }
 
+/* The header row is the rows' grid: the turn's summary in the label column, the axis over the
+   tracks, the time column empty. Its words sit on the axis labels' line, in their muted ink. */
+.cv-waterfall__head {
+  display: grid;
+  grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time);
+  align-items: baseline;
+  column-gap: 8px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--cv-fg) 45%, transparent);
+}
+
+.cv-waterfall__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-waterfall__summary.is-strong .cv-waterfall__total {
+  color: var(--cv-text);
+  font-weight: 600;
+}
+
 .cv-waterfall__axis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin-left: calc(var(--wf-label-width, 38%) + 8px);
-  margin-right: calc(var(--wf-time) + 8px);
   padding-bottom: 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--cv-fg) 45%, transparent);
 }
 
 .cv-waterfall__axis > :nth-child(2) {
@@ -164,9 +183,10 @@
   --wf-label-width: 0px;
 }
 
-.cv-waterfall.is-stacked .cv-waterfall__axis {
-  margin-left: 0;
-  margin-right: 0;
+/* With no label column, the summary takes its own line over the full-width axis. */
+.cv-waterfall.is-stacked .cv-waterfall__head {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 4px;
 }
 
 .cv-waterfall.is-stacked .cv-waterfall__span {
@@ -182,9 +202,9 @@
 
 /* On a phone's width the bars layout stacks too, so the axis keeps its room. */
 @container (max-width: 420px) {
-  .cv-waterfall.is-bars .cv-waterfall__axis {
-    margin-left: 0;
-    margin-right: 0;
+  .cv-waterfall.is-bars .cv-waterfall__head {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
   }
 
   .cv-waterfall.is-bars .cv-waterfall__span {

@@ -1,8 +1,8 @@
 @testable import CmuxNextApp
 import CmuxNextAccounts
+import CmuxNextChecklist
 import CmuxNextFilesUI
 import CmuxNextLayout
-import CmuxNextTasks
 import Foundation
 import Testing
 

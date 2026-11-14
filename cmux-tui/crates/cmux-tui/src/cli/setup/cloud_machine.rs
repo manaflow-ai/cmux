@@ -512,7 +512,7 @@ fn signed_in(global: &GlobalArgs) -> Result<(), Value> {
         "sign_in",
         "Sign in to cmux: the command opens the sign-in in the browser, where the person \
          finishes it; then run `cmux setup cloud-machine` again",
-        Some("cmux cloud sign-in"),
+        Some("cmux login"),
     ))
 }
 

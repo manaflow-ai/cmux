@@ -111,7 +111,7 @@ pub(super) async fn run(
     let fix = match endpoint {
         Some(kind) => byo_endpoint::fix(problem, kind, id),
         None if problem == byo_endpoint::Problem::Key => {
-            format!("sign in again: `claude /login`, or check the key the profile of {id} sets")
+            format!("sign in again: `claude auth login`, or check the key the profile of {id} sets")
         }
         None => "check the model, its login and quota".to_owned(),
     };

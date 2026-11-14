@@ -25,8 +25,10 @@
 //!
 //! A machine without the file has no carrier. With it, the session host also
 //! registers on the machine's relay slot: `--relay <relay> --relay-slot
-//! <slot>`, with a ticket command that runs this binary's `host cloud
-//! carrier-ticket` for each Register. That verb asks the Cloud agent, which
+//! <slot>`, with a ticket command that runs the host entry's `cloud
+//! carrier-ticket` (`<current>/bin/cmux host cloud carrier-ticket`, the
+//! command cmux-host itself runs as) for each Register. The session host's
+//! own binary (`cmux-tui`) has no `host` verbs. That verb asks the Cloud agent, which
 //! holds the install key, for a Register ticket (`POST
 //! /v1/cloud/machines/{machine}/carrier`, `cloud/carrier_ticket.rs`). The
 //! slot comes from the platform because it derives it with a key the
@@ -111,22 +113,28 @@ impl CarrierFile {
     }
 }
 
-/// The verb the ticket command runs (after the binary and its `host` verb).
-pub const TICKET_VERB: [&str; 3] = ["host", "cloud", "carrier-ticket"];
+/// The verb the ticket command runs, after the host entry
+/// ([`CarrierRoute::args`]).
+pub const TICKET_VERB: [&str; 2] = ["cloud", "carrier-ticket"];
 
 impl CarrierRoute {
-    /// The session host's extra arguments. `bin` is the session host's own
-    /// binary, which serves the `host` verbs too.
-    pub fn args(&self, bin: &Path, grant_config: &Path) -> Vec<String> {
+    /// The session host's extra arguments. `host` is the command that runs
+    /// cmux-host's verbs, the program first: `[<current>/bin/cmux, host]`
+    /// as the units run it, or `[cmux-host]` for the standalone binary
+    /// (`linux::host_entry`). It is never the session host's own binary:
+    /// `cmux-tui host …` is not a verb (it answers `unknown resource scope
+    /// "host"`), so a ticket command naming it fails every Register.
+    pub fn args(&self, host: &[String], grant_config: &Path) -> Vec<String> {
+        let (program, host_args) = host.split_first().map_or(("", &[][..]), |(p, a)| (p, a));
         let mut args = vec![
             "--relay".to_owned(),
             self.relay.clone(),
             "--relay-slot".to_owned(),
             self.slot.clone(),
             "--relay-ticket-command".to_owned(),
-            bin.display().to_string(),
+            program.to_owned(),
         ];
-        for arg in TICKET_VERB {
+        for arg in host_args.iter().map(String::as_str).chain(TICKET_VERB) {
             args.push("--relay-ticket-command-arg".to_owned());
             args.push(arg.to_owned());
         }
@@ -175,6 +183,23 @@ pub fn parse_file(text: Option<&str>) -> Result<Option<CarrierFile>, String> {
     cmux_link::keyset::read_keyset(&keyset)
         .map_err(|refused| format!("`carrier.keyset` refused: {}", refused.as_str()))?;
     Ok(Some(CarrierFile { route, team, issuer, keyset }))
+}
+
+/// [`CARRIER_FILE`]'s new text when a keyset fetch (`cloud/carrier_keyset.rs`)
+/// brought a keyset for the same issuer that differs from the kept one; `None` when
+/// there is no valid file, the keyset is not valid, or nothing changed.
+/// The Cloud role writes it (temp file, then rename); the supervisor's
+/// watch then rewrites [`GRANT_CONFIG_FILE`] from it, and the session
+/// host's verifier re-reads that at the rotated key's first grant. The
+/// route is unchanged, so the session host keeps running.
+pub fn with_keyset(text: Option<&str>, issuer: &str, keyset: &Value) -> Option<String> {
+    let mut file = parse_file(text).ok().flatten()?;
+    if file.issuer != issuer || file.keyset == *keyset {
+        return None;
+    }
+    cmux_link::keyset::read_keyset(keyset).ok()?;
+    file.keyset = keyset.clone();
+    Some(format!("{}\n", file.to_json()))
 }
 
 /// The route flags in a session host's `argv` (`/proc/<pid>/cmdline`), in

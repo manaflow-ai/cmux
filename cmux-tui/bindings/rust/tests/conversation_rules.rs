@@ -2,7 +2,7 @@
 //! golden vector in tests/cases/conversation_rules.json, which encode what
 //! the Swift client did (each case names its Swift source).
 
-use cmux::conversation_rules::{call, policy};
+use cmux::conversation_rules::{call, policy, upload_plan};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -22,6 +22,33 @@ struct Case {
     request: Value,
     expect: Option<Value>,
     code: Option<i32>,
+    /// `plan`: an `upload_plan` case whose `expect` is the plan itself; other
+    /// `upload_plan` cases list every chunk, as the Swift client sent them.
+    #[serde(default)]
+    shape: Option<String>,
+}
+
+/// An `upload_plan` reply with every chunk listed, each one asked for
+/// through `upload_chunk`: the shape the Swift client's vectors record.
+fn with_chunks(plan: &Value) -> Value {
+    let Some(pieces) = plan.get("pieces").and_then(Value::as_array) else {
+        return plan.clone();
+    };
+    let pieces: Vec<Value> = pieces
+        .iter()
+        .map(|piece| {
+            let count = piece["chunk_count"].as_u64().expect("chunk_count");
+            let chunks: Vec<Value> = (0..count)
+                .map(|index| {
+                    let request = json!({"size": piece["size"], "sent_before": piece["sent_before"],
+                                         "total": plan["total"], "index": index});
+                    call("upload_chunk", &request).expect("a known rule").expect("a chunk")
+                })
+                .collect();
+            json!({"variant": piece["variant"], "size": piece["size"], "chunks": chunks})
+        })
+        .collect();
+    json!({"pieces": pieces})
 }
 
 /// Equal JSON, with numbers equal to 1e-12 (progress fractions).
@@ -49,6 +76,9 @@ fn every_golden_vector() {
     for case in &corpus.cases {
         let actual = match call(&case.op, &case.request) {
             None => Err(UNKNOWN_RULE),
+            Some(Ok(value)) if case.op == "upload_plan" && case.shape.is_none() => {
+                Ok(with_chunks(&value))
+            }
             Some(Ok(value)) => Ok(value),
             Some(Err(reject)) => Ok(json!({"error": reject.code()})),
         };
@@ -82,19 +112,30 @@ fn the_policy_names_the_daemon_limits() {
 #[test]
 fn an_upload_plan_covers_a_large_file_exactly() {
     let size: u64 = 1 << 30;
-    let plan =
-        call("upload_plan", &json!({"attachment": {"byte_count": size}, "needs": ["original"]}))
-            .expect("a known rule")
-            .expect("a plan");
-    let chunks = plan["pieces"][0]["chunks"].as_array().expect("chunks");
-    assert_eq!(chunks.len(), 256);
+    let attachment = json!({"byte_count": size});
+    let plan = upload_plan(&attachment, None, false, false).unwrap();
+    let piece = plan.pieces[0];
+    assert_eq!(piece.chunk_count(), 256);
     let mut next = 0;
-    for chunk in chunks {
-        assert_eq!(chunk["offset"].as_u64(), Some(next));
-        next += chunk["length"].as_u64().expect("length");
-        assert!(chunk["progress"].as_f64().expect("progress") <= 0.99);
+    for chunk in piece.chunks(plan.total) {
+        assert_eq!(chunk.offset, next);
+        next += chunk.length;
+        assert!(chunk.progress <= 0.99);
     }
     assert_eq!(next, size);
+}
+
+#[test]
+fn a_u64_max_original_plans_in_constant_memory() {
+    let attachment = json!({"byte_count": u64::MAX});
+    let plan = upload_plan(&attachment, None, false, false).unwrap();
+    let piece = plan.pieces[0];
+    let last = piece.chunk_count() - 1;
+    let end = piece.chunk(last, plan.total).unwrap();
+    assert_eq!(end.offset + end.length, u64::MAX);
+    assert!(piece.chunk(last + 1, plan.total).is_none());
+    // The plan holds one piece and no chunk list.
+    assert_eq!(size_of_val(&plan.pieces[..]), size_of_val(&piece));
 }
 
 #[test]

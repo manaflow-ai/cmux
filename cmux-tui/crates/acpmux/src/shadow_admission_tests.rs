@@ -128,6 +128,22 @@ fn a_line_names_the_pick_and_every_host() {
 }
 
 #[test]
+fn a_full_dns_name_logs_the_short_name_and_the_same_pressure_digest() {
+    // A lane VM's daemon names itself by its DNS name; lane-place names it short.
+    // Other clocks and a kept state change inputs_digest, never these two.
+    let reading = health(32, 4.0, "normal", 0.6, 2);
+    let long = [peer("ln-a.example.ts.net", reading.clone(), Some(5_000_000))];
+    let short = [peer("ln-a", reading, Some(5_090_000))];
+    let a = line("admit", Some("ln-a.example.ts.net"), &judge(&long, 5_001_000), 5_001_000);
+    let b = line("place", Some("ln-a"), &judge(&short, 5_091_000), 5_091_000);
+    assert_eq!(a["hosts"][0]["host_short"], "ln-a");
+    assert_eq!(b["hosts"][0]["host_short"], "ln-a");
+    assert_eq!(a["pressure_digest"], b["pressure_digest"]);
+    assert_eq!(a["hosts"][0]["pressure_digest"], a["pressure_digest"]);
+    assert_ne!(a["inputs_digest"], b["inputs_digest"]);
+}
+
+#[test]
 fn ls_prints_the_hosts_that_would_defer() {
     let status = json!({"shadowAdmission": [
         {"host": "a", "would_defer": false, "reason": "ok"},

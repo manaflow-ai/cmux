@@ -33,6 +33,7 @@ export default agentPaneEntry({
       snapshot,
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true }, "chat.subagentPane": { opened: true } },
+      sessionInfoOpen: true,
       play: async (ctx) => {
         await openCritique(ctx);
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
@@ -54,6 +55,7 @@ export default agentPaneEntry({
       snapshot,
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true } },
+      sessionInfoOpen: true,
       play: async (ctx) => {
         await openCritique(ctx);
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -874,7 +875,7 @@ public struct WorkspacesList: View {
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
             VStack(spacing: 12) {
-                ProgressView()
+                CmuxSpinner()
                 Text("Connecting to \(displayName(mac))…")
                     .font(theme.type.rowSubtitle)
                     .foregroundStyle(theme.colors.label2)
@@ -1450,7 +1451,7 @@ struct WorkspaceRow: View {
             Circle().fill(theme.colors.warning.color).frame(width: needsYouDisc, height: needsYouDisc)
                 .accessibilityIdentifier("workspace.needs-you")
         case .working, .creating:
-            ProgressView().controlSize(.mini)
+            CmuxSpinner().controlSize(.mini)
                 .accessibilityIdentifier(status == .working ? "workspace.working" : "workspace.creating")
         case .done:
             Circle().fill(theme.colors.label.color).frame(width: doneDisc, height: doneDisc)

@@ -136,7 +136,7 @@ extension PaneContentView {
     func parkedFrame(of view: NSView) -> NSRect? {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
-        let room = bounds.width - toolbarWidth(shown: strip)
+        let room = bounds.width - (strip > 0 ? toolbar?.view.paneWidthBesideChat(in: bounds.width) ?? 0 : 0)
         let shares = barPosition == .top && !hidesStrip && strip > 0 && row.drawsInTabRow(room: room)
         let shown = shares ? bounds : NSRect(x: 0, y: barPosition == .top ? strip : 0, width: bounds.width,
                                              height: max(0, bounds.height - strip))

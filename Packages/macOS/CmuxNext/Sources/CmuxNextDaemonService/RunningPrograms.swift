@@ -47,24 +47,6 @@ extension Dictionary where Key == SurfaceID, Value == ProcessAnswer {
     }
 }
 
-/// The one question a close of live terminals can ask (`TabCloseGuard`, #17501): an agent at work in one, else
-/// foreground programs, or terminals that gave no answer.
-public enum CloseWarning: Equatable, Sendable {
-    /// The agent working in a closing terminal (the first, if several).
-    case agent(String)
-    /// Foreground programs in the closing terminals, unique and sorted, and the titles of the closing terminals that gave
-    /// no answer (a tab title is not a program: the question names them apart).
-    case programs([String], unanswered: [String] = [])
-
-    /// The question for these closing terminals, or nil to close at once.
-    /// `unanswered`: the titles of closing terminals that gave no answer, when no answer asks.
-    public static func of(agents: [String], programs: [String], unanswered: [String] = [], warnTab: Bool, warnAgent: Bool) -> CloseWarning? {
-        if warnAgent, let agent = agents.first { return .agent(agent) }
-        if warnTab, !programs.isEmpty || !unanswered.isEmpty { return .programs(programs, unanswered: unanswered) }
-        return nil
-    }
-}
-
 extension DaemonService {
     /// What each live terminal of `tabs` answered: one bounded read (1 s) per terminal, concurrent. With no connection,
     /// none answers. A stand-in (a terminal still opening) has no process to ask and runs nothing yet: never asked.

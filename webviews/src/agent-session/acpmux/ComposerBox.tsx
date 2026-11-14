@@ -1,5 +1,5 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId, inlineTokenIds } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import {
@@ -27,7 +27,7 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
-  place(chips: readonly PendingAttachment[]): void;
+  place(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// Removes an intake placeholder whose payload was already attached (content dedupe).
   remove(id: string): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
@@ -201,7 +201,7 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips) => inline.place(chips, "paste"),
+      place: (chips, kind) => inline.place(chips, kind),
       remove: (id) => prompt.current?.removeInline(id),
       sent: (ids) => {
         inline.sent(ids);
@@ -335,9 +335,10 @@ export function ComposerBox({
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
                 else if ("id" in part)
-                  prompt.current?.insertInline([
-                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
-                  ]);
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
                 else files.push(part.file);
               }
               if (files.length) onPasteFiles?.(files);

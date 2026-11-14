@@ -67,6 +67,21 @@
   line-height: var(--text-body--line-height);
   letter-spacing: normal;
 }
+.acpmux-cloud-start__failure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.acpmux-cloud-start__sign-in {
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--agent-link, #60a5fa) 60%, transparent);
+  border-radius: 6px;
+  color: var(--agent-link, #60a5fa);
+  background: color-mix(in srgb, var(--agent-link, #60a5fa) 10%, transparent);
+  font: inherit;
+}
+.acpmux-cloud-start__sign-in:disabled { opacity: .65; }
 .acpmux-cloud-start__status--ready { color: var(--agent-accent, #4ade80); }
 .acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
   color: var(--agent-danger, currentColor);
@@ -150,3 +165,58 @@
   margin: 0 0 8px;
   padding: 0;
 }
+/* A start's question (CloudStartAsk.tsx) in its row: the row opens from no height to the question's
+   and closes back, so the card and the composer under it move with it (no pop-in, no jump). Its
+   negative margin cancels the column's gap while it is closed; the question's own margin opens it.
+   The motion gate (data-cmux-motion off) ends the transition: the row then opens in one frame;
+   reduced motion opens it at once and keeps only the crossfade. */
+.acpmux-cloud-ask-row {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -8px;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+:root[data-cmux-motion="reduced"] .acpmux-cloud-ask-row { transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+@starting-style {
+  .acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 0fr; opacity: 0; }
+}
+.acpmux-cloud-ask-row__clip { min-height: 0; overflow: hidden; }
+.acpmux-cloud-ask {
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-cloud-ask__title { font-weight: 600; }
+.acpmux-cloud-ask__line { color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acpmux-cloud-ask__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.acpmux-cloud-ask__button {
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-text);
+  background: transparent;
+  font: inherit;
+}
+.acpmux-cloud-ask__button:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 10%, transparent); }
+.acpmux-cloud-ask__button[data-role="default"] { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 16%, transparent); }
+.acpmux-cloud-ask__button[data-role="default"]:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 24%, transparent); }
+.acpmux-cloud-ask__button:disabled { opacity: .55; }
+.acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
+.acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
+/* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */
+.acpmux-cloud-ask[data-look="sheet"] { padding: 12px 16px; border-radius: var(--ds-radius-popup); }
+/* `banner`: the title and the buttons on one line, the body under it. */
+.acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }

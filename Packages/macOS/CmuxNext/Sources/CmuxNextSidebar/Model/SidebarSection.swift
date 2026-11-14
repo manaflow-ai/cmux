@@ -25,7 +25,8 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
 
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
-    public nonisolated enum Kind: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Kind: String, Hashable, Sendable {
         case local
         case cloud
         case ssh
@@ -33,7 +34,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case server
     }
 
-    public nonisolated enum Status: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Status: String, Hashable, Sendable {
         case connected
         case connecting
         /// The link to the machine dropped (sleep, a network drop or

@@ -151,3 +151,85 @@ import Testing
         #expect(controller.replyPanel?.isVisible == false)
     }
 }
+
+/// Show in Mini (Leo 2026-11-07: "we want to keep typing to that, like, persistent session"): the
+/// mini stands for a picked chat, kept across launches; its reply box talks to that chat, shows the
+/// chat's newest reply under the field and stays open after a send.
+@MainActor @Suite(.serialized) struct ChiefPetShowInMiniTests {
+    static let chat = ChiefPetSubject.Chat(host: "install:mac", session: "s-coord")
+    static let home = ChiefPetHome(chat: chat, title: "Coordinator", latest: "Merged #123; next is the gallery.")
+
+    static func defaults() -> UserDefaults {
+        let name = "ChiefPetShowInMiniTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    @Test func thePickedChatIsKeptAndTheChiefIsTheDefault() {
+        let defaults = Self.defaults()
+        let subject = ChiefPetSubject(defaults: defaults)
+        #expect(subject.chat == nil, "the Chief by default")
+        subject.show(Self.chat)
+        #expect(ChiefPetSubject(defaults: defaults).chat == Self.chat, "kept across launches")
+        #expect(subject.shows(session: "s-coord"))
+        subject.show(nil)
+        #expect(ChiefPetSubject(defaults: defaults).chat == nil)
+    }
+
+    @Test func theMinisChatTakesTheChiefsPlaceInTheTargets() {
+        var feed = ChiefPetFeed()
+        let target = ChiefPetReplyTarget.chat(Self.chat, title: "Coordinator")
+        #expect(ChiefPetReply.targets(feed, home: target) == [target])
+        let notice = ChiefPetReplyTests.notice(1, tab: "a", reply: .type)
+        feed.arrive(notice)
+        #expect(ChiefPetReply.targets(feed, home: target) == [.notice(notice), target])
+        #expect(ChiefPetReply.submit(target, text: " status? ", command: false) == .send(target, "status?"), "typed text goes to the chat")
+        #expect(ChiefPetReply.placeholder(target) == "Message Coordinator")
+        #expect(ChiefPetReply.sameTarget(target, .chat(Self.chat, title: "Renamed")), "a new title is the same chat")
+        #expect(!ChiefPetReply.sameTarget(target, .chief))
+    }
+
+    @Test func theBoxShowsTheChatsNewestReplyOnlyWhileItIsChosen() {
+        let panel = ChiefPetReplyPanel()
+        let target = ChiefPetReplyTarget.chat(Self.chat, title: "Coordinator")
+        let notice = ChiefPetReplyTests.notice(1, tab: "a", reply: .type)
+        panel.show(targets: [.notice(notice), target])
+        panel.show(latest: Self.home.latest, of: target)
+        #expect(panel.latestLabel.isHidden, "a notice is chosen: its reply line is not the chat's")
+        #expect(panel.preferredHeight == ChiefPetReplyPanel.size.height)
+        panel.picker.selectItem(at: 1)
+        panel.picker.sendAction(panel.picker.action, to: panel.picker.target)
+        #expect(!panel.latestLabel.isHidden)
+        #expect(panel.latestLabel.stringValue == Self.home.latest)
+        #expect(panel.preferredHeight > ChiefPetReplyPanel.size.height, "the box grows for the reply")
+        panel.show(latest: nil, of: target)
+        #expect(panel.latestLabel.isHidden)
+    }
+
+    @Test func sendingToTheChatKeepsTheBoxOpenAndNamesThePet() async throws {
+        let recorder = ChiefPetReplyTests.Recorder()
+        let controller = ChiefPetReplyTests.controller(recorder)
+        defer { controller.sync(false) }
+        controller.sync(true)
+        controller.setHome(Self.home)
+        controller.panel?.onClick?()
+        let reply = try #require(controller.replyPanel)
+        let target = ChiefPetReplyTarget.chat(Self.chat, title: "Coordinator")
+        #expect(reply.target == target, "no notices: the box starts on the mini's chat")
+        #expect(reply.latestLabel.stringValue == Self.home.latest)
+        reply.field.stringValue = "ship it"
+        controller.submit(target, text: reply.field.stringValue, command: false)
+        for _ in 0..<1000 where controller.sending { await Task.yield() }
+        #expect(recorder.sent.map(\.1) == ["ship it"])
+        #expect(recorder.sent.first?.0 == target)
+        #expect(reply.isVisible, "the box stays for the reply and the next message")
+        #expect(reply.field.stringValue.isEmpty)
+        // A newer reply arrives while the box is open.
+        controller.setHome(ChiefPetHome(chat: Self.chat, title: "Coordinator", latest: "On it."))
+        #expect(reply.latestLabel.stringValue == "On it.")
+        // The chevron with no notices opens the chat, not the Chief.
+        controller.panel?.onExpand?()
+        #expect(recorder.opened.last == target)
+    }
+}

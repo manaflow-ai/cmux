@@ -120,7 +120,7 @@ public final class DisplayBackdropBinding {
     public func apply(_ root: JSONValue) {
         self.root = root
         // Bound cached/in-flight listings to configured folders; a removed folder cannot keep work alive.
-        let paths = Set((root.value(at: ["appearance", "displayBackgrounds"])?.objectValue ?? [:]).values
+        let paths = Set((root.value(at: BackdropSelectionSetting.displayBackgroundsPath)?.objectValue ?? [:]).values
             .compactMap { $0.stringValue.flatMap(BackdropSelectionSetting.folderPath) })
         for path in Array(folders.keys) where !paths.contains(path) {
             folders.removeValue(forKey: path)?.task.cancel()
@@ -142,16 +142,16 @@ public final class DisplayBackdropBinding {
         lifecycle.timer.cancel()
         folderRefresh?.cancel()
         folderRefresh = nil
-        let values = root.value(at: ["appearance", "displayBackgrounds"])?.objectValue
+        let values = root.value(at: BackdropSelectionSetting.displayBackgroundsPath)?.objectValue
         guard let id = displayID(), let raw = values?[id]?.stringValue else {
             displayScope.pinBackdrop(.inherit)
             return
         }
         guard raw != "none" else { displayScope.pinBackdrop(.none); return }
-        let rotation = root.value(at: ["appearance", "displayBackgroundRotations"])?.objectValue?[id]?.stringValue
+        let rotation = root.value(at: BackdropSelectionSetting.displayBackgroundRotationsPath)?.objectValue?[id]?.stringValue
             .flatMap(BackdropRotation.init(rawValue:))
-            ?? root.value(at: ["appearance", "backgroundRotation"])?.stringValue.flatMap(BackdropRotation.init(rawValue:))
-            ?? .defaultRotation
+            ?? root.value(at: BackdropSelectionSetting.rotationPath)?.stringValue.flatMap(BackdropRotation.init(rawValue:))
+            ?? BackdropSelectionSetting.rotationDefault
         if let path = BackdropSelectionSetting.folderPath(raw) {
             refreshFolder(path, rotation: rotation)
         } else if raw == BackdropSelectionSetting.dailyID {

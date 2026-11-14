@@ -40,10 +40,14 @@
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
+#[cfg(unix)]
+pub mod carrier_keyset;
 pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
 pub mod daemon_noise_key;
+#[cfg(target_os = "linux")]
+pub mod gateway_token;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;

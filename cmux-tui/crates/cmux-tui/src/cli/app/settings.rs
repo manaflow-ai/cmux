@@ -12,6 +12,9 @@
 //!   file (default: the settings file), without the app. Exit 1 when the
 //!   file does not parse or a value is refused.
 //!
+//! A few keys have a short CLI name, read as the key by `get`, `set`, `reset` and `unset`
+//! ([`KEY_ALIASES`](super::super::command::KEY_ALIASES)): `cmux config set on cloud` sets `chat.on`, the default `cmux chat` target.
+//!
 //! A socket write of a user-only key (schema `agent_settable: false`) is
 //! refused with `setting_user_only`. `--confirm` sends `confirm: true`: the
 //! app then asks the person at the Mac on a native sheet, so the CLI waits
@@ -65,6 +68,9 @@ fn print_document(document: &Value) -> i32 {
     }
 }
 
+// The key aliases are the daemon parser's (cli/command/settings.rs), which builds on every platform.
+use super::super::command::resolve_alias;
+
 /// The app's refusal of a user-only key.
 const USER_ONLY: &str = "setting_user_only";
 
@@ -94,7 +100,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     if verb == "get" {
         return match args {
             [] => Ok(read(json!({}))),
-            [path] if !path.starts_with("--") => Ok(read(json!({ "path": path }))),
+            [path] if !path.starts_with("--") => Ok(read(json!({ "path": resolve_alias(path) }))),
             _ => Err(usage()),
         };
     }
@@ -113,10 +119,10 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         ("set", [path, value]) => {
             // A JSON value when it parses as one, else the literal string.
             let value = serde_json::from_str(value).unwrap_or(Value::String((*value).clone()));
-            ("settings.set", json!({ "path": path, "value": value }))
+            ("settings.set", json!({ "path": resolve_alias(path), "value": value }))
         }
-        ("reset", [path]) => ("settings.reset", json!({ "path": path })),
-        ("unset", [path]) => ("settings.unset", json!({ "path": path })),
+        ("reset", [path]) => ("settings.reset", json!({ "path": resolve_alias(path) })),
+        ("unset", [path]) => ("settings.unset", json!({ "path": resolve_alias(path) })),
         _ => return Err(usage()),
     };
     if confirm {

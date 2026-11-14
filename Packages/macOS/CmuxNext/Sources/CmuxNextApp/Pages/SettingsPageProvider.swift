@@ -42,6 +42,9 @@ final class SettingsPageProvider: PageProvider {
     var environmentsState: (@MainActor () -> JSONValue)?
     var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
+    var sharesList: (@MainActor () async throws -> JSONValue)?
+    var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
@@ -219,6 +222,10 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
+        case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
+        case "cmux.settings.shares.revoke":
+            guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
+            return try await Self.host(sharesRevoke, "shares")(id)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }

@@ -436,7 +436,7 @@ async fn no_sign_in_says_so_and_how_to_fix_it() {
         "Claude is not signed in here.",
         "This agent found no sign-in (Claude home ~/.claude).",
         "Your terminal has no Claude sign-in either.",
-        "Run `claude /login` in a terminal",
+        "Run `claude auth login` in a terminal",
         "(Claude said: Not logged in · Please run /login)",
     ] {
         assert!(text.contains(part), "missing {part:?} in {text:?}");

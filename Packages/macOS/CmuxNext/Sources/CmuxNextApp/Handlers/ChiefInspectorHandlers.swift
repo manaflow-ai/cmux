@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWindowRules
 import Foundation
 import Observation
 
@@ -19,7 +20,7 @@ import Observation
 /// `OPTCHAT_INSPECTOR_WEB=1` in the brain's), the old web page opens instead:
 /// the local brain host serves it on 127.0.0.1 (optchat-chief
 /// inspect/http.rs) behind a token traded for a one-time ticket. In the home
-/// workspace it is a tab in the right column (``ChiefInspectorPlacement``,
+/// workspace it is a tab in the right column (`chat::agent::inspector_placement`,
 /// a243); elsewhere a browser tab in a new column right of the focused pane's.
 @MainActor
 enum ChiefInspectorHandlers {
@@ -54,12 +55,10 @@ enum ChiefInspectorHandlers {
     }
 
     /// The Chief the invocation names (`chief`, `server`), else this Mac's default Chief.
+    /// The choice is cmux-window-rules `chat::agent::memory_route` (empty values name nothing).
     static func route(_ invocation: ActionInvocation) -> ChiefMemoryRoute {
-        if let machine = invocation.arguments["server"]?.stringValue, !machine.isEmpty {
-            return ChiefMemoryRoute(place: .server(machineID: machine))
-        }
-        let chief = invocation.arguments["chief"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        return ChiefMemoryRoute(place: .local(chief: chief))
+        WindowRules().memoryRoute(server: invocation.arguments["server"]?.stringValue, chief: invocation.arguments["chief"]?.stringValue)
+            .flatMap(ChiefMemoryRoute.init) ?? .defaultChief
     }
 
     /// The old web page (the fallback): the local host's page through a
@@ -121,15 +120,15 @@ enum ChiefInspectorHandlers {
     }
 
     /// Where the tab goes: in the home workspace a tab in its right column
-    /// (``ChiefInspectorPlacement``), else a new column right of
+    /// (cmux-window-rules `chat::agent::inspector_placement`), else a new column right of
     /// ``anchorPane(_:context:)``.
     private static func placement(_ invocation: ActionInvocation, context: AppActionContext) throws -> Target {
         if let focused = context.scope(invocation).pane?.pane, let screen = homeScreen(of: focused, context: context) {
-            let byHandle = Dictionary(screen.panes.map { ($0.handle, $0) }, uniquingKeysWith: { first, _ in first })
+            let byHandle = Dictionary(screen.panes.map { ($0.handle.rawValue, $0) }, uniquingKeysWith: { first, _ in first })
             let columns = screen.columns.map { column in
-                ChiefInspectorPlacement<CmuxNextDaemon.PaneID>.Column(panes: column.layout.paneIDs, isDock: column.dock != nil)
+                WindowRules.InspectorColumn(panes: column.layout.paneIDs.map(\.rawValue), dock: column.dock != nil)
             }
-            switch ChiefInspectorPlacement.resolve(focused: focused.handle, inHome: true, columns: columns) {
+            switch WindowRules().inspectorPlacement(focused: focused.handle.rawValue, inHome: true, columns: columns) {
             case .tab(let handle)?: if let pane = byHandle[handle] { return .tab(pane) }
             case .newColumn(let handle)?: if let pane = byHandle[handle] { return .newColumn(rightOf: pane) }
             case nil: break
@@ -156,17 +155,25 @@ enum ChiefInspectorHandlers {
     /// with none (Home is shown), the last pane of the window's workspace
     /// unless that is the home workspace, else of the first user workspace.
     private static func anchorPane(_ invocation: ActionInvocation, context: AppActionContext) throws -> PaneModel {
+        // The choice is cmux-window-rules `chat::agent::inspector_anchor`: a Home pane never anchors a new column
+        // (a243), a user workspace does; the home workspace (kind "home") holds only the Chief conversation that the
+        // Home page shows.
         let scope = context.scope(invocation)
-        // A Home pane never anchors a new column (a243): a user workspace does.
-        if let pane = scope.pane, homeScreen(of: pane.pane, context: context) == nil { return pane.pane }
-        guard invocation.target == nil || scope.pane != nil else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        // The home workspace (kind "home") holds only the Chief conversation
-        // that the Home page shows: the column goes into a user workspace.
-        let user = { (w: WorkspaceModel) in !w.isAnyHome && w.screens.first?.panes.last != nil }
-        let workspace = scope.workspace.flatMap { user($0) ? $0 : nil }
-            ?? context.daemon.store.workspaces.first(where: user)
-        guard let pane = workspace?.screens.first?.panes.last else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        return pane
+        let pane = scope.pane, paneInHome = pane.map { homeScreen(of: $0.pane, context: context) != nil }
+        // The workspace is read only where the rule reads it: a target that names nothing reports it once.
+        let workspace = paneInHome != false && (invocation.target == nil || pane != nil) ? scope.workspace : nil
+        let workspaces = context.daemon.store.workspaces
+        let facts = { (w: WorkspaceModel) in WindowRules.AnchorWorkspace(home: w.isAnyHome, hasPane: w.screens.first?.panes.last != nil) }
+        let anchor = WindowRules().inspectorAnchor(targeted: invocation.target != nil, paneInHome: paneInHome,
+                                                   scopeWorkspace: workspace.map(facts), workspaces: workspaces.map(facts))
+        let found: PaneModel? = switch anchor {
+        case .pane?: pane?.pane
+        case .scopeWorkspace?: workspace?.screens.first?.panes.last
+        case .workspace(let index)?: workspaces.indices.contains(index) ? workspaces[index].screens.first?.panes.last : nil
+        case .refuse?, nil: nil
+        }
+        guard let found else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
+        return found
     }
 
     /// A new browser tab at `url` in `pane` (Home's right column), then shown and selected.

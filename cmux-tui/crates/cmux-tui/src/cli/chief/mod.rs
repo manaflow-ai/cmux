@@ -166,8 +166,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             | "--reactions-can-wake"
             | "--classifier-harness"
             | "--classifier-model"
-            | "--classifier-prompt" => {
-                let key = flag.trim_start_matches("--").replace('-', "_");
+            | "--classifier-prompt"
+            | "--mode" => {
+                // `--mode`: the Chief turns' permission mode (cmux#37392).
+                let key = match flag {
+                    "--mode" => "permission_mode".to_owned(),
+                    _ => flag.trim_start_matches("--").replace('-', "_"),
+                };
                 let value = value()?;
                 match &mut parsed.control {
                     Some(control::Control::Engine(changes)) => changes.push((key, value)),

@@ -98,9 +98,12 @@ await requireBrowserLane("glass-material.test.ts", async () => {
         const page = await open(colorScheme, { ...window.attributes, "data-theme": colorScheme });
         for (const id of ["composer", "strip-composer"]) {
           const { shadow } = await look(page, id);
-          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.3);
-          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.1);
-          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.05);
+          // In a dark theme the input box draws the material's light at half (composerStates.css,
+          // --acpmux-composer-glint; Leo 2026-11-07: "super duper prominent glass"): a 24% band, an
+          // 8% return and a 3.5% sheen. Present, never gone.
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.2);
+          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.05);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.03);
           expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.2);
           // The specular light is brighter than its return: lit from above.
           expect(layerAlpha(shadow, SPECULAR_BAND)).toBeGreaterThan(layerAlpha(shadow, RETURN_BAND));

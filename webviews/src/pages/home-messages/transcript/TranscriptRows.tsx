@@ -4,6 +4,7 @@
 // Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu has Copy,
 // the tapbacks, and on a failed send Try Again and Delete.
 import { memo, type ReactNode } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Markdown } from "../../../agent-session/acpmux/conversation/Markdown";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { MessageAttachments } from "../../home-channels/AttachmentViews";
@@ -58,7 +59,7 @@ export const TranscriptRowView = memo(function TranscriptRowView({
     case "older":
       return (
         <div className="mt-older" aria-busy={row.loading}>
-          {row.loading && <span className="mt-spinner" aria-hidden />}
+          {row.loading && <Spinner size={14} loading />}
         </div>
       );
     case "separator":

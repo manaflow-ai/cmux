@@ -77,6 +77,7 @@ test("a comment the host could not delete comes back, and one it deleted stays g
   function Probe() {
     hook = useDiffComments({
       bridgeAvailable: true,
+      canSend: false,
       dispatch: dispatch as never,
       latestState: state as never,
       repoRoot: "/repo",

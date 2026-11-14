@@ -242,6 +242,11 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         publish_tree = step_script("publish-tree", "Publish the complete tree with the trusted helper")
         self.assertIn('${acpmux[@]+"${acpmux[@]}"}', publish_tree)
 
+    def test_upload_step_needs_no_bash4_associative_array(self) -> None:
+        # This test runs the step with the runner's bash, Bash 3.2 on a Mac
+        # runner, which has no `local -A` / `declare -A` (9 tests failed there).
+        self.assertNotRegex(self.upload, r"\b(local|declare|typeset)\s+-[a-zA-Z]*A")
+
     def test_the_manifest_leaves_out_the_debug_symbols_a_mac_build_downloads(self) -> None:
         # A darwin target built on a Mac also uploads cmux-tui-dsyms-<target>, which the
         # download's `cmux-tui-*` puts beside the binaries; `sha256sum cmux-tui-*` then

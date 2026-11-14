@@ -16,7 +16,6 @@ export interface HeaderQuickToolsInput {
   tabTools: boolean;
   sideTabs: boolean;
   lit: readonly string[];
-  browserOpensPreview: boolean;
   hasChanges: boolean;
   previewUrl?: string;
   onTerminal(mode: QuickActionMode): void;
@@ -36,7 +35,6 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
     tabTools,
     sideTabs,
     lit,
-    browserOpensPreview,
     hasChanges,
     previewUrl,
     onTerminal,
@@ -50,7 +48,7 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
   } = input;
   if (!tabTools) return [];
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
-  const previewInBrowser = browserOpensPreview && onPreview !== undefined && !actions.some((a) => a.id === "preview");
+  const previewInBrowser = onPreview !== undefined && !actions.some((a) => a.id === "preview");
   const address = () => {
     try {
       const url = new URL(previewUrl!);

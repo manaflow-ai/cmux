@@ -11,13 +11,6 @@ nonisolated enum EditorSettingsSchema {
     /// `editor.importFrom`: which editor's settings give the defaults.
     static let importFromPath = ["editor", "importFrom"]
 
-    /// Every row's key.
-    static var keys: Set<String> { Set(descriptors.map(\.id)) }
-
-    /// The keys an agent may set: every key but `importFrom`, which decides which of the person's
-    /// files cmux reads.
-    static var agentSettableKeys: Set<String> { keys.subtracting([importFromPath.joined(separator: ".")]) }
-
     static var descriptors: [SettingDescriptor] {
         [
             SettingDescriptor(

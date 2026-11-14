@@ -1,6 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 public import Observation
 

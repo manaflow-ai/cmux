@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 import MessagesLabSidebar
 import Observation
 

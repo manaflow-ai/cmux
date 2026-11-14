@@ -1,4 +1,4 @@
-// A chat header in the pane's tab row (chrome.tabs.rowTools, on by default since 2026-10-20) hides its
+// A chat header in the pane's tab row (since 2026-10-20) hides its
 // status slot, which sits under the App's tabs; the connection warning then leads the tools instead,
 // so a disconnected or failed chat still says so, with the reason in its tooltip.
 import { afterAll, beforeAll, expect, test } from "bun:test";

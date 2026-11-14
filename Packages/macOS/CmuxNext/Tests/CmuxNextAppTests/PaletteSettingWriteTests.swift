@@ -23,8 +23,8 @@ import Testing
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
-        /// The row's on/off state, as its symbol shows it.
-        var rowIsOn: Bool? { row.map { $0.symbol == "checkmark.circle.fill" } }
+        /// The row's on/off state, as its trailing On/Off shows it.
+        var rowIsOn: Bool? { row?.toggleState }
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
 
         func tearDown() {

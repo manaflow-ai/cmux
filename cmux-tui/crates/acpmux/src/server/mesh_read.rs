@@ -41,7 +41,7 @@ fn pages(m: &str) -> bool {
 /// The params of an events read that go across. The session is the target's; nothing else is
 /// taken from the asker.
 const EVENT_PARAMS: &[&str] =
-    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "waitLogs"];
+    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "subagent", "waitLogs"];
 
 /// The largest events page a read asks for first. The JSON of a page runs past its byte budget
 /// (`hub/paging.rs` counts records, not the reply around them), so this leaves the hub's 64 KiB

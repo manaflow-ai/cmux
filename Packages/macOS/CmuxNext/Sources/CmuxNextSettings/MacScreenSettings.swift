@@ -5,8 +5,7 @@
 ///   Spaces, screenshots, Cmd-Q/W/H/M) go to the other Mac instead of acting
 ///   on this one. Needs Accessibility for cmux.
 public nonisolated struct MacScreenSettings: Sendable, Equatable {
-    public static let systemShortcutsPath = ["macScreen", "systemShortcuts"]
-    public var systemShortcuts = false
+    public var systemShortcuts = MacScreenSettings.systemShortcutsDefault
 
     public init() {}
 
@@ -16,23 +15,5 @@ public nonisolated struct MacScreenSettings: Sendable, Equatable {
         if let value = reader.bool("systemShortcuts") { settings.systemShortcuts = value }
         diagnostics = reader.diagnostics
         return settings
-    }
-}
-
-/// Keyboard > Mac Screen.
-nonisolated enum MacScreenSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenSettings.systemShortcutsPath, section: .keyboard, group: group,
-                title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help",
-                                         "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."),
-                summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
-                kind: .toggle, default: .bool(MacScreenSettings().systemShortcuts),
-                keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
-            ),
-        ]
     }
 }
