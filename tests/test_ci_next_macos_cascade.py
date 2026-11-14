@@ -2481,6 +2481,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     FORK = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
             " && 'blacksmith-6vcpu-macos-26'")
     BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-")
+    # Jobs no pull request runs, with why they still name Blacksmith macOS while the switch is off.
+    NOT_A_PR_JOB = {
+        "dev-landing-compile": "the DEV landing compile (dispatch only) takes dev_landing_place.py's own Blacksmith pick",
+    }
 
     def blacksmith_labels(self, expression: str, switch: tuple[str, ...]) -> set[str]:
         from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
@@ -2503,7 +2507,8 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     def test_every_blacksmith_macos_job_is_behind_the_off_switch(self):
         routes = self.routes()
         offenders = {where: sorted(found) for where, expression in routes.items()
-                     if (found := self.blacksmith_labels(expression, ()))}
+                     if where.split(":")[0] not in self.NOT_A_PR_JOB
+                     and (found := self.blacksmith_labels(expression, ()))}
         self.assertEqual(offenders, {}, "with vars.CMUX_BLACKSMITH_MACOS unset these routes can still name a "
                          "Blacksmith macOS label: wrap the read as (vars.CMUX_BLACKSMITH_MACOS == 'on' && <read> || "
                          "'<owned label>') (docs/ci/cmux-next-workflow-notes.md#note-350)")

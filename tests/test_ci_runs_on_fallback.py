@@ -422,6 +422,12 @@ def rescued_paths() -> set[str]:
     return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
 
 
+# A Blacksmith macOS pool read behind cmux-next's off switch (docs/ci/cmux-next-workflow-notes.md#note-350):
+# `(vars.CMUX_BLACKSMITH_MACOS == 'on' && <read> || '<owned label>')`.
+SWITCHED_BLACKSMITH_READ = re.compile(
+    r"\(vars\.CMUX_BLACKSMITH_MACOS == 'on' && (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+) \|\| 'glaeda-[a-z0-9.-]+'\)")
+
+
 def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
     """Why a runs-on that can take an owned GUI or session label could wait on that one pool with no way off.
 
@@ -435,7 +441,11 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
       re-run leaves that queue instead of joining it again;
     - where it reads a placement's gui_runner or session_runner, the same placement's gui_overflow too:
       the route side_lane_placement.role_room() takes when that queue is deeper than the pool.
+    A Blacksmith read behind cmux-next's off switch (SWITCHED_BLACKSMITH_READ) counts as that way off: switching
+    Blacksmith macOS off is the decision to wait on the owned pools (Leo, 2026-11-11: "just stop using blacksmith
+    temporarily"), and setting the variable to `on` gives the route its member off them again.
     """
+    text = SWITCHED_BLACKSMITH_READ.sub(r"\1", text)
     labels = OWNED_ROLE_LABEL.findall(text)
     if not labels:
         return []

@@ -3079,7 +3079,8 @@ lists no job for a Blacksmith slot, overflow or retry label, and writes no GUI o
 (`next_macos_cascade.blacksmith_on()`); `GUI_LAST_RESORT` is the owned GUI label; and every
 `fromJSON(vars.RUNNER_POOLS).macos_26` and `.macos_26_large` read in a Mac job's runs-on is wrapped
 `(vars.CMUX_BLACKSMITH_MACOS == 'on' && <read> || '<owned label>')`: `glaeda-gui-std-xcode-26.6` for the GUI jobs
-(swift-test, daemon-test, generated-files), `glaeda-side-std-xcode-26.6` for the rest. Setting the variable
+(swift-test, daemon-test, generated-files), `glaeda-side-std-xcode-26.6` for the rest. The DEV landing compile
+(dispatch only, no pull request) keeps `dev_landing_place.py`'s own Blacksmith pick for now. Setting the variable
 to `on` resumes Blacksmith macOS with no code change. A fork's pull request keeps its Blacksmith literal: it
 gets no repository variables and never runs on an owned Mac.
 
