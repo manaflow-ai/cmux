@@ -127,6 +127,13 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
 /// An app id, `publisher/name` (Swift NewTabAppSetting.isValidID): what `tabs.newTabApp` holds.
 export const NEW_TAB_APP_ID = /^[^\s/]+\/[^\s/]+$/;
 
+/// The app that draws this New Tab page (`tabs.newTabApp`): none on history, and none for the visit
+/// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
+/// again, also on a parked spare that keeps its screen because its context did not change.
+export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
+  return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
+}
+
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
   const value = handshake.newTab;

@@ -6,7 +6,7 @@ import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
 import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { newTabHost } from "../newTabModel";
+import { newTabHost, pickedNewTabApp } from "../newTabModel";
 import { NewTabAppPage } from "./NewTabAppPage";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -77,6 +77,20 @@ test("the handshake names the picked app only when it is an app id", () => {
   expect(newTabHost({ newTab: {} })?.app).toBeUndefined();
   for (const bad of ["launcher", "a/b/c", "a b/c", 7])
     expect(newTabHost({ newTab: { app: bad } })?.app).toBeUndefined();
+});
+
+test("a visit whose app could not show draws cmux's own; the next Cmd-T adopt tries the app again", () => {
+  const host = newTabHost({ newTab: { app: "local/launcher" } });
+  expect(pickedNewTabApp(host, undefined, 0)).toBe("local/launcher");
+  // A parked spare's mount failed (the app list was not loaded yet): that visit shows cmux's page.
+  expect(pickedNewTabApp(host, 0, 0)).toBeUndefined();
+  // Cmd-T adopts the same spare with the same context (its screen generation does not change).
+  expect(pickedNewTabApp(host, 0, 1)).toBe("local/launcher");
+  expect(
+    pickedNewTabApp(newTabHost({ newTab: { app: "local/launcher", history: true } }), undefined, 0),
+  ).toBeUndefined();
+  expect(pickedNewTabApp(newTabHost({ newTab: {} }), undefined, 0)).toBeUndefined();
+  expect(pickedNewTabApp(undefined, undefined, 0)).toBeUndefined();
 });
 
 test("the picked app's scene is the whole page: mounted once for the newTab surface with the tab's folder", async () => {
