@@ -65753,6 +65753,66 @@
             "state": "translated",
             "value": "默认"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinito"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លំនាំដើម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan"
+          }
         }
       }
     },
@@ -675131,6 +675191,756 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chief 啟用時，Home 群組會保持釘選"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesAccessDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't read Safari's cookies at %@. Allow cmux under System Settings > Privacy & Security > Full Disk Access, then run the import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتعذر على cmux قراءة ملفات تعريف ارتباط Safari في %@. اسمح لـ cmux في إعدادات النظام > الخصوصية والأمن > الوصول الكامل إلى القرص، ثم أعد تشغيل الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može pročitati Safari kolačiće na lokaciji %@. Dozvolite cmux u Postavke sistema > Privatnost i sigurnost > Puni pristup disku, a zatim ponovo pokrenite uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke læse Safaris cookies på %@. Tillad cmux under Systemindstillinger > Anonymitet og sikkerhed > Fuld diskadgang, og kør derefter importen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann die Safari-Cookies unter %@ nicht lesen. Erlauben Sie cmux unter Systemeinstellungen > Datenschutz & Sicherheit > Festplattenvollzugriff und starten Sie den Import dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede leer las cookies de Safari en %@. Permite cmux en Ajustes del Sistema > Privacidad y seguridad > Acceso total al disco y vuelve a ejecutar la importación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas lire les cookies de Safari à l’emplacement %@. Autorisez cmux dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, puis relancez l’importation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non può leggere i cookie di Safari in %@. Consenti cmux in Impostazioni di Sistema > Privacy e sicurezza > Accesso completo al disco, quindi esegui di nuovo l’importazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ にある Safari の Cookie を読み取れません。システム設定 > プライバシーとセキュリティ > フルディスクアクセスで cmux を許可してから、もう一度インポートを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចអានខូគីរបស់ Safari នៅ %@ បានទេ។ សូមអនុញ្ញាត cmux នៅក្នុង ការកំណត់ប្រព័ន្ធ > ឯកជនភាព និងសុវត្ថិភាព > ការចូលប្រើថាសពេញលេញ បន្ទាប់មកដំណើរការការនាំចូលម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 있는 Safari 쿠키를 읽을 수 없습니다. 시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근 권한에서 cmux를 허용한 다음 가져오기를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke lese Safaris informasjonskapsler på %@. Tillat cmux under Systeminnstillinger > Personvern og sikkerhet > Full disktilgang, og kjør deretter importen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może odczytać plików cookie Safari w lokalizacji %@. Zezwól na dostęp dla cmux w Ustawienia systemowe > Prywatność i ochrona > Pełny dostęp do dysku, a następnie ponownie uruchom import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue ler os cookies do Safari em %@. Permita o cmux em Ajustes do Sistema > Privacidade e Segurança > Acesso Total ao Disco e execute a importação novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может прочитать файлы cookie Safari в %@. Разрешите cmux в разделе «Системные настройки» > «Конфиденциальность и безопасность» > «Полный доступ к диску», затем снова запустите импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถอ่านคุกกี้ของ Safari ที่ %@ ได้ อนุญาต cmux ใน การตั้งค่าระบบ > ความเป็นส่วนตัวและความปลอดภัย > การเข้าถึงดิสก์เต็มรูปแบบ แล้วเรียกใช้การนำเข้าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, %@ konumundaki Safari çerezlerini okuyamıyor. Sistem Ayarları > Gizlilik ve Güvenlik > Tam Disk Erişimi bölümünde cmux’a izin verin, ardından içe aktarmayı yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може прочитати файли cookie Safari у %@. Дозвольте cmux у розділі «Системні налаштування» > «Конфіденційність і безпека» > «Повний доступ до диска», а потім знову запустіть імпорт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取位于 %@ 的 Safari Cookie。请在“系统设置”>“隐私与安全性”>“完全磁盘访问权限”中允许 cmux，然后重新运行导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取位於 %@ 的 Safari Cookie。請在「系統設定」>「隱私權與安全性」>「完整磁碟取用權限」中允許 cmux，然後再次執行匯入。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesCorrupt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookie store at %@ is damaged or in a format cmux doesn't recognize."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف ملفات تعريف ارتباط Safari في %@ تالف أو بتنسيق لا يتعرف عليه cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremište Safari kolačića na lokaciji %@ je oštećeno ili je u formatu koji cmux ne prepoznaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safaris cookielager på %@ er beskadiget eller i et format, som cmux ikke genkender."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Safari-Cookie-Speicher unter %@ ist beschädigt oder liegt in einem Format vor, das cmux nicht erkennt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacén de cookies de Safari en %@ está dañado o tiene un formato que cmux no reconoce."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari à l’emplacement %@ est endommagé ou dans un format que cmux ne reconnaît pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archivio dei cookie di Safari in %@ è danneggiato o in un formato che cmux non riconosce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にある Safari の Cookie ストアは破損しているか、cmux が認識できない形式です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងខូគីរបស់ Safari នៅ %@ ខូច ឬស្ថិតក្នុងទម្រង់ដែល cmux មិនស្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 있는 Safari 쿠키 저장소가 손상되었거나 cmux가 인식하지 못하는 형식입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lageret for Safari-informasjonskapsler på %@ er skadet eller i et format cmux ikke gjenkjenner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn plików cookie Safari w lokalizacji %@ jest uszkodzony lub ma format, którego cmux nie rozpoznaje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório de cookies do Safari em %@ está danificado ou em um formato que o cmux não reconhece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari в %@ повреждено или имеет формат, который cmux не распознаёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่เก็บคุกกี้ของ Safari ที่ %@ เสียหายหรืออยู่ในรูปแบบที่ cmux ไม่รู้จัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konumundaki Safari çerez deposu hasarlı veya cmux’ın tanımadığı bir biçimde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari у %@ пошкоджене або має формат, який cmux не розпізнає."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %@ 的 Safari Cookie 存储文件已损坏，或采用 cmux 无法识别的格式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 %@ 的 Safari Cookie 儲存檔已損毀，或採用 cmux 無法辨識的格式。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Safari cookie store was found for the %@ profile."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على ملف ملفات تعريف ارتباط Safari لملف التعريف %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za profil %@ nije pronađeno spremište Safari kolačića."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke fundet noget Safari-cookielager for profilen %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für das Profil „%@“ wurde kein Safari-Cookie-Speicher gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ningún almacén de cookies de Safari para el perfil %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fichier de cookies Safari n’a été trouvé pour le profil %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun archivio dei cookie di Safari trovato per il profilo %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル「%@」の Safari の Cookie ストアが見つかりませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញឃ្លាំងខូគីរបស់ Safari សម្រាប់ប្រវត្តិរូប %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 프로필의 Safari 쿠키 저장소를 찾을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke noe lager for Safari-informasjonskapsler for profilen %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono magazynu plików cookie Safari dla profilu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum repositório de cookies do Safari foi encontrado para o perfil %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari для профиля %@ не найдено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบที่เก็บคุกกี้ของ Safari สำหรับโปรไฟล์ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ profili için Safari çerez deposu bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari для профілю %@ не знайдено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到“%@”配置文件的 Safari Cookie 存储文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到「%@」設定檔的 Safari Cookie 儲存檔。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't read the Safari cookie store at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة ملف ملفات تعريف ارتباط Safari في %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pročitati spremište Safari kolačića na lokaciji %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke læse Safaris cookielager på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte den Safari-Cookie-Speicher unter %@ nicht lesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer el almacén de cookies de Safari en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lire le fichier de cookies Safari à l’emplacement %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a leggere l’archivio dei cookie di Safari in %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ にある Safari の Cookie ストアを読み取れませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចអានឃ្លាំងខូគីរបស់ Safari នៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 있는 Safari 쿠키 저장소를 읽지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke lese lageret for Safari-informasjonskapsler på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł odczytać magazynu plików cookie Safari w lokalizacji %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu ler o repositório de cookies do Safari em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось прочитать хранилище файлов cookie Safari в %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถอ่านที่เก็บคุกกี้ของ Safari ที่ %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, %@ konumundaki Safari çerez deposunu okuyamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося прочитати сховище файлів cookie Safari у %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取位于 %@ 的 Safari Cookie 存储文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取位於 %@ 的 Safari Cookie 儲存檔。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesFilePermissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your macOS user account doesn't have permission to read Safari's cookies at %@. Make sure your account owns the file and can read it, then run the import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك حساب المستخدم الخاص بك على macOS إذنًا بقراءة ملفات تعريف ارتباط Safari في %@. تأكد من أن حسابك يملك الملف ويمكنه قراءته، ثم أعد تشغيل الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš macOS korisnički račun nema dozvolu za čitanje Safari kolačića na lokaciji %@. Provjerite da je vaš račun vlasnik datoteke i da je može čitati, a zatim ponovo pokrenite uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din macOS-brugerkonto har ikke tilladelse til at læse Safaris cookies på %@. Sørg for, at din konto ejer filen og kan læse den, og kør derefter importen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr macOS-Benutzerkonto hat keine Berechtigung, die Safari-Cookies unter %@ zu lesen. Stellen Sie sicher, dass Ihr Konto Eigentümer der Datei ist und sie lesen darf, und starten Sie den Import dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta de usuario de macOS no tiene permiso para leer las cookies de Safari en %@. Asegúrate de que tu cuenta sea propietaria del archivo y pueda leerlo, y vuelve a ejecutar la importación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte utilisateur macOS n’est pas autorisé à lire les cookies de Safari à l’emplacement %@. Vérifiez que votre compte est propriétaire du fichier et peut le lire, puis relancez l’importation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo account utente macOS non ha l’autorizzazione per leggere i cookie di Safari in %@. Assicurati che il tuo account sia proprietario del file e possa leggerlo, quindi esegui di nuovo l’importazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS のユーザアカウントには %@ にある Safari の Cookie を読み取る権限がありません。アカウントがファイルの所有者で読み取り可能であることを確認してから、もう一度インポートを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនីអ្នកប្រើ macOS របស់អ្នកមិនមានសិទ្ធិអានខូគីរបស់ Safari នៅ %@ ទេ។ សូមប្រាកដថាគណនីរបស់អ្នកជាម្ចាស់ឯកសារ ហើយអាចអានវាបាន បន្ទាប់មកដំណើរការការនាំចូលម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 사용자 계정에 %@에 있는 Safari 쿠키를 읽을 권한이 없습니다. 계정이 파일의 소유자이며 읽을 수 있는지 확인한 다음 가져오기를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-brukerkontoen din har ikke tillatelse til å lese Safaris informasjonskapsler på %@. Sørg for at kontoen din eier filen og kan lese den, og kjør deretter importen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje konto użytkownika macOS nie ma uprawnień do odczytu plików cookie Safari w lokalizacji %@. Upewnij się, że Twoje konto jest właścicielem pliku i może go odczytać, a następnie ponownie uruchom import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua conta de usuário do macOS não tem permissão para ler os cookies do Safari em %@. Verifique se sua conta é a proprietária do arquivo e pode lê-lo, e execute a importação novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашей учётной записи macOS нет прав на чтение файлов cookie Safari в %@. Убедитесь, что ваша учётная запись является владельцем файла и может его читать, затем снова запустите импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชีผู้ใช้ macOS ของคุณไม่มีสิทธิ์อ่านคุกกี้ของ Safari ที่ %@ ตรวจสอบให้แน่ใจว่าบัญชีของคุณเป็นเจ้าของไฟล์และอ่านไฟล์ได้ แล้วเรียกใช้การนำเข้าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS kullanıcı hesabınızın %@ konumundaki Safari çerezlerini okuma izni yok. Dosyanın sahibinin hesabınız olduğundan ve hesabınızın dosyayı okuyabildiğinden emin olun, ardından içe aktarmayı yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш обліковий запис користувача macOS не має дозволу на читання файлів cookie Safari у %@. Переконайтеся, що ваш обліковий запис є власником файлу і може його читати, а потім знову запустіть імпорт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 用户账户没有读取位于 %@ 的 Safari Cookie 的权限。请确认你的账户拥有该文件并且可以读取，然后重新运行导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 使用者帳號沒有讀取位於 %@ 的 Safari Cookie 的權限。請確認你的帳號擁有該檔案且可以讀取，然後再次執行匯入。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي ملف ملفات تعريف ارتباط Safari في %1$@ على بيانات تتجاوز حد الاستيراد في cmux البالغ %2$@، لذلك لم يتم استيراد أي ملفات تعريف ارتباط منه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremište Safari kolačića na lokaciji %1$@ sadrži više podataka o kolačićima nego što dozvoljava cmux ograničenje uvoza od %2$@, pa iz njega nijedan kolačić nije uvezen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safaris cookielager på %1$@ indeholder flere cookiedata end cmux' importgrænse på %2$@, så der blev ikke importeret nogen cookies fra det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Safari-Cookie-Speicher unter %1$@ enthält mehr Cookie-Daten, als das Importlimit von cmux (%2$@) zulässt. Daher wurden daraus keine Cookies importiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacén de cookies de Safari en %1$@ contiene más datos de cookies que el límite de importación de cmux (%2$@), por lo que no se importó ninguna cookie de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari à l’emplacement %1$@ contient plus de données de cookies que la limite d’importation de cmux (%2$@) ne le permet ; aucun cookie n’en a donc été importé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archivio dei cookie di Safari in %1$@ contiene più dati di cookie del limite di importazione di cmux (%2$@), quindi non è stato importato alcun cookie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ にある Safari の Cookie ストアには cmux のインポート上限（%2$@）を超える Cookie データが含まれているため、Cookie はインポートされませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងខូគីរបស់ Safari នៅ %1$@ មានទិន្នន័យខូគីច្រើនជាងដែនកំណត់នាំចូលរបស់ cmux (%2$@) ដូច្នេះគ្មានខូគីណាត្រូវបាននាំចូលពីវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 있는 Safari 쿠키 저장소의 쿠키 데이터가 cmux 가져오기 한도(%2$@)를 초과하므로 쿠키를 가져오지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lageret for Safari-informasjonskapsler på %1$@ inneholder mer data enn importgrensen i cmux (%2$@), så ingen informasjonskapsler ble importert fra det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn plików cookie Safari w lokalizacji %1$@ zawiera więcej danych niż limit importu cmux (%2$@), dlatego nie zaimportowano z niego żadnych plików cookie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório de cookies do Safari em %1$@ contém mais dados de cookies do que o limite de importação do cmux (%2$@), então nenhum cookie foi importado dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari в %1$@ содержит больше данных, чем допускает ограничение импорта cmux (%2$@), поэтому файлы cookie из него не импортированы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่เก็บคุกกี้ของ Safari ที่ %1$@ มีข้อมูลคุกกี้เกินขีดจำกัดการนำเข้าของ cmux (%2$@) จึงไม่ได้นำเข้าคุกกี้ใดจากที่เก็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konumundaki Safari çerez deposu, cmux’ın içe aktarma sınırından (%2$@) daha fazla çerez verisi içerdiği için bu depodan hiçbir çerez içe aktarılmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari у %1$@ містить більше даних, ніж дозволяє обмеження імпорту cmux (%2$@), тому файли cookie з нього не імпортовано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %1$@ 的 Safari Cookie 存储文件中的 Cookie 数据超过了 cmux 的导入上限（%2$@），因此未从中导入任何 Cookie。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 %1$@ 的 Safari Cookie 儲存檔中的 Cookie 資料超過了 cmux 的匯入上限（%2$@），因此未從中匯入任何 Cookie。"
           }
         }
       }
