@@ -520,7 +520,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var store: AgentChatStore
     private let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
-    private var builder: ChatTranscriptBuilder
+    private(set) var builder: ChatTranscriptBuilder
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
@@ -562,6 +562,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// scroll-up bench measures as its before.
     var readsAhead = true
     private(set) var lastReconfigured = 0
+    /// Rows a reload weighed in full: compared, estimated, given a layout item (tests: a token
+    /// weighs the rows it changed, not every row of its turn).
+    private(set) var rowsWeighed = 0
+    /// Rows offered to the warm-up (tests: once each, not every row on every reload).
+    private(set) var warmUpOffers = 0
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -903,6 +908,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             var turnIDs: [String] = []
             var turnItems: [ChatTranscriptLayout.Item] = []
             for var row in turn.rows {
+                rowsWeighed += 1
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
                 if !seen.insert(row.id).inserted {
@@ -1152,6 +1158,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     private func queueWarmUp(_ ids: [String]) {
+        warmUpOffers += ids.count
         for id in ids where lookup.isNativeCandidate(id) {
             guard let key = lookup.rows[id]?.nativeReuseKey, warmedKinds.insert(key).inserted else { continue }
             warmQueue.append(id)

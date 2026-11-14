@@ -120,6 +120,8 @@ final class ChatTranscriptBuilder {
     private var senderTones: [String: Int] = [:]
     /// Turns built (tests: one per changed turn, not one per turn per update).
     private(set) var turnBuilds = 0
+    /// Rows made for built turns (tests: a token makes the rows it changed, not its turn's).
+    private(set) var rowsMade = 0
 
     init(diffs: ChatDiffCache) {
         self.diffs = diffs
@@ -340,6 +342,7 @@ final class ChatTranscriptBuilder {
         case .running:
             break
         }
+        rowsMade += rows.count
         return (rows, waits)
     }
 }
