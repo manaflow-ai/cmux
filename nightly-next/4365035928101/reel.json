@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4365035928101",
+  "notes": "notes/4365035928101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43286,
+      "title": "acpmux: record the sidebar mirror's v1-answer stream again (attach-hold-v1 in initialize)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43341,
+      "title": "ci(perf bench): submit with no pool; the perf-lead reservation is gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43283,
+      "title": "Agent chat notices: one chat open in two tabs notifies once per turn and per wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43248,
+      "title": "ci(cmux-tui): the shipped fat-LTO legs start from the last feat-cmux-next build's target dir",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43269,
+      "title": "Agent chat: a settled tool call never draws again on a stream update; remounts go to the flicker ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43253,
+      "title": "diff tab: an older session host's offline text and old diff end without a Refresh (follow-up of #43214)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43220,
+      "title": "fix(input): limit pinch zoom to browser pages",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43296,
+      "title": "Agent chat: the reply under a subagent's start line keeps the run gap, never a turn gap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42739,
+      "title": "cmux-next iOS: terminal composer back to the classic layout (buttons beside the field)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43312,
+      "title": "Agent chat: a chat on your own machine signs its agent in with one click, not a terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43238,
+      "title": "ios-review-gate: an agent pass the API never served ends red as API unavailable, excused only at zero usage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43234,
+      "title": "sidebar reducer: a stale op applies to the document as it is now; each refusal has its own text (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43212,
+      "title": "cmux-encode: Media Foundation H.264 encoder for Windows, with bench rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43098,
+      "title": "v2 list stream on a peer link: the mirror's mark and one append per unit (8 part two, core)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43271,
+      "title": "cmux-tui: a prompt acpmux refuses is refused at once with its reason, not timed out (phone start)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43202,
+      "title": "Themes as files, part 3: Settings > Theme > Open Theme File",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
