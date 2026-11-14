@@ -465,7 +465,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     if !hit.element("AXWindow").is_some_and(|w| w.same(&win)) {
         return Ok(None);
     }
-    let mut el = hit.clone();
+    let mut el = hit;
     for _ in 0..2 {
         let role = el.string("AXRole").unwrap_or_default();
         if !roles::is_label_role(&role) {
@@ -473,7 +473,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
         }
         match el.element("AXParent") {
             Some(parent) if roles::is_press_role(&parent.string("AXRole").unwrap_or_default()) => {
-                el = parent
+                el = parent;
             }
             _ => break,
         }
@@ -508,7 +508,11 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
 /// ([`super::activation`]) and waits for `item` to be enabled; the scope
 /// hands the window back when dropped. Refused (nothing pressed) when the
 /// item stays disabled: the command does not apply to that window.
-fn enable_menu_item(t: &Target, item: &Ax, element_id: &str) -> DResult<super::activation::KeyInApp> {
+fn enable_menu_item(
+    t: &Target,
+    item: &Ax,
+    element_id: &str,
+) -> DResult<super::activation::KeyInApp> {
     let title = item.string("AXTitle").unwrap_or_default();
     let key = super::activation::KeyInApp::enter(t.window.id).ok_or_else(|| {
         DesktopError::Unsupported(format!(

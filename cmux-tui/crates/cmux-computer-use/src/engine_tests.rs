@@ -238,7 +238,7 @@ fn the_settle_wait_never_passes_the_ceiling() {
 #[test]
 fn a_delivered_action_with_no_visible_change_says_so() {
     let d = Arc::new(FakeDesktop::standard());
-    let (e, _) = settling_engine(d.clone());
+    let (e, _) = settling_engine(d);
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
     assert!(!out.is_error, "{:?}", out.body);

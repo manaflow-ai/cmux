@@ -138,7 +138,7 @@ fn set_window_location() -> Option<SetWindowLocation> {
     static F: std::sync::OnceLock<Option<SetWindowLocation>> = std::sync::OnceLock::new();
     *F.get_or_init(|| {
         // SAFETY: the symbol has this signature (void (CGEventRef, CGPoint)).
-        super::sys::symbol(c"CGEventSetWindowLocation")
+        symbol(c"CGEventSetWindowLocation")
             .map(|p| unsafe { std::mem::transmute::<*mut std::ffi::c_void, SetWindowLocation>(p) })
     })
 }

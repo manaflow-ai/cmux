@@ -12,7 +12,8 @@ use crate::keys::{Key, KeyCombo, Modifier};
 /// drag posted to a background window.
 #[test]
 fn pid_mouse_events_name_the_window_and_its_local_point() {
-    let stamp = roles::pid_mouse_stamp(290, Point { x: 72.0, y: 174.0 }, Some(Point { x: 60.0, y: 80.0 }));
+    let stamp =
+        roles::pid_mouse_stamp(290, Point { x: 72.0, y: 174.0 }, Some(Point { x: 60.0, y: 80.0 }));
     assert_eq!(stamp.window_number, 290);
     assert_eq!(stamp.local, Some(Point { x: 12.0, y: 94.0 }));
     // A window whose origin cannot be read still gets its number.
