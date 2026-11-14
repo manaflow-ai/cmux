@@ -552,3 +552,6 @@ async fn an_idle_chat_is_released_at_once() {
     let _ = (std::fs::remove_file(&gate), file);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[path = "watch_follow.rs"]
+mod follow;
