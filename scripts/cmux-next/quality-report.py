@@ -510,7 +510,8 @@ def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, A
     surface = doc.get("surface")
     out.update(surface=surface if surface in JOURNEY_SURFACES else None, generated_at=doc.get("generated_at"), build=doc.get("build"),
                run_url=doc.get("run_url"))
-    at = parse_time(doc.get("generated_at"))
+    stamp = doc.get("generated_at")
+    at = parse_time(stamp) if isinstance(stamp, str) else None
     if at is None:
         out["why"] = "the results have no generated_at"
         return out
@@ -526,7 +527,8 @@ def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, A
         out[outcome if outcome in ("pass", "red", "needs_account", "skip") else "skip"] += 1
         steps = c.get("steps")
         out["steps"] += steps if isinstance(steps, int) and not isinstance(steps, bool) else 0
-        reds = [r for r in (c.get("reds") or []) if isinstance(r, dict)]
+        raw_reds = c.get("reds")
+        reds = [r for r in raw_reds if isinstance(r, dict)] if isinstance(raw_reds, list) else []
         if outcome == "red":
             out["red_cells"].append(str(c.get("cell")))
         for r in reds:
@@ -547,7 +549,10 @@ def first_user_journey(paths: List[str], t: dt.datetime) -> Dict[str, Any]:
     surfaces: Dict[str, Any] = {}
     for i, path in enumerate(paths):
         doc, why = load_json(path)
-        row = journey_surface(doc, why, t)
+        try:
+            row = journey_surface(doc, why, t)
+        except Exception as e:  # an odd artifact costs its surface, never the report
+            row = journey_surface(None, f"unreadable results: {type(e).__name__}: {e}", t)
         key = row["surface"] or f"input{i + 1}"
         surfaces[key if key not in surfaces else f"input{i + 1}"] = row
     live = [v for v in surfaces.values() if v["why"] is None]
