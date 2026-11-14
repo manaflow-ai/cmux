@@ -764,7 +764,7 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     let surface = mux.surface(surface_id).unwrap();
     let terminal =
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
-    let prefix = b"1\n2\n";
+    let prefix = b"1\r\n2\r\n";
     surface.apply_stream_output_for_test(prefix).unwrap();
     mux.output_store.append(&terminal, &Arc::from(INCARNATION), prefix, None);
     let prefix_end = u64::try_from(prefix.len()).unwrap();
@@ -773,7 +773,7 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     // still at the prefix. These bytes are deliberately not appended: they
     // are the host's no-tap interval, recovered only by the live snapshot.
     mux.output_store.stream_gap(&terminal);
-    surface.apply_stream_output_for_test(b"3\n4\n").unwrap();
+    surface.apply_stream_output_for_test(b"3\r\n4\r\n").unwrap();
     let recovered = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
     assert_eq!(recovered["start_offset"], "0", "{recovered}");
     assert_eq!(recovered["next_offset"], prefix_end.to_string(), "{recovered}");
