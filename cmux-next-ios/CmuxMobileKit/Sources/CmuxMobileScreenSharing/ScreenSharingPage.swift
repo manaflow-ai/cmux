@@ -42,6 +42,8 @@ public struct ScreenSharingPage: View {
         .refreshable { await service.refresh() }
         .onAppear {
             service.start()
+            // An already read list is kept for the next showing too, not only one that changes.
+            service.listChanged()
             connectToNamedMac()
         }
         // A request still waiting for the hub when the page goes (Done, back) ends with it.
