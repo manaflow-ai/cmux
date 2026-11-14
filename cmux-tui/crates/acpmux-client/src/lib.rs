@@ -2588,6 +2588,93 @@ tail"#;
         assert!(take_pages(&mut client).is_empty());
     }
 
+    fn request_caller_page(client: &mut Client<Value>) {
+        let mut page = Page::new("m", "list", wire::PageSide::After, 0);
+        page.after = None;
+        client.page(page).unwrap();
+        assert_eq!(take_pages(client).len(), 1);
+    }
+
+    #[test]
+    fn caller_page_error_preserves_mirror_retry_allowance() {
+        let mut client = ready_mirror();
+        mirror_window(&mut client);
+        assert_eq!(take_pages(&mut client).len(), 1);
+        finish_empty_walk(&mut client);
+        request_caller_page(&mut client);
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+
+        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        client.want("m", [key]).unwrap();
+        assert_eq!(take_pages(&mut client).len(), 1);
+        mirror_page_error(&mut client);
+        let retry = take_pages(&mut client);
+        assert_eq!(retry.len(), 1);
+        assert!(retry.first().unwrap().pointer("/params/keys").is_none());
+        assert!(retry.first().unwrap().pointer("/params/after").is_none());
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+    }
+
+    #[test]
+    fn caller_page_error_releases_deferred_walk_without_resetting_allowance() {
+        for prior_errors in 0..=2 {
+            let mut client = ready_mirror();
+            mirror_window(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            let key =
+                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            client.want("m", [key]).unwrap();
+            assert!(take_pages(&mut client).is_empty());
+            for error in 0..prior_errors {
+                mirror_page_error(&mut client);
+                assert_eq!(take_pages(&mut client).len(), usize::from(error == 0));
+            }
+
+            client.disconnected();
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Hello,
+                serde_json::to_value(wire::HelloReply {
+                    daemon_id: "d".into(),
+                    limits: Limits::default(),
+                })
+                .unwrap(),
+            );
+            assert!(changes.is_empty());
+            assert!(take_pages(&mut client).is_empty());
+            request_caller_page(&mut client);
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Delta,
+                serde_json::json!({"sid":"m","replay":"end","ops":[]}),
+            );
+            assert!(matches!(changes.as_slice(), [Change::ResumeEnd { .. }]));
+            assert!(take_pages(&mut client).is_empty());
+
+            mirror_page_error(&mut client);
+            let walk = take_pages(&mut client);
+            assert_eq!(walk.len(), usize::from(prior_errors < 2));
+            if let Some(page) = walk.first() {
+                assert!(page.pointer("/params/keys").is_none());
+                assert!(page.pointer("/params/after").is_none());
+            }
+            for error in prior_errors..2 {
+                mirror_page_error(&mut client);
+                assert_eq!(take_pages(&mut client).len(), usize::from(error == 0));
+            }
+            // Stopping clears the deferred walk but preserves wanted keys.
+            client.want("m", std::iter::empty()).unwrap();
+            let wanted = take_pages(&mut client);
+            assert_eq!(wanted.len(), 1);
+            assert_eq!(
+                wanted.first().unwrap().pointer("/params/keys/0/chatId"),
+                Some(&Value::String("wanted".into()))
+            );
+        }
+    }
+
     #[test]
     fn mirror_request_can_select_v1_rows() {
         let mut client = Client::<Value>::connected_v2();
