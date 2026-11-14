@@ -241,7 +241,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
         done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (one catch-up nobody measures runs before both sides, stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
-        measured: true,
+        measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
         god_max: None,
