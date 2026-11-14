@@ -75,6 +75,8 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     let dir = tempfile::tempdir().unwrap();
     fixture(dir.path(), 128);
     let (hub, mut writer) = Hub::open(dir.path(), 13, || 29).unwrap();
+    writer.process_batch();
+    hub.wait_hydrated().await.unwrap();
     let subscription = hub.subscribe(&Sub::new("sid", "list")).unwrap();
     let mut folders = Sub::new("folders", "list");
     folders.view = Some(crate::wire::ListView::Folders);
@@ -84,7 +86,6 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     assert!(hub.list_window(&Sub::new("page", "list")).is_err());
     writer.process_batch();
     assert_eq!(hub.rebuild_count(), 1);
-    hub.wait_hydrated().await.unwrap();
     assert_eq!(hub.subscriber_count(), 2);
     hub.source_walk_finished(Source::Local, false);
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
