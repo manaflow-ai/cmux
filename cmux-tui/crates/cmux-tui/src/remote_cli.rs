@@ -112,7 +112,7 @@ fn run_inner(
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
-        Some("remote-device-key") => run_device_key(&args[1..]),
+        Some("remote-device-key") => run_device_key(args.get(1..).unwrap_or_default()),
         Some("remote-probe") => run_probe(&args[1..]),
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),

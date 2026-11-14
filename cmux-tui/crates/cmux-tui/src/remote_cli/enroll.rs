@@ -255,7 +255,7 @@ pub(super) fn run_enroll(
 /// A daemon older than bound invitations ignores `--device-key` and makes an
 /// ordinary invitation that waits for approval; say so instead of handing it out.
 fn require_bound_invitation(response: &AdminResponse) -> anyhow::Result<()> {
-    let Some(uri) = response.result.as_ref().and_then(|result| result["uri"].as_str()) else {
+    let Some(uri) = response.result.as_ref().and_then(|result| result.get("uri")?.as_str()) else {
         return Ok(());
     };
     if EnrollmentInvitation::from_uri(uri)?.approval_required {
