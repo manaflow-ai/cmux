@@ -164,6 +164,11 @@ struct ReportGitBranchCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "report_git_branch", shouldDisplay: false, helpNames: [])
 }
 
+struct ClearGitBranchCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "clear_git_branch", shouldDisplay: false, helpNames: [])
+}
+
 struct ReportPRActionCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "report_pr_action", shouldDisplay: false, helpNames: [])
