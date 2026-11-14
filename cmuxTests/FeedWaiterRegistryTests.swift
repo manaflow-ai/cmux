@@ -204,4 +204,93 @@ struct FeedWaiterRegistryTests {
             registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
         }
     }
+
+    @Test func aTimedOutRequestIsRetiredOnceByALaterHookFromTheSameAgent() throws {
+        func stamped(_ hook: WorkstreamEvent.HookEventName, sentAt: Int?, session: String = "session",
+                     request: String? = nil) -> WorkstreamEvent {
+            WorkstreamEvent(sessionId: session, hookEventName: hook, source: "claude",
+                toolName: "Tool", toolInputJSON: "{}", requestId: request,
+                extraFieldsJSON: sentAt.map { #"{"_hook_sent_at_ms":\#($0)}"# })
+        }
+        let registry = FeedWaiterRegistry()
+        let request = stamped(.permissionRequest, sentAt: 2_000, request: "request")
+        let timedOut = try #require(registry.register(requestID: "request", event: request))
+        registry.accepted(timedOut, event: request, item: item())
+        let finished = registry.finish(timedOut)
+        #expect(finished.shouldCancel)
+        guard case .timedOut = finished.outcome.result else {
+            Issue.record("expected a timeout")
+            return
+        }
+        registry.cleanupStored(requestID: timedOut.requestID, groupID: timedOut.groupID)
+
+        // A conflicting registration that arrives before the timed-out group's
+        // cleanup is refused and leaves the handoff in place.
+        let lingering = try #require(registry.register(requestID: "lingering",
+            event: stamped(.permissionRequest, sentAt: 2_100, request: "lingering")))
+        #expect(registry.finish(lingering).shouldCancel)
+        #expect(registry.register(requestID: "lingering", event: WorkstreamEvent(sessionId: "session",
+            hookEventName: .permissionRequest, source: "claude", toolName: "Other", toolInputJSON: "{}",
+            requestId: "lingering")) == nil)
+        // A same-payload retry in that window joins the timed-out group and
+        // keeps the handoff too.
+        let joined = try #require(registry.register(requestID: "lingering",
+            event: stamped(.permissionRequest, sentAt: 2_100, request: "lingering")))
+        guard case .timedOut = registry.finish(joined).outcome.result else {
+            Issue.record("a retry joining a timed-out group should time out")
+            return
+        }
+        registry.cleanupStored(requestID: lingering.requestID, groupID: lingering.groupID)
+
+        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 1_990)).isEmpty)
+        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: nil)).isEmpty)
+        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000, session: "other")).isEmpty)
+        let retired = registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 3_000))
+        #expect(Set(retired.map(\.requestID)) == ["request", "lingering"])
+        #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 4_000)).isEmpty)
+    }
+
+    @Test func onlyAnUnansweredTimeoutIsHandedOff() throws {
+        func stamped(_ hook: WorkstreamEvent.HookEventName, sentAt: Int, request: String? = nil) -> WorkstreamEvent {
+            WorkstreamEvent(sessionId: "session", hookEventName: hook, source: "claude",
+                toolName: "Tool", toolInputJSON: "{}", requestId: request,
+                extraFieldsJSON: #"{"_hook_sent_at_ms":\#(sentAt)}"#)
+        }
+        let registry = FeedWaiterRegistry()
+        let later = stamped(.preToolUse, sentAt: 9_000)
+
+        // Answered in cmux.
+        let answered = try #require(registry.register(requestID: "answered", event: stamped(.permissionRequest, sentAt: 1_000, request: "answered")))
+        registry.accepted(answered, event: stamped(.permissionRequest, sentAt: 1_000, request: "answered"), item: item())
+        _ = registry.resolve(requestID: "answered", decision: .permission(.once))
+        _ = registry.finish(answered)
+
+        // Timed out, then retried by the same hook: the retry owns it again.
+        let retried = stamped(.permissionRequest, sentAt: 2_000, request: "retried")
+        let first = try #require(registry.register(requestID: "retried", event: retried))
+        registry.accepted(first, event: retried, item: item())
+        _ = registry.finish(first)
+        registry.cleanupStored(requestID: first.requestID, groupID: first.groupID)
+        let second = try #require(registry.register(requestID: "retried", event: retried))
+
+        // Timed out, then its session was torn down.
+        let tornDown = stamped(.permissionRequest, sentAt: 3_000, request: "torn-down")
+        let third = try #require(registry.register(requestID: "torn-down", event: tornDown))
+        registry.accepted(third, event: tornDown, item: item())
+        _ = registry.finish(third)
+        registry.cleanupStored(requestID: third.requestID, groupID: third.groupID)
+        _ = registry.invalidate(source: "claude", sessionID: "session")
+
+        #expect(registry.retireHandedOff(supersededBy: later).isEmpty)
+
+        // Unstamped, so no later hook could ever show it was answered.
+        let unstamped = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest, source: "claude",
+            toolName: "Tool", toolInputJSON: "{}", requestId: "unstamped")
+        let fourth = try #require(registry.register(requestID: "unstamped", event: unstamped))
+        registry.accepted(fourth, event: unstamped, item: item())
+        _ = registry.finish(fourth)
+        registry.cleanupStored(requestID: fourth.requestID, groupID: fourth.groupID)
+        #expect(registry.retireHandedOff(supersededBy: later).isEmpty)
+        _ = registry.finish(second)
+    }
 }
