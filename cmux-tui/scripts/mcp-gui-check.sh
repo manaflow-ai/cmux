@@ -60,13 +60,15 @@ echo "cmux $("$CMUX" --version | head -1)"
 
 # The chat's record (`session info`): its tool rows (the agent pane's tool list) and the MCP
 # servers the harness itself reports loading (Claude Code reports them; Codex does not).
-servers_of() { # NAME: "<tool rows' servers> | <harness-reported servers and status>"
-  acp --json session info "$1" 2>/dev/null | python3 -c '
+cat > "$D/servers.py" <<'PY'
 import json, sys
 s = json.loads(sys.stdin.read() or "{}")
 rows = sorted(t["id"][4:] for t in s.get("tools") or [] if str(t.get("id", "")).startswith("mcp:"))
-loaded = sorted(f"{m.get(\"name\")}:{m.get(\"status\")}" for m in s.get("mcpServers") or [])
-print(" ".join(rows) + " | " + " ".join(loaded))'
+loaded = sorted(f"{m.get('name')}:{m.get('status')}" for m in s.get("mcpServers") or [])
+print(" ".join(rows) + " | " + " ".join(loaded))
+PY
+servers_of() { # NAME: "<tool rows' servers> | <harness-reported servers and status>"
+  acp --json session info "$1" 2>/dev/null | python3 "$D/servers.py"
 }
 start_chat() { # NAME HARNESS: a chat the way the agent pane starts one, with a first prompt
   acp new -d -n "$1" -m "$2" --cwd "$D/work" --policy approve-all "say hi" > "$D/$1.new" 2>&1
@@ -153,6 +155,8 @@ for value in off ask; do
     start_chat "gui-$harness-$value" "$harness"
     names=$(servers_of "gui-$harness-$value")
     case " ${names%% | *} ${names#* | } " in *" cmux "*|*" cmux:"*) ok=1 ;; *) ok=0 ;; esac
+    # A read that found no tool rows proves nothing.
+    case "$names" in " | "*) ok=1 ;; esac
     check "agent chat [$harness, agents.cmuxMcp $value]: no cmux (tool rows | harness: $names)" $ok
   done
 done
