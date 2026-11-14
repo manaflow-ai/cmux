@@ -99,7 +99,8 @@ ContextUsageRing and its iOS `SessionMeterViews` popover. Keep the newly merged 
 asks, and opt chat toast/banner callers into the iOS adapter. Keep contrast and
 Reduce Transparency behavior unchanged.
 
-Also held: Home messaging/Conversations sheets, recipient suggestions and native
+Also held: Home messaging/Conversations sheets, updating notices and connection banners;
+mixed group/screen page toasts and group move sheets; recipient suggestions and native
 transcript agent cards; agent permissions and agent-share invite cards; Chief
 Pet/Quick Composer; mixed diff/editor/markdown/files/task/feed/message pages;
 unknown pushed iOS routes. These can display or cover chat. Conservative ownership

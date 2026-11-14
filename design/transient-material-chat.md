@@ -48,7 +48,8 @@ previously held callers:
 | Chat Files and Artifacts, Status, Copy, Display Settings, Edit Earlier Prompt | Existing presentation caller applies the shared sheet adapter; detents and background interaction remain unchanged. |
 | Cloud Chats and both Message Chief presentations | Root sheet callers apply the shared adapter. |
 | Chief Chat Colors | UIKit's existing SwiftUI host applies the adapter and clears only its host background, like the existing terminal artifact host. |
-| Connection banners | Already explicit `.standard` at Shell/Home callers; no new shared default. |
+| Connection banners | Home Conversations banner explicitly adopts `.standard` here; Shell stays in the non-chat PR. No new shared default. |
+| Home Updating notice and mixed group/screen management surfaces | ConversationsHome capsule, PageToast, and group move sheet adopt the shared material here because their destinations can contain chat. |
 
 Shared toast/banner/sheet payload defaults stay unchanged. Nil remains available
 for exact before galleries. Sheet scroll backdrops are hidden by the adapter;

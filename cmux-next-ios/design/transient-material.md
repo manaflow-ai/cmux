@@ -29,14 +29,14 @@ All paths below are relative to `CmuxMobileKit/Sources/`.
 | Local chat toast, `CmuxMobileAgentChat/ParityViews.swift` | Original regular glass through nil parameter | No caller edit; shared toast default remains nil. |
 | Workspace opening/refusal toast, `CmuxMobileWorkspaces/WorkspaceScreen.swift` | Transient glass, same capsule/card | Grid or identified non-agent tab only; agent/unknown tab retains prior glass. |
 | Pane toast, `CmuxMobileWorkspaces/PanesScreen.swift` | Transient glass | Separate pane-management page, not transcript. |
-| Screens/group page toast, `CmuxMobileWorkspaces/WorkspaceTabsSource+GroupsScreens.swift` | Transient glass | Separate management pages. |
-| Connection banners, `CmuxMobileShell/Screens.swift`, `CmuxMobileChief/ConversationsHome.swift` | Explicit `.standard` on shared banner | Shared initializer/modifier default remains nil. |
-| Home Updating notice, `CmuxMobileChief/ConversationsHome.swift` | Transient glass | Home list only. |
+| Screens/group page toast, `CmuxMobileWorkspaces/WorkspaceTabsSource+GroupsScreens.swift` | Legacy glass; adoption in chat draft | Groups can contain agent tabs; mixed pushed route stays held. |
+| Connection banner, `CmuxMobileShell/Screens.swift` | Explicit `.standard` on shared banner | Shared initializer/modifier default remains nil. ConversationsHome banner is adopted in the held chat draft. |
+| Home Updating notice, `CmuxMobileChief/ConversationsHome.swift` | Legacy material; adoption in chat draft | Conversation destination remains held. |
 | Ended-shell recovery card, `CmuxMobileWorkspaces/WorkspaceTabsSource.swift` | Transient glass | Terminal case only. |
 | QR scanner hint, `CmuxMobileSettings/PairCodeScanner.swift` | Transient glass | Settings only. |
 | Command palette, `CmuxMobileWorkspaces/CommandPaletteSheet.swift` | Shared native sheet modifier and hidden list backdrop | Receives the workspace's scoped material; unchanged over agent/unknown tabs. |
 | Move/add/saved group pickers, `CmuxMobileWorkspaces/TabMoveAndGroupSheets.swift` | Shared native sheet modifier | Same workspace scope. |
-| Group move picker, `CmuxMobileWorkspaces/TabGroupPage.swift` | Shared native sheet modifier | Group-management page only. |
+| Group move picker, `CmuxMobileWorkspaces/TabGroupPage.swift` | Legacy sheet; adoption in chat draft | A group can contain agent tabs. |
 | Agent chooser / screen-sharing sheet, `CmuxMobileWorkspaces/WorkspaceScreen.swift` | Shared native sheet modifier | Same workspace scope; no transcript change. |
 | Workspace icon picker, `CmuxMobileWorkspaces/WorkspaceIconPicker.swift` | Shared native sheet modifier; removed both opaque child fills | Workspace list entry. |
 | Team appearance, `CmuxMobileSettings/TeamAppearanceEditor.swift` | Shared native sheet modifier; removed production content/presentation opaque fills | Both Settings and sidebar entry points. Old fills exist only for gallery before mode. |

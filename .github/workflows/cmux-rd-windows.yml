@@ -56,9 +56,10 @@ jobs:
 
   live-windows-host:
     name: Windows live host (tailnet)
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
     runs-on: windows-latest
     timeout-minutes: 15
+    environment: ios-e2e
     permissions:
       contents: read
       id-token: write
@@ -91,9 +92,9 @@ jobs:
           # Static-frame suppression is intentional; animate a small runner-local
           # window so the passive viewer records a meaningful FPS sample.
           $motion = Start-Process -FilePath 'powershell.exe' `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
+            -ArgumentList @('-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
           $ip = (tailscale ip -4).Trim()
-          Add-Content $env:GITHUB_STEP_SUMMARY "Tailnet address: $ip:4103"
+          Add-Content $env:GITHUB_STEP_SUMMARY "Tailnet address: ${ip}:4103"
           $log = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.log'
           $err = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.err'
           try {
@@ -118,9 +119,10 @@ jobs:
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
+    environment: ios-e2e
     permissions:
       contents: read
       id-token: write
@@ -130,7 +132,29 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Join the CI tailnet
+      - name: Preserve an existing runner tailnet identity
+        id: tailnet
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/cmux-rd-tailnet.json"
+          if command -v tailscale >/dev/null 2>&1 && tailscale status --json > "$state"; then
+            python3 - "$state" <<'PY'
+          import json
+          import sys
+
+          state = json.load(open(sys.argv[1]))
+          node = state.get("Self") or {}
+          if state.get("BackendState") != "Running" or not node.get("Online") or not node.get("TailscaleIPs"):
+              raise SystemExit("existing runner Tailscale is not online; leave its identity unchanged")
+          PY
+            echo 'existing=true' >> "$GITHUB_OUTPUT"
+          else
+            ./scripts/e2e/require-fresh-tailnet-host.sh
+            echo 'existing=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Join the CI tailnet on a fresh runner
+        if: steps.tailnet.outputs.existing == 'false'
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
@@ -159,7 +183,9 @@ jobs:
             fi
             sleep 2
           done
-          target/debug/cmux-rd bench --addr "$HOST:4103" --carrier stream --input none --duration-s 10 --decoder videotoolbox \
+          # The benchmark accepts SocketAddr, which requires a numeric address.
+          host_ip="$(python3 -c 'import os, socket; print(socket.gethostbyname(os.environ["HOST"]))')"
+          target/debug/cmux-rd bench --addr "$host_ip:4103" --carrier stream --input none --duration-s 10 --decoder videotoolbox \
             > "$RUNNER_TEMP/cmux-rd-live.json" 2> "$RUNNER_TEMP/cmux-rd-live.log"
           cat "$RUNNER_TEMP/cmux-rd-live.log"
           cat "$RUNNER_TEMP/cmux-rd-live.json" | tee "$GITHUB_STEP_SUMMARY"

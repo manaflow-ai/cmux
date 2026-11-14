@@ -29,8 +29,9 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
-  # Every app pull request walks the reviewer path (one macOS job, about 45
-  # minutes), so a change that breaks it is red before it merges.
+  # Every app pull request walks the reviewer path (one macOS job per device,
+  # side by side, about 30 minutes), so a change that breaks it is red before
+  # it merges.
   pull_request:
     paths:
       - "cmux-next-ios/**"
@@ -236,7 +237,16 @@ jobs:
 
   reviewer-path:
     needs: plan
-    name: Reviewer path (${{ needs.plan.outputs.lane }})
+    name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
+    # One job per device, side by side: each builds the app (about 6
+    # minutes) and walks one device (about 20), where one job walking all
+    # three in a row took about 45 minutes. A family with no simulator on
+    # the image skips its build. No leg cancels another: the report needs
+    # every family's result.
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iphone, ipad, duo]
     # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
     # secret (the agent pass's Claude token), so it takes no owned Mac
     # (.github/runners.json picker_followup). A fork pull request takes the
@@ -292,26 +302,52 @@ jobs:
           cp .review-gate/cmux-next-ios/UITests/AppReviewGateUITests.swift cmux-next-ios/UITests/
           mkdir -p cmux-next-ios/AppStoreReview
           cp .review-gate/cmux-next-ios/AppStoreReview/rejection-history.json cmux-next-ios/AppStoreReview/
-      # cmux-next-ios/rust pins the same toolchain as cmux-tui.
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-bin: false
-          workspaces: cmux-next-ios/rust
-          key: ios-review-gate
-      - name: Build CmuxMobileLinkFFI.xcframework
-        env:
-          JOBS: "6"
-        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
       - name: Install xcodegen and axe
         run: |
           set -euo pipefail
           command -v xcodegen >/dev/null || brew install xcodegen
           xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
           brew install cameroncooke/axe/axe || true
+      - name: Pick the ${{ matrix.family }} simulator
+        env:
+          FAMILY: ${{ matrix.family }}
+        run: |
+          # Never -e (Actions runs `bash -e`): the picker's exit is read below.
+          set +e
+          set -uo pipefail
+          # Before the build: a family this image has no simulator for (the
+          # picker's exit 3) skips the build, and the report reads the
+          # marker as its result. Any other picker failure fails the leg,
+          # which leaves no result, so the report blocks.
+          udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$FAMILY" --print-udid)"
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "UDID=$udid" >> "$GITHUB_ENV"
+          elif [ "$code" -eq 3 ]; then
+            echo "::notice::no $FAMILY simulator on this image; its size classes are covered by the Pro Max and iPad rotation tests"
+            echo "{\"family\":\"$FAMILY\",\"skipped\":true}" > "$RESULTS/$FAMILY.skipped.json"
+          else
+            echo "::error::the $FAMILY simulator pick failed (exit $code)" >&2
+            exit "$code"
+          fi
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui.
+      - name: Set up pinned Rust
+        if: env.UDID != ''
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Cache cargo
+        if: env.UDID != ''
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: ios-review-gate
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: env.UDID != ''
+        env:
+          JOBS: "6"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
       - name: Build the app and the gate for testing
+        if: env.UDID != ''
         working-directory: cmux-next-ios
         run: |
           set -euo pipefail
@@ -327,45 +363,46 @@ jobs:
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
           # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
-      - name: Walk the reviewer path on each device
+      - name: Walk the reviewer path on ${{ matrix.family }}
+        if: env.UDID != ''
+        env:
+          FAMILY: ${{ matrix.family }}
         run: |
           # Never -e (Actions runs `bash -e`): a failing suite must still
-          # write its status and result for the report, and the next device
-          # must still run (run 42947653685 stopped at the first exit 65).
+          # write its status and result for the report (run 42947653685
+          # stopped at the first exit 65).
           set +e
           set -uo pipefail
+          family="$FAMILY"
+          udid="$UDID"
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
-          for family in iphone ipad duo; do
-            udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$family" --print-udid)" || {
-              echo "::notice::no $family simulator on this image; its size classes are covered by the Pro Max and iPad rotation tests"
-              echo "{\"family\":\"$family\",\"skipped\":true}" > "$RESULTS/$family.skipped.json"
-              continue
-            }
-            xcrun simctl boot "$udid" 2>/dev/null || true
-            xcrun simctl bootstatus "$udid" -b
-            # iPad runs in dark mode, iPhone and Duo in light, so both
-            # appearances are walked every run.
-            if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
-            xcodebuild test-without-building -xctestrun "$xctestrun" \
-              -destination "id=$udid,arch=arm64" -resultBundlePath "$RESULTS/$family.xcresult" \
-              -only-testing:CmuxMobileAppUITests/AppReviewGateUITests \
-              > "$RESULTS/$family.log" 2>&1
-            code=$?
-            grep -E ' error: |^Test Case .* failed|Executed [0-9]+ tests|^GATE-NOTE ' "$RESULTS/$family.log" || true
-            # The report reads this: a suite that failed with no failed test
-            # in its result (a crash, a build-for-testing mismatch) blocks.
-            echo "{\"family\":\"$family\",\"exit\":$code}" > "$RESULTS/$family.status.json"
-            xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
-            mkdir -p "$RESULTS/screens/$family"
-            xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
-            echo "SIM_$family=$udid" >> "$GITHUB_ENV"
-          done
+          xcrun simctl boot "$udid" 2>/dev/null || true
+          xcrun simctl bootstatus "$udid" -b
+          # iPad runs in dark mode, iPhone and Duo in light, so both
+          # appearances are walked every run.
+          if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
+          xcodebuild test-without-building -xctestrun "$xctestrun" \
+            -destination "id=$udid,arch=arm64" -resultBundlePath "$RESULTS/$family.xcresult" \
+            -only-testing:CmuxMobileAppUITests/AppReviewGateUITests \
+            > "$RESULTS/$family.log" 2>&1
+          code=$?
+          grep -E ' error: |^Test Case .* failed|Executed [0-9]+ tests|^GATE-NOTE ' "$RESULTS/$family.log" || true
+          # The report reads this: a suite that failed with no failed test
+          # in its result (a crash, a build-for-testing mismatch) blocks.
+          echo "{\"family\":\"$family\",\"exit\":$code}" > "$RESULTS/$family.status.json"
+          xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
+          mkdir -p "$RESULTS/screens/$family"
+          xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
           # The report job decides; this step only records.
           exit 0
       - name: Agent reviewer pass
         # Push and pull_request carry no inputs, and an absent input compares
-        # equal to false; only an explicit false skips.
-        if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass
+        # equal to false; only an explicit false skips. It reviews on the
+        # iPad, as it did when one job walked every device in turn, so only
+        # the iPad leg runs it.
+        if: >-
+          matrix.family == 'ipad' && env.UDID != ''
+          && (github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass)
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -377,9 +414,8 @@ jobs:
           fi
           npm install -g @anthropic-ai/claude-code >/dev/null 2>&1
           app_path="$(find "$DERIVED/Build/Products" -maxdepth 2 -path '*iphonesimulator/CmuxMobileApp.app' | head -n 1)"
-          udid="${SIM_ipad:-${SIM_iphone:-}}"
           python3 -I .review-gate/cmux-next-ios/scripts/app_review_agent_pass.py \
-            --udid "$udid" --app "$app_path" \
+            --udid "$UDID" --app "$app_path" \
             --setup cmux-next-ios/AppStoreReview/reviewer-setup.md \
             --out "$RESULTS/agent-pass" --findings "$RESULTS/agent-findings.json"
       - name: Upload results
@@ -387,7 +423,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: review-gate-path-${{ env.LANE }}
+          # One artifact per device; the report downloads every review-gate-*.
+          name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}
           path: |
             ${{ env.RESULTS }}/*.json
             ${{ env.RESULTS }}/*.log
@@ -526,10 +563,14 @@ jobs:
           set -uo pipefail
           echo "Judged: \`$JUDGED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           args=(report --out review-gate.md)
-          # Fail closed: a missing lint or device result blocks.
+          # Fail closed: a missing lint or device result blocks. Each device
+          # is its own reviewer-path job; one that failed, was cancelled or
+          # uploaded nothing leaves no result. Duo alone may instead leave
+          # its skip marker (no Duo simulator on the image).
           # download-artifact puts a lone artifact straight into in/, not
           # in/<name>/, so find the files by name wherever they landed.
-          args+=(--expect-lint --expect-device iphone --expect-device ipad)
+          args+=(--expect-lint --expect-device iphone --expect-device ipad --expect-device-or-skipped duo)
+          while IFS= read -r f; do args+=(--skipped "$f"); done < <(find in -name '*.skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
           for fam in iphone ipad duo; do
             while IFS= read -r f; do args+=(--xcresult-json "$f"); done < <(find in -name "$fam.json" -type f | sort)

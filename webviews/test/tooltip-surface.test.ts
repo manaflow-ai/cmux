@@ -1,6 +1,6 @@
 // Leo, 2026-10-14: tooltips are glass, not a solid box; 2026-10-21: "WHERE IS THE GLASS EVERYWHERE,
 // all these hover tooltips and hover previews". A tooltip is the liquid glass (`.ui-glass`,
-// ui/glass/glass.css) in the tooltip frost, in every glass mode: a strong backdrop blur under a tint
+// ui/glass/glass.css) in the shared transient frost, in every glass mode: a strong backdrop blur under a tint
 // dense enough that the text reads over anything (the host's, TooltipSurface.swift), the glass rim as
 // its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
 // A tooltip shows and goes in one frame, with no fade and no rise, under every motion setting (Leo,
@@ -172,7 +172,7 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       expect({ mode, background: surface.background, blur: surface.blur }).toEqual({
         mode,
         background: tint,
-        blur: "blur(24px) saturate(1.6)",
+        blur: "blur(32px) saturate(1.6)",
       });
       // The glass rim is the one edge: the border keeps its width, clear.
       expect(surface.border).toBe("rgba(0, 0, 0, 0)");

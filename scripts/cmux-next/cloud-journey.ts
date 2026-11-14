@@ -2317,8 +2317,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
+    // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
+    // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
+    // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's
+    // first shared team; recorded, never fatal, so the rest of the journey still runs.
+    const scopedTeam = team ?? (await api.read("user.teams.list", {}).then(
+      (v: any) => (Array.isArray(v?.teams) ? v.teams.find((t: any) => t?.kind !== "personal" && typeof t?.id === "string")?.id : undefined),
+      () => undefined,
+    ));
+    if (!scopedTeam) J.skip("team-scoped install token", "the account has no shared team (pass --team to name one)");
+    else await J.step("team-scoped install token", async () => {
+      const userId = user.id ?? user.user?.id;
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id, team: scopedTeam }, {});
+      if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const t0 = Date.now();
+      // 25 s: the app's own limit on this request.
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {}, 25_000);
+      const ms = Date.now() - t0;
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} after ${ms} ms ${short(tok.body.error ?? tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      if (tok.body.team !== scopedTeam) throw new Error(`token names team ${tok.body.team}, asked for ${scopedTeam}`);
+      return { value: null, detail: `team ${scopedTeam}, minted in ${ms} ms` };
+    }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
 
