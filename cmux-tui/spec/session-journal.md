@@ -752,7 +752,10 @@ version, or one with a rebuild pending, holds the floor at zero. A minimum
 window stays whatever those cursors say: the newest 1,024 records, and each
 segment sealed in the last 60 minutes (at most 65,536 records below the head).
 An ingress receipt is deleted with its record's segment, so a retry with the
-same key is a replay for at least those 60 minutes. The newest
+same key is a replay for those 60 minutes, or only while its record is among
+the newest 65,536 when more records than that were written in that time. The
+row of a frontend event in the event index goes with its record in the same
+way. The newest
 segment always stays. Each tick deletes at most eight segments at or below the
 floor, one transaction per segment, together with their kept reducer records
 and the subject index, event index and ingress receipt rows of their records.
@@ -771,7 +774,9 @@ agent record with its cursor, and the floor never passes that cursor. With
 whole session (`terminal`, `tab`, `started_at_ms`, `ended_at_ms` beside the
 entry's own fields), and that list is the state snapshot of agent sessions. Restore previews of every kept checkpoint,
 hook delivery and reducer restores do not read below the floor. An ingress
-retry whose receipt was deleted is appended as a new event, and a
+retry whose receipt was deleted is appended as a new event, a frontend event
+that comes again after its index row was deleted is appended as a new
+record, and a
 `causation_id` that names a deleted event is refused. A roster reducer of a
 newer version, in the owner's background rebuild and in `server
 premigrate-registry`, continues from the saved roster when records are

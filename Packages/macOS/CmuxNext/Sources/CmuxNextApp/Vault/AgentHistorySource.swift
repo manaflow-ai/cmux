@@ -24,11 +24,10 @@ final class AgentHistorySource: VaultSessionSource {
 
     var isComplete: Bool { services?.history.agents.isComplete ?? true }
     var startsQuietly: Bool { services?.machines.local.isStartingQuietly ?? false }
+    var answersNow: Bool { if case .connected? = services?.machines.local.store.connectionState { true } else { false } }
 
     /// The daemon client's own wait between two reads of a list that is not complete.
-    func waitForPending(afterReads reads: Int) async throws {
-        try await DaemonHistoryClient.waitForPending(afterReads: reads)
-    }
+    func waitForPending(afterReads reads: Int) async throws { try await DaemonHistoryClient.waitForPending(afterReads: reads) }
 
     /// Not ended, and its tab is still on a connected machine.
     func isLive(_ session: AgentSession) -> Bool {

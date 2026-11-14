@@ -466,6 +466,8 @@ impl WorkspaceRegistry {
         // The rows are asked for again here, under the lock: the hold is
         // right with no read before it.
         let mut left = RETENTION_ROWS_PER_HOLD;
+        #[cfg(test)]
+        let mut rows = 0u64; // the tests' seam: the rows that this hold's statements deleted
         for (table, column, key) in PRUNED_ROW_TABLES {
             if left == 0 {
                 break;
@@ -478,11 +480,13 @@ impl WorkspaceRegistry {
                 ))?
                 .execute(params![end, i64::try_from(left)?])?;
             left = left.saturating_sub(u64::try_from(deleted)?);
+            #[cfg(test)]
+            {
+                rows += u64::try_from(deleted)?;
+            }
         }
         #[cfg(test)]
-        retention_step_for_test(RetentionStep::RowsDeleted {
-            rows: RETENTION_ROWS_PER_HOLD - left,
-        });
+        retention_step_for_test(RetentionStep::RowsDeleted { rows });
         tx.commit()?;
         // A full hold: rows can be left (when none is, the next hold
         // deletes nothing and says so).

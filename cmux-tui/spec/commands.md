@@ -845,7 +845,9 @@ rebuild replaced it (`swapped_at_ms`), the first time it can go
 (`full_starts`, `full_starts_left`, of 3). The file goes at the first start
 after both conditions. Until then the session's directory is larger than the
 registry by `bytes`, no start reads the file, and no rebuild runs (retention
-deletes in place). To go back to it, stop the daemon and rename the file to
+deletes in place). To go back to it, stop the daemon, move
+`workspace-registry.sqlite3`, `workspace-registry.sqlite3-wal` and
+`workspace-registry.sqlite3-shm` away together, then rename the file to
 `workspace-registry.sqlite3`. `kept_raw` counts the saved reducer states
 that a start could not load after journal retention deleted records; each is
 kept as it was in `meta` under `journal_reducer_kept.<reducer>`. That start

@@ -17,6 +17,9 @@ package protocol VaultSessionSource: AnyObject {
     /// daemon starts). A list that is not complete then has no words on screen: at each healthy start they
     /// would show and go.
     var startsQuietly: Bool { get }
+    /// The source can answer a read now (the app's own daemon is connected). A list that a read in the quiet
+    /// start left not complete then has no words either: that read asked no daemon, and the next read does.
+    var answersNow: Bool { get }
     /// Suspends before the read that follows `reads` reads of a list that is not complete (a clock sleep that
     /// backs off); it throws when the reader goes away.
     func waitForPending(afterReads reads: Int) async throws
@@ -26,5 +29,6 @@ package extension VaultSessionSource {
     /// A source whose list is always whole (fixed sessions).
     var isComplete: Bool { true }
     var startsQuietly: Bool { false }
+    var answersNow: Bool { true }
     func waitForPending(afterReads reads: Int) async throws {}
 }

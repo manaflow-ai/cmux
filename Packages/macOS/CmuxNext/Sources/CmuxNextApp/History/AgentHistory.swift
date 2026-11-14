@@ -47,6 +47,7 @@ final class AgentHistory {
                 do { try await sessions.read(journal: endpoint.socketPath) } catch {
                     logger.info("agent history: journal read on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
+            } else if daemon === services.machines.local, daemon.supports(DaemonHistoryClient.agentSessionsCapability) || daemon.supports("session-journal-v1") { machines[machine] = sessions; continue // it lists sessions and gave no answer in this read: not complete
             } else { if !sessions.isComplete, sessions.sessions.isEmpty { machines[machine] = nil }; continue } // it lists no session: no answer will come
             machines[machine] = sessions
         }

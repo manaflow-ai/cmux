@@ -9,8 +9,9 @@ import Foundation
 /// list, and the app never folds that daemon's journal. While that fold is behind, the daemon's list is not
 /// complete (`isComplete`), and it takes no session away. A machine that gave no answer yet has no complete
 /// list either: a session can exist on it. A daemon without the capability is older than
-/// retention: its journal has every record, and the app folds it from the first one
-/// (`session.journal.subscribe`), then only the records after its cursor.
+/// retention: the app folds its journal from the first record (`session.journal.subscribe`), then only the
+/// records after its cursor. That journal has every record unless a newer daemon deleted records of the
+/// same registry before (a return to an older build).
 public struct MachineAgentSessions: Sendable {
     public let machine: String
     /// The sessions of a daemon that lists them; nil before its first answer and for an older daemon.
