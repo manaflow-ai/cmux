@@ -177,7 +177,6 @@ import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -284,8 +283,6 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
-  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
-  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -1069,8 +1066,6 @@ function ComposerFrame({
           attachments,
           shell: shellRef.current.shell,
           shellText: shellRef.current.shellText,
-          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
-          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
         };
       },
       async settleDraft() {

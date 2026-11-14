@@ -3474,6 +3474,92 @@ public func FfiConverterTypeLinkEvent_lower(_ value: LinkEvent) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Where a web link opened on the phone goes.
+ */
+
+public enum LinkOpenSide: Equatable, Hashable {
+    
+    /**
+     * A public address: the phone's own browser.
+     */
+    case phone
+    /**
+     * An address only the Mac can reach: a browser tab on the Mac.
+     */
+    case mac
+    /**
+     * Not a web page (`javascript:`, `file:`, an app's scheme, no host).
+     */
+    case notWeb
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LinkOpenSide: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkOpenSide: FfiConverterRustBuffer {
+    typealias SwiftType = LinkOpenSide
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkOpenSide {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .phone
+        
+        case 2: return .mac
+        
+        case 3: return .notWeb
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LinkOpenSide, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .phone:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mac:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .notWeb:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkOpenSide_lift(_ buf: RustBuffer) throws -> LinkOpenSide {
+    return try FfiConverterTypeLinkOpenSide.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkOpenSide_lower(_ value: LinkOpenSide) -> RustBuffer {
+    return FfiConverterTypeLinkOpenSide.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * How the link's bytes travel.
  */
 
@@ -4265,6 +4351,16 @@ public func classicCleanupVersion() -> Int64  {
     )
 })
 }
+/**
+ * Which device opens `url`, a link the person opened on the phone.
+ */
+public func linkOpenSide(url: String) -> LinkOpenSide  {
+    return try!  FfiConverterTypeLinkOpenSide_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_open_side(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4312,6 +4408,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {

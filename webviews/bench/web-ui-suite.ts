@@ -126,6 +126,23 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 240_000,
     ownPart: true,
   },
+  // A 1,000,000-event chat (CMUX-571, cmux#37713): the pane client's open, one older page and its heap, for long turns
+  // and for 4-record turns. perf-cron.py's web-ui-million part runs both (about 2 minutes on a lane VM).
+  {
+    name: "million-event-chat",
+    file: "million-event-chat.bench.ts",
+    args: ["1000000", "20"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  {
+    name: "million-event-chat-short",
+    file: "million-event-chat.bench.ts",
+    args: ["1000000", "20"],
+    env: { SHAPE: "short" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
