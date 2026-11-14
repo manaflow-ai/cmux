@@ -641,7 +641,10 @@ try {
       await page.waitForFunction(
         (quietMs) => {
           const recording = (window as unknown as BenchWindow).__firstLoad;
-          return !!document.querySelector(".acpmux-composer-box") && performance.now() - recording.changedAt > quietMs;
+          // Settled once it told the host it drew (`pane.painted`, as the app's spare does before it parks) and
+          // nothing in view changed since.
+          const painted = (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt;
+          return painted !== undefined && performance.now() - Math.max(painted, recording.changedAt) > quietMs;
         },
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
