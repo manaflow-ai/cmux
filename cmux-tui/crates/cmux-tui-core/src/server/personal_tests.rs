@@ -210,7 +210,7 @@ fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
     let mux = personal_mux();
     run(&mux, json!({"cmd":"create-profile","profile":"prof_b","name":"B"})).unwrap();
     mux.state_sidebar_apply(
-        &crate::WorkspaceMutation::local("space-delete-test", crate::Actor::local_user()),
+        &WorkspaceMutation::local("space-delete-test", crate::Actor::local_user()),
         "sidebar.apply",
         json!({"ops": [
             {"op": "item.add", "item": {"id": "itm_link", "body": {"type": "url", "url": "https://a.example"},

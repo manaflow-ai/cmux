@@ -215,6 +215,14 @@ fn touches_pinned(applied: &Applied) -> bool {
         || applied.changes.deleted_sections.iter().any(|id| id == PINNED_SECTION_ID)
 }
 
+/// `op`'s wire name (`move`, `item.update`, ...), for the refusal log.
+fn op_kind(op: &Op) -> String {
+    serde_json::to_value(op)
+        .ok()
+        .and_then(|value| value.get("op")?.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
 impl Mux {
     /// Commit `ops` of `operation` under `mutation`'s idempotency key.
     pub(crate) fn state_sidebar_apply(
@@ -277,7 +285,7 @@ impl Mux {
                         reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
                             // The app shows this only for the person's own change; the log keeps every
                             // refusal with its key and op kinds, so one can be read back after the fact.
-                            let kinds: Vec<&str> = ops.iter().map(|op| op.kind_name()).collect();
+                            let kinds: Vec<String> = ops.iter().map(op_kind).collect();
                             eprintln!(
                                 "cmux-tui: sidebar change {key} refused: {} (ops {kinds:?})",
                                 refusal.as_str()
