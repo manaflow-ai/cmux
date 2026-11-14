@@ -25,7 +25,7 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`Client::whole_list` itself: each later page from its cursor",
     ),
     (
-        "cmux-tui/crates/acpmux/src/peer.rs",
+        "cmux-tui/crates/acpmux/src/peer_runtime_io.rs",
         "method::MUX_WATCH",
         1,
         "`watch_pages`: the link's watch, its cursor followed page by page",

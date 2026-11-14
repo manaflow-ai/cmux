@@ -71,6 +71,13 @@ public protocol TerminalTabContent: AnyObject {
     /// (design/terminal P5). Nil keeps the directory. Read during view
     /// updates: must not create a tab's host or write state.
     func statusSubtitle(for tab: WorkspaceTab) -> String?
+    /// The app went to the background (false) or came back: the grid's view
+    /// still counts as visible in the background, so its refresh stops here.
+    func sceneActiveChanged(_ active: Bool)
+    /// `handler` hears each terminal the Mac says drew output (its tab id and
+    /// Mac; a nil tab: any terminal of that Mac may have, its event stream
+    /// started again) while `owner` lives. One handler per owner.
+    func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void)
 }
 
 extension TerminalTabContent {
@@ -85,6 +92,8 @@ extension TerminalTabContent {
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
+    public func sceneActiveChanged(_ active: Bool) {}
+    public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
 }
 
 /// A page menu row a terminal tab adds.
