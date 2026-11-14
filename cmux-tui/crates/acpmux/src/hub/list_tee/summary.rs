@@ -432,14 +432,16 @@ mod tests {
     async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
         let (hub, session) = fixture(false).await;
         hub.edit_test_meta(&session, |meta| {
-            for seq in 1..=3 {
+            let base = meta.harness_failures.through_seq;
+            for offset in 1..=3 {
+                let seq = base + offset;
                 meta.harness_failures.observe(
                     &serde_json::json!({
                         "status": "failed",
                         "errorText": "HTTP 503 bearer ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
                     }),
                     seq,
-                    seq * 10,
+                    offset * 10,
                 );
             }
         });
