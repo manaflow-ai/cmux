@@ -182,10 +182,10 @@ fn folder_projection_restarts_without_writing_the_index_log() {
     writer.apply(row("one", "/a", 1)).unwrap();
     drop(writer);
     let path = dir.path().join("index.log");
-    let before = std::fs::read(&path).unwrap();
+    let before = fs::read(&path).unwrap();
     let (hub, _writer) = Hub::open(dir.path(), 2, || 8).unwrap();
     assert_eq!(hub.snapshot().folders().get(&FolderKey::new("local", "/a")).unwrap().count, 1);
-    assert_eq!(std::fs::read(path).unwrap(), before);
+    assert_eq!(fs::read(path).unwrap(), before);
 }
 
 #[test]
