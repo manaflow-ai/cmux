@@ -264,10 +264,14 @@ pub(crate) async fn pass(v1: Arc<Hub>, tee: Arc<BookTee>) {
 #[cfg(test)]
 pub(crate) static HOOK_NS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
+/// The hook's time is kept only while a gate records it, so no other test grows the samples.
+#[cfg(test)]
+pub(crate) static HOOK_RECORDING: AtomicBool = AtomicBool::new(false);
+
 #[cfg(test)]
 pub(super) fn note_hook(took: std::time::Duration) {
-    let mut samples = HOOK_NS.lock().unwrap_or_else(|e| e.into_inner());
-    if samples.len() < 1 << 20 {
+    if HOOK_RECORDING.load(Ordering::Relaxed) {
+        let mut samples = HOOK_NS.lock().unwrap_or_else(|e| e.into_inner());
         samples.push(u64::try_from(took.as_nanos()).unwrap_or(u64::MAX));
     }
 }

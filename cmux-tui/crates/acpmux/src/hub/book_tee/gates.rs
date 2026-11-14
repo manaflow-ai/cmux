@@ -139,12 +139,14 @@ async fn v2_pr03b_tee_append_added() {
     caught_up(&god).await;
     let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     take_hook_samples();
+    HOOK_RECORDING.store(true, Ordering::Relaxed);
     for round in 0..ROUNDS {
         appends(&small, &chat_id(0), round);
         small_rounds.push(take_hook_samples());
         appends(&god, &chat_id(0), round);
         god_rounds.push(take_hook_samples());
     }
+    HOOK_RECORDING.store(false, Ordering::Relaxed);
     let _ = small_drain.close(Duration::from_secs(1)).await;
     let _ = god_drain.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.tee_append_added", &small_rounds, &god_rounds, Some(2.0));
