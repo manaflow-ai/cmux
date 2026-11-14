@@ -384,9 +384,17 @@ public final class DaemonTerminalSession: TerminalSession {
         if let attach, attachSerial != attach { return }
         // A size queued behind another request would claim the grid again after the release.
         let queuedSize = outbox.contains { if case .size = $0 { true } else { false } }
-        outbox.removeAll { if case .size = $0 { true } else { false } }
+        // A release already queued (the terminal left the screen) may sit behind a slow request:
+        // it goes now, under the same bound, rather than after the link closed.
+        let queuedRelease = outbox.contains { if case .release = $0 { true } else { false } }
+        outbox.removeAll {
+            switch $0 {
+            case .size, .release: true
+            default: false
+            }
+        }
         releasedForLinkClose = true
-        guard sizeClaimed || queuedSize else { return }
+        guard sizeClaimed || queuedSize || queuedRelease else { return }
         let surface = surface
         stopLeaseRefresh()
         sizeClaimed = false

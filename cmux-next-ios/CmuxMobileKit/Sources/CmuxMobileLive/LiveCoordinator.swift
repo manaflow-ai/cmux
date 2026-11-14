@@ -819,6 +819,11 @@ public final class LiveCoordinator {
         let now = ContinuousClock.now
         for id in showingMacs ?? Set(sessions.keys) { lastShown[id] = now }
         showingMacs = macIDs
+        // A Cloud machine the person opened (a page of its own, not the whole list): opened as
+        // `touch` opens it, so a held one skips its wait and asks for a read now.
+        if let macIDs, macIDs.count == 1, let id = macIDs.first, isCloud(macID: id) {
+            return touch(id)
+        }
         applyLinks()
     }
 

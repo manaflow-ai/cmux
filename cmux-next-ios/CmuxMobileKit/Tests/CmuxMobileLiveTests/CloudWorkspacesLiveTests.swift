@@ -232,6 +232,22 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(asks == 2)
     }
 
+    /// Review round 18: opening a held machine's workspace from the Workspaces list (the shell
+    /// shows that one machine) neither asked for a read nor skipped its wait; only `touch` did.
+    @Test func openingAHeldMachinesPageAsksForAReadAndSkipsItsWait() {
+        let store = emptyStore()
+        let live = coordinator(store: store, cloud: RecordingCloudDialer())
+        defer { live.stop() }
+        live.applyCloudMachines([machine(.running)])
+        var asks = 0
+        live.onCloudHoldsWaiting = { _ in asks += 1 }
+        live.holdCloudDial(vm)
+        live.cloudHoldNotBefore[vm] = ContinuousClock.now + .seconds(120)
+        live.showing(macIDs: [vm])
+        #expect(asks >= 1, "opening the held machine asked for no read")
+        #expect(live.cloudHoldNotBefore[vm] == nil, "opening the machine kept its wait")
+    }
+
     @Test func pausedAndStartingMachinesAreNotDialed() async throws {
         let store = emptyStore()
         let cloud = RecordingCloudDialer()

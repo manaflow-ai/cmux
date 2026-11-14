@@ -663,7 +663,10 @@ extension LiveCoordinator {
             guard let self, let terminal, let current = self.sessions[machineID],
                   Self.reattachesOnChannelEnd(served: current.servedLink == nil ? nil : current.servedSerial,
                                               lastOpenedOn: lastLink.get()),
-                  current.terminals.contains(where: { $0.session === terminal }) else { return }
+                  current.terminals.contains(where: { $0.session === terminal }),
+                  // Not a terminal whose tab the newer link's tree no longer has (as the reattach pass).
+                  DaemonTerminalSession.shouldReattach(surface: terminal.surface, terminalID: terminal.terminalID,
+                                                       tree: current.workspaces.tree) else { return }
             terminal.reconnect()
         }
         terminal.setMacOffline(owner.link.target == nil || owner.terminalsOffline)
