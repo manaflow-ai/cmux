@@ -54,12 +54,17 @@ impl QueueEntry {
 
 impl State {
     pub fn checkpoint(&self) -> Result<Saved, Error> {
-        let translator =
-            codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
+        // The codec stops at its limit; a state past it is too large, not invalid.
+        let translator = codec().serialize(&(VERSION, self)).map_err(|error| match *error {
+            bincode::ErrorKind::SizeLimit => {
+                Error::StateTooLarge { bytes: MAX_TRANSLATOR_BYTES + 1 }
+            }
+            _ => Error::CheckpointInvalid,
+        })?;
         if translator.len() > MAX_TRANSLATOR_BYTES {
             return Err(Error::StateTooLarge { bytes: translator.len() });
         }
-        let prompts = self.queue.values().map(|entry| entry.to_bytes()).collect();
+        let prompts = self.queue.iter().map(|entry| entry.to_bytes()).collect();
         Ok(Saved { translator, prompts })
     }
     pub fn restore(translator: &[u8], prompts: &[[u8; 32]]) -> Result<Self, Error> {
@@ -80,12 +85,14 @@ impl State {
         if cursor.position() as usize != translator.len() {
             return Err(Error::CheckpointInvalid);
         }
+        // The records' order is the queue's.
+        let mut seen = std::collections::BTreeSet::new();
         for record in prompts {
             let entry = QueueEntry::from_bytes(record);
-            state.queue.insert(entry.id_hash, entry);
-        }
-        if state.queue.len() != prompts.len() {
-            return Err(Error::CheckpointInvalid);
+            if !seen.insert(entry.id_hash) {
+                return Err(Error::CheckpointInvalid);
+            }
+            state.queue.push(entry);
         }
         let mut ids = std::collections::BTreeSet::new();
         if state.prompts.len() > 32

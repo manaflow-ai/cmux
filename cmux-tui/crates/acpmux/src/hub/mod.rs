@@ -400,6 +400,8 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;

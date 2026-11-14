@@ -10,9 +10,7 @@ use acpmux_book::checkpoint::{Checkpoint, Cursor, OpenBody, Person, next_edition
 use acpmux_book::folds::Folds;
 use acpmux_book::log::{self, Error as BookError, Log, Options, RawRange};
 use acpmux_book::row::{Outline, RowKind};
-use acpmux_book::translate::{
-    self, BodyField, BodySource, Change, Harness, OwnedRow, QueueChange, State,
-};
+use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
@@ -477,8 +475,9 @@ struct ActorState {
     /// than appended to, so a client knows bytes it holds before `fixed` are still the row's.
     gens: BTreeMap<u64, u64>,
     gen_next: u64,
-    /// The ids of the waiting prompts this actor named, by id hash, for their removal ops.
-    queue_ids: BTreeMap<u64, String>,
+    /// The queue head's entries as read, by id hash: the place of the record read, the id
+    /// and the text's first kilobyte. Only the head's 64 are kept.
+    queue_heads: BTreeMap<u64, (u64, String, String)>,
 }
 
 impl ActorState {
@@ -924,7 +923,7 @@ fn open_state_from_log(
         people: saved_checkpoint.as_ref().map_or_else(Vec::new, |c| c.people.clone()),
         gens: BTreeMap::new(),
         gen_next: random_u64(),
-        queue_ids: BTreeMap::new(),
+        queue_heads: BTreeMap::new(),
     };
     let stamp_changed = saved_checkpoint.as_ref().is_some_and(|checkpoint| {
         checkpoint.boot_id != actor.config.boot_id
@@ -1127,6 +1126,7 @@ fn read_source(state: &mut ActorState) -> Result<bool, ChatError> {
         apply_line(state, bytes, line.start, line.end, span)?;
         state.raw_place = line.end;
     }
+    stream::queue_publish(state)?;
     if chunk.at_end {
         state.seen_hint = Some(chunk.hint);
     }
@@ -1211,8 +1211,7 @@ fn apply_ops(
                     stream::opened(state, id)?;
                 }
             }
-            Change::Queue(QueueChange::Add(entry)) => stream::queued(state, &entry)?,
-            Change::Queue(QueueChange::Remove(id_hash)) => stream::unqueued(state, id_hash)?,
+            Change::Queue(_) => stream::queue_changed(state),
         }
     }
     stream::publish(state);

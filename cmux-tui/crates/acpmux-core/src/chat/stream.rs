@@ -124,6 +124,8 @@ pub(super) struct Subscribers {
     flush_at: Option<Instant>,
     /// Ops of the change being applied, encoded once, comma-joined.
     ops: Vec<u8>,
+    /// The queue changed in the batch of lines being applied.
+    queue_changed: bool,
 }
 
 impl Drop for Subscribers {
@@ -444,37 +446,46 @@ fn open_row(
     Ok(Some((encoded, Some(len))))
 }
 
-/// The 64 entries next to run, 1 KB of each text, and the count of all that wait. A source
-/// that cannot read a piece of a line (a v1 chat, until its source can) gives the count alone.
+/// The queue's first 64 entries in its order (held ones in their place, with their flag), 1 KB
+/// of each text, and the count of all that wait. A source that cannot read a piece of a line
+/// (a v1 chat, until its source can) gives the count alone.
 fn queue_head(state: &mut ActorState) -> QueueHead {
-    let entries = queue::next_to_run(state.translate.queue());
-    let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
-    let mut items = Vec::with_capacity(entries.len().min(MAX_HEADS));
-    for entry in entries.iter().take(MAX_HEADS) {
+    let count = u32::try_from(state.translate.queue_len()).unwrap_or(u32::MAX);
+    let entries: Vec<QueueEntry> = state.translate.queue().take(MAX_HEADS).copied().collect();
+    let mut items = Vec::with_capacity(entries.len());
+    for entry in &entries {
         match queue_item(state, entry) {
             Some(item) => items.push(item),
             None => return QueueHead { entries: Vec::new(), count },
         }
     }
+    // Only the head's own are kept: at most 64 ids and texts of a kilobyte.
+    state.queue_heads.retain(|id_hash, _| entries.iter().any(|entry| entry.id_hash == *id_hash));
     QueueHead { entries: items, count }
 }
 
-/// One entry's head, or `None` when the source cannot read a piece of its line. A line that
-/// cannot be read gives the entry with no text.
+/// One entry's head, read once for its record, or `None` when the source cannot read a piece
+/// of its line. A line that cannot be read gives the entry with no text.
 fn queue_item(state: &mut ActorState, entry: &QueueEntry) -> Option<QueueItem> {
-    let item = match queue::head(&mut *state.source, entry) {
-        Ok(item) => item,
-        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => return None,
-        Err(_) => QueueItem {
-            id: format!("#{:016x}", entry.id_hash),
-            text: String::new(),
-            len: u64::from(entry.text_len),
-            held: entry.held(),
-            at: entry.at_ms(),
-        },
+    let item = |id: &str, text: &str| QueueItem {
+        id: id.to_owned(),
+        text: text.to_owned(),
+        len: u64::from(entry.text_len),
+        held: entry.held(),
+        at: entry.at_ms(),
     };
-    state.queue_ids.insert(entry.id_hash, item.id.clone());
-    Some(item)
+    if let Some((place, id, text)) = state.queue_heads.get(&entry.id_hash)
+        && *place == entry.place
+    {
+        return Some(item(id, text));
+    }
+    let read = match queue::head(&mut *state.source, entry) {
+        Ok(read) => read,
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => return None,
+        Err(_) => item(&format!("#{:016x}", entry.id_hash), ""),
+    };
+    state.queue_heads.insert(entry.id_hash, (entry.place, read.id.clone(), read.text.clone()));
+    Some(read)
 }
 
 // ---- the resume ----
@@ -616,35 +627,22 @@ pub(super) fn text(state: &mut ActorState, row_id: u64, value: &str) {
     state.subs.flush_at.get_or_insert_with(|| Instant::now() + COALESCE);
 }
 
-pub(super) fn queued(state: &mut ActorState, entry: &QueueEntry) -> Result<(), ChatError> {
-    if !state.subs.any_live() {
-        return Ok(());
-    }
-    room(state);
-    // With no head to read, the count alone.
-    let item = queue_item(state, entry);
-    let count = u32::try_from(state.translate.queue_len()).unwrap_or(u32::MAX);
-    let seq = state.log.last_seq();
-    op_queue(&mut state.subs.ops, seq, item.as_ref(), None, count, None)
+/// The queue changed: its head goes out once, after the batch of lines that changed it, so a
+/// `queued` and the `queue_order` behind it are one op.
+pub(super) fn queue_changed(state: &mut ActorState) {
+    state.subs.queue_changed = true;
 }
 
-pub(super) fn unqueued(state: &mut ActorState, id_hash: u64) -> Result<(), ChatError> {
-    let id = state.queue_ids.remove(&id_hash);
-    if !state.subs.any_live() {
+pub(super) fn queue_publish(state: &mut ActorState) -> Result<(), ChatError> {
+    if !std::mem::take(&mut state.subs.queue_changed) || !state.subs.any_live() {
         return Ok(());
     }
     room(state);
-    let count = u32::try_from(state.translate.queue_len()).unwrap_or(u32::MAX);
     let seq = state.log.last_seq();
-    match id {
-        Some(id) => op_queue(&mut state.subs.ops, seq, None, Some(&id), count, None),
-        // An entry this actor never named (it started after the entry was queued): the head
-        // replaces what the client holds.
-        None => {
-            let head = queue_head(state);
-            op_queue(&mut state.subs.ops, seq, None, None, head.count, Some(&head))
-        }
-    }
+    let head = queue_head(state);
+    op_queue(&mut state.subs.ops, seq, None, None, head.count, Some(&head))?;
+    publish(state);
+    Ok(())
 }
 
 /// Offers the ops of the change just applied to every live subscriber, encoded once.
@@ -958,3 +956,6 @@ fn delta(sid: &str, replay: Option<&str>, ops: &[u8]) -> Result<Frame, ChatError
     payload.extend_from_slice(b"]}");
     Frame::new(FrameKind::Delta, payload).map_err(|_| ChatError::Response)
 }
+
+#[cfg(test)]
+mod tests;

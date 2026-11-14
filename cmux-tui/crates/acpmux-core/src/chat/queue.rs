@@ -44,13 +44,6 @@ impl Token {
     }
 }
 
-/// The entries next to run, in the order they run: by the place their line was queued at.
-pub fn next_to_run<'a>(queue: impl Iterator<Item = &'a QueueEntry>) -> Vec<QueueEntry> {
-    let mut entries: Vec<QueueEntry> = queue.copied().collect();
-    entries.sort_by_key(|entry| (entry.place, entry.id_hash));
-    entries
-}
-
 /// One head: one read of at most [`HEAD_READ`] bytes from the start of the entry's line. A text
 /// that does not begin in it goes empty; the length is the entry's own.
 pub fn head(source: &mut dyn RawSource, entry: &QueueEntry) -> io::Result<QueueItem> {

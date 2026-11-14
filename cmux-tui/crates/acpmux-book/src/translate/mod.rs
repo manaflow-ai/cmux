@@ -85,6 +85,8 @@ pub enum BodySource {
 pub enum QueueChange {
     Add(QueueEntry),
     Remove(u64),
+    /// The entries' order changed (`queue_order`); no entry did.
+    Order,
 }
 
 /// The compact queue checkpoint record. Its packed representation is deliberately 32 bytes:
@@ -221,8 +223,10 @@ pub struct State {
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
+    /// The waiting prompts in v1's order: the order its restore gives them, which runs them
+    /// first to last, skipping held ones. Its records are a checkpoint's prompt section.
     #[serde(skip)]
-    queue: BTreeMap<u64, QueueEntry>,
+    queue: Vec<QueueEntry>,
     queue_overflowed: u64,
     settled_prompts: Vec<u64>,
     replayed_prompts: u64,
@@ -338,10 +342,13 @@ impl State {
     }
     /// The waiting prompts, by id hash. A checkpoint keeps them as [`Saved::prompts`].
     pub fn queue(&self) -> impl Iterator<Item = &QueueEntry> {
-        self.queue.values()
+        self.queue.iter()
     }
     pub fn queued(&self, id_hash: u64) -> Option<QueueEntry> {
-        self.queue.get(&id_hash).copied()
+        self.queue.iter().find(|entry| entry.id_hash == id_hash).copied()
+    }
+    fn queue_slot(&self, id_hash: u64) -> Option<usize> {
+        self.queue.iter().position(|entry| entry.id_hash == id_hash)
     }
     pub fn queue_len(&self) -> usize {
         self.queue.len()
@@ -407,27 +414,76 @@ impl State {
             return;
         }
         let entry = QueueEntry::new(hash, at_ms, held, place, span, text_len);
-        if let Some(old) = self.queue.get(&hash).copied() {
-            if old == entry {
+        // A `queued` goes to the end, as v1's restore reads it; one queued again (a requeue
+        // after a failed turn) leaves its old place. The same record read again changes nothing.
+        if let Some(slot) = self.queue_slot(hash) {
+            if self.queue.get(slot).is_some_and(|old| old.place == place && old.span == entry.span)
+            {
                 return;
             }
-            self.queue.insert(hash, entry);
-            out.emit(Change::Queue(QueueChange::Add(entry)));
-            return;
-        }
-        if self.queue.len() >= MAX_QUEUE_ENTRIES {
+            self.queue.remove(slot);
+        } else if self.queue.len() >= MAX_QUEUE_ENTRIES {
             self.queue_overflowed = self.queue_overflowed.saturating_add(1);
             return;
         }
-        self.queue.insert(hash, entry);
+        self.queue.push(entry);
         out.emit(Change::Queue(QueueChange::Add(entry)));
+    }
+    /// `queue_order`: the entries `order` names first, in its order; the others after them in
+    /// the order they had. An id that does not wait, or is not a string, is skipped. One pass
+    /// over the queue and one over `order`; nothing moves unless the whole list was read.
+    fn queue_order(
+        &mut self,
+        order: Option<&serde_json::value::RawValue>,
+        out: &mut input::Output<'_>,
+    ) {
+        let Some(order) = order else { return };
+        let slots: std::collections::HashMap<u64, usize> =
+            self.queue.iter().enumerate().map(|(slot, entry)| (entry.id_hash, slot)).collect();
+        let mut taken = vec![false; self.queue.len()];
+        let mut placed: Vec<QueueEntry> = Vec::with_capacity(self.queue.len());
+        let listed = input::each(order, |id| {
+            if let Ok(id) = input::text(id)
+                && let Some(&slot) = slots.get(&prompt_hash(&id))
+                && let Some(seen) = taken.get_mut(slot)
+                && !*seen
+                && let Some(entry) = self.queue.get(slot)
+            {
+                *seen = true;
+                placed.push(*entry);
+            }
+            Ok(())
+        });
+        if listed.is_err() || placed.is_empty() {
+            return;
+        }
+        for (entry, seen) in self.queue.iter().zip(&taken) {
+            if !*seen {
+                placed.push(*entry);
+            }
+        }
+        if placed != self.queue {
+            self.queue = placed;
+            out.emit(Change::Queue(QueueChange::Order));
+        }
+    }
+    /// Sent now (`queue_order` with `next`): no longer held.
+    fn queue_release(&mut self, id: &str, out: &mut input::Output<'_>) {
+        let Some(slot) = self.queue_slot(prompt_hash(id)) else { return };
+        if let Some(entry) = self.queue.get_mut(slot)
+            && entry.held()
+        {
+            *entry = entry.with_held(false);
+            out.emit(Change::Queue(QueueChange::Add(*entry)));
+        }
     }
     fn queue_remove(&mut self, id: &str, out: &mut input::Output<'_>) {
         if id.is_empty() {
             return;
         }
         let hash = prompt_hash(id);
-        if self.queue.remove(&hash).is_some() {
+        if let Some(slot) = self.queue_slot(hash) {
+            self.queue.remove(slot);
             out.emit(Change::Queue(QueueChange::Remove(hash)));
         }
     }
@@ -441,10 +497,10 @@ impl State {
         input::each(raw, |id| {
             let id = input::text(id)?;
             let hash = prompt_hash(&id);
-            if let Some(entry) = self.queue.get(&hash).copied() {
+            if let Some(entry) = self.queue.iter_mut().find(|entry| entry.id_hash == hash) {
                 let next = entry.with_held(held);
-                if next != entry {
-                    self.queue.insert(hash, next);
+                if next != *entry {
+                    *entry = next;
                     out.emit(Change::Queue(QueueChange::Add(next)));
                 }
             }
@@ -452,11 +508,10 @@ impl State {
         })
     }
     fn queue_set_all_held(&mut self, held: bool, out: &mut input::Output<'_>) {
-        let entries: Vec<_> = self.queue.values().copied().collect();
-        for entry in entries {
+        for entry in &mut self.queue {
             let next = entry.with_held(held);
-            if next != entry {
-                self.queue.insert(next.id_hash, next);
+            if next != *entry {
+                *entry = next;
                 out.emit(Change::Queue(QueueChange::Add(next)));
             }
         }
@@ -640,7 +695,7 @@ impl State {
         if self.settled_prompts.contains(&hash) {
             return Ok(());
         }
-        if let Some(entry) = self.queue.get(&hash).copied() {
+        if let Some(entry) = self.queued(hash) {
             let already_steer = self
                 .prompts
                 .get(&hash)

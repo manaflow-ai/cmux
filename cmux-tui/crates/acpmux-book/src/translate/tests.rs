@@ -81,6 +81,7 @@ impl Mirror {
             Change::Queue(QueueChange::Remove(hash)) => {
                 self.queue.remove(hash);
             }
+            Change::Queue(QueueChange::Order) => {}
             Change::Body { id, field, append, source } => {
                 assert!(self.rows[id].open);
                 let s = match source {
@@ -1296,7 +1297,7 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
     )));
     let resumed = mux(4, "queue_resumed", r#"{"promptIds":["q"]}"#);
     translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
-    assert!(!state.queue.values().next().unwrap().held());
+    assert!(!state.queue.first().unwrap().held());
 
     let read = mux(5, "steer_read", r#"{"promptId":"q"}"#);
     let read_ops = translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
@@ -1419,7 +1420,7 @@ fn fill_queue(state: &mut State) {
             span: u32::MAX,
             text_len: u32::MAX,
         };
-        state.queue.insert(entry.id_hash, entry);
+        state.queue.push(entry);
     }
 }
 
@@ -1482,4 +1483,92 @@ fn unknown_checkpoint_version_requires_replay_from_raw() {
         checkpoint[0] = old;
         assert_eq!(State::restore(&checkpoint, &[]), Err(Error::CheckpointVersion));
     }
+}
+
+fn queue_ids(state: &State) -> Vec<(u64, bool)> {
+    state.queue().map(|entry| (entry.id_hash, entry.held())).collect()
+}
+
+fn ids(names: &[&str]) -> Vec<(u64, bool)> {
+    names
+        .iter()
+        .map(|name| match name.strip_suffix('!') {
+            Some(held) => (prompt_hash(held), true),
+            None => (prompt_hash(name), false),
+        })
+        .collect()
+}
+
+/// Decision 215: the queue is v1's list order, as its restore reads the log.
+#[test]
+fn the_queue_keeps_v1s_list_order_through_reorders_holds_and_requeues() {
+    let mut state = State::default();
+    let mut seq = 0;
+    let mut line = |state: &mut State, kind: &str, msg: &str| {
+        seq += 1;
+        translate(state, Harness::V1, seq * 100, 1, mux(seq, kind, msg).as_bytes()).unwrap()
+    };
+    line(&mut state, "user_message", r#"{"text":"running","turnId":"t0"}"#);
+    for id in ["a", "b", "agent"] {
+        line(&mut state, "queued", &format!(r#"{{"text":"{id}","promptId":"{id}"}}"#));
+    }
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "agent"]));
+    // A person's prompt goes ahead of an agent message: `queued`, then its `queue_order`.
+    line(&mut state, "queued", r#"{"text":"c","promptId":"c"}"#);
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "agent", "c"]));
+    let ops = line(&mut state, "queue_order", r#"{"promptId":"c","order":["a","b","c","agent"]}"#);
+    assert!(ops.iter().any(|op| matches!(op.change, Change::Queue(QueueChange::Order))));
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "c", "agent"]));
+    // Held and released in place.
+    line(&mut state, "queue_paused", r#"{"held":["a","b"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["a!", "b!", "c", "agent"]));
+    line(&mut state, "queue_resumed", r#"{"promptIds":["b"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["a!", "b", "c", "agent"]));
+    // Sent now: released, and first.
+    line(
+        &mut state,
+        "queue_order",
+        r#"{"promptId":"a","next":true,"order":["a","b","c","agent"]}"#,
+    );
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "c", "agent"]));
+    line(&mut state, "queue_order", r#"{"order":["agent","nobody",7,"c"]}"#);
+    // Named ones first in their order; unknown ids and non-strings skipped; the rest after.
+    assert_eq!(queue_ids(&state), ids(&["agent", "c", "a", "b"]));
+    // An order that names nothing, or is not a list, changes nothing.
+    assert!(line(&mut state, "queue_order", r#"{"order":["nobody"]}"#).is_empty());
+    assert!(line(&mut state, "queue_order", r#"{"order":"c"}"#).is_empty());
+    // Requeued after a failed turn: at the end until the `queue_order` beside it.
+    line(&mut state, "queued", r#"{"text":"agent","promptId":"agent","requeued":true}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "a", "b", "agent"]));
+    // An inbox digest's record carries the order with it in it.
+    line(&mut state, "queued", r#"{"text":"d","promptId":"digest","order":["c","digest","a"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "digest", "a", "b", "agent"]));
+    line(&mut state, "dequeued", r#"{"promptId":"digest"}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "a", "b", "agent"]));
+    // A checkpoint keeps the order in its records, and a restore reads it back.
+    let saved = state.checkpoint().unwrap();
+    let restored = saved.restore().unwrap();
+    assert_eq!(queue_ids(&restored), queue_ids(&state));
+    // Two records for one prompt are damage.
+    let mut twice = saved.clone();
+    twice.prompts.push(twice.prompts[0]);
+    assert_eq!(twice.restore(), Err(Error::CheckpointInvalid));
+}
+
+#[test]
+fn a_reorder_of_a_full_queue_is_one_pass() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for n in 0..1024u64 {
+        let line = mux(n + 2, "queued", &format!(r#"{{"text":"q","promptId":"q-{n}"}}"#));
+        translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
+    }
+    let order: Vec<String> = (0..1024).rev().map(|n| format!("q-{n}")).collect();
+    let line = mux(2000, "queue_order", &serde_json::json!({"order": order}).to_string());
+    let started = std::time::Instant::now();
+    translate(&mut state, Harness::V1, 2000, 1, line.as_bytes()).unwrap();
+    let took = started.elapsed();
+    let expected: Vec<u64> = (0..1024).rev().map(|n| prompt_hash(&format!("q-{n}"))).collect();
+    assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
+    assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
 }
