@@ -161,18 +161,22 @@ import Testing
         #expect(!creator.wasRefusedTask(made[0].id))
     }
 
-    /// Review 2026-11-14 (medium): while its workspaces are made, a started task stays on disk
-    /// (a phone killed meanwhile keeps it), hidden from Drafts; it goes once they are made.
-    @Test func aStartedTaskIsKeptOnDiskUntilItsWorkspacesAreMade() async throws {
-        let (_, creator, backend) = make()
-        backend.holds = true
-        creator.startTask(Self.chat(TaskDraft(prompt: "Keep me", picks: [TaskAgentPick(harness: "claude")])))
-        await Task.yield()
-        #expect(creator.taskDrafts.drafts.map(\.prompt) == ["Keep me"])
-        #expect(creator.otherTaskDrafts.isEmpty)
-        backend.release()
-        await creator.settle()
-        #expect(creator.taskDrafts.drafts.isEmpty)
+    /// Review 2026-11-14 (medium): a task given back, then edited and left, is never written
+    /// over by a late refusal of another of its agents; that one is saved beside it.
+    @Test func aLateRefusalNeverWritesOverAnEditedDraft() {
+        let (_, creator, _) = make()
+        let origin = Self.chat(TaskDraft(prompt: "Original", picks: [TaskAgentPick(harness: "codex")]))
+        // Given back once (another agent), then edited and saved under the same id.
+        var edited = origin
+        edited.prompt = "Edited"
+        creator.taskDrafts.save(edited)
+        creator.taskDraft.prompt = "Writing the next task"
+        // A late refusal of the task's other agent.
+        creator.taskOrigins["late"] = origin
+        creator.restoreTaskDraft(after: "late", reason: "No")
+        #expect(creator.taskDrafts.entry(origin.id)?.prompt == "Edited")
+        #expect(Set(creator.taskDrafts.drafts.map(\.prompt)) == ["Edited", "Original"])
+        #expect(creator.refusedTaskPlace("late") == .drafts)
     }
 
     /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
@@ -365,11 +369,9 @@ import Testing
         creator.taskDraft.prompt = "Ship it"
         creator.saveTaskDraft()
         #expect(creator.taskDrafts.drafts.count == 1)
-        let id = creator.taskDraft.id
         creator.startTask(creator.taskDraft)
-        #expect(creator.taskDrafts.entry(id) == nil)
-        await creator.settle()
         #expect(creator.taskDrafts.drafts.isEmpty)
+        await creator.settle()
     }
 
     @Test func aDraftWithPhotosResumesWithThem() async throws {

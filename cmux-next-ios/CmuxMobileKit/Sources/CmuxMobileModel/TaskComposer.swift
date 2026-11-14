@@ -353,13 +353,10 @@ extension WorkspaceCreator {
             begin(request, placeholder: placeholder, focus: picks.count == 1)
             made.append(placeholder)
         }
-        // Sent: it leaves the drafts list. Until its workspaces are made, a copy under another id
-        // stays on disk (hidden from the list), so a phone killed meanwhile keeps the task.
+        // Sent: it leaves the drafts list. Not kept on disk while its workspaces are made: after
+        // an app kill, a kept copy could not tell which agents already have the task, and one
+        // Start would run it twice (review 2026-11-14). A refusal saves it again at once.
         taskDrafts.delete([draft.id])
-        var copy = draft
-        copy.id = UUID()
-        taskDrafts.save(copy)
-        for placeholder in made { sendingCopies[placeholder.id] = copy.id }
         rememberTaskLaunch(draft.launch)
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory, launch: draft.launch)
         taskRefusal = nil
@@ -410,7 +407,10 @@ extension WorkspaceCreator {
             taskDrafts.save(merged)
             refusedTasks[placeholderID] = .drafts
         } else {
-            taskDrafts.save(origin)
+            // A draft saved under this id since (given back, then edited) is never written over.
+            var kept = origin
+            if taskDrafts.entry(origin.id) != nil { kept.id = UUID() }
+            taskDrafts.save(kept)
             refusedTasks[placeholderID] = .drafts
         }
     }
@@ -502,17 +502,7 @@ extension WorkspaceCreator {
     }
 
     /// The drafts list's rows: the saved drafts but the one the composer holds.
-    public var otherTaskDrafts: [SavedTaskDraft] {
-        let sending = Set(sendingCopies.values)
-        return taskDrafts.drafts.filter { $0.id != taskDraft.id && !sending.contains($0.id) }
-    }
-
-    /// `placeholderID`'s workspace was made or refused: its task's sending copy goes once no
-    /// other workspace of that task is still being made.
-    func settleSendingCopy(_ placeholderID: String) {
-        guard let copy = sendingCopies.removeValue(forKey: placeholderID) else { return }
-        if !sendingCopies.values.contains(copy) { taskDrafts.delete([copy]) }
-    }
+    public var otherTaskDrafts: [SavedTaskDraft] { taskDrafts.drafts.filter { $0.id != taskDraft.id } }
 
     /// "Claude", "Codex", else the harness capitalized; "Agent" for the Mac's default.
     public static func agentTitle(_ harness: String) -> String {

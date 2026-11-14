@@ -596,10 +596,6 @@ public final class WorkspaceCreator {
     public var taskRefusal: String?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
-    /// A started task's copy on the drafts list while its workspaces are being made, by
-    /// placeholder: kept on disk so a phone killed meanwhile still has the task; deleted once
-    /// every workspace of it is made or refused.
-    var sendingCopies: [String: UUID] = [:]
     /// The saved New Task drafts (the drafts list).
     public let taskDrafts: TaskDraftStore
     /// The task (without its agents) whose draft the composer was given back, while it holds it.
@@ -810,7 +806,6 @@ public final class WorkspaceCreator {
             }
             phases[placeholder.id] = .created(real.id)
             taskOrigins[placeholder.id] = nil
-            settleSendingCopy(placeholder.id)
             // The workspace stands from here: a task that doesn't reach its chat is reported,
             // never handed back as a draft (that would start a second agent on it).
             // A terminal launch typed its command when the workspace was made: nothing to send.
@@ -830,7 +825,6 @@ public final class WorkspaceCreator {
             } else {
                 restoreTaskDraft(after: placeholder.id, reason: refusal?.isForPerson == true ? message : "The Mac said: \(message)")
             }
-            settleSendingCopy(placeholder.id)
             onFailure?(placeholder, message)
         }
     }
