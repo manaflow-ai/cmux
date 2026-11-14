@@ -704,3 +704,34 @@ fn the_kept_servers_survive_the_session_file() {
         serde_json::from_value(serde_json::to_value(&meta).unwrap()).unwrap();
     assert_eq!(back.idle_launch, Some(stored));
 }
+
+/// A census on the shared reading stands only when it says nothing else runs: a reading reused
+/// from up to a second ago lists a process that has ended since as unknown work, and that harness
+/// must not stay up a whole idle period for it (cmux#43143).
+#[cfg(unix)]
+#[test]
+fn a_reused_reading_that_is_not_clear_is_judged_again_fresh() {
+    use crate::agent_host::proc_table::Reading;
+    let stale = vec![under(11, 10, "rg TODO")];
+    let busy = |found: &[Under]| {
+        if found.is_empty() { Census::Clear } else { Census::Busy { pid: 11, comm: "rg".into() } }
+    };
+    let fresh_reads = std::cell::Cell::new(0);
+    let fresh = |_| {
+        fresh_reads.set(fresh_reads.get() + 1);
+        Some(Vec::new())
+    };
+    let got = shared_census(10, busy, |_| Some((stale.clone(), Reading::Reused)), fresh);
+    assert!(matches!(got, Some(Census::Clear)));
+    assert_eq!(fresh_reads.get(), 1);
+    // A clear reused census, or any fresh one, stands as it is.
+    let got = shared_census(10, busy, |_| Some((Vec::new(), Reading::Reused)), fresh);
+    assert!(matches!(got, Some(Census::Clear)));
+    let got = shared_census(10, busy, |_| Some((stale.clone(), Reading::Fresh)), fresh);
+    assert!(matches!(got, Some(Census::Busy { .. })));
+    assert_eq!(fresh_reads.get(), 1);
+    // A fresh reading that fails says nothing.
+    assert!(
+        shared_census(10, busy, |_| Some((stale.clone(), Reading::Reused)), |_| None).is_none()
+    );
+}
