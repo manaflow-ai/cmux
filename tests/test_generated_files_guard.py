@@ -189,6 +189,19 @@ class GuardTests(unittest.TestCase):
         errors, _ = guard.check(repo.root, base, head)
         self.assertTrue(any("out/*.json is a new committed export" in e for e in errors), errors)
 
+    def test_registering_a_gitlink_as_an_export_still_fails(self):
+        repo = Repo(Path(self.tmp.name) / "gitlink-export")
+        commit = repo.commit({guard.MANIFEST: manifest(), guard.OUTPUTS: "OUTPUTS = ()\n"})
+        repo.git("update-index", "--add", "--cacheinfo", f"160000,{commit},vendor/catalog")
+        repo.git("commit", "-qm", "track gitlink")
+        base = repo.git("rev-parse", "HEAD")
+        # Avoid git add -A removing the deliberately unpopulated gitlink fixture.
+        repo.write({guard.OUTPUTS: "OUTPUTS = ((('vendor/catalog',), r'^in/', 'catalog'),)\n"})
+        repo.git("add", guard.OUTPUTS)
+        repo.git("commit", "-qm", "register gitlink")
+        errors, _ = guard.check(repo.root, base, repo.git("rev-parse", "HEAD"))
+        self.assertTrue(any("vendor/catalog is a new committed export" in e for e in errors), errors)
+
     def test_an_output_of_a_build_generator_fails(self):
         self.assertFails({"web/pages/generated/strings.json": "{}\n"}, "status build")
 

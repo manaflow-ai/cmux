@@ -441,7 +441,10 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
                 f"{path}: a new committed generated file ({why}). Generated files are build output: "
                 "gitignore it and generate it where it is used (the build, the test preload, the install "
                 "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
-    base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
+    # A gitlink is a separate repository, not an existing output file to register.
+    base_tracked = {record.split("\t", 1)[1]
+                    for record in git(repo, "ls-tree", "-r", "-z", base_rev).split("\0")
+                    if record and record.split("\t", 1)[0].split()[1] == "blob"}
     errors += rule_changes(base, head, base_tracked)
     notes: list[str] = []
     errors += hand_edits(base, changed, repo, notes, until=time.monotonic() + DEADLINE_SECONDS)
