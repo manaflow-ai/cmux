@@ -164,6 +164,15 @@ async fn a_hunk_is_summarized_once_and_kept_by_its_content() {
     let reply = call(&hub, Origin::Local, gone).await.expect("the default");
     assert_eq!(reply["harness"], "fake");
 
+    // A hunk over 256 KiB gets its sentence too: the prompt reads its first part.
+    let big = format!("{PATCH}{}", "+    log::trace!(\"generated\");\n".repeat(10_000));
+    assert!(big.len() > 256 * 1024);
+    let reply = call(&hub, Origin::Local, json!({"path": "src/gen.rs", "patch": big}))
+        .await
+        .expect("a big hunk's summary");
+    assert_eq!(reply["text"], "Retries the upload three times.");
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().last(), Some("fake hunk"));
+
     // Bad params run nothing.
     let before = runs(&log);
     for bad in [json!({"path": "a"}), json!({"path": "a", "patch": "  "}), json!({"patch": PATCH})]
