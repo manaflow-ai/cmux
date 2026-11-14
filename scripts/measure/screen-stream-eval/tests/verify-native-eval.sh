@@ -2,6 +2,8 @@
 # Fleet-only behavioral regression receipt, including old-code counterexamples.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
+# Fetching the counterexamples must not start background Git maintenance.
+source "$root/scripts/cmux-next/tests/lib/git-fixture.sh"
 eval_dir="$root/scripts/measure/screen-stream-eval"
 crate="$root/cmux-tui/crates/cmux-rd-host"
 work=$(mktemp -d)
@@ -13,7 +15,7 @@ finish() {
     done
   fi
 }
-trap finish EXIT
+git_fixture_trap_exit finish
 # Broker snapshots contain the requested tree, not its complete history.
 # Fetch the exact old commit used by both counterexamples explicitly.
 git fetch --no-tags --depth=1 origin 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7
