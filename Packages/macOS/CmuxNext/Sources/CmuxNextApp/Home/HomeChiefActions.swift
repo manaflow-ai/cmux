@@ -1,11 +1,13 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextHome
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
-/// `home.stopChief` and `home.toggleChiefSettings` from anywhere (the palette, a menu, the compose
-/// bar's Stop, Esc and Cmd-., `cmux action run`). The front window's Home acts on the Chief it shows;
+/// `home.stopChief` and `home.toggleChiefSettings` from anywhere (the palette, a menu, the Chief panel's
+/// Esc, `cmux action run`); a Home's own stop button, Esc and Cmd-. stop its own Chief (``stop(shown:)``).
+/// The front window's Home (the one with the keyboard first) acts on the Chief it shows;
 /// with none in front, Stop stops the working Chief directly and Settings brings Home forward at
 /// the Chief and opens its settings (``HomeChiefActionPlan``). Each refuses with a reason only when
 /// there is nothing to act on. `home.stopAllAgents` acts only on the front window's Chief Home
@@ -22,18 +24,29 @@ enum HomeChiefActions {
     /// The front window's Chief Home, unless a hosted cloud Chief (no stop there).
     private static func stopAllTarget() -> HomeHostView? { frontHome().flatMap { $0.chiefControl.isHosted ? nil : $0 } }
 
-    /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
-    private static func frontHome() -> HomeHostView? {
-        guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
-        return firstChiefHome(in: root)
+    /// The front window's Home showing a Chief, the one with the keyboard first (``HomeShownView``).
+    static func frontHome() -> HomeHostView? {
+        HomeShownView.find(in: HomeChiefSettingsPopover.frontToggleTarget) { ($0 as? HomeHostView).flatMap { $0.showsChiefOnScreen ? $0 : nil } }
     }
 
-    private static func firstChiefHome(in view: NSView) -> HomeHostView? {
-        if let home = view as? HomeHostView, home.showsChiefOnScreen { return home }
-        for subview in view.subviews where !subview.isHidden {
-            if let home = firstChiefHome(in: subview) { return home }
+    /// A Home's own Stop (its button, Esc, Cmd-.): its Chief, never another Home's in the window.
+    static func stop(shown home: HomeHostView) {
+        guard home.showsChiefOnScreen, home.chiefIsWorking else { return }
+        stop(home, services: home.chiefControl.services, interactive: true)
+    }
+
+    /// Stops `home`'s Chief (a hosted cloud Chief through its control), or `control`'s.
+    private static func stop(_ home: HomeHostView?, control: HomeChiefControl? = nil, services: AppServices, interactive: Bool) {
+        let show: (String) -> Void = { if interactive { services.refusalHUD.show($0, in: services.windows.active?.window ?? services.keyWindowSource()) } }
+        guard let control = control ?? home.flatMap({ $0.chiefControl.isHosted ? $0.chiefControl : nil }) else {
+            home?.turnActions.stop { show($0.text) }
+            return
         }
-        return nil
+        services.registry.track(Task {
+            guard let error = await control.stop() else { return nil }
+            show(error.text)
+            return ActionWorkFailure(refusal: .unavailable, reason: error.text)
+        })
     }
 
     private static func plan(_ context: AppActionContext, front: HomeHostView?) -> HomeChiefActionPlan {
@@ -47,38 +60,21 @@ enum HomeChiefActions {
 
     private static func stop(_ context: AppActionContext) {
         let front = frontHome()
-        let control: HomeChiefControl
+        let services = context.services
+        let interactive = !context.registry.isCapturingRefusal
         switch plan(context, front: front).stop {
         case .front:
-            guard let front else { return }
-            if front.chiefControl.isHosted {
-                control = front.chiefControl
-                break
-            }
-            let interactive = !context.registry.isCapturingRefusal
-            let services = context.services
-            front.turnActions.stop { error in
-                if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
-            }
-            return
+            stop(front, services: services, interactive: interactive)
         case .chief(let conversation):
-            let row = context.services.home.homeStore.rows.first { $0.summary.id == conversation }
-            control = HomeChiefControl(services: context.services, conversation: conversation,
-                                       muxHome: HomeBrainHost.muxHome(tag: context.services.environment.tag),
-                                       chief: row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) })
+            let row = services.home.homeStore.rows.first { $0.summary.id == conversation }
+            stop(nil, control: HomeChiefControl(services: services, conversation: conversation,
+                                                muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
+                                                chief: row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) }),
+                 services: services, interactive: interactive)
         case .nothingRuns:
             // Esc or Cmd-. with nothing running shows nothing; a caller (palette, CLI) gets the reason.
-            return context.refuseQuietly(MiscHandlerStrings.noWorkingChief)
+            context.refuseQuietly(MiscHandlerStrings.noWorkingChief)
         }
-        let registry = context.registry
-        let interactive = !registry.isCapturingRefusal
-        let services = context.services
-        let work: ActionWork = Task {
-            guard let error = await control.stop() else { return nil }
-            if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
-            return ActionWorkFailure(refusal: .unavailable, reason: error.text)
-        }
-        registry.track(work)
     }
 
     private static func toggleSettings(_ context: AppActionContext) {
