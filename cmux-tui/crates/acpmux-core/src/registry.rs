@@ -114,18 +114,28 @@ impl Registry {
         }
     }
 
+    /// The running actor's mailbox. A finished actor is joined and its slot leaves the map, so a
+    /// chat whose actor ended holds no slot.
     pub fn get(&self, id: &str) -> Option<ChatHandle> {
         let slot = self.entries().slots.get(id).cloned()?;
         let mut state = slot.lock();
-        if state.actor.as_ref().is_some_and(ChatActor::is_finished) {
-            let dead = state.actor.take();
-            drop(state);
-            if let Some(dead) = dead {
-                dead.join();
-            }
-            return None;
+        if !state.actor.as_ref().is_some_and(ChatActor::is_finished) {
+            return state.actor.as_ref().map(|actor| actor.handle.clone());
         }
-        state.actor.as_ref().map(|actor| actor.handle.clone())
+        // A start that finds the slot removed goes to the map again (`start`).
+        state.removed = true;
+        let dead = state.actor.take();
+        drop(state);
+        {
+            let mut entries = self.entries();
+            if entries.slots.get(id).is_some_and(|found| Arc::ptr_eq(found, &slot)) {
+                entries.slots.remove(id);
+            }
+        }
+        if let Some(dead) = dead {
+            dead.join();
+        }
+        None
     }
 
     /// Takes the chat's slot out of the map and joins its actor, if one runs.

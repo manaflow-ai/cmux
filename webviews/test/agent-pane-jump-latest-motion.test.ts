@@ -299,7 +299,10 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
   }
   /// Wait for the browser's scroll completion event, then confirm the landing frame is at the
   /// current end. A streamed reply can move the end after an earlier scrollend, so scroll events
-  /// invalidate the event until the next completed scroll.
+  /// invalidate the event until the next completed scroll. The landing also waits out the rows'
+  /// own finite animations (the turn footer's entrance as the reply ends): ten still frames take
+  /// ~170 ms on an idle machine, less than that entrance, so the measure read the footer 12 px
+  /// short of where it rests (Chromium, base red 5 of 5 idle, green under load).
   const waitForJumpSettle = (page: Page) =>
     page.evaluate(
       () =>
@@ -309,7 +312,7 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
           let still = 0;
           const atEnd = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
           const running = () =>
-            [...scroller.getAnimations()].some(
+            [...scroller.getAnimations({ subtree: true })].some(
               (animation) =>
                 animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
             );

@@ -3465,11 +3465,14 @@ class IOSRouting(unittest.TestCase):
         readers = [name for name, job in workflow["jobs"].items()
                    if "needs.runner.outputs.runs_on" in str(job.get("runs-on", ""))]
         self.assertEqual(readers, ["ios"])
-        # The kit workflow's job is not simulator-class: its lane never takes the sim-first label.
+        # The kit workflow's runs_on serves only kit-tests, a simulator-step job: its lane may take the label.
         kit = yaml.safe_load((WORKFLOWS / "cmux-next-ios-kit.yml").read_text())
         kit_pick = next(step for step in kit["jobs"]["runner"]["steps"] if step.get("id") == "pool")
         self.assertIn("--lane kit", kit_pick["run"])
-        self.assertNotIn("kit", ios_pool.SIM_FIRST_LANES)
+        self.assertIn("kit", ios_pool.SIM_FIRST_LANES)
+        kit_readers = [name for name, job in kit["jobs"].items()
+                       if "needs.runner.outputs.runs_on" in str(job.get("runs-on", ""))]
+        self.assertEqual(kit_readers, ["kit-tests"])
 
     def test_matrix_nightly_dispatch_may_take_the_owned_pool(self):
         # The nightly arrives as a workflow_dispatch from main's copy (cmux#40397): GitHub fires
@@ -3827,8 +3830,11 @@ class IOSRouting(unittest.TestCase):
         # test-ios's runs_on serves ios-simulator-build, which keeps the pool and glaeda-ios-sim.
         self.assertFalse(live(0, 0, 2, lane="test-ios").persistent)
         self.assertFalse(live(2, 0, 2, lane="test-ios").persistent)
-        # The kit job is not a glaeda simulator-class job, which the sim-first runner would refuse.
-        self.assertFalse(live(0, 0, 1, lane="kit").persistent)
+        # kit's runs_on serves only CmuxMobileKit tests, which glaeda classes simulator-step (glaeda#1986).
+        kit = live(0, 0, 1, lane="kit")
+        self.assertEqual(json.loads(kit.runs_on), [self.SIM_FIRST])
+        self.assertEqual(json.loads(kit.retry_runs_on), SMALL)
+        self.assertFalse(live(0, 0, 0, lane="kit").persistent)
         # Blocked or non-default runs never take it.
         self.assertFalse(live(0, 0, 1, lane="phone-cells", variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(live(0, 0, 1, lane="phone-cells", ios_version="26.4").persistent)
