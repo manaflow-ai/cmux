@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43554184594",
+  "recorded_at": "2026-11-14T04:06:15Z",
+  "reason": "cmux-tui ff3fc9c79521 changes the image's cmux-tui (pinned 04e40d914c0d)",
+  "dry_run": false,
+  "cmux_tui": "ff3fc9c79521faa8542f0bb0c649ed33fad6ee9f",
+  "fixes": [
+    {
+      "sha": "ff3fc9c79521faa8542f0bb0c649ed33fad6ee9f",
+      "mergedAt": "2026-11-13T19:32:53-08:00",
+      "subject": "Screen Sharing: open from pane and tab menus with an optional device, Stop Viewing Shared Screen (catalog, step A) (#42789)"
+    },
+    {
+      "sha": "d1d8cf0176ef1638142a3705eed941ee3a29a9ac",
+      "mergedAt": "2026-11-13T19:30:49-08:00",
+      "subject": "agent service v2: bounded folders tail and connection isolation (5f part three) (#42775)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T04:06:15Z",
+    "snapshot_id": "sh-656e0a1c2deb4c18ac7a179fdbe97111",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43554184594): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8f8e4bf586759b941e8217932598039cb337c8ca",
+    "image": "cloud-native-auto-ff3fc9c7-43554184594-1",
+    "revision": "ci-43554184594-1",
+    "at": "2026-11-14T04:06:15Z"
+  },
+  "rolled_back": false
+}
