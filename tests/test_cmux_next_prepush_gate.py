@@ -1598,6 +1598,41 @@ let package = Package(
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_a_raw_file_lock_is_refused(self):
+        # The lock-by-close audit (lane c-agenthost): a lock that only its close releases stays held in a child forked
+        # while the descriptor was open; new code takes file locks through cmux_file_lock::FileLock.
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: &std::fs::File) { let _ = f.lock_exclusive(); }\n")
+        self.commit("adds a raw file lock")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the raw file lock must not reach origin")
+        self.assertIn("check-no-raw-flock", output)
+        self.assertIn("fresh.rs", output)
+
+    def test_push_with_a_file_lock_through_cmux_file_lock_or_in_a_test_passes(self):
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   "pub fn run(f: std::fs::File) { let _ = cmux_file_lock::FileLock::take(f, Kind::Exclusive); }\n")
+        self.write("cmux-tui/crates/cmux-tui-core/tests/fresh.rs",
+                   "#[test] fn t() { let f = std::fs::File::open(\"x\").unwrap(); let _ = f.lock_exclusive(); }\n")
+        self.write("cmux-tui/crates/cmux-file-lock/src/fresh.rs",
+                   "pub fn run(fd: i32) { unsafe { libc::flock(fd, libc::LOCK_EX) }; }\n")
+        self.commit("locks through cmux_file_lock, in a test and in the lock crate")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_raw_file_lock_guard_rules_hold(self):
+        # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-flock.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_app_id_special_cases_guard_rules_hold(self):
         # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
@@ -2213,7 +2248,8 @@ mod tests {
         self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
         self.assertEqual(set(gate.RATCHET_BASELINES), {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
-            "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
+            "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
+            "swift-type-scale-baseline.tsv"})
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
@@ -2525,6 +2561,31 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: a new highlight with no picture source", output)
         self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: entries[0]", output)
         self.assertNotIn("base-photo.md", output, "only the branch's own highlight is named")
+
+    def test_a_refused_push_retried_after_the_base_moved_fetches_the_base_again(self):
+        # cmux#41310 review: the fetch stamp outlived its hook run, keyed only by the pushed rows, so the same push
+        # tried again after feat-cmux-next moved skipped the fetch and measured from the stale copy.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.write(f"{self.HIGHLIGHTS}/own-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("the branch's own highlight with no link and no picture")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        refused = self.push_ref("topic")
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head())
+
+        old = self.git("rev-parse", "origin/feat-cmux-next").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("later.md", "the base moves again\n")
+        self.commit("the base moves again")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        self.git("checkout", "--quiet", "topic")
+
+        retried = self.push_ref("topic")
+
+        self.assertNotEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head(),
+                         "the retry is its own hook run, so it fetched the shared base again")
 
     def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
         # A push that also weakens the validator cannot pass its own highlight: the hook reads
@@ -3002,6 +3063,112 @@ class RustfmtLayerTests(unittest.TestCase):
         finally:
             os.environ["PATH"] = saved
         self.assertEqual(out, "")
+
+
+    def fake_rustfmt(self, stderr=None, code=1):
+        """judge() with only a stand-in `rustfmt` on PATH that prints STDERR and exits CODE; with STDERR None, a
+        `rustfmt` file that is there but cannot be run."""
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        if stderr is None:
+            fake.write_text("not a program\n")
+            fake.chmod(0o644)
+        else:
+            (folder / "stderr.txt").write_text(stderr + "\n")
+            # PATH is only this folder, so the stand-in names cat by its path.
+            fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit {code}\n")
+            fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            return self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_a_rustfmt_that_cannot_be_started_is_no_verdict(self):
+        # #41888 review (F2): every OSError launching rustfmt warned and passed. Only "no rustfmt at all"
+        # (FileNotFoundError) is "not available here"; a rustfmt that is there and will not start is no verdict.
+        out = self.fake_rustfmt(None)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+        self.assertIn("PermissionError", out)
+
+    def test_a_rustfmt_diagnostic_that_names_toolchain_is_a_finding_not_a_missing_component(self):
+        # #41888 review (F3): any stderr holding "toolchain" or "not installed" read as rustup's missing component and
+        # passed; real rustfmt diagnostics quote the source, which can hold either.
+        for line in ("error: expected item, found `toolchain`", "error: expected one of `!` or `::`, found `not`\n"
+                     " --> <stdin>:1:9\n  |\n1 | fn f() { not installed }\n"):
+            with self.subTest(line=line):
+                out = self.fake_rustfmt(line)
+                self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: ", out)
+
+    def test_rustups_own_missing_toolchain_or_component_still_warns(self):
+        for line in ("error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.\n"
+                     "help: run `rustup component add rustfmt` to install it",
+                     "error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'\n"
+                     "To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`",
+                     "error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed\n"
+                     "help: run `rustup toolchain install 1.90.0-x86_64-unknown-linux-gnu` to install it",
+                     "error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed"):
+            with self.subTest(line=line):
+                self.assertEqual(self.fake_rustfmt(line), "")
+
+    def test_a_rustfmt_that_fails_with_no_diagnostic_is_no_verdict(self):
+        out = self.fake_rustfmt("thread 'main' panicked at src/lib.rs:1:1", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+    def test_a_rustfmt_whose_interpreter_is_missing_is_no_verdict(self):
+        # #41927 review (F1): an executable rustfmt whose `#!` interpreter is gone raises FileNotFoundError, which read
+        # as "no rustfmt on PATH" and passed. The file is on PATH; only a PATH with no rustfmt warns.
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("#!/nonexistent/interpreter\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_a_dyld_loader_error_naming_the_toolchain_is_no_verdict(self):
+        # #41888 review (F1): a macOS loader failure names the rustfmt binary's own path under
+        # ~/.rustup/toolchains/..., so a match on "toolchain" anywhere in stderr read it as rustup's "not installed"
+        # and passed. Only rustup's own answer as the whole of stderr warns (#41945); this is a crash, no verdict.
+        # Self-contained (no fake_rustfmt helper) so it also runs against the gate at #41888's head.
+        folder = Path(self.tmp.name) / "dyld-bin"
+        folder.mkdir(exist_ok=True)
+        (folder / "stderr.txt").write_text(
+            "dyld[4242]: Library not loaded: @rpath/librustc_driver-5f3e0e1b6a2d.dylib\n"
+            "  Referenced from: <0D1F2E3A-4B5C-6D7E-8F90-A1B2C3D4E5F6> "
+            "/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/bin/rustfmt\n"
+            "  Reason: tried: '/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/lib/"
+            "librustc_driver-5f3e0e1b6a2d.dylib' (no such file)\n")
+        fake = folder / "rustfmt"
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit 134\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_rustups_answer_counts_only_as_the_whole_stderr(self):
+        # #41888 review (F1): a rustfmt diagnostic that quotes `toolchain` passed as rustup's missing component. Rustup
+        # answers alone: its error line first, then only its own help line. A rustup-shaped line after a rustfmt
+        # diagnostic is still the diagnostic's finding.
+        stderr = ("error: expected expression, found `;`\n --> <stdin>:1:17\n  |\n1 | let toolchain = ;\n  |\n"
+                  "error: toolchain 'stable' is not installed")
+        out = self.fake_rustfmt(stderr)
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: error: expected expression", out)
+        # A panic whose message carries a rustup-shaped line is a crash, no verdict.
+        out = self.fake_rustfmt("thread 'main' panicked at src/config.rs:9:5:\nerror: toolchain 'stable' is not "
+                                "installed\nnote: run with `RUST_BACKTRACE=1`", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
 
 
 class StopCleanlyTests(unittest.TestCase):

@@ -533,7 +533,7 @@ mod unix {
     pub(crate) use adopt_launch::launch_terminal_host_adopting_with_program_status;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
-    pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
+    pub(crate) use host_session::{OWNER_FLAG, host_malloc_env, host_owner_args, host_session_env};
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
@@ -621,6 +621,7 @@ mod unix {
                 command.env(key, value);
             }
         }
+        command.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
             command.env_remove(key);
         }

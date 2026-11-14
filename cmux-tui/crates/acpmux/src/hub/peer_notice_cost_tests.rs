@@ -43,7 +43,7 @@ fn linked(peers: usize, rows: usize) -> (Arc<Hub>, Vec<Arc<Peer>>) {
         let peer = Peer::new(&name, "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..rows).map(row).collect();
-        hub.apply_peer_notice(&name, peer.generation, PeerNotice::Sessions(list));
+        hub.apply_peer_notice(&name, peer.generation, PeerNotice::sessions_from_values(list));
         linked.push(peer);
     }
     (hub, linked)
@@ -104,9 +104,37 @@ fn a_peer_notice_among_fifty_peers_copies_no_row_and_lands_on_its_own() {
     assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
     let last = NOTICES - 4;
     let (_, changed) = rows.find_mux(&peer.name, &format!("s{}", last % ROWS)).unwrap();
-    assert_eq!(changed.summary["updatedAt"], json!(last + 2));
+    assert_eq!(changed.summary.updated_ms(), (last + 2) as u64);
     // No other peer's row moved.
-    assert!(rows.values().filter(|r| r.peer != peer.name).all(|r| r.summary["updatedAt"] == 1));
+    assert!(rows.values().filter(|r| r.peer != peer.name).all(|r| r.summary.updated_ms() == 1));
+}
+
+/// A peer's whole list again (every reconnect sends one) parses each row from its text and
+/// leaves every unchanged row the one the table held, not a copy; a changed row is replaced
+/// once. 26 links reconnecting at once held each list parsed and its rows copied (670 MB).
+#[test]
+fn a_whole_list_again_keeps_each_unchanged_row_and_replaces_a_changed_one() {
+    const ROWS: usize = 400;
+    let (hub, peers) = linked(1, ROWS);
+    let peer = &peers[0];
+    let held = |mux: &str| {
+        let rows = hub.remote_sessions.read();
+        Arc::clone(rows.find_mux(&peer.name, mux).unwrap().1)
+    };
+    let (first, last) = (held("s0"), held("s399"));
+    let mut list: Vec<Value> = (0..ROWS).map(row).collect();
+    list[399]["status"] = json!("idle");
+    // Text that is no row at all is skipped, as a row that is not an object is.
+    let mut notice = PeerNotice::sessions_from_values(list);
+    if let PeerNotice::Sessions(rows) = &mut notice {
+        rows.push(Arc::from("not json"));
+    }
+    hub.apply_peer_notice(&peer.name, peer.generation, notice);
+    assert_eq!(hub.remote_sessions().len(), ROWS);
+    assert!(Arc::ptr_eq(&first, &held("s0")), "an unchanged row is kept, not copied");
+    let changed = held("s399");
+    assert!(!Arc::ptr_eq(&last, &changed));
+    assert_eq!(changed.summary.status(), Some("idle"));
 }
 
 /// The cost guard, a ratio of two wall-clock times: a peer notice costs about the same among 50
@@ -179,7 +207,7 @@ fn lane2_update_resend_bench() {
         hub.apply_peer_notice(
             &name,
             peer.generation,
-            PeerNotice::Sessions((0..rows).map(row).collect()),
+            PeerNotice::sessions_from_values((0..rows).map(row).collect()),
         );
         peers.push(peer);
     }
@@ -246,7 +274,7 @@ fn lane2_update_resend_bench() {
         churn_hub.apply_peer_notice(
             &churn_peer.name,
             churn_peer.generation,
-            PeerNotice::Sessions(list),
+            PeerNotice::sessions_from_values(list),
         );
         t.elapsed()
     });

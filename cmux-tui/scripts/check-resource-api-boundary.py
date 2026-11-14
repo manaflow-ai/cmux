@@ -1166,6 +1166,7 @@ def _validate_catalog_type(
                 # Settings values are data the settings schema describes, not
                 # the catalog (plans/cmux-next/settings-react.md section 2).
                 "operations.settings.set.params.fields.value",
+                "types.SettingsEdit.fields.value",
                 "operations.settings.schema.result",
                 "operations.settings.list.result.items",
                 "operations.settings.get.result",
@@ -1226,6 +1227,13 @@ def _validate_catalog_type(
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A browser import read: each reader's result is the
+                # cmux-browser-import crate's (bookmarks, history, tabs,
+                # extensions, an engine), in the app's Codable shapes, and
+                # Safari's engine comes from the Mac's NSPreferredWebServices
+                # dictionary, passed as macOS keeps it.
+                "types.BrowserImportReadResult.fields.ok.value",
+                "operations.browser_import.read.params.fields.services.value",
                 # The move from classic cmux: the source, decision, plan and
                 # preview are the cmux-classic-import crate's (source::Source,
                 # plan::Decision, plan::Plan, plan::Preview), passed through

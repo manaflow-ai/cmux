@@ -18,12 +18,12 @@
 //! app is Linux only. Design: plans/cmux-next/remote-desktop.md and remote-desktop-mac-host.md.
 //! Wire: crate cmux-rd-proto.
 
-#![cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+#![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
 
 mod args;
-#[cfg(feature = "bench")]
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod bench;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg(target_os = "linux")]
 mod browser;
 #[cfg(target_os = "linux")]
 mod capture;
@@ -35,6 +35,7 @@ mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop;
 mod encoder;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fdwait;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod host;
@@ -47,6 +48,9 @@ mod keymap;
 #[cfg(target_os = "macos")]
 mod mac;
 mod marker;
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+mod observe;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
@@ -58,10 +62,15 @@ mod stream;
 mod systemd;
 #[cfg(target_os = "linux")]
 mod testapp;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod token;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
+#[cfg(windows)]
+mod windows;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
@@ -77,7 +86,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -91,14 +100,21 @@ pub fn run_cli(args: &[String]) -> i32 {
     let result = match cmd.as_str() {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "host" => host::run(&opts),
-        #[cfg(feature = "bench")]
+        #[cfg(windows)]
+        "host" => windows::run(&opts),
+        #[cfg(windows)]
+        "windows-selftest" => windows::selftest(&opts),
+        #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
         "bench" => bench::run(&opts),
+        #[cfg(all(target_os = "macos", feature = "bench"))]
+        "observe" => mac::observe::run(&opts),
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "serve" => serve::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" => connect::run(),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),

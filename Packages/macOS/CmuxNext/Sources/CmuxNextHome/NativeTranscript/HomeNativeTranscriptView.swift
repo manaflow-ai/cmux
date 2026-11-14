@@ -185,10 +185,9 @@ public final class HomeNativeTranscriptView: NSView {
     let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    /// - Parameter widgets: runs agents' widget parts natively (the app's ``HomeWidgetHosting`` over its app host); nil shows their fallback text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                widgets: (any HomeWidgetHosting)? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -199,8 +198,7 @@ public final class HomeNativeTranscriptView: NSView {
         // first pass installs it at the newest message, as it does a chat another
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams,
-                                         widgets: widgets)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store

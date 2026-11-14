@@ -31,7 +31,6 @@ pub const DAEMON_PID_FILE: &str = "/run/cmux-host/daemon.pid";
 pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
 /// Operator breadcrumb: which layout the session host runs under.
 pub const LAYOUT_MARKER_FILE: &str = "/etc/cmux/daemon-layout";
-pub const GHOSTTY_VERSION_FILE: &str = "/etc/cmux/ghostty-version";
 pub const MACHINE_ID_FILE: &str = "/etc/machine-id";
 pub const DBUS_MACHINE_ID_FILE: &str = "/var/lib/dbus/machine-id";
 pub const RANDOM_SEED_FILE: &str = "/var/lib/systemd/random-seed";

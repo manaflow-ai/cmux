@@ -80,16 +80,52 @@ test("every popup and hover card is one material: the menu level and one veil on
   expect(menu).toContain("border-radius: var(--ui-popup-radius);");
 });
 
+// One material (design/surface-materials.md, 2026-11-11; Leo 2026-11-12: "polish of the two-tone
+// mode"): the sidebar's cards, group headers, toasts and sheets mix the design scale's glass
+// material at their own opacities and name no color of their own, so a change to the material
+// reaches every role at once.
+test("every overlay role's veil and rim is the design scale's glass material", () => {
+  const desktop = source("pages/shared/desktop.css");
+  const material = designScale.glassMaterial;
+  const gray = (level: number) => {
+    const channel = Math.round(level * 255);
+    return `rgb(${channel} ${channel} ${channel})`;
+  };
+  expect(desktop).toContain(`--ds-material-neutral-light: ${gray(material.neutralLight)};`);
+  expect(desktop).toContain(`--ds-material-neutral-dark: ${gray(material.neutralDark)};`);
+  expect(desktop).toContain(`--ds-material-rim-lit: ${gray(material.rimLit)};`);
+  expect(desktop).toContain(`--ds-material-rim-shade: ${gray(material.rimShade)};`);
+  const glass = source("ui/glass/glass.css");
+  const block = glass.slice(glass.indexOf("/* surface-roles:begin"), glass.indexOf("/* surface-roles:end */"));
+  const looks = [...block.matchAll(/(--surface-\w+-(?:veil|rim-top|rim-bottom)):\s*([^;]+);/g)];
+  expect(looks.length).toBeGreaterThanOrEqual(12);
+  for (const [, name, value] of looks) {
+    expect(value, name).not.toMatch(/rgba?\(|#[0-9a-f]{3,8}\b|\b(white|black)\b/i);
+    const mixes = [...value!.matchAll(/color-mix\(in srgb, var\((--[\w-]+)\) [\d.]+%, transparent\)/g)];
+    expect(mixes.length, name).toBe(2);
+    for (const [, token] of mixes)
+      expect(
+        [
+          "--ds-material-neutral-light",
+          "--ds-material-neutral-dark",
+          "--ds-material-rim-lit",
+          "--ds-material-rim-shade",
+          "--glass-surface",
+        ],
+        name,
+      ).toContain(token);
+  }
+});
+
 test("Session Info, the composer and the running tray share the popover level", () => {
-  for (const file of [
-    "agent-session/acpmux/session-info/sessionInfo.css",
-    "agent-session/acpmux/composerStates.css",
-    "agent-session/acpmux/subagents/subagents.css",
-  ]) {
+  for (const file of ["agent-session/acpmux/session-info/sessionInfo.css", "agent-session/acpmux/composerStates.css"]) {
     const css = source(file);
     expect(css, file).toContain("var(--ds-glass-popover-blur)");
     expect(css, file).toContain("var(--ds-glass-popover-art-tint)");
   }
+  const tray = source("agent-session/acpmux/subagents/subagents.css");
+  expect(tray).toContain("background: var(--acpmux-stack-tint)");
+  expect(tray).toContain("--acpmux-tray-frost: var(--acpmux-stack-backdrop)");
 });
 
 test("the check fails a raw blur and passes a level, an element filter and a stated exception", () => {

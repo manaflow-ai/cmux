@@ -165,6 +165,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
+        (
+            "_acpmux/journal_restore",
+            Any(
+                json!({"sessionId": "$S", "createdAt": 0, "afterSeq": 0, "records": []}),
+                "a restore names the chat's createdAt, which no row here knows: refused as another generation",
+            ),
+        ),
+        ("_acpmux/attachments_held", Run(json!({"sessionId": "$S", "files": []}))),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
         ("catalog.get", Run(json!({}))),
@@ -327,6 +335,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_VIEW, Run(json!({"sessionId": "$S", "visible": true}))),
         (method::MUX_TYPING, Run(json!({"sessionId": "$S", "on": true}))),
         (method::MUX_MARK_UNREAD, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_MARK_READ, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_APP_REPLY,
             Any(
@@ -337,6 +346,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_HARNESS_INVENTORY_WATCH, Run(json!({"enabled": true}))),
         (method::MUX_WATCH, Run(json!({}))),
         (method::MUX_EVENTS, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_ROWS, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_ATTACHMENT,
             Run(

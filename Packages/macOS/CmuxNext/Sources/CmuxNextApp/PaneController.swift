@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextHibernation
 import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
@@ -42,6 +43,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingSelect = PendingTabSelect()
     let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
+    lazy var hoverLoad = HoverWakeGate(owner: "PaneHoverLoad") { [weak self] in if case let .tab(key) = $0 { self?.loadOnHover(key) } } // a rest on a strip tab (PaneController+Neighbors)
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
         item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
@@ -136,6 +138,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
+        hoverLoad.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
         launchFrames.withdrawAhead(in: view.contentHost)
@@ -322,7 +325,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; if let mark = SubagentTabTitles.shared.icon(ofTab: tab.id) { item.icon = TabItemMapping.subagentIcon(harness: mark.harness) }; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
 

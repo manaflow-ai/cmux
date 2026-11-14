@@ -64,12 +64,18 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
 
   // 60 px: the rows under the landing call stay in view while the reader reads. 600 px: they leave it,
   // so their held glides end unseen (tailGlide.ts dropUnseen) and nothing of them plays on the return.
-  test.each([60, 600])(
-    "wheeling up %i px and back down to the latest row after reading moves no row the reader sees",
-    async (px) => {
+  // The blocks follow arm: the wheel lands while a chase is in flight, which only it draws. The slim
+  // `send` arm (the product's) moves the rows at once, so nothing is in flight at the wheel (lag 0
+  // there, cmux-ci run 43466149228); its held motion under input is agent-pane-composer-dock-motion's.
+  test.each([
+    [60, "blocks"],
+    [600, "blocks"],
+  ] as const)(
+    "wheeling up %i px and back down to the latest row after reading moves no row the reader sees (%s arm)",
+    async (px, arm) => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const frames = await open120Hz(
-        `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}${LIVE_TURN_RUNS_QUERY}`,
+        `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}&arm=${arm}${LIVE_TURN_RUNS_QUERY}`,
         {
           clock: "frames",
         },

@@ -170,6 +170,8 @@ fn w3h_launch_argv_keeps_each_argument_out_of_the_shell_and_resumes_per_harness(
     assert_eq!(launch::resume_args("codex", "s1"), Some(strings(&["resume", "s1"])));
     assert_eq!(launch::resume_args("opencode", "s1"), Some(strings(&["--session", "s1"])));
     assert_eq!(launch::resume_args("amp", "t1"), Some(strings(&["threads", "continue", "t1"])));
+    assert_eq!(launch::resume_args("agy", "c1"), Some(strings(&["--conversation", "c1"])));
+    assert_eq!(launch::harness_of("/opt/bin/agy --sandbox").as_deref(), Some("antigravity"));
     assert_eq!(launch::resume_args("muse", "s1"), None);
     assert!(launch::valid_session_id(SESSION));
     assert!(!launch::valid_session_id("--dangerously-skip-permissions"));
@@ -385,6 +387,17 @@ fn w3h_resume_does_not_send_the_first_prompt_again() {
         Launch { shell: "/bin/zsh".into(), launcher: "claude".into(), args: strings(&["hello"]) };
     let launch = resume_launch(Some(recorded), &env(), &options, "claude", SESSION).unwrap();
     assert_eq!(launch.args, strings(&["--yolo", "--resume", SESSION]));
+}
+
+/// #42355 F1: with no recorded launcher, `--cmd` or a matching
+/// `CMUX_AGENT_COMMAND`, an Antigravity resume runs `agy`, the program on
+/// PATH, not the harness's canonical name.
+#[test]
+fn w3h_antigravity_resume_falls_back_to_agy() {
+    let launch = resume_launch(None, &env(), &Options::default(), "antigravity", SESSION)
+        .expect("resume launch");
+    assert_eq!(launch.launcher, "agy");
+    assert_eq!(launch.args, strings(&["--conversation", SESSION]));
 }
 
 /// An agent that quit (its hooks reported the session's end) has no agent

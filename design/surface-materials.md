@@ -108,6 +108,8 @@ His reference is the account menu of a desktop chat app: one translucent surface
   `blur`; `namedRadii.popup` is the radius and `controls.row` the row. gen-design-scale writes the
   page's `--ds-glass-menu-*`; `GlassMenuMaterial` carries the same numbers and
   `webviews/test/floating-material-sync.test.ts` fails when the two drift.
+- Host glass puts the web menus on the same App material, so the two meet; the web side matches
+  the native one, never the reverse.
 
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 
@@ -124,7 +126,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
 | Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |
