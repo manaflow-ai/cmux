@@ -381,10 +381,10 @@ public struct DaemonLauncher: Sendable {
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)
-            health?.note(.ready(pid: ensured.pid))
+            note?.end(.ready(pid: ensured.pid))
             return ensured
         } catch {
-            health?.note(.exited)
+            note?.end(.exited)
             throw error
         }
     }

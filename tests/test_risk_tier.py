@@ -898,10 +898,12 @@ class ShipReceiptTests(unittest.TestCase):
         comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
         self.assertEqual(self.signed(comments, [], HEAD), "review (subagent, correctness first)")
 
-    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+    def test_a_short_sha_or_another_head_does_not(self):
         for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
-                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
+                     f"Addressed review: nothing blocking at {HEAD}"):
             self.assertIsNone(self.signed([self.comment(line)], [], HEAD), line)
+        # A self-review is a review like any other (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.signed([self.comment(f"Review (self): SHIP at {HEAD}")], [], HEAD), "review (self)")
 
     def test_the_receipt_must_lead_the_comment(self):
         self.assertIsNone(self.signed([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
@@ -987,10 +989,11 @@ class PrivateMemberReceiptTests(unittest.TestCase):
 
 
 class SameAccountReceiptTests(unittest.TestCase):
-    """cmux-ad m25 item 7: every agent posts as the same account as the pull request's author, so a SHIP from that
-    account counts only when it names its reviewer agent and who started it, neither of them the description's
-    `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
-    `Review (claude-review-subagent): SHIP at ...` from the author's account and the gate read it as independent."""
+    """A SHIP from the pull request author's own account counts from any reviewer: any model family, any starter,
+    the pull request's own agent included. Leo, 2026-11-14, on the review rule "need a review from a model family
+    other than": "this is no longer a requirement". Before, the cmux-ad m25 item 7 rule (#36311, #36941) refused a
+    same-account SHIP unless it named `<reviewer agent id>, started by <agent id>`, neither the description's
+    `Author-agent:` or `Agent session:` aid. A BLOCK at the head still holds it."""
 
     AUTHOR = "lawrencecchen"
 
@@ -1005,58 +1008,50 @@ class SameAccountReceiptTests(unittest.TestCase):
     def signed(self, *comments, body="Author-agent: claude-author\n\n## Summary\nx"):
         return risk.signed_off(list(comments), [], HEAD, self.AUTHOR, self.pr(body))
 
-    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
-        self.assertIsNone(self.signed(self.comment(f"Review (claude-author, started by lead): SHIP at {HEAD}")))
-        # The #36311 shape: no starter named at all.
-        self.assertIsNone(self.signed(self.comment(f"Review (claude-review-subagent): SHIP at {HEAD}")))
+    def test_a_ship_from_the_pull_requests_own_agent_counts(self):
+        # Each shape the old rule refused: the author agent as reviewer, a reviewer it started (any case or markup),
+        # the #36311 shape with no starter, and the #38430 shape where the author lane started router-review.
+        for line in (f"Review (claude-author, started by lead): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}",
+                     f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-opus-5-5, self-review): SHIP at {HEAD}"):
+            label = line[len("Review ("):line.index("):")]
+            self.assertEqual(self.signed(self.comment(line)), f"review ({label})", line)
+            self.assertEqual(self.signed(self.comment(line), body="- **Author-agent:** `claude-author`\n"),
+                             f"review ({label})", line)
+            self.assertEqual(risk.refusal(risk.parse(line, HEAD), True, {"claude-author"}), None, line)
 
-    def test_a_reviewer_the_author_agent_started_is_refused(self):
-        self.assertIsNone(self.signed(
-            self.comment(f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}")))
-        # Case and markup around the description's id do not hide it.
-        self.assertIsNone(self.signed(
-            self.comment(f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}"),
-            body="- **Author-agent:** `claude-author`\n"))
+    def test_any_model_family_counts_with_or_without_an_author_agent_line(self):
+        footer_author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={footer_author})"
+        for body in ("Author-agent: claude-author\n\n## Summary\nx", "## Summary\nx", footer,
+                     "## Summary\nx\n<!-- Author-agent: claude-author -->"):
+            for line in (f"Review (codex gpt-6-astra high, started by lead): SHIP at {HEAD}",
+                         f"Review (claude-opus-5-5, started by claude-author): SHIP at {HEAD}",
+                         f"Review (codex, router-review, started by {footer_author}): SHIP at {HEAD}"):
+                self.assertIsNotNone(self.signed(self.comment(line), body=body), (body, line))
+        # The same line in the description counts too.
+        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (claude-author): SHIP at {HEAD}"),
+                         "review (claude-author) in the description")
 
-    def test_an_independent_agent_the_lead_started_counts(self):
-        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}")
-        self.assertEqual(self.signed(ship), "review (codex-reviewer-7, started by lead)")
-        # The same line in the description counts too, and ranks below a later comment's BLOCK.
-        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (codex-reviewer-7, started by lead): "
-                                          f"SHIP at {HEAD}"), "review (codex-reviewer-7, started by lead) in the description")
-        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by claude-author): SHIP at {HEAD}")))
-
-    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
-        no_agent = "## Summary\nx\n<!-- Author-agent: claude-author -->"
-        self.assertIsNone(self.signed(self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}"),
-                                      body=no_agent))
-        # A BLOCK counts in every case: it beats an earlier SHIP from another account.
+    def test_a_block_at_the_head_still_refuses(self):
+        ship = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
         other = self.comment(f"Review (codex): SHIP at {HEAD}", login="austinywang", at="2026-10-21T20:00:00Z")
-        block = self.comment(f"Review (claude-review-subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
-        self.assertIsNone(self.signed(other, block, body=no_agent))
-        self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
+        block = self.comment(f"Review (claude-review-subagent, started by claude-author): BLOCK at {HEAD}",
+                             at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+        self.assertIsNone(self.signed(other, block, body="## Summary\nx"))
+        # A BLOCK wins a tie, and a later own-agent SHIP clears it.
+        self.assertIsNone(self.signed(dict(ship, created_at="2026-10-21T20:05:00Z"), block))
+        later = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:10:00Z")
+        self.assertEqual(self.signed(ship, block, later), "review (claude-author)")
 
-    def test_the_agent_session_footer_names_the_author_agent(self):
-        # #42066: a lane PR body ends with `agent-identity footer`'s line and no Author-agent line. leo-workspace
-        # review_model.py read the footer's aid as the author, this gate did not, so the review service's SHIP was
-        # refused here after merge_hold had counted it.
+    def test_the_agent_session_footer_still_names_the_author_agent(self):
+        # #42066: author_agents() reads the footer's aid as well as Author-agent (for readers outside this gate).
         author = "aid-98f665da0f19e1e599c6"
         footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={author})"
-        other = self.comment(f"Review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48): "
-                             f"SHIP at {HEAD}")
-        self.assertEqual(self.signed(other, body=footer),
-                         "review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48)")
-        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
-                                      body=footer))
-        # Case does not hide it, and a later query parameter keeps the id.
-        upper = footer.replace(f"?id={author}", f"?id={author.upper()}&x=1")
-        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
-                                      body=upper))
-        # Inside an HTML comment, or with a longer id, the footer names nobody, as Author-agent does.
-        for hidden in (f"## Summary\nx\n<!-- Agent session: [s](https://cmux.com/deeplink/agent?id={author}) -->",
-                       footer.replace(author, author + "0")):
-            self.assertIsNone(self.signed(other, body=hidden), hidden)
-        # The session form (`?harness=..&session=..&host=..`) carries no aid, so it names nobody either.
         session = "Agent session: [lane](https://cmux.com/deeplink/agent?harness=claude&session=616eb19f&host=lane-6)"
         self.assertEqual(risk.author_agents(session), set())
         self.assertEqual(risk.author_agents(f"Author-agent: Claude-Author\n{footer}"), {"claude-author", author})
@@ -1067,15 +1062,16 @@ class SameAccountReceiptTests(unittest.TestCase):
         return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
                 "user": {"login": login, "type": kind, "node_id": node_id}}
 
-    def test_the_review_service_receipt_counts_and_an_author_started_one_still_fails(self):
+    def test_the_review_service_receipt_counts_and_so_does_an_author_started_one(self):
         service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
         self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
         # Posted as a review body too.
         self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
                          "review (codex gpt-6.1-sol xhigh, next-review)")
-        # The #38430 shape: the author lane started router-review itself; from its own account that never counts.
-        self.assertIsNone(self.signed(
-            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")))
+        # The #38430 shape: the author lane started router-review itself; that counts too now.
+        self.assertEqual(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")),
+            "review (codex, router-review, started by claude-author)")
 
     def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
         line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
@@ -1096,13 +1092,12 @@ class SameAccountReceiptTests(unittest.TestCase):
         block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
         self.assertIsNone(self.signed(ship, block))
 
-    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+    def test_a_receipt_counts_from_another_account_and_from_the_authors_own(self):
         line = f"Review (claude-review-subagent): SHIP at {HEAD}"
         self.assertEqual(self.signed(self.comment(line, login="austinywang")), "review (claude-review-subagent)")
         self.assertEqual(self.signed(self.comment(line, login="austinywang"), body="no agent line"),
                          "review (claude-review-subagent)")
-        # The same line from the author's own account does not count.
-        self.assertIsNone(self.signed(self.comment(line)))
+        self.assertEqual(self.signed(self.comment(line)), "review (claude-review-subagent)")
 
 
 class DescriptionVerdictTests(unittest.TestCase):
@@ -1140,10 +1135,11 @@ class DescriptionVerdictTests(unittest.TestCase):
         who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
         self.assertEqual((who, blocked, missing), (None, False, []))
         self.assertIn("no review verdict", pending)
-        # Nor does a short sha, a self-review, or a line inside an HTML comment.
-        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
-                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+        # Nor does a short sha or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
             self.assertEqual(self.state(body)[:3], (None, False, []), body)
+        # A self-review in the description counts (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.state(f"Review (self): SHIP at {HEAD}")[0], "review (self) in the description")
 
     def test_a_fix_or_block_at_the_head_holds(self):
         for word in ("FIX", "BLOCK"):

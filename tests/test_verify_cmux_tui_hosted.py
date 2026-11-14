@@ -19,6 +19,8 @@ and git ls-remote (no network) and checks what it does to the run:
   and when every try fails the script says no run was created;
 - a 404 or 500 on the first read of the new run is not a failure: the script names the run,
   waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
+- a run state the script cannot read is never "still running": it reads only fields gh has, and after a few
+  unreadable reads in a row it exits 5 naming the error and the run (cmuxterm-hq#10604);
 - one open run per commit, mode and filter: while a run this script dispatched for the same
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
   run of another filter or another commit, or a finished run, does not stop a dispatch.
@@ -80,6 +82,18 @@ case "$*" in
     fi
     printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_IDENTITY_SHA:-$(cat "$STUB_DIR/head")}" "$(cat "$STUB_DIR/branch")" ;;
   *status,conclusion*)
+    # Like the installed gh: a --json field it does not have is refused, and the read fails.
+    if [[ "${FAKE_GH_FIELDS:-}" == old && "$*" == *attempt* ]]; then
+      printf 'Unknown JSON field: "attempt"\nAvailable fields:\n  conclusion\n  status\n' >&2
+      exit 1
+    fi
+    # FAKE_VIEW_FAILS: how many state reads fail first (a 502, a dropped connection).
+    f=$(cat "$STUB_DIR/view-reads" 2>/dev/null || echo 0)
+    echo $((f + 1)) > "$STUB_DIR/view-reads"
+    if (( f < ${FAKE_VIEW_FAILS:-0} )); then
+      echo "gh: Server Error (HTTP 502)" >&2
+      exit 1
+    fi
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/views"
     IFS=';' read -ra states <<< "$FAKE_STATES"
@@ -373,6 +387,35 @@ def open_run_lookup_failure_still_dispatches(failures: list[str], name: str, box
     check(failures, name, box.count("gh api -X POST") == 1, box, out)
 
 
+def state_read_gh_cannot_answer_is_not_still_running(failures: list[str], name: str, box: Sandbox) -> None:
+    """cmuxterm-hq#10604 (2026-11-14): the state read asked gh for `attempt`, which the installed gh does not have.
+    Every read failed, the run read as "unknown", and "unknown" counted as not done: after glaeda-gh said the run
+    had succeeded, the script polled every round for its whole 2-hour wait and then exited 3, "still running".
+    With a gh that refuses the field, a finished run is read and its result used."""
+    started = time.monotonic()
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_GH_FIELDS="old",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="45")
+    check(failures, name, code != 3 and box.count("gh run download") >= 1 and box.count("gh run cancel") == 0
+          and time.monotonic() - started < 30, box, out)
+
+
+def unreadable_state_ends_the_wait_and_says_so(failures: list[str], name: str, box: Sandbox) -> None:
+    """A state that cannot be read is not "still running": after a few failed reads in a row the script stops
+    waiting, names the read's error and the run, exits 5, and leaves the run alone."""
+    started = time.monotonic()
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_VIEW_FAILS="99",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="45")
+    check(failures, name, code == 5 and "HTTP 502" in out and f"actions/runs/{RUN_ID}" in out
+          and box.count("gh run download") == 0 and box.count("gh run cancel") == 0
+          and time.monotonic() - started < 30, box, out)
+
+
+def one_failed_state_read_waits_again(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_VIEW_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="45")
+    check(failures, name, box.count("gh run download") >= 1 and box.count("gh run cancel") == 0, box, out)
+
+
 def first_run_read_failure_waits_on_the_run(code_name: str):
     """Run 42688604218 (2026-11-09): the dispatch created the run, the first read of it
     answered HTTP 404, and the script exited 1 with the run still going. Run 42688525295
@@ -468,6 +511,10 @@ def main() -> int:
          first_run_read_failure_waits_on_the_run("500")),
         ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
         ("a late read that shows another revision is refused", late_read_of_another_revision_is_refused),
+        ("a state read gh cannot answer is not \"still running\" (cmuxterm-hq#10604)",
+         state_read_gh_cannot_answer_is_not_still_running),
+        ("a state that stays unreadable ends the wait with exit 5, run untouched", unreadable_state_ends_the_wait_and_says_so),
+        ("one failed state read waits again", one_failed_state_read_waits_again),
     ]:
         scenario(failures, name, test)
     if failures:
