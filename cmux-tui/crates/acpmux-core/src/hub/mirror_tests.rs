@@ -12,15 +12,26 @@ fn row(origin: &str, id: &str, activity: u64) -> Summary {
     summary
 }
 
+fn mark(cursor: u64) -> MirrorMark {
+    MirrorMark { cursor, edition: 4, whole: true }
+}
+
+/// The unit at `cursor`, following the mark at `cursor - 1` (none at 1).
 fn unit(cursor: u64, ids: &[&str]) -> MirrorUnit {
     MirrorUnit {
         origin: ORIGIN.to_owned(),
+        after: (cursor > 1).then(|| mark(cursor - 1)),
         changes: ids
             .iter()
             .map(|id| UnitChange::Summary(Box::new(row(ORIGIN, id, cursor))))
             .collect(),
-        mark: MirrorMark { cursor, edition: 4, whole: true },
+        mark: mark(cursor),
     }
+}
+
+/// A walk's first unit: it follows no mark.
+fn first(cursor: u64, ids: &[&str]) -> MirrorUnit {
+    MirrorUnit { after: None, ..unit(cursor, ids) }
 }
 
 fn titles(hub: &Hub) -> Vec<String> {
@@ -53,6 +64,7 @@ fn a_unit_refused_by_a_full_queue_leaves_nothing_and_applies_once_when_given_aga
     hub.submit_unit(Source::Mirror, unit(2, &["b", "c"])).unwrap();
     writer.process_batch();
     assert_eq!(hub.snapshot().seq(), seq, "the second copy wrote no row");
+    assert_eq!(hub.mirror_counts().out_of_order, 1, "it follows a mark that moved on");
     assert_eq!(titles(&hub), ["a at 1", "b at 2", "c at 2"]);
     assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(2));
     let mut changes = 0;
@@ -61,7 +73,7 @@ fn a_unit_refused_by_a_full_queue_leaves_nothing_and_applies_once_when_given_aga
         changes += 1;
     }
     assert_eq!(changes, 2, "each change of the unit published once");
-    assert_eq!(hub.mirror_counts().applied, 3);
+    assert_eq!(hub.mirror_counts().applied, 2);
 }
 
 #[test]
@@ -69,7 +81,7 @@ fn a_takeover_writes_the_mark_off_and_a_replay_after_it_gives_no_cursor() {
     let directory = tempfile::tempdir().unwrap();
     {
         let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-        hub.submit_unit(Source::Mirror, unit(5, &["a"])).unwrap();
+        hub.submit_unit(Source::Mirror, first(5, &["a"])).unwrap();
         writer.process_batch();
         writer.sync_batch().unwrap();
         assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(5));
@@ -159,6 +171,7 @@ fn removals_and_closed_rows_follow_the_remote_row_rules() {
         Source::Mirror,
         MirrorUnit {
             origin: ORIGIN.to_owned(),
+            after: Some(mark(1)),
             changes: vec![
                 UnitChange::Summary(Box::new(closed)),
                 UnitChange::Summary(Box::new(never)),
@@ -197,6 +210,7 @@ fn a_unit_with_no_rows_writes_its_mark_alone_and_reopens_whole() {
         let seq = hub.snapshot().seq();
         let walked = MirrorUnit {
             origin: ORIGIN.to_owned(),
+            after: Some(mark(1)),
             changes: Vec::new(),
             mark: MirrorMark { cursor: 2, edition: 4, whole: true },
         };
@@ -325,4 +339,123 @@ fn a_keyed_row_refused_by_ownership_is_counted() {
     writer.process_batch();
     assert!(refused_source_submits() > before);
     assert_eq!(titles(&hub), ["a at 1"]);
+}
+
+/// Applies one queued batch without the turn's storage retry, so a failed
+/// append stays in the retry.
+fn dispatch_batch(hub: &Hub, writer: &mut HubWriter) -> Vec<Result<(), HubError>> {
+    hub.updates
+        .take_batch()
+        .into_iter()
+        .map(|(key, update)| writer.dispatch_update(key, update))
+        .collect()
+}
+
+/// `submit_unit` accepted the unit, then the writer dropped it as held (an
+/// origin record waiting in the storage retry). The stream's next unit
+/// follows the dropped unit's mark, which never landed: refused whole. The
+/// dialer starts again from the mark on disk.
+#[test]
+fn a_unit_dropped_as_held_refuses_the_next_one() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.process_batch();
+    let record = writer.published.load().origin(ORIGIN).cloned().unwrap_or(OriginRecord {
+        seq: 0,
+        id: ORIGIN.into(),
+        state: OriginState::Connected,
+        since: 0,
+        extra: None,
+    });
+    writer.origins.retry.insert(ORIGIN.to_owned(), record);
+    hub.submit_unit(Source::Mirror, unit(2, &["b"])).unwrap();
+    assert!(matches!(dispatch_batch(&hub, &mut writer)[..], [Err(HubError::UnitHeld)]));
+    writer.origins.retry.remove(ORIGIN);
+    hub.submit_unit(Source::Mirror, unit(3, &["c"])).unwrap();
+    assert!(matches!(dispatch_batch(&hub, &mut writer)[..], [Err(HubError::UnitOutOfOrder)]));
+    let counts = hub.mirror_counts();
+    assert_eq!((counts.held, counts.out_of_order), (1, 1));
+    assert_eq!(titles(&hub), ["a at 1"], "no row of either unit");
+    assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(1)), "the mark did not move");
+    // The resume from the mark brings both frames again.
+    hub.submit_unit(Source::Mirror, unit(2, &["b", "c"])).unwrap();
+    writer.process_batch();
+    assert_eq!(titles(&hub), ["a at 1", "b at 2", "c at 2"]);
+    assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(2)));
+}
+
+/// A removal drops the origin's mark. A unit that follows the mark from
+/// before it is refused whole; a walk's first unit applies.
+#[test]
+fn a_removal_between_two_units_refuses_the_second() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.process_batch();
+    writer.origin(ORIGIN, OriginState::Removed, 2).unwrap();
+    for _ in 0..4 {
+        writer.process_batch();
+    }
+    writer.origin(ORIGIN, OriginState::Connected, 3).unwrap();
+    assert_eq!(hub.mirror_mark(ORIGIN), None);
+    hub.submit_unit(Source::Mirror, unit(2, &["b"])).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.mirror_counts().out_of_order, 1);
+    assert!(titles(&hub).is_empty(), "no row of the refused unit");
+    hub.submit_unit(Source::Mirror, first(7, &["c"])).unwrap();
+    writer.process_batch();
+    assert_eq!(titles(&hub), ["c at 7"]);
+    assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(7)));
+}
+
+/// A takeover between two units writes the mark off, so the second is
+/// refused; a unit still in the storage retry is dropped by the takeover.
+#[test]
+fn a_takeover_between_two_units_refuses_the_second() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.process_batch();
+    hub.takeover(ORIGIN, Source::Mirror).unwrap();
+    writer.process_batch();
+    hub.submit_unit(Source::Mirror, unit(2, &["b"])).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.mirror_counts().out_of_order, 1);
+    assert_eq!(titles(&hub), ["a at 1"]);
+    assert_eq!(hub.mirror_mark(ORIGIN), None);
+
+    let directory = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.mirror.fail_appends = 1;
+    assert!(dispatch_batch(&hub, &mut writer)[0].is_err(), "the append failed");
+    hub.takeover(ORIGIN, Source::Mirror).unwrap();
+    dispatch_batch(&hub, &mut writer);
+    assert!(!writer.mirror.retry_pending(), "the takeover dropped the retry unit");
+    assert_eq!(hub.mirror_counts().out_of_order, 1);
+    writer.process_batch();
+    writer.sync_batch().unwrap();
+    assert!(titles(&hub).is_empty(), "the dropped unit wrote nothing");
+    hub.submit_unit(Source::Mirror, first(4, &["b"])).unwrap();
+    writer.process_batch();
+    assert_eq!(titles(&hub), ["b at 4"]);
+    assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(4)));
+}
+
+/// A unit in the storage retry joins the next unit only when that unit
+/// follows its mark from the same source. A walk's first unit after it is
+/// not a continuation: the earlier unit is dropped and counted, and only the
+/// new one is written.
+#[test]
+fn a_join_is_refused_when_the_next_unit_does_not_follow() {
+    let directory = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    hub.submit_unit(Source::Mirror, unit(1, &["a"])).unwrap();
+    writer.mirror.fail_appends = 1;
+    assert!(dispatch_batch(&hub, &mut writer)[0].is_err(), "the append failed");
+    hub.submit_unit(Source::Mirror, first(9, &["b"])).unwrap();
+    writer.process_batch();
+    let counts = hub.mirror_counts();
+    assert_eq!((counts.join_refused, counts.applied), (1, 1));
+    assert_eq!(titles(&hub), ["b at 9"], "the dropped unit's row was not written");
+    assert_eq!(hub.mirror_mark(ORIGIN), Some(mark(9)));
+    assert!(!writer.mirror.retry_pending());
 }

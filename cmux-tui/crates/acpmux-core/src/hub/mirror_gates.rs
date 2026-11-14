@@ -46,13 +46,18 @@ fn fixture(local: usize, origins: usize, held: usize) -> Fixture {
     let per_origin = held / origins;
     for origin in 0..origins {
         let name = format!("peer-{origin:02}");
+        let mut after = None;
         for start in (0..per_origin).step_by(MAX_UNIT_CHANGES) {
             let changes = (start..per_origin.min(start + MAX_UNIT_CHANGES))
                 .map(|n| UnitChange::Summary(Box::new(row(&name, format!("chat-{n:05}"), 1))))
                 .collect();
             let mark = MirrorMark { cursor: 1, edition: 3, whole: true };
-            hub.submit_unit(Source::Mirror, MirrorUnit { origin: name.clone(), changes, mark })
-                .expect("seed unit");
+            hub.submit_unit(
+                Source::Mirror,
+                MirrorUnit { origin: name.clone(), after, changes, mark },
+            )
+            .expect("seed unit");
+            after = Some(mark);
             writer.process_batch();
         }
     }
@@ -81,6 +86,7 @@ fn sample(fixture: &mut Fixture, sync: &mut Vec<u128>) -> u128 {
         .collect();
     let unit = MirrorUnit {
         origin: "peer-00".to_owned(),
+        after: Some(MirrorMark { cursor: cursor - 1, edition: 3, whole: true }),
         changes,
         mark: MirrorMark { cursor, edition: 3, whole: true },
     };
@@ -153,7 +159,16 @@ fn pr08_mirror_apply() {
     let counts = god.hub.mirror_counts();
     let units = counts.applied - marks_before.applied;
     let mark_bytes = (counts.mark_bytes - marks_before.mark_bytes) / units.max(1);
-    assert_eq!(counts.full + counts.not_owner + counts.forged + counts.storage, 0);
+    assert_eq!(
+        counts.full
+            + counts.not_owner
+            + counts.forged
+            + counts.storage
+            + counts.held
+            + counts.out_of_order
+            + counts.join_refused,
+        0
+    );
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
     );

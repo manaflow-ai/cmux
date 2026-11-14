@@ -9,6 +9,14 @@
 //! the mark claims. At most two units per origin are unapplied: one in the
 //! writer's storage retry and one the slot took meanwhile, joined into one
 //! append; another is refused as full.
+//!
+//! A unit names the mark it follows (`after`), and the writer applies it
+//! only when that is the origin's mark now; a walk's first unit names none
+//! and applies only while the mark is off. A unit the writer dropped after
+//! `submit_unit` answered (the origin leaving, a takeover, a removal) leaves
+//! the mark where it was, so the stream's next unit is refused whole too and
+//! the dialer starts again from the mark: no mark is ever ahead of rows that
+//! were never written.
 use super::*;
 use acpmux_book::index::{IndexRecord, MarkRecord, MirrorMark};
 use std::collections::HashSet;
@@ -23,6 +31,9 @@ pub enum UnitChange {
 
 pub struct MirrorUnit {
     pub origin: String,
+    /// The mark this unit follows: the origin's mark when the source sent it,
+    /// or none for a walk's first unit.
+    pub after: Option<MirrorMark>,
     pub changes: Vec<UnitChange>,
     pub mark: MirrorMark,
 }
@@ -37,6 +48,8 @@ pub struct Counters {
     held: AtomicU64,
     storage: AtomicU64,
     mark_bytes: AtomicU64,
+    out_of_order: AtomicU64,
+    join_refused: AtomicU64,
 }
 
 /// One read of the mirror's counters.
@@ -59,6 +72,12 @@ pub struct MirrorCounts {
     pub storage: u64,
     /// Bytes the marks added to their appends.
     pub mark_bytes: u64,
+    /// Units refused whole because the mark they follow is not the origin's
+    /// mark now, and unapplied units a takeover dropped.
+    pub out_of_order: u64,
+    /// Unapplied units dropped because the next unit did not follow their
+    /// mark or came from another source.
+    pub join_refused: u64,
 }
 
 impl Counters {
@@ -72,16 +91,18 @@ impl Counters {
             held: self.held.load(Ordering::Relaxed),
             storage: self.storage.load(Ordering::Relaxed),
             mark_bytes: self.mark_bytes.load(Ordering::Relaxed),
+            out_of_order: self.out_of_order.load(Ordering::Relaxed),
+            join_refused: self.join_refused.load(Ordering::Relaxed),
         }
     }
 }
 
-/// A unit whose append failed. A takeover after it clears its mark, so the
-/// retry writes its rows with the mark off.
+/// A unit whose append failed. A takeover after it drops it.
 pub(super) struct RetryUnit {
     source: Source,
+    after: Option<MirrorMark>,
     changes: Vec<UnitChange>,
-    mark: Option<MirrorMark>,
+    mark: MirrorMark,
 }
 
 #[derive(Default)]
@@ -141,7 +162,8 @@ impl Hub {
             }
         }
         let origin = unit.origin;
-        let unit = MirrorUnit { origin: origin.clone(), changes, mark: unit.mark };
+        let unit =
+            MirrorUnit { origin: origin.clone(), after: unit.after, changes, mark: unit.mark };
         let result = self.updates.enqueue(
             UpdateKey::Source(origin.into()),
             PendingUpdate::Unit { source, unit: Box::new(unit) },
@@ -174,15 +196,20 @@ impl UnitChange {
 
 impl HubWriter {
     pub(super) fn apply_unit(&mut self, source: Source, unit: MirrorUnit) -> Result<(), HubError> {
-        let MirrorUnit { origin, changes, mark } = unit;
-        let mut retry = RetryUnit { source, changes, mark: Some(mark) };
+        let MirrorUnit { origin, after, changes, mark } = unit;
+        let mut retry = RetryUnit { source, after, changes, mark };
         // A unit queued before an earlier one's append failed goes after it:
-        // the two are written as one, in order, with the newer mark.
+        // the two are written as one, in order, with the newer mark. They
+        // join only when the later one follows the earlier one's mark from
+        // the same source; otherwise the earlier one is dropped.
         if let Some(mut earlier) = self.mirror.units.remove(&origin) {
-            earlier.changes.append(&mut retry.changes);
-            earlier.mark = retry.mark;
-            earlier.source = source;
-            retry = earlier;
+            if earlier.source == source && retry.after == Some(earlier.mark) {
+                earlier.changes.append(&mut retry.changes);
+                earlier.mark = retry.mark;
+                retry = earlier;
+            } else {
+                self.mirror.counters.join_refused.fetch_add(1, Ordering::Relaxed);
+            }
         }
         self.write_unit(&origin, retry)
     }
@@ -204,6 +231,11 @@ impl HubWriter {
             counters.not_owner.fetch_add(1, Ordering::Relaxed);
             self.release_unit_slot(origin);
             return Err(error);
+        }
+        if unit.after != current.mirror_mark(origin) {
+            counters.out_of_order.fetch_add(1, Ordering::Relaxed);
+            self.release_unit_slot(origin);
+            return Err(HubError::UnitOutOfOrder);
         }
         // The last change for a chat in the unit wins; each chat is written once.
         #[cfg(test)]
@@ -260,7 +292,7 @@ impl HubWriter {
             seq += 1;
             records.push(record);
         }
-        let mark = MarkRecord { seq, origin: origin.to_owned(), mark: unit.mark };
+        let mark = MarkRecord { seq, origin: origin.to_owned(), mark: Some(unit.mark) };
         #[cfg(test)]
         let built = std::time::Instant::now();
         #[cfg(test)]
@@ -284,8 +316,8 @@ impl HubWriter {
                     self.log_dirty = true;
                 }
                 Err(error) => {
+                    // The caller counts the returned error in `log_errors`.
                     counters.storage.fetch_add(1, Ordering::Relaxed);
-                    self.log_errors.fetch_add(1, Ordering::Relaxed);
                     self.storage_retry =
                         Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
                     // Only the changes that were to be written are kept;
@@ -303,7 +335,12 @@ impl HubWriter {
                     self.hold_unit_slot(origin);
                     self.mirror.units.insert(
                         origin.to_owned(),
-                        RetryUnit { source: unit.source, changes, mark: unit.mark },
+                        RetryUnit {
+                            source: unit.source,
+                            after: unit.after,
+                            changes,
+                            mark: unit.mark,
+                        },
                     );
                     return Err(HubError::Log(error));
                 }
@@ -395,11 +432,17 @@ impl HubWriter {
     }
 
     /// A takeover writes the origin's mark off in its own turn, so a replay
-    /// after it gives no cursor and the new source walks.
+    /// after it gives no cursor and the new source walks. A unit still
+    /// waiting for the storage retry no longer follows the mark: dropped.
     pub(super) fn write_mark_off(&mut self, origin: &str) {
-        if let Some(unit) = self.mirror.units.get_mut(origin) {
-            unit.mark = None;
+        if self.mirror.units.remove(origin).is_some() {
+            self.mirror.counters.out_of_order.fetch_add(1, Ordering::Relaxed);
+            self.release_unit_slot(origin);
         }
+        self.append_mark_off(origin);
+    }
+
+    fn append_mark_off(&mut self, origin: &str) {
         if self.published.load().mirror_mark(origin).is_none() && !self.mirror.off.contains(origin)
         {
             return;
@@ -428,7 +471,7 @@ impl HubWriter {
         let mut first = None;
         let off: Vec<_> = self.mirror.off.iter().cloned().collect();
         for origin in off {
-            self.write_mark_off(&origin);
+            self.append_mark_off(&origin);
         }
         let origins: Vec<_> = self.mirror.units.keys().cloned().collect();
         for origin in origins {

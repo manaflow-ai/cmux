@@ -576,6 +576,8 @@ pub enum HubError {
     ForgedOrigin(String),
     #[error("mirror unit refused while its origin is leaving")]
     UnitHeld,
+    #[error("mirror unit does not follow its origin's mark")]
+    UnitOutOfOrder,
 }
 
 impl HubError {
