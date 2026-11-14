@@ -541,13 +541,31 @@ extension RemoteTmuxWindowMirror {
         bonsplitController.updateTab(tabId, title: title(forPane: paneId))
     }
 
+    /// Updates the Bonsplit tab owned by one projected tmux pane. These tab IDs
+    /// belong to this embedded controller, not the workspace's outer controller.
+    func updatePaneTabTitle(_ title: String, forPane paneId: Int, hasCustomTitle: Bool) {
+        guard let tabId = tabIdByPaneId[paneId] else { return }
+        bonsplitController.updateTab(tabId, title: title, hasCustomTitle: hasCustomTitle)
+    }
+
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
-        return Self.surfaceTitle(
+        let fallback = stableFallbackTitle(
+            forPane: paneId,
             windowTitle: windowTitle,
-            paneIndex: index,
-            paneTitleMetadata: paneTitleMetadataByPane[paneId]
+            paneIndex: index
         )
+        return paneTitleMetadataByPane[paneId]?.intentionalTitle ?? fallback
+    }
+
+    /// Captures a default pane label after the first real tmux window payload.
+    /// That label belongs to the pane, so later window renames cannot rewrite it.
+    func stableFallbackTitle(forPane paneId: Int, windowTitle: String, paneIndex: Int) -> String {
+        if let title = fallbackTitleByPaneId[paneId] { return title }
+        let title = Self.windowPaneTitle(windowTitle, paneIndex: paneIndex)
+        guard hasAppliedWindow else { return title }
+        fallbackTitleByPaneId[paneId] = title
+        return title
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {

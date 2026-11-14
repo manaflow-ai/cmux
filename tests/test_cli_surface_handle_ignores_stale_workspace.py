@@ -64,6 +64,13 @@ class Handler(socketserver.StreamRequestHandler):
             method = request["method"]
             params = request.get("params", {})
             self.server.calls.append((method, params))  # type: ignore[attr-defined]
+            if (getattr(self.server, "old_server", False) and method == "tab.action"
+                    and params.get("action") == "rename_tab"):
+                response = {"ok": False, "id": request.get("id"),
+                            "error": {"code": "invalid_params", "message": "Unknown tab action"}}
+                self.wfile.write((json.dumps(response) + "\n").encode("utf-8"))
+                self.wfile.flush()
+                continue
             result = self.result(method, params)
             if result is None:
                 response = {"ok": False, "id": request.get("id"),
@@ -84,7 +91,7 @@ class Handler(socketserver.StreamRequestHandler):
             surfaces = SURFACES.get(str(params.get("workspace_id")))
             return None if surfaces is None else {"surfaces": surfaces}
         return {"ok": True, "workspace_id": params.get("workspace_id"),
-                "surface_id": params.get("surface_id")}
+                "surface_id": params.get("surface_id"), "action": params.get("action")}
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -99,7 +106,9 @@ class SurfaceHandleIgnoresStaleWorkspaceTests(unittest.TestCase):
         self.cli = resolve_cmux_cli()
 
     def run_cli(
-        self, args: list[str], *, caller_workspace: str | None = OLD_WORKSPACE_ID
+        self, args: list[str], *, caller_workspace: str | None = OLD_WORKSPACE_ID,
+        caller_surface: str | None = MOVED_SURFACE_ID, caller_tab: str | None = None,
+        old_server: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], list[tuple[str, dict[str, object]]]]:
         """Run the CLI from a pane whose environment names `caller_workspace`."""
         case_dir = Path(tempfile.mkdtemp(dir=self.root))
@@ -109,6 +118,7 @@ class SurfaceHandleIgnoresStaleWorkspaceTests(unittest.TestCase):
 
         server = Server(str(socket_path), Handler)
         server.calls = []  # type: ignore[attr-defined]
+        server.old_server = old_server  # type: ignore[attr-defined]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -116,7 +126,12 @@ class SurfaceHandleIgnoresStaleWorkspaceTests(unittest.TestCase):
             env.pop("TMUX", None)
             if caller_workspace is not None:
                 env["CMUX_WORKSPACE_ID"] = caller_workspace
-            env["CMUX_SURFACE_ID"] = MOVED_SURFACE_ID
+            env.pop("CMUX_SURFACE_ID", None)
+            env.pop("CMUX_TAB_ID", None)
+            if caller_surface is not None:
+                env["CMUX_SURFACE_ID"] = caller_surface
+            if caller_tab is not None:
+                env["CMUX_TAB_ID"] = caller_tab
             proc = subprocess.run(
                 [self.cli, "--socket", str(socket_path), *args],
                 capture_output=True, text=True, check=False, env=env, timeout=30,
@@ -126,6 +141,57 @@ class SurfaceHandleIgnoresStaleWorkspaceTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
         return proc, server.calls  # type: ignore[attr-defined]
+
+    def test_default_rename_keeps_moved_surface_but_targets_window(self) -> None:
+        calls = self.assert_addressed(
+            ["rename-tab", "new title"], "tab.action", NEW_WORKSPACE_ID, (MOVED_SURFACE_ID,))
+        self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename_tab"])
+
+    def test_explicit_rename_targets_keep_existing_pane_action(self) -> None:
+        for option in ("--tab", "--surface"):
+            with self.subTest(option=option):
+                calls = self.assert_addressed(
+                    ["rename-tab", option, MOVED_SURFACE_ID, "new title"],
+                    "tab.action", NEW_WORKSPACE_ID, (MOVED_SURFACE_ID,))
+                self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename"])
+
+    def test_workspace_alias_needs_a_real_surface(self) -> None:
+        proc, calls = self.run_cli(["rename-tab", "new title"], caller_surface=None,
+                                   caller_tab=OLD_WORKSPACE_ID)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("Cannot determine the caller's tab", proc.stderr)
+        self.assertNotIn("tab.action", [name for name, _ in calls])
+
+    def test_workspace_alias_does_not_hide_a_real_surface(self) -> None:
+        calls = self.assert_addressed(["rename-tab", "new title"], "tab.action", NEW_WORKSPACE_ID,
+                                      (MOVED_SURFACE_ID,), caller_tab=OLD_WORKSPACE_ID)
+        self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename_tab"])
+
+    def test_old_server_fails_without_pane_rename_retry(self) -> None:
+        proc, calls = self.run_cli(["rename-tab", "new title"], old_server=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename_tab"])
+
+    def test_explicit_workspace_rename_uses_focused_tab(self) -> None:
+        proc, calls = self.run_cli(["rename-tab", "--workspace", OLD_WORKSPACE_ID, "new title"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        actions = [params for name, params in calls if name == "tab.action"]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["action"], "rename_tab")
+        self.assertEqual(actions[0]["workspace_id"], OLD_WORKSPACE_ID)
+        self.assertNotIn("surface_id", actions[0])
+
+    def test_tab_action_rename_uses_window_action_by_default(self) -> None:
+        calls = self.assert_addressed(
+            ["tab-action", "--action", "rename", "--title", "new title"],
+            "tab.action", NEW_WORKSPACE_ID, (MOVED_SURFACE_ID,))
+        self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename_tab"])
+
+    def test_default_rename_json_preserves_action_name(self) -> None:
+        proc, calls = self.run_cli(["--json", "rename-tab", "new title"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["action"], "rename")
+        self.assertEqual([params["action"] for name, params in calls if name == "tab.action"], ["rename_tab"])
 
     def assert_addressed(
         self, args: list[str], method: str, workspace_id: str, surface_ids: tuple[str, ...],

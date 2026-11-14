@@ -234,13 +234,17 @@ extension TerminalController {
             remotePane = nil
         }
         if let remotePane {
+            // A pane title from tmux remains authoritative for rollback, but a
+            // locally requested rename must be visible to control clients while
+            // its tracked remote acknowledgement is in flight.
+            let title = workspace.panelCustomTitles[remotePane.panel.id] ?? remotePane.title
             return ControlPaneSurfacesSnapshot(
                 workspaceID: workspace.id,
                 paneID: remotePane.paneID.id,
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 surfaces: [ControlPaneSurfaceSummary(
                     surfaceID: remotePane.panel.id,
-                    title: remotePane.title,
+                    title: title,
                     typeRawValue: remotePane.panel.panelType.rawValue,
                     isSelected: true
                 )]
@@ -338,10 +342,13 @@ extension TerminalController {
             if workspace.isRemoteTmuxControlContainer(panel.id) {
                 return workspace.remoteTmuxControlPanes(containerPanelID: panel.id).map { location in
                     let remotePane = location.pane
+                    // Preserve `remotePane.title` as the authoritative tmux
+                    // value; this is only the optimistic control-socket view.
+                    let title = workspace.panelCustomTitles[remotePane.panel.id] ?? remotePane.title
                     return ControlSurfaceSummary(
                         surfaceID: remotePane.panel.id,
                         typeRawValue: remotePane.panel.panelType.rawValue,
-                        title: remotePane.title,
+                        title: title,
                         isFocused: panel.id == workspace.focusedPanelId && remotePane.isFocused,
                         paneID: remotePane.paneID.id,
                         indexInPane: 0,

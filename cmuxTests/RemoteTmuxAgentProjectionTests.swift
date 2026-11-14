@@ -36,21 +36,21 @@ import Testing
             }
             let key = "cmux.remote.agent:" + (agent == "claude" ? "claude_code" : agent)
             connection.handle(.subscriptionChanged(
-                name: "cmux_agent_7", value: "{\"agent\":\"\(agent)\",\"state\":\"working\"}"
+                name: "cmux_agent_7", paneId: 7, value: "{\"agent\":\"\(agent)\",\"state\":\"working\"}"
             ))
             #expect(workspace.statusEntries[key]?.value == "Running")
             #expect(workspace.agentLifecycleStatesByPanelId.values.contains { $0[key] == .running })
             connection.handle(.subscriptionChanged(
-                name: "cmux_agent_7", value: "{\"agent\":\"\(agent)\",\"state\":\"idle\"}"
+                name: "cmux_agent_7", paneId: 7, value: "{\"agent\":\"\(agent)\",\"state\":\"idle\"}"
             ))
             #expect(workspace.statusEntries[key]?.value == "Idle")
             #expect(!workspace.agentLifecycleStatesByPanelId.values.contains { $0[key] == .running })
             connection.handle(.subscriptionChanged(
-                name: "cmux_agent_7", value: "{\"agent\":\"\(agent)\",\"state\":\"blocked\"}"
+                name: "cmux_agent_7", paneId: 7, value: "{\"agent\":\"\(agent)\",\"state\":\"blocked\"}"
             ))
             #expect(workspace.statusEntries[key]?.value == "Needs input")
             #expect(workspace.agentLifecycleStatesByPanelId.values.contains { $0[key] == .needsInput })
-            connection.handle(.subscriptionChanged(name: "cmux_agent_7", value: ""))
+            connection.handle(.subscriptionChanged(name: "cmux_agent_7", paneId: 7, value: ""))
             #expect(workspace.statusEntries[key] == nil)
         }
     }

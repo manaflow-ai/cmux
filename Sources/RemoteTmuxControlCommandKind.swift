@@ -37,6 +37,8 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// keys a completion that fires `true` on `%end`, `false` on `%error` or
     /// when the stream resets before the block arrives.
     case tracked(UUID)
+    /// A tracked session-wide pane-title subscription, distinct from user mutations.
+    case paneTitleSubscription(UUID)
     /// A command whose raw reply lines the sender awaits (see
     /// ``RemoteTmuxControlConnection/queryOutcomeWithTimeout(_:timeout:reconnectOnTimeout:)``):
     /// the token keys a completion fired with the `%end` reply lines, the `%error`
