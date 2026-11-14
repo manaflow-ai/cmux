@@ -3,7 +3,7 @@
 pub mod ffi;
 pub mod wire;
 
-use acpmux_book::index::Summary;
+use acpmux_list_types::Summary;
 
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -685,7 +685,7 @@ where
     }
 
     fn summary_is_live(value: &Value) -> bool {
-        value.get("state").and_then(Value::as_str).is_none_or(acpmux_book::index::is_live_state)
+        value.get("state").and_then(Value::as_str).is_none_or(acpmux_list_types::is_live_state)
     }
 
     fn row_identity(key: &ListKey) -> (String, String) {

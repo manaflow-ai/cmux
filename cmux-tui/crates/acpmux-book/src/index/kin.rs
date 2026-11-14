@@ -7,28 +7,10 @@
 
 use super::{RowKey, SortKey, Summary};
 use imbl::{OrdMap, OrdSet};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-/// A folder is scoped by origin.  Two machines may use the same folder name
-/// without sharing a view.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderKey {
-    pub origin: Arc<str>,
-    pub folder: Arc<str>,
-}
-
-impl FolderKey {
-    pub fn new(origin: impl Into<Arc<str>>, folder: impl Into<Arc<str>>) -> Self {
-        Self { origin: origin.into(), folder: folder.into() }
-    }
-
-    pub fn of(summary: &Summary) -> Option<Self> {
-        summary.folder.as_ref().map(|folder| Self::new(summary.origin.as_str(), folder.as_str()))
-    }
-}
+pub use acpmux_list_types::FolderKey;
 
 /// The two edges a summary contributes to the kin view.
 #[derive(Clone, Debug, Default)]
