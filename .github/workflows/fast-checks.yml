@@ -124,6 +124,38 @@ jobs:
           # snapshot's, so only the commit object is new).
           fetch-depth: ${{ inputs.tested_sha && 2 || 1 }}
 
+      # Rust checks can compile ghostty-vt-sys, whose source is the
+      # ghostty-next gitlink. The warm checkout is deliberately initialized
+      # without submodules, so hydrate and verify that input before any Rust
+      # command. A missing build.zig otherwise fails much later inside Cargo
+      # and hides a checkout defect as a code failure.
+      - name: Initialize ghostty-next for Rust checks
+        if: inputs.setup == 'rust'
+        working-directory: .fast-checks-checkout
+        run: |
+          set -euo pipefail
+          entry="$(git ls-tree HEAD ghostty-next)"
+          [[ "$entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty-next$ ]] || {
+            echo "::error::HEAD:ghostty-next is not a gitlink" >&2
+            exit 1
+          }
+          bash scripts/ci/init-submodule.sh ghostty-next
+          expected="$(git rev-parse HEAD:ghostty-next)"
+          actual="$(git -C ghostty-next rev-parse HEAD)"
+          [[ "$actual" == "$expected" ]] || {
+            echo "::error::ghostty-next checkout $actual does not match gitlink $expected" >&2
+            exit 1
+          }
+          [[ -z "$(git -C ghostty-next status --porcelain=v1 --untracked-files=normal)" ]] || {
+            echo "::error::ghostty-next submodule is dirty after initialization" >&2
+            git -C ghostty-next status --short >&2
+            exit 1
+          }
+          [[ -f ghostty-next/build.zig ]] || {
+            echo "::error::ghostty-next is missing build.zig" >&2
+            exit 1
+          }
+
       # The run-name names tested_sha as the commit this run tests. Hold it to that:
       # the snapshot's only parent, with the very same tree (no uncommitted edits).
       - name: Confirm the tested commit
