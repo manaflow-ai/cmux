@@ -74,7 +74,8 @@ extension LiveCoordinator {
             case .respond(let sessionID, let permissionID, let optionID):
                 try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
             case .prompt(let sessionID, let text, let attachments, let promptID):
-                let blocks = AcpmuxSessionSource.promptBlocks(text: text, attachments: await Self.attachments(attachments))
+                let outbox = attachments.isEmpty ? nil : PushOutbox(group: await PushAppGroup.resolved())
+                let blocks = try await PushReplyAttachments.blocks(text: text, names: attachments, outbox: outbox, link: hub.macLink)
                 _ = try await hub.request("session/prompt", .object([
                     "sessionId": .string(sessionID), "prompt": .array(blocks),
                     "_meta": PushReplyPlan.promptMeta(promptID: promptID),

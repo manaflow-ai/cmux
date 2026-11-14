@@ -30,9 +30,6 @@ final class NotificationContentModel {
     @ObservationIgnored var presentPicker: (UIViewController) -> Void = { _ in }
     @ObservationIgnored private var pickerDelegate: (any NSObjectProtocol)?
 
-    /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
-    nonisolated static let maxFileBytes = 25 * 1024 * 1024
-
     /// The system's reply field is at the bottom: iOS raises its keyboard as the long
     /// look opens and clips the card to about 300 pt above it, without resizing this
     /// view. So the view is laid out for that space: Messages' compact header (a small
@@ -163,7 +160,7 @@ final class NotificationContentModel {
         let delegate = FilePickerDelegate(outbox: outbox) { [weak self] result in
             switch result {
             case .success(let item): self?.added(item)
-            case .failure: self?.failure = String(localized: "That file is too large to send from a notification.")
+            case .failure: self?.failure = String(localized: "Couldn't attach that. Open cmux to send it.")
             }
         }
         pickerDelegate = delegate
@@ -188,21 +185,14 @@ struct AttachmentKinds: OptionSet {
 
 /// A picked file's thumbnail, small (ImageIO), so the extension stays inside its memory budget.
 nonisolated func attachmentThumbnail(_ url: URL, side: CGFloat) -> UIImage? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    guard let url = PushPickedFile.previewURL(url),
+          let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
     let options: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
         kCGImageSourceCreateThumbnailWithTransform: true,
         kCGImageSourceThumbnailMaxPixelSize: side * 3,
     ]
     return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
-}
-
-/// A plain file name for an attachment: a short unique prefix, then the original
-/// name (what the Mac shows), never a path.
-nonisolated func attachmentName(_ original: String) -> String {
-    let base = (original as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "-")
-    let clean = base.isEmpty || base.hasPrefix(".") ? "file" + base : base
-    return String(UUID().uuidString.prefix(8)).lowercased() + "-" + String(clean.suffix(120))
 }
 
 /// Copies picked images into the outbox's attachments (`PushOutbox.adopt`).
@@ -238,12 +228,12 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
 /// Moves files picked in Files into the outbox's attachments (`PushOutbox.adopt`).
 @MainActor
 private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
-    struct TooLarge: Error {}
+    struct Unreadable: Error {}
 
     let outbox: PushOutbox
-    let done: @MainActor (Result<PickedAttachment, TooLarge>) -> Void
+    let done: @MainActor (Result<PickedAttachment, Unreadable>) -> Void
 
-    init(outbox: PushOutbox, done: @escaping @MainActor (Result<PickedAttachment, TooLarge>) -> Void) {
+    init(outbox: PushOutbox, done: @escaping @MainActor (Result<PickedAttachment, Unreadable>) -> Void) {
         self.outbox = outbox
         self.done = done
     }
@@ -252,20 +242,14 @@ private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
         let outbox = outbox
         Task { @MainActor in
             for url in urls {
-                let result = await Task.detached(priority: .userInitiated) { () -> Result<PickedAttachment, TooLarge>? in
-                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                    guard size <= NotificationContentModel.maxFileBytes else {
-                        try? FileManager.default.removeItem(at: url)
-                        return .failure(TooLarge())
-                    }
-                    let name = attachmentName(url.lastPathComponent)
-                    guard (try? outbox.adopt(url, as: name, move: true)) != nil else { return nil }
-                    let target = outbox.attachments.appendingPathComponent(name)
+                let result = await Task.detached(priority: .userInitiated) { () -> Result<PickedAttachment, Unreadable> in
+                    guard let picked = try? PushPickedFile(url, outbox: outbox) else { return .failure(Unreadable()) }
+                    let target = picked.url
                     let isImage = UTType(filenameExtension: target.pathExtension)?.conforms(to: .image) ?? false
                     let thumbnail = isImage ? attachmentThumbnail(target, side: AttachTray.thumbnailSize) : nil
-                    return .success(PickedAttachment(name: name, title: url.lastPathComponent, thumbnail: thumbnail))
+                    return .success(PickedAttachment(name: picked.name, title: url.lastPathComponent, thumbnail: thumbnail))
                 }.value
-                if let result { done(result) }
+                done(result)
             }
         }
     }
