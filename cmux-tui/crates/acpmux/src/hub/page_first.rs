@@ -286,17 +286,12 @@ impl Hub {
             .collect()
     }
 
-    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's closed
+    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's `own` closed
     /// sessions and the peers' and hub machines' mirrored ones, read from their status with no
     /// row built (`ls`'s hidden line, beside a read of the live view), and of those the mirrored
     /// ones (which the v2 list does not hold: a form that walks its whole view reads v1 while
-    /// any is listed). `sessions` is this daemon's, as the caller already holds them
-    /// (`Hub::status` walks them once).
-    pub(crate) fn closed_listed(&self, sessions: &[Arc<Session>]) -> ClosedListed {
-        let own = sessions
-            .iter()
-            .filter(|session| session.read_meta(|m| m.status == SessionStatus::Closed))
-            .count();
+    /// any is listed).
+    pub(crate) fn closed_listed(&self, own: usize) -> ClosedListed {
         let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
         let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
         let remote = peers + self.mesh_book_count(closed);
