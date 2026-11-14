@@ -309,12 +309,16 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     const data = event.args?.data ?? {};
     // A subtree invalidation names the classes and attributes its invalidation set matched: which one
     // flipped on the node, so the whole thread restyled.
-    const sets = (data.invalidationList as { classes?: string[]; attributes?: string[]; id?: string }[] | undefined)
-      ?.flatMap((set) => [
+    type InvalidationSet = { classes?: string[]; attributes?: string[]; ids?: string[]; subtree?: boolean };
+    const sets = [
+      ...((data.invalidationList as InvalidationSet[] | undefined) ?? []).flatMap((set) => [
+        ...(set.subtree ? ["subtree"] : []),
         ...(set.classes ?? []).map((name) => `.${name}`),
         ...(set.attributes ?? []).map((name) => `[${name}]`),
-        ...(set.id ? [`#${set.id}`] : []),
-      ])
+        ...(set.ids ?? []).map((name) => `#${name}`),
+      ]),
+      ...((data.selectors as { selector?: string }[] | undefined) ?? []).map((each) => `{${each.selector ?? ""}}`),
+    ]
       .slice(0, 4)
       .join(" ");
     const why =
@@ -346,7 +350,7 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
   const per = (value: number) => Math.round((value / records) * 10) / 10;
   const top = [...reasons.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 14)
+    .slice(0, Number(process.env.INVALIDATIONS_TOP) || 14)
     .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
     .join("");
   return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
