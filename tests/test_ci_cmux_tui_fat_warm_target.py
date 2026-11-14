@@ -119,15 +119,18 @@ class FatWarmWiring(unittest.TestCase):
                 self.assertFalse(fat.startswith(thin) or thin.startswith(fat), (fat, thin))
 
     def test_rust_cache_steps_yield_to_a_mounted_disk(self) -> None:
-        ids = {fat_mount_for(t).get("id") for t in SHIPPED}
-        self.assertNotIn(None, ids, "the fat mount steps have ids")
         order = [s.get("name") for s in steps()]
-        for name in ("Restore the Linux cargo cache", "Restore the macOS-on-Linux cargo cache"):
+        caches = {
+            "Restore the Linux cargo cache": [t for t in SHIPPED if t.endswith("-linux-musl")],
+            "Restore the macOS-on-Linux cargo cache": [t for t in SHIPPED if t.endswith("-apple-darwin")],
+        }
+        for name, targets in caches.items():
             cond = str(step(name).get("if", ""))
-            for mount_id in ids:
-                self.assertIn(f"steps.{mount_id}.outcome != 'success'", cond, name)
-            for t in SHIPPED:
-                self.assertLess(order.index(fat_mount_for(t)["name"]), order.index(name), f"{t} mounts before {name}")
+            for t in targets:
+                mount = fat_mount_for(t)
+                self.assertTrue(mount.get("id"), f"{t}: the fat mount step has an id")
+                self.assertIn(f"steps.{mount['id']}.outcome != 'success'", cond, name)
+                self.assertLess(order.index(mount["name"]), order.index(name), f"{t} mounts before {name}")
 
     def _assert_wraps(self, build: dict, target: str, before: str) -> str:
         run = str(build["run"])
@@ -143,9 +146,9 @@ class FatWarmWiring(unittest.TestCase):
 
     def test_linux_build_wraps_fat_builds_too(self) -> None:
         build = step("Build cmux-tui (Linux cross)")
-        run = self._assert_wraps(build, "x86_64-unknown-linux-musl", "cargo-groups.sh")
+        run = self._assert_wraps(build, "x86_64-unknown-linux-musl", "../scripts/ci/cargo-groups.sh \"")
         # The warm calls must not sit inside a thin-only branch.
-        head = run[: run.index("cargo-groups.sh")]
+        head = run[: run.index("../scripts/ci/cargo-groups.sh \"")]
         thin_blocks = re.findall(r'if \[\[ "\$LTO" == thin \]\]; then(.*?)\n\s*fi\n', head, re.S)
         for block in thin_blocks:
             self.assertNotIn("warm restore", block, "restore runs for fat legs too")
@@ -157,7 +160,7 @@ class FatWarmWiring(unittest.TestCase):
 
     def test_darwin_build_wraps_macos_cross_all_with_a_toolchain_stamp(self) -> None:
         build = step("Build the macOS binaries on Linux (no Apple SDK)")
-        run = self._assert_wraps(build, "aarch64-apple-darwin", "macos-cross.sh all")
+        run = self._assert_wraps(build, "aarch64-apple-darwin", "./scripts/ci/macos-cross.sh all ")
         self.assertIn("MACHINE_CHANNEL_WARM_TOOLCHAIN", run + str(build.get("env", {})))
         stamp = str(build.get("env", {}).get("MACHINE_CHANNEL_WARM_TOOLCHAIN", ""))
         self.assertIn("steps.darwin-cross.outputs.key", stamp)
