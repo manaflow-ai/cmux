@@ -253,6 +253,40 @@
       throw new CmuxError("app.host", "the cmux host is not attached");
     return state.native;
   };
+  function timeZone(name, at = Date.now()) {
+    const zone = String(name);
+    const atMs = Number(at);
+    const nativeZone = state.native?.zone;
+    if (nativeZone) {
+      const r = JSON.parse(nativeZone.call(state.native, zone, atMs));
+      if (r.error !== undefined)
+        throw new CmuxError("zone.unknown", r.error);
+      return { zone, offsetMinutes: r.offsetMinutes ?? 0, abbreviation: r.abbreviation ?? "" };
+    }
+    const intl = globalThis.Intl;
+    if (!intl?.DateTimeFormat)
+      throw new CmuxError("operation.unsupported", "this cmux has no time zone database");
+    let parts;
+    try {
+      parts = new intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        timeZoneName: "short"
+      }).formatToParts(new Date(atMs));
+    } catch {
+      throw new CmuxError("zone.unknown", `${zone} is not an IANA time zone`);
+    }
+    const part = (type) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"));
+    const offsetMinutes = Math.round((wall - Math.floor(atMs / 1000) * 1000) / 60000);
+    return { zone, offsetMinutes, abbreviation: parts.find((p) => p.type === "timeZoneName")?.value ?? "" };
+  }
   function log(level, ...parts) {
     const message = parts.map((p) => typeof p === "string" ? p : safeJSON(p)).join(" ");
     state.native?.log(level, message);
@@ -448,6 +482,7 @@
         get: (_t, provider) => typeof provider === "string" ? { request: (params) => c("integration.request", { provider, ...params }) } : undefined
       }),
       timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
+      time: { zone: timeZone },
       app: {
         get id() {
           return state.app.id;
@@ -1672,7 +1707,7 @@
       }
     }
   }
-  // cmux-tui/crates/cmux-app-host/generated/signals.json
+  // generated/signals.json
   var signals_default = {
     version: 1,
     signals: {

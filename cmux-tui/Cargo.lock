@@ -1138,6 +1138,8 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "cmux-json",
  "libc",
  "rquickjs",

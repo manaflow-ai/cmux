@@ -74,6 +74,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
 | `EVENT_STREAMS`, `scopeFor(stream)` | The streams cmux sends and the scope each needs. |
 | `cmux` | Every op cmux gives an extension (`cmux.workspace.focus`, `cmux.toast`, `cmux.watch`, `cmux.storage`, ...), typed in `cmux-app.d.ts`. |
+| `cmux.time.zone(name, at?)` | Another time zone: `{zone, offsetMinutes, abbreviation}` for an IANA name at `at` (epoch ms, default now); throws `zone.unknown`. The sandbox has no `Intl`, and `toLocaleString` ignores `timeZone`, so a world clock reads the offset here and formats `new Date(now + offsetMinutes * 60000)` with the `getUTC*` methods. |
 | `signal`, `computed`, `effect`, `onCleanup`, `untrack` | Reactive state: a view that reads a signal redraws only what changed. |
 | `VStack`, `HStack`, `Row`, `Text`, `Panel`, `ForEach`, `Button`, `Toggle`, ... | The scene DSL cmux draws natively. Colors are theme tones (`cmux.theme.success`), never raw values. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |

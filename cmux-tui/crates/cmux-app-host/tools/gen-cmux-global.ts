@@ -361,6 +361,8 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
+  /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
+  time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
