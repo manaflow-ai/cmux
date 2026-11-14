@@ -297,7 +297,10 @@ pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
 
 /// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
 /// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
-/// at the park step with a new link ([`classify`]).
+/// at the park step with a new link ([`classify`]). Only the attempt's first link waits this
+/// long at most: the relay parks a link only until the machine's host registers, so the lanes
+/// opened after the first one is allocated wait until the dial's `deadline`, however near
+/// `PARK_REDIAL` the first allocation came.
 pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
     deadline.min(now + PARK_REDIAL)
 }
@@ -320,7 +323,11 @@ fn relay_provider(
         },
         credentials,
     )
-    .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
+    .map(|provider| {
+        provider
+            .with_allocation_deadline(deadline)
+            .with_first_allocation_deadline(park_until(deadline, Instant::now()))
+    })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 

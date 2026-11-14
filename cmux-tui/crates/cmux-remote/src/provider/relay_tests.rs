@@ -1297,6 +1297,141 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     server.abort();
 }
 
+/// A relay that answers each Connect on its one control socket after the
+/// next of `delays`, then serves that Connect's circuit.
+async fn answer_connects_after(
+    delays: Vec<Duration>,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let mut circuits = Vec::new();
+        for (index, delay) in delays.into_iter().enumerate() {
+            let RelayControl::Connect { lane, generation, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            tokio::time::sleep(delay).await;
+            let circuit = CircuitId(format!("circuit-{index}"));
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: format!("join-ticket-{index}"),
+                },
+            )
+            .await;
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            circuits.push(circuit_socket);
+        }
+        for mut circuit_socket in circuits {
+            let _ = circuit_socket.next().await;
+        }
+        let _ = control.next().await;
+    });
+    (address, server)
+}
+
+fn first_allocation_test_config() -> RelayClientConfig {
+    RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_millis(100),
+    }
+}
+
+fn first_allocation_test_request(address: std::net::SocketAddr) -> ConnectRequest {
+    ConnectRequest {
+        endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+        session: SessionId::ZERO,
+        lane_policy: LanePolicy::Isolated,
+        routing: BTreeMap::new(),
+    }
+}
+
+/// The carrier's park redial at a tenth of its scale (a 1 s first-lane
+/// deadline for its 10 s, a 5 s dial deadline): a first lane allocated just
+/// inside the first-lane deadline (0.95 s) leaves a later lane, opened after
+/// it, the dial's deadline to be allocated in (0.6 s more), not the 50 ms left
+/// of the first lane's.
+#[tokio::test]
+async fn a_later_lane_waits_the_dial_deadline_after_a_slow_first_allocation() {
+    let (address, server) =
+        answer_connects_after(vec![Duration::from_millis(950), Duration::from_millis(600)]).await;
+    let started = Instant::now();
+    let provider = RelayProvider::new(first_allocation_test_config())
+        .unwrap()
+        .with_allocation_deadline(started + Duration::from_secs(5))
+        .with_first_allocation_deadline(started + Duration::from_secs(1));
+    let group = provider.connect(first_allocation_test_request(address)).await.unwrap();
+    let first = group
+        .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+        .await
+        .expect("the first lane is allocated inside its deadline");
+    let second = group
+        .open(LinkRequest { lane: Lane::Bulk, generation: 0 })
+        .await
+        .expect("a later lane waits the dial's deadline, not what is left of the first lane's");
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(1500), "both allocations took {waited:?}");
+    assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the dial's deadline");
+    first.close().await.unwrap();
+    second.close().await.unwrap();
+    group.close().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+}
+
+/// A first lane the relay parks for good still gives up at the first-lane
+/// deadline (the carrier's park redial), well before the dial's deadline.
+#[tokio::test]
+async fn a_first_lane_parked_past_its_deadline_times_out_at_it() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        // The client's reconnect after the timeout is refused at once.
+        drop(listener);
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { .. } = receive_test_control(&mut control).await else {
+            panic!("expected client connect");
+        };
+        while control.next().await.is_some() {}
+    });
+    let started = Instant::now();
+    let provider = RelayProvider::new(first_allocation_test_config())
+        .unwrap()
+        .with_allocation_deadline(started + Duration::from_secs(5))
+        .with_first_allocation_deadline(started + Duration::from_secs(1));
+    let group = provider.connect(first_allocation_test_request(address)).await.unwrap();
+    let error = group
+        .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+        .await
+        .err()
+        .expect("a first lane parked past its deadline fails");
+    let waited = started.elapsed();
+    assert!(error.to_string().contains("allocation timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(900), "gave up after {waited:?}, before the deadline");
+    assert!(waited < Duration::from_secs(3), "waited {waited:?}, toward the dial's deadline");
+    let _ = group.close().await;
+    server.abort();
+}
+
 /// A WebSocket sink that hands each message, with the (virtual) instant it was
 /// sent, to the test: the batched sender's socket with no host in the way.
 struct RecordingSink {
