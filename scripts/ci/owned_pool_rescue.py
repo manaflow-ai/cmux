@@ -524,7 +524,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next.yml",
     # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
     # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
@@ -533,6 +535,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
