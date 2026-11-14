@@ -76,18 +76,32 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     fixture(dir.path(), 128);
     let (hub, mut writer) = Hub::open(dir.path(), 13, || 29).unwrap();
     let subscription = hub.subscribe(&Sub::new("sid", "list")).unwrap();
+    let mut folders = Sub::new("folders", "list");
+    folders.view = Some(crate::wire::ListView::Folders);
+    let folder_subscription = hub.subscribe(&folders).unwrap();
     corrupt(&dir.path().join("index.snap"), 4096);
 
     assert!(hub.list_window(&Sub::new("page", "list")).is_err());
     writer.process_batch();
     assert_eq!(hub.rebuild_count(), 1);
     hub.wait_hydrated().await.unwrap();
-    assert_eq!(hub.subscriber_count(), 1);
+    assert_eq!(hub.subscriber_count(), 2);
     hub.source_walk_finished(Source::Local, false);
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
+    assert!(folder_subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
+    let mut rebuilt = row("rebuilt", 1);
+    rebuilt.folder = Some("/rebuild".into());
+    writer.apply(rebuilt).unwrap();
     hub.source_walk_finished(Source::Local, true);
     assert!(matches!(subscription.receiver.try_next_raw(None, 64 * 1024), Some(RawRead::Lagged)));
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
+    assert!(matches!(
+        folder_subscription.receiver.try_next_raw(None, 64 * 1024),
+        Some(RawRead::Lagged)
+    ));
+    let folder_window: crate::wire::FolderWindow =
+        hub.list_window(&folders).unwrap().decode_json().unwrap();
+    assert!(folder_window.rows.iter().any(|row| row.folder.as_ref() == "/rebuild"));
 }
 
 #[test]

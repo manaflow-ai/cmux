@@ -319,17 +319,28 @@ impl ListReceiver {
     /// follows the live tail. A malformed or expired span is reported as a
     /// lag so the connection can open one fresh window.
     pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
-        if self.folders {
-            return self.next_folders(max_bytes);
-        }
-        let cursor = {
+        let window_pending = {
             let mut state = self.subscriber.state.lock().ok()?;
             if state.ended {
                 return None;
             }
             if state.window_pending {
                 state.window_pending = false;
-                return Some(RawRead::Lagged);
+                true
+            } else {
+                false
+            }
+        };
+        if window_pending {
+            return Some(RawRead::Lagged);
+        }
+        if self.folders {
+            return self.next_folders(max_bytes);
+        }
+        let cursor = {
+            let state = self.subscriber.state.lock().ok()?;
+            if state.ended {
+                return None;
             }
             state.cursor
         };
