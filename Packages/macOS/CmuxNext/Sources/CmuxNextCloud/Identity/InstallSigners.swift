@@ -26,7 +26,6 @@ struct FileInstallSigner: InstallSigner {
     }
 }
 
-
 /// The install key in the Secure Enclave (signed builds). Only the enclave's
 /// encrypted key blob is stored, in the Keychain for this device only; the
 /// private key never leaves the enclave. No user-presence prompt.
