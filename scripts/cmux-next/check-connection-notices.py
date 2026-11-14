@@ -51,6 +51,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = "scripts/cmux-next/connection-notices-allowlist.tsv"
+CHECK_PATH = "scripts/cmux-next/check-connection-notices.py"
 ALLOWLIST_HEADER = (
     "# check-connection-notices.py allowlist: unit<TAB>surface<TAB>owner<TAB>reason. It only shrinks: a PR that fixes\n"
     "# a unit (a bound, or one action) removes its row in the same change; a stale row fails the check.\n"
@@ -249,14 +250,17 @@ def connection_keys(tree: Tree, files: list[str]) -> set[str]:
             continue
         try:
             table = json.loads(tree.read(path))
-        except ValueError:
+        except (OSError, ValueError):
             continue
-        for key, entry in (table.get("strings") or {}).items():
+        strings = table.get("strings") if isinstance(table, dict) else None
+        for key, entry in (strings if isinstance(strings, dict) else {}).items():
             english = key
             try:
                 english = entry["localizations"]["en"]["stringUnit"]["value"]
             except (KeyError, TypeError):
                 pass
+            if not isinstance(english, str):
+                english = key
             if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and CONNECTION_WORDS.search(english or ""):
                 keys.add(key)
     return keys
@@ -470,38 +474,65 @@ def write_allowlist(path: Path, rows: dict[str, tuple[str, str, str]]) -> None:
     path.write_text(ALLOWLIST_HEADER + body, encoding="utf-8")
 
 
+class BaseUnreadable(Exception):
+    """--base names a revision git cannot read: the ratchet cannot judge, so the check refuses."""
+
+
+def git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    try:
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    except OSError as error:
+        raise BaseUnreadable(f"git did not run: {error}") from error
+
+
 def base_allowlist(root: Path, rev: str) -> dict[str, tuple[str, str, str]] | None:
-    proc = subprocess.run(["git", "-C", str(root), "show", f"{rev}:{ALLOWLIST}"], capture_output=True)
-    if proc.returncode != 0:
-        return None  # the base has no list yet: the change that adds it
-    return read_allowlist(proc.stdout.decode())
-
-
-def changed_files(root: Path, base: str) -> set[str] | None:
-    """The files the working tree changes from BASE; None (judge everything) when git cannot say."""
-    proc = subprocess.run(["git", "-C", str(root), "diff", "--name-only", "--no-renames", base, "--"],
-                          capture_output=True, text=True)
-    if proc.returncode != 0:
+    """The list at REV; None only when REV resolves and has no list (the change that adds it)."""
+    if git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").returncode != 0:
+        raise BaseUnreadable(f"--base {rev} does not resolve to a commit (fetch it, or a deeper checkout)")
+    if git(root, "cat-file", "-e", f"{rev}:{ALLOWLIST}").returncode != 0:
         return None
-    return {line for line in proc.stdout.split("\n") if line}
+    proc = git(root, "show", f"{rev}:{ALLOWLIST}")
+    if proc.returncode != 0:
+        raise BaseUnreadable(f"could not read {ALLOWLIST} at {rev}")
+    return read_allowlist(proc.stdout.decode("utf-8", errors="replace"))
+
+
+def changed_files(root: Path, base: str) -> set[str]:
+    """The files the working tree changes from BASE."""
+    proc = git(root, "diff", "--name-only", "--no-renames", base, "--")
+    if proc.returncode != 0:
+        raise BaseUnreadable(f"git diff against {base} failed")
+    return {line for line in proc.stdout.decode("utf-8", errors="replace").split("\n") if line}
 
 
 def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout) -> int:
     tree = Tree(root)
     units = scan(tree)
     path = root / ALLOWLIST
-    allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}
+    allow = read_allowlist(path.read_text(encoding="utf-8", errors="replace")) if path.exists() else {}
     offenders = {u.id: u for u in units if not u.ok}
+    unit_ids = {u.id for u in units}
     problems: list[str] = bound_drift(tree)
     # With a base, judge only what the change touches (its files, or the files its words come from): a change never
-    # pays for a file it left alone, like the pre-push gate. Rows the base lacks are judged whatever the change.
-    changed = changed_files(root, base) if base is not None else None
+    # pays for a file it left alone, like the pre-push gate. A change to a string table can turn any unit's words
+    # into a connection state (or out of one), so it judges everything; so does a change to this check or its list's
+    # rows: a unit whose row the change removed is judged wherever it is.
+    try:
+        before = base_allowlist(root, base) if base is not None else None
+        changed = changed_files(root, base) if base is not None else None
+    except BaseUnreadable as error:
+        print(f"connection notices: cannot judge the change: {error}", file=out)
+        return 2
+    if changed is not None and any(p.endswith(STRING_TABLE_SUFFIX) or p in (NOTICE_TIMING, CHECK_PATH)
+                                   for p in changed):
+        changed = None
+    unlisted = set(before) - set(allow) if before is not None else set()
     touched = (lambda path: True) if changed is None else (lambda path: path in changed)
     skipped = 0
     for uid, unit in sorted(offenders.items()):
         if uid in allow:
             continue
-        if not (touched(unit.path) or any(touched(h.origin) for h in unit.hits)):
+        if not (uid in unlisted or touched(unit.path) or any(touched(h.origin) for h in unit.hits)):
             skipped += 1
             continue
         first = unit.hits[0]
@@ -512,16 +543,17 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
         if uid not in offenders and touched(uid.split("::", 1)[0]):
             problems.append(f"{ALLOWLIST}: stale row {uid}: it no longer shows an unbounded connection state; "
                             "remove the row in this change")
-    if base is not None:
-        before = base_allowlist(root, base)
-        if before is not None:
-            # A row whose unit moved (same name and surface, another file) is the same debt, not a new one.
-            gone = {(uid.split("::", 1)[1], before[uid][0]) for uid in set(before) - set(allow)}
-            for uid in sorted(set(allow) - set(before)):
-                if (uid.split("::", 1)[1], allow[uid][0]) in gone:
-                    continue
-                problems.append(f"{ALLOWLIST}: new row {uid}: the list only shrinks; give the state a bound "
-                                "(CONNECTION_QUIET_MS) or one action instead")
+    if before is not None:
+        # A row whose unit moved (same name and surface, another file, and the old unit no longer exists) is the
+        # same debt, not a new one; each removed row covers one move.
+        gone = sorted((uid.split("::", 1)[1], before[uid][0]) for uid in unlisted if uid not in unit_ids)
+        for uid in sorted(set(allow) - set(before)):
+            key = (uid.split("::", 1)[1], allow[uid][0])
+            if key in gone:
+                gone.remove(key)
+                continue
+            problems.append(f"{ALLOWLIST}: new row {uid}: the list only shrinks; give the state a bound "
+                            "(CONNECTION_QUIET_MS) or one action instead")
     if list_all:
         for unit in sorted(units, key=lambda u: u.id):
             state = "action" if unit.acted else "bound" if unit.gated and not unit.literal_grace else (

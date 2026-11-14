@@ -395,6 +395,61 @@ class Allowlist(unittest.TestCase):
         code, out = tree.check(base="HEAD^1")
         self.assertEqual(code, 0, out)
 
+    def test_a_row_moved_onto_a_new_unit_while_the_old_one_still_offends_fails(self):
+        """Review of the first head: removing a.tsx::X's row and adding b.tsx::X for a new unit passed."""
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.commit("base")
+        tree.write(f"{WEB}/notices/AutoResumeNotice.tsx", NOISY_NOTICE.replace("./retryState", "../retryState"))
+        tree.allow(f"{WEB}/notices/AutoResumeNotice.tsx::AutoResumeNotice")
+        tree.commit("head: a second unit of the same name takes the row")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"new row {WEB}/notices/AutoResumeNotice.tsx::AutoResumeNotice", out)
+        self.assertIn(f"{WEB}/AutoResumeNotice.tsx:3: AutoResumeNotice shows a connection state", out,
+                      "the unit whose row was removed is judged though its file is untouched")
+
+    def test_a_string_table_change_judges_every_unit(self):
+        """Review of the first head: a key whose English became "Reconnecting…" was not judged."""
+        tree = Tree(self)
+        tree.write(f"{PAGE}/strings.ts", PAGE_STRINGS)
+        tree.write(f"{PAGE}/EditorPage.tsx", QUIET_PAGE_OLD.replace("L.disconnected", "L.retry"))
+        tree.commit("base")
+        table = json.loads(json.dumps(STRINGS))
+        table["strings"]["page.retry"]["localizations"]["en"]["stringUnit"]["value"] = "Reconnecting…"
+        tree.write(f"{WEB}/Localizable.xcstrings", json.dumps(table))
+        tree.commit("head: only the table changes")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn("EditorPage shows a connection state", out)
+
+    def test_an_untouched_file_is_not_judged_with_a_base(self):
+        tree = self.noisy()
+        tree.commit("base")
+        tree.write(f"{WEB}/Unrelated.ts", "export const x = 1;\n")
+        tree.commit("head")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 unlisted unit(s) in files this change does not touch", out)
+
+    def test_a_base_that_does_not_resolve_refuses(self):
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.commit("only commit")
+        code, out = tree.check(base="no-such-rev")
+        self.assertEqual(code, 2, out)
+        self.assertIn("--base no-such-rev does not resolve", out)
+
+    def test_malformed_string_tables_are_skipped(self):
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.write(f"{PAGE}/Localizable.xcstrings", "[1, 2]")
+        tree.write(f"{IOS}/Localizable.xcstrings",
+                   json.dumps({"strings": {"a.b": {"localizations": {"en": {"stringUnit": {"value": 3}}}}}}))
+        tree.write(f"{MAC}/Localizable.xcstrings", "{not json")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
     def test_the_change_that_adds_the_list_has_no_base_list(self):
         tree = self.noisy()
         tree.commit("base: no list yet")

@@ -3116,3 +3116,8 @@ NoticeTiming.connectionQuiet and QuietStatusGate.threshold. The offenders on the
 connection-notices-allowlist.tsv, which only shrinks: `--base HEAD^1` (the base tip on a pull request, the previous
 tip on a push) refuses a row the base lacks, judges only the files the change touches, and fails a row whose unit the
 change fixed and left listed. Its own tests run in the same background check.
+
+The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
+kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
+fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is
+judged only when a cmux-next run happens.
