@@ -484,6 +484,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_bounds.remove(&area.surface);
     app.rendered_kitty_graphics.remove(&area.surface);
     app.rendered_terminal_pointer_semantics.remove(&area.surface);
+    // Recorded again below only when this draw is a held synchronized
+    // update; a pane drawn any other way (or not at all) schedules nothing.
+    app.rendered_synchronized_holds.remove(&area.surface);
     if matches!(
         app.rendered_pane_content_generations.get(&area.surface),
         Some(PaneContentGeneration::Terminal(_))
@@ -527,16 +530,12 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Ok(render) = surface.render_display_frame(rs) else {
         return DrawCursors::default();
     };
-    // A held synchronized update shows the last complete snapshot, so the
-    // pane's drawn content generation stays the one already recorded.
+    // A held synchronized update shows the last complete snapshot. Its
+    // content generation is unknown, so the pane records none and a click
+    // on it waits for the next complete frame, as for changed content.
     let synchronized_hold = rs.synchronized_hold_deadline();
-    match synchronized_hold {
-        Some(until) => {
-            app.rendered_synchronized_holds.insert(area.surface, until);
-        }
-        None => {
-            app.rendered_synchronized_holds.remove(&area.surface);
-        }
+    if let Some(until) = synchronized_hold {
+        app.rendered_synchronized_holds.insert(area.surface, until);
     }
     let source_x = area.content_source_x();
     let live =

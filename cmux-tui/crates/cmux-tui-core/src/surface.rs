@@ -7795,10 +7795,12 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
             {
                 last_frame = Instant::now();
             }
-            // A deadline already past still wakes at once and presents; with
-            // no taps nothing is built, so there is nothing to wake for.
+            // Wake at the hold deadline only while a frame is actually held
+            // back for a tap: a deadline already past then wakes at once and
+            // presents. A generation already built, or no taps, holds
+            // nothing, and waking for it would spin this thread.
             let render = pty.render.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            held_until = if render.taps.is_empty() {
+            held_until = if render.taps.is_empty() || render.built_generation >= generation {
                 None
             } else {
                 render.state.synchronized_hold_deadline()
@@ -10582,8 +10584,14 @@ mod tests {
         // Begin the update, erase the old pill, draw the new one a row up,
         // and pause well past the producer's frame cadence.
         push(b"\x1b[?2026h\x1b[3;1H\x1b[2K\x1b[2;1H6 new messages");
-        let pause = Instant::now() + Duration::from_millis(300);
+        let began = Instant::now();
+        let pause = began + Duration::from_millis(300);
         while let Some(frame) = next_frame(&attach, pause) {
+            // Past the hold timeout the producer rightly presents the update,
+            // so a test thread stalled that long has nothing left to check.
+            if began.elapsed() >= Duration::from_millis(900) {
+                break;
+            }
             assert!(
                 !rows(&frame).iter().any(|row| row.contains("6 new messages")),
                 "a half-drawn synchronized update was published: {:?}",

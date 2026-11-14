@@ -148,6 +148,8 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     let pane_cursors = if draw_machine_transition(app, frame) {
+        // No pane is drawn, so no held synchronized update may wake the loop.
+        app.rendered_synchronized_holds.clear();
         pane::DrawCursors::default()
     } else {
         pane::draw_all(app, frame)

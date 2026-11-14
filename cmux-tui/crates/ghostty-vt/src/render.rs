@@ -345,6 +345,7 @@ impl RenderState {
         }
         // Only a complete snapshot of this same terminal may stand in for it.
         if self.kitty_terminal_instance_id != Some(terminal.instance_id()) {
+            self.synchronized_hold = None;
             return false;
         }
         match *self.synchronized_hold.get_or_insert(SynchronizedHold::Since(now)) {
