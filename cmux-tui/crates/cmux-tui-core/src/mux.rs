@@ -769,8 +769,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD lookups keyed by directory, with their background refresh.
+    git_heads: Arc<presentation::GitHeadCache>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,

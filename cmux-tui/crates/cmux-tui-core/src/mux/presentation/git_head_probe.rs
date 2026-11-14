@@ -50,6 +50,16 @@ pub(super) fn refreshes_running() -> usize {
     REFRESHES.load(Ordering::SeqCst)
 }
 
+/// A background refresh starts: called before its thread starts, so a test that waits for no
+/// running refresh sees one from the reply that asked for it.
+pub(super) fn refresh_started() {
+    REFRESHES.fetch_add(1, Ordering::SeqCst);
+}
+
+pub(super) fn refresh_ended() {
+    REFRESHES.fetch_sub(1, Ordering::SeqCst);
+}
+
 /// Called by each git HEAD read before it touches the file system.
 pub(super) fn on_read(directory: &Path) {
     READS.with(|reads| reads.set(reads.get().saturating_add(1)));
