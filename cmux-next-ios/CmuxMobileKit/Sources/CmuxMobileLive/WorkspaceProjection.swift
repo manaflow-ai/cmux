@@ -76,6 +76,10 @@ public actor WorkspaceProjection {
     /// beyond its own row. `WorkspaceProjectionCostTests` holds a one-row
     /// delta's share of it the same at 1,000 workspaces as at 200.
     private(set) var scannedRows = 0
+    /// What this projection holds of the daemon's tree, sent back as `known`
+    /// (`list-workspaces-known-v1`): the identity and revisions of the last
+    /// whole list that carried a `tree_revision`. Nil until one did.
+    public private(set) var known: KnownTree?
 
     public init() {}
 
@@ -112,8 +116,23 @@ public actor WorkspaceProjection {
         self.arrangement = arrangement
         revision = data["workspace_revision"] as? Int
         registryID = data["registry_id"] as? String
+        known = KnownTree(data)
         self.tree = parsed
         return parsed
+    }
+
+    /// The held tree in `arrangement`, after a list the daemon answered
+    /// `unchanged` (the tree is current; only the order or pins were read
+    /// again). Nil when the tree already has that arrangement.
+    public func rearrange(_ arrangement: SidebarArrangement?) -> DaemonTree? {
+        guard var current = tree, arrangement != self.arrangement else { return nil }
+        self.arrangement = arrangement
+        reorder(&current)
+        current.apply(arrangement)
+        rowsReordered = false
+        rebuildTreeSlots(current)
+        tree = current
+        return current
     }
 
     /// Applies one typed tree/title/agent event. `nil` means the event changes
@@ -700,6 +719,44 @@ fileprivate extension WorkspaceProjection.Row {
                 value["screens"] = screens
                 return
             }
+        }
+    }
+}
+
+extension WorkspaceProjection {
+    /// The fields of a whole `list-workspaces` reply that a client sends back
+    /// as `known` (`list-workspaces-known-v1`, cmux-tui
+    /// `server/list_workspaces_page.rs`). The daemon compares them; the phone
+    /// only echoes what it was given.
+    public struct KnownTree: Sendable, Equatable {
+        var registryID: String?
+        var generation: String?
+        var workspaceRevision: Int?
+        var paneRevision: Int?
+        var terminalRevision: Int?
+        var treeRevision: String
+
+        /// From a reply's `data`; nil when it has no `tree_revision` (an older
+        /// daemon, a list sent without `known`, or a `limit` page).
+        init?(_ data: [String: Any]) {
+            guard let treeRevision = data["tree_revision"] as? String else { return nil }
+            self.treeRevision = treeRevision
+            registryID = data["registry_id"] as? String
+            generation = data["generation"] as? String
+            workspaceRevision = data["workspace_revision"] as? Int
+            paneRevision = data["pane_revision"] as? Int
+            terminalRevision = data["terminal_revision"] as? Int
+        }
+
+        /// The `known` object of a `list-workspaces` request.
+        public var params: [String: Any] {
+            var params: [String: Any] = ["tree_revision": treeRevision]
+            if let registryID { params["registry_id"] = registryID }
+            if let generation { params["generation"] = generation }
+            if let workspaceRevision { params["workspace_revision"] = workspaceRevision }
+            if let paneRevision { params["pane_revision"] = paneRevision }
+            if let terminalRevision { params["terminal_revision"] = terminalRevision }
+            return params
         }
     }
 }

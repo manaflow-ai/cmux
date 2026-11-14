@@ -816,8 +816,11 @@ jobs:
 
   # Continuous delivery to production (cx-w1ald, release-rails.md "Continuous delivery to production").
   # After each feat-cmux-next staging deploy (or a dispatch with target=promote) the gates pick the
-  # staging-proven commit (G1) and check G2-G7; the hold switch (repository variable
-  # CMUX_NEXT_PRODUCTION_HOLD, non-empty = hold) stops it first. No production secret here.
+  # staging-proven commit (G1) and check G2-G7, and a commit that passes promotes itself: no person's go.
+  # The hold switch (repository variable CMUX_NEXT_PRODUCTION_HOLD) is off by default (unset, empty or
+  # "released"); a person sets any other value on purpose to stop it, and no job ever sets it. A red
+  # smoke rolls back in promote-production; a stub journey the promote turned red rolls back in journey-production.
+  # No production secret here.
   promote-gates:
     environment: cmux-next-production
     if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))
@@ -992,7 +995,7 @@ jobs:
       - name: Smoke production after the rollback
         run: |
           curl -fsS https://cloud-api.cmux.dev/v1/health
-          echo "::warning title=cmux-api rolled back::automatic promotes hold while production serves a rollback; move forward only with an exact-SHA promote (target=promote, candidate=<sha>), and keep CMUX_NEXT_PRODUCTION_HOLD on a hold value."
+          echo "::warning title=cmux-api rolled back::automatic promotes hold the rolled-back commit; the next newer staging-proven commit promotes itself after the 6 h spacing. To stop that too, set CMUX_NEXT_PRODUCTION_HOLD to a hold value."
 
   # The Chief brain's off switch on production: the serving commit again with CHIEF_BRAIN_ENABLED "0"
   # (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF). Same code, so no lifecycle change: target=rollback turns
@@ -1102,8 +1105,9 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      # The same hold switch as the promotion (cx-w1ald review P2): only "released" deploys. deploy-worker.sh
-      # runs the production config gate itself.
+      # The hold switch (cx-w1ald review P2). A cmux main push is not staging-proven, so unlike the automatic
+      # promote (where unset means off) this path deploys only on exactly "released". deploy-worker.sh runs
+      # the production config gate itself.
       - name: Hold switch
         env:
           HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
@@ -1143,8 +1147,18 @@ jobs:
         run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
 
   # The Cloud journey as production's smoke (production Stack project's agent test account), test team and product team.
+  # After a promote it is also the automatic rollback (no extra job: the PR job budget in ci/steps.toml only goes
+  # down). The rollback signal is the model-stub journey, never the real model: on 2026-11-14 the promote of
+  # 06acc4475450 (run 43635987546) had a green product and a real-model journey red on the test account's Claude
+  # quota ("You've hit your weekly limit"); rolling back on that would undo a good deploy. A stub journey red after
+  # cloud-journey-ci.sh's own second run, when the newest hourly stub journey on production before the promote
+  # (cloud-journey-prod.yml) was green, is the promote's red: production goes back to the version that served
+  # before it (prod-promote.ts rollback, as target=rollback), only while it still serves the promoted commit (the
+  # 6 h spacing keeps another promote out). Later automatic promotes hold that commit and take the next newer
+  # staging-proven one. Across a Durable Object lifecycle change the rollback refuses and the job fails: fix
+  # forward, or target=chief-off for the Chief brain.
   journey-production:
-    needs: [deploy-production, promote-production]
+    needs: [promote-gates, deploy-production, promote-production]
     if: always() && (needs.deploy-production.result == 'success' || needs.promote-production.result == 'success')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # cmux-next-cloud-journey holds the production agent test account as CMUX_DOGFOOD_STACK_*, shadowing the
@@ -1155,18 +1169,73 @@ jobs:
       name: cmux-next-cloud-journey
       deployment: false
     timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The rollback reads production's source tags as commits (prod-promote.ts), so the whole history.
+          fetch-depth: 0
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
+            backend
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Cloud journey after the promote (model stub)
+        id: stub
+        if: needs.promote-production.result == 'success'
+        continue-on-error: true
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          bash scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          [ "$rc" != 0 ] || exit 0
+          # No test account in this environment is a config red, not the promote's.
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then exit "$rc"; fi
+          # The baseline: the newest hourly stub journey on production that finished before this run (so before the deploy) started.
+          RUN_STARTED="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at || true)"
+          [ -n "$RUN_STARTED" ] || { echo "::warning title=Cloud journey::cannot read this run's start; not rolling back"; exit "$rc"; }
+          before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-journey-prod.yml/runs?event=schedule&status=completed&per_page=10" \
+            --jq "[.workflow_runs[] | select(.updated_at < \"$RUN_STARTED\")][0].id" || true)"
+          stub="$( [ -n "$before" ] && gh api "repos/$GITHUB_REPOSITORY/actions/runs/$before/jobs" --jq '[.jobs[] | select(.name == "journey (stub)")][0].conclusion' || true)"
+          echo "baseline: hourly stub journey run ${before:-none}: ${stub:-unknown}"
+          if [ "$stub" = success ]; then echo "regressed=1" >> "$GITHUB_OUTPUT"; else echo "::warning title=Cloud journey::production's stub journey was not green before the promote (${stub:-unknown}); not rolling back"; fi
+          exit "$rc"
+      - name: Roll back the promote that turned the journey red
+        if: always() && steps.stub.outputs.regressed == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          CANDIDATE: ${{ needs.promote-gates.outputs.candidate }}
+        run: |
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate is not a 40-hex SHA"; exit 1; }
+          (cd backend && bun install --frozen-lockfile >/dev/null)
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null)
+          sha="$(bun scripts/cmux-next/release/prod-promote.ts serving)"
+          if [ "$sha" != "$CANDIDATE" ]; then
+            echo "::warning title=cmux-api not rolled back::production serves ${sha:0:12}, not the promoted ${CANDIDATE:0:12}; nothing to undo"
+            exit 1
+          fi
+          bun scripts/cmux-next/release/prod-promote.ts rollback --execute --wrangler backend/apps/api/node_modules/.bin/wrangler
+          curl -fsS https://cloud-api.cmux.dev/v1/health
+          echo "::error title=cmux-api rolled back automatically::${CANDIDATE:0:12} turned production's stub journey red (green before it); automatic promotes hold it and take the next newer staging-proven commit after the 6 h spacing."
+          exit 1
+      # The real-model journey proves the deploy (its verdict annotation); it never rolls back.
       - name: Cloud journey (prod)
+        if: always()
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
