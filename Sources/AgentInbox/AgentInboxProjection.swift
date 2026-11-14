@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxCommandPalette
 import Foundation
 
 enum AgentInboxItemKind: String, CaseIterable, Equatable, Sendable {
@@ -38,6 +39,7 @@ enum CommandPaletteOverlayState: Equatable, Sendable {
     case closed
     case palette
     case agentInbox
+    case findTmuxWindow
 
     var isCommandPalettePresented: Bool {
         self != .closed
@@ -45,6 +47,12 @@ enum CommandPaletteOverlayState: Equatable, Sendable {
 
     var isAgentInboxPresented: Bool {
         self == .agentInbox
+    }
+
+    /// Find-window keeps its query and results while the user is in another app or
+    /// window; the palette and the inbox close as before.
+    var dismissalPolicy: CommandPaletteDismissalPolicy {
+        self == .findTmuxWindow ? .staysOpenAcrossKeyChanges : .closesOnAnyInteraction
     }
 }
 
