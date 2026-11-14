@@ -17,16 +17,18 @@ impl Mux {
         else {
             let read = self.terminal_output_read_raw(terminal_id, None, max_bytes)?;
             anyhow::ensure!(
-                read["snapshot"] == true && read["complete"] == true,
+                read.get("snapshot").and_then(Value::as_bool) == Some(true)
+                    && read.get("complete").and_then(Value::as_bool) == Some(true),
                 "terminal recovery surface unavailable; retry"
             );
-            let text = read["text"].as_str().unwrap_or_default().to_owned();
+            let text = read.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
             anyhow::ensure!(
                 text.len() as u64 <= max_bytes.min(4 * 1024 * 1024),
                 "terminal recovery snapshot exceeds max_bytes"
             );
-            let end = read["next_offset"]
-                .as_str()
+            let end = read
+                .get("next_offset")
+                .and_then(Value::as_str)
                 .ok_or_else(|| anyhow::anyhow!("terminal recovery cursor missing"))?
                 .parse()?;
             self.output_store.check_recovery_epoch(terminal_id, epoch)?;
@@ -101,7 +103,10 @@ impl Mux {
                 );
                 let mut result =
                     terminal_output_read_result(cut.text.clone(), 0, cut.end, true, true);
-                result["recovery"] = serde_json::json!(epoch.as_ref());
+                result
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("terminal recovery response is not an object"))?
+                    .insert("recovery".into(), serde_json::json!(epoch.as_ref()));
                 return Ok(result);
             }
             anyhow::ensure!(
@@ -116,10 +121,13 @@ impl Mux {
             "terminal output recovery changed during read; retry"
         );
         if let Some((epoch, gap, _, _)) = current {
+            let fields = result
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("terminal output response is not an object"))?;
             if recovery.is_some() {
-                result["recovery"] = serde_json::json!(epoch.as_ref());
-            } else if gap && result["snapshot"] != true {
-                result["complete"] = serde_json::json!(false);
+                fields.insert("recovery".into(), serde_json::json!(epoch.as_ref()));
+            } else if gap && fields.get("snapshot").and_then(Value::as_bool) != Some(true) {
+                fields.insert("complete".into(), serde_json::json!(false));
             }
         }
         Ok(result)
