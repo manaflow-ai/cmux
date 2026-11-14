@@ -21,8 +21,9 @@ import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { HOVER_INTENT } from "./hoverIntent";
-import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
+import { UI_TOOLTIP_EDGE, UI_TOOLTIP_GAP, UI_TOOLTIP_MAX_WIDTH, tooltipGap, tooltipScale } from "./tooltipTokens";
 import { usePopupPadding } from "./popupInset";
+import { fitTooltipWidth } from "./tooltipFit";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -86,6 +87,15 @@ export function Tooltip({
     kind: "tooltip",
     wraps,
   });
+  // As narrow as its lines (ui/tooltipFit.ts), once as it opens and when its text changes, before
+  // paint: it shows at its final size. A hover card keeps its own width.
+  useLayoutEffect(() => {
+    if (!popup || wraps) return;
+    const doc = popup.ownerDocument;
+    const scale = tooltipScale(doc);
+    const view = doc.documentElement.clientWidth;
+    fitTooltipWidth(popup, Math.min(UI_TOOLTIP_MAX_WIDTH * scale, Math.max(0, view - 2 * UI_TOOLTIP_EDGE * scale)));
+  }, [popup, wraps, label, detail, shortcut]);
   return (
     <BaseTooltip.Root disabled={disabled}>
       <BaseTooltip.Trigger ref={host || anchor ? setTrigger : undefined} render={children} />

@@ -38,6 +38,10 @@ pub struct RowCfg {
     pub codec: Codec,
     pub scene: SceneKind,
     pub loss_pct: f64,
+    /// Mean loss burst in datagrams (Gilbert-Elliott); 0 loses each datagram independently.
+    pub burst_len: f64,
+    /// Caps every bitrate the engine asks the encoder for (matched-rate rows).
+    pub max_kbps: Option<u32>,
     pub rtt_ms: u64,
     pub link_mbps: f64,
     pub seconds: u64,
@@ -52,10 +56,14 @@ pub struct RowCfg {
 }
 
 /// A one-direction link: a bottleneck of `mbps` with a FIFO queue, then a fixed
-/// delay; each datagram is lost with probability `loss`.
+/// delay. Each datagram is lost with probability `loss`, independently or, with
+/// `burst_len` > 0, in bursts of that mean length at the same average rate.
 struct Link {
     one_way_us: u64,
     loss: f64,
+    /// Gilbert-Elliott: P(good -> bad) and P(bad -> good) per datagram; none for i.i.d. loss.
+    burst: Option<(f64, f64)>,
+    bad: bool,
     us_per_byte: f64,
     free_at_us: u64,
     max_queue_us: u64,
@@ -67,10 +75,19 @@ struct Link {
 }
 
 impl Link {
-    fn new(one_way_us: u64, loss: f64, mbps: f64, seed: u64) -> Self {
+    fn new(one_way_us: u64, loss: f64, burst_len: f64, mbps: f64, seed: u64) -> Self {
+        // A bad state that lasts `burst_len` datagrams on average and loses every one,
+        // entered often enough that the stationary loss is still `loss` percent.
+        let p = loss / 100.0;
+        let burst = (burst_len > 1.0 && p > 0.0 && p < 1.0).then(|| {
+            let leave = 1.0 / burst_len;
+            (p * leave / (1.0 - p), leave)
+        });
         Self {
             one_way_us,
             loss,
+            burst,
+            bad: false,
             us_per_byte: if mbps > 0.0 { 8.0 / mbps } else { 0.0 },
             free_at_us: 0,
             max_queue_us: 500_000,
@@ -91,7 +108,15 @@ impl Link {
         }
         let depart = start + (d.len() as f64 * self.us_per_byte) as u64;
         self.free_at_us = depart;
-        if self.rng.unit() * 100.0 < self.loss {
+        let lost = match self.burst {
+            Some((enter, leave)) => {
+                let flip = self.rng.unit() < if self.bad { leave } else { enter };
+                self.bad ^= flip;
+                self.bad
+            }
+            None => self.rng.unit() * 100.0 < self.loss,
+        };
+        if lost {
             self.dropped += 1;
             return;
         }
@@ -192,11 +217,21 @@ impl Viewer {
 /// Runs one row and returns its JSON record.
 pub fn run_row(cfg: &RowCfg) -> Res<Value> {
     let (w, h) = (cfg.width as usize, cfg.height as usize);
+    // Matched-rate rows: the engine still runs its congestion control, but the
+    // encoder never gets more than `max_kbps`.
+    let cap = |kbps: u32| cfg.max_kbps.map_or(kbps, |m| kbps.min(m));
+    // The libvpx frame-drop threshold this row ran with (src/vp9.rs), so rows say which they are.
+    let vp9_drop = (cfg.codec == Codec::Vp9).then(|| {
+        std::env::var("CMUX_VP9_DROPFRAME_THRESH")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(30)
+    });
     let enc_cfg = EncCfg {
         width: cfg.width,
         height: cfg.height,
         fps: cfg.fps,
-        kbps: 8_000,
+        kbps: cap(8_000),
         threads: cfg.threads,
         screen_content: true,
     };
@@ -209,8 +244,8 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
     let mut scene = Scene::new(cfg.scene, w, h, cfg.seed);
     let rtt_us = cfg.rtt_ms * 1000;
     let one_way = rtt_us / 2;
-    let mut down = Link::new(one_way, cfg.loss_pct, cfg.link_mbps, cfg.seed ^ 0xd0);
-    let mut up = Link::new(one_way, cfg.loss_pct, 0.0, cfg.seed ^ 0x0b);
+    let mut down = Link::new(one_way, cfg.loss_pct, cfg.burst_len, cfg.link_mbps, cfg.seed ^ 0xd0);
+    let mut up = Link::new(one_way, cfg.loss_pct, cfg.burst_len, 0.0, cfg.seed ^ 0x0b);
     let mut engine = MediaEngine::new(
         EngineConfig {
             width: cfg.width,
@@ -296,7 +331,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
                             down.send(now, d);
                         }
                         if out.halve_bitrate {
-                            let half = enc.kbps() / 2;
+                            let half = cap(enc.kbps() / 2);
                             enc.set_bitrate(half);
                         }
                     }
@@ -331,7 +366,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
                 queued_req = engine.poll(now);
             }
             if let Some(req) = queued_req.take() {
-                enc.set_bitrate(req.target_kbps);
+                enc.set_bitrate(cap(req.target_kbps));
                 sources.push_back((now, scene.picture().clone()));
                 while sources.len() > 64 {
                     sources.pop_front();
@@ -413,6 +448,9 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         "scene": cfg.scene.name(),
         "text_scene": cfg.scene.is_text(),
         "loss_pct": cfg.loss_pct,
+        "burst_len": cfg.burst_len,
+        "max_kbps": cfg.max_kbps,
+        "vp9_dropframe_thresh": vp9_drop,
         "rtt_ms": cfg.rtt_ms,
         "link_mbps": cfg.link_mbps,
         "size": format!("{}x{}", cfg.width, cfg.height),
@@ -438,4 +476,33 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
         "decode_errors": viewer.decode_errors,
         "final_target_kbps": stats.target_bps / 1000,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Link;
+
+    /// Loss rate and mean run of consecutive losses over `n` datagrams.
+    fn loss_stats(burst_len: f64, n: usize) -> (f64, f64) {
+        let mut link = Link::new(0, 2.0, burst_len, 0.0, 7);
+        let (mut runs, mut was_lost) = (0usize, false);
+        for _ in 0..n {
+            let before = link.dropped;
+            link.send(0, vec![0; 100]);
+            let lost = link.dropped > before;
+            runs += usize::from(lost && !was_lost);
+            was_lost = lost;
+        }
+        (link.dropped as f64 / n as f64 * 100.0, link.dropped as f64 / runs.max(1) as f64)
+    }
+
+    #[test]
+    fn burst_loss_keeps_the_average_rate() {
+        let (iid_pct, iid_run) = loss_stats(0.0, 200_000);
+        let (burst_pct, burst_run) = loss_stats(8.0, 200_000);
+        assert!((iid_pct - 2.0).abs() < 0.2, "i.i.d. loss {iid_pct:.2}%");
+        assert!(iid_run < 1.2, "i.i.d. runs {iid_run:.2}");
+        assert!((burst_pct - 2.0).abs() < 0.3, "burst loss {burst_pct:.2}%");
+        assert!((burst_run - 8.0).abs() < 1.0, "burst runs {burst_run:.2}");
+    }
 }
