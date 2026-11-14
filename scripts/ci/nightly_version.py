@@ -28,8 +28,25 @@
       is latest-wins) prints `superseded=true` and exits 0 instead of
       refusing; otherwise `superseded=false` follows.
 
+  fallback-build (--live BUILD | --feed FILE_OR_URL [--feed ...]) [--k K]
+      Prints the build number of a fleet fallback build (cmux NEXT built and
+      published from the git mirror while GitHub Actions starts no runs; the
+      nightly-next train doc, "When Actions starts no runs"): <live run id><50+K>,
+      where live is BUILD or the highest sparkle:version on the feeds (pass every
+      feed check-build reads). A live build that is itself a fallback build
+      (attempt 50..99) gives live+1+K. Refuses when the attempt would pass 99.
+
 CFBundleVersion is the run-derived number (`<run id><attempt, 2 digits>`),
-which only grows; Sparkle compares it, never the marketing version.
+which only grows; Sparkle compares it, never the marketing version. Actions
+attempts stay below 50 (a run is re-run a handful of times at most), so
+attempts 50..99 belong to fleet fallback builds. Why `<live run id><50+k>`:
+it is above live (same run id, higher attempt), and below any build an Actions
+run started later can make: a later run id R > live run id gives R01, and
+R*100+1 > live*100+99. So when Actions recovers its next build goes above the
+fallback's on its own, with no renumbering, and the fallback can never sit
+above a build Actions makes after it. A fallback build names no Actions run:
+nothing may read it as run <id> attempt <50+k> (the R2 feed writer's
+compiled_artifact_source refuses to).
 """
 
 import argparse
@@ -227,6 +244,44 @@ def check_build(build, feeds, optional_feeds=(), already_published_ok=False, sup
     return published_in is not None
 
 
+FALLBACK_ATTEMPT_FLOOR = 50
+MAX_ATTEMPT = 99
+
+
+def fallback_build(live, k=0):
+    """<live run id><50+k> (or live+1+k above a fallback build); see fallback-build in the module doc."""
+    live = int(live)
+    if live < 100:
+        raise Refused(f"live build {live} is not <run id><2-digit attempt>")
+    if k < 0:
+        raise Refused(f"k {k} is negative")
+    run_id, attempt = divmod(live, 100)
+    if attempt < FALLBACK_ATTEMPT_FLOOR:
+        attempt = FALLBACK_ATTEMPT_FLOOR + k
+    else:
+        attempt = attempt + 1 + k
+    if attempt > MAX_ATTEMPT:
+        raise Refused(f"no fallback build above {live} with k={k}: attempt {attempt} passes {MAX_ATTEMPT}")
+    return run_id * 100 + attempt
+
+
+def is_fallback_build(build):
+    return int(build) % 100 >= FALLBACK_ATTEMPT_FLOOR
+
+
+def highest_build(feeds, optional_feeds=()):
+    highest = 0
+    for source in [*feeds, *optional_feeds]:
+        try:
+            root = read_feed(source)
+        except Missing:
+            if source not in optional_feeds:
+                raise
+            continue
+        highest = max([highest, *feed_builds(root)])
+    return highest
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -244,8 +299,23 @@ def main(argv):
     c.add_argument("--already-published-ok", action="store_true", help="a feed already offering this build is not a refusal")
     c.add_argument("--superseded-ok", action="store_true",
                    help="a feed already above this build (a newer build published first) is not a refusal")
+    f = commands.add_parser("fallback-build")
+    source = f.add_mutually_exclusive_group(required=True)
+    source.add_argument("--live", help="the live (highest) build the fallback goes above")
+    source.add_argument("--feed", action="append", help="a feed whose highest build counts as live")
+    f.add_argument("--feed-if-present", action="append", default=[], help="a feed that may not exist yet")
+    f.add_argument("--k", type=int, default=0, help="the fallback attempt offset (0..49)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "fallback-build":
+            if args.live is not None:
+                if not BUILD.match(args.live):
+                    raise Refused(f"live build {args.live!r} is not a number")
+                live = int(args.live)
+            else:
+                live = highest_build(args.feed, args.feed_if_present)
+            print(fallback_build(live, args.k))
+            return 0
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
         elif args.command == "next-base":

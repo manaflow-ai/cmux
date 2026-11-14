@@ -164,6 +164,43 @@ python3 scripts/ci/nightly_next_train.py candidate --tip <sha> --parent <nightly
 python3 scripts/ci/nightly_next_train.py verify --commit <train commit>
 ```
 
+## When Actions starts no runs
+
+Leo, 2026-11-11: "Yeah, IMO, we should just definitely do these." (on: "when Actions isn't starting runs, our
+fleet picks up the nightly build and our compile/test checks straight from the git mirror. Merges still wait on
+GitHub, but you keep getting builds and agents keep testing.") That day 20:17Z-21:38Z GitHub Actions started no
+runs anywhere; git kept working, and nightly-next run 43100270426 waited the whole time.
+
+`scripts/ci/nightly-next-fleet-fallback.sh --sha SHA --build N|auto` builds, signs, notarizes, verifies and
+publishes the arm64 Nightly-ring feed (`appcast-arm64.xml`) on an owned signing Mac, straight from the git mirror
+(`/Users/Shared/cmux-build-fleet/git/cmux.git`). It runs nightly.yml's own steps at SHA (its jobs from
+`resolve-nightly-cmux-tui-client` to `publish-nightly`): the same scripts, in the same order, with the same env
+names, each step's `if:` and `env:` evaluated as Actions would. The stall dispatcher (cmuxterm-hq
+`build-fleet/actions-fallback/`) starts it under `op run` once the detector says Actions is stalled; secrets come
+from 1Password under the workflow's secret names, and a missing one exits 78 before anything is built.
+`scripts/ci/test_nightly_next_fleet_fallback.py` fails when nightly.yml gains a step, script, secret, variable or
+decide output in those jobs that the fallback has not classified, so it cannot drift silently.
+
+- **Build number.** `nightly_version.py fallback-build`: `<live run id><50+k>`. Actions builds are
+  `<run id><attempt 01-49>`, so this is above the live build and below the first build of any Actions run that
+  starts later (`R01 > live50..99` for `R > live run id`). When Actions recovers, its next build goes above the
+  fallback's on its own. A fallback build names no Actions run; it always carries its `cmux:sourceCommit`.
+- **Stand-down.** Before building: the live feed already serving SHA, or a source SHA does not descend from,
+  exits 3 with nothing built. At the feed write: `publish-nightly-next-r2.py write-feed` stands down a candidate
+  whose source the live feed's newest build already serves, whatever its build number (`feed_current=true`,
+  `feed_written=false`, refused, no failure). That is the no-double-publish rule when Actions recovers
+  mid-fallback, or a stall-era run of the same commit finally starts. Source order uses `git merge-base` in the
+  mirror (`NIGHTLY_NEXT_SOURCE_GIT_DIR`), never the GitHub API; a commit the mirror lacks refuses.
+- **The writer.** `NIGHTLY_NEXT_WRITER` and the other repository variables come from the last snapshot read while
+  the API answered (`~/.cache/actions-stall/cmux-vars.json`); with none, the final gate cannot tell the writer and
+  refuses. `linux` or `none` stands down, as in the workflow.
+- **Pending until Actions is back** (`"github_names": "pending"` in the result): the GitHub release copy, the
+  `nightly-next` tag and release body, Actions artifacts and caches, the Sentry dSYM upload, deltas and signed
+  release notes. The next Actions build publishes them for its own build and supersedes the fallback's.
+- **Never merge evidence.** A fallback build or its receipt satisfies no merge gate, required check or status;
+  merges still wait on GitHub.
+- It never cancels anything, and it runs only on a Mac held for it (`NIGHTLY_FALLBACK_HOST_CLAIM=exclusive`).
+
 ## Not built yet
 
 - Runtime app smoke on the candidate (window, New Tab, agent answers, no crash).
