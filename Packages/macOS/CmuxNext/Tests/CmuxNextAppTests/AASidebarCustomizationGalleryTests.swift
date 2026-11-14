@@ -24,7 +24,7 @@ import Testing
 
     private static func workspace(_ id: String, _ title: String? = nil) -> SidebarWorkspace {
         let title = title ?? "Workspace \(id)"
-        SidebarWorkspace(id: WorkspaceID(id), title: title, directory: "~/cmux", branch: "main",
+        return SidebarWorkspace(id: WorkspaceID(id), title: title, directory: "~/cmux", branch: "main",
                          rowKind: .terminal, kind: .terminal, activity: .idle)
     }
 
