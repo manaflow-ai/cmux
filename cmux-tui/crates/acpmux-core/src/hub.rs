@@ -1201,11 +1201,11 @@ impl Hub {
             return self.keyed_page(request, keys);
         }
         let (key, side) = match request.side() {
-            Some((side, crate::wire::Position::List(key))) => (
+            Some((side, Position::List(key))) => (
                 Some(book_key(key)),
                 match side {
-                    crate::wire::PageSide::Before => ReadSide::Before,
-                    crate::wire::PageSide::After => ReadSide::After,
+                    PageSide::Before => ReadSide::Before,
+                    PageSide::After => ReadSide::After,
                 },
             ),
             // A bounded page without an anchor starts a mirror walk at the
