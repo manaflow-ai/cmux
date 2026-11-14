@@ -1956,6 +1956,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     settingOffset = true
                     scrollView.contentOffset.y = maxOffsetY
                     settingOffset = false
+                } else if !scrollView.isTracking, !scrollView.isDecelerating, glide == nil, cell.height > 0,
+                          let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
+                                                     bottomOffsetY: maxOffsetY) {
+                    // Following: the offset moves here, in this pass, so it
+                    // rides the keyboard's animation. Left to applyScroll, a
+                    // stream's newest rows not yet presented made it wait for
+                    // a frame (jumpAwaitsFrame) and then move in one step,
+                    // outside the animation: the rows jumped up to their end
+                    // with the keyboard still rising and the composer caught
+                    // up with them (up to 400 pt of background between).
+                    // The rows a frame behind are the newest, at the bottom;
+                    // the next present brings them.
+                    settingOffset = true
+                    scrollView.contentOffset.y = target
+                    settingOffset = false
                 }
             }
         }
