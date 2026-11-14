@@ -1,0 +1,144 @@
+import CmuxSidebar
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// A mirrored session's panes freeze while its connection reconnects. A short drop
+/// should pass unannounced; a long one should say so on the sidebar row.
+@MainActor
+@Suite struct RemoteTmuxReconnectingIndicatorTests {
+    private let key = Workspace.remoteTmuxReconnectingStatusKey
+
+    @Test func aReconnectThatRecoversBeforeTheDelayShowsNothing() async throws {
+        let workspace = Workspace()
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(60))
+
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
+        let presentation = try #require(indicator.pendingPresentation)
+        #expect(workspace.statusEntries[key] == nil)
+
+        indicator.connectionStateChanged(.connected, reconnectingSince: nil, workspace: workspace)
+        await presentation.value
+
+        #expect(indicator.pendingPresentation == nil)
+        #expect(workspace.statusEntries[key] == nil)
+    }
+
+    @Test func aLongReconnectShowsReconnectingUntilTheConnectionIsBack() async throws {
+        let workspace = Workspace()
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .milliseconds(10))
+
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
+        await indicator.pendingPresentation?.value
+
+        let entry = try #require(workspace.statusEntries[key])
+        #expect(!entry.value.isEmpty)
+        #expect(entry.icon == "arrow.triangle.2.circlepath")
+        #expect(!workspace.sessionSnapshot(includeScrollback: false).statusEntries.contains { $0.key == key })
+
+        // Each failed attempt reports reconnecting again; the row keeps its one entry.
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
+        #expect(indicator.pendingPresentation == nil)
+        #expect(workspace.statusEntries[key] == entry)
+
+        indicator.connectionStateChanged(.connected, reconnectingSince: nil, workspace: workspace)
+        #expect(workspace.statusEntries[key] == nil)
+    }
+
+    @Test func aSessionThatEndsWhileReconnectingDropsTheEntry() async throws {
+        let workspace = Workspace()
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .milliseconds(10))
+
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: nil, workspace: workspace)
+        await indicator.pendingPresentation?.value
+        #expect(workspace.statusEntries[key] != nil)
+
+        indicator.connectionStateChanged(.ended, reconnectingSince: nil, workspace: workspace)
+        #expect(workspace.statusEntries[key] == nil)
+    }
+
+    /// The delay counts from when the connection began reconnecting, not from when the indicator
+    /// heard about it, so a reconnect already past the delay shows at once.
+    @Test func aReconnectAlreadyPastTheDelayShowsAtOnce() async throws {
+        let workspace = Workspace()
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(60))
+
+        indicator.connectionStateChanged(
+            .reconnecting, reconnectingSince: .now - .seconds(61), workspace: workspace
+        )
+        await indicator.pendingPresentation?.value
+
+        #expect(workspace.statusEntries[key] != nil)
+    }
+
+    /// A mirror can attach to a source that is already reconnecting, such as a session opened
+    /// while a shared stream is down. No state change arrives until the drop ends, so the mirror
+    /// has to start the indicator from the state it finds.
+    @Test func aMirrorAttachedDuringAReconnectStartsTheIndicator() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "reconnecting-attach.test"), sessionName: "work"
+        )
+        connection.beginReconnecting()
+        defer { connection.stop() }
+        try #require(connection.connectionState == .reconnecting)
+        #expect(connection.reconnectingSince != nil)
+
+        let mirror = RemoteTmuxSessionMirror(
+            host: connection.host, sessionName: "work", connection: connection,
+            tabManager: manager, workspace: workspace
+        )
+        defer {
+            mirror.detachObserver()
+            workspace.teardownAllPanels()
+        }
+
+        #expect(mirror.reconnectingIndicator.pendingPresentation != nil)
+    }
+
+    /// While the connection reconnects, it alone decides the row. A report through the status API
+    /// can neither replace nor clear it. A sidebar reset removes every row, and this one comes back
+    /// with the delay still counted from when the reconnect began, so a drop already past the delay
+    /// shows it again at once instead of waiting the delay out a second time. Detaching removes it.
+    @Test func theRowFollowsTheConnectionThroughStatusWritesResetsAndDetach() async throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "reconnecting-reset.test"), sessionName: "work"
+        )
+        connection.beginReconnecting()
+        defer { connection.stop() }
+        connection.reconnectingSince = .now - .seconds(61)
+        let mirror = RemoteTmuxSessionMirror(
+            host: connection.host, sessionName: "work", connection: connection,
+            tabManager: manager, workspace: workspace
+        )
+        defer {
+            mirror.detachObserver()
+            workspace.teardownAllPanels()
+        }
+        await mirror.reconnectingIndicator.pendingPresentation?.value
+        let entry = try #require(workspace.statusEntries[key])
+
+        workspace.setStatusEntry(SidebarStatusEntry(key: key, value: "Connected"), key: key, panelId: nil)
+        #expect(workspace.statusEntries[key] == entry, "a report replaced the Reconnecting row")
+        workspace.clearStatusEntry(key: key, panelId: nil)
+        #expect(workspace.statusEntries[key] == entry, "a report cleared the Reconnecting row")
+
+        workspace.resetSidebarContext(reason: "test")
+        #expect(workspace.statusEntries[key] == nil)
+        await mirror.reconnectingIndicator.pendingPresentation?.value
+        #expect(workspace.statusEntries[key] != nil, "the row did not come back after a reset")
+
+        mirror.detachObserver()
+        #expect(workspace.statusEntries[key] == nil)
+    }
+}

@@ -98,4 +98,18 @@ extension RemoteTmuxControlConnection {
     func removeObserver(_ token: ObserverToken) {
         observers.remove(token)
     }
+
+    /// `root` and its descendants, parents before children, bounded in depth so a pathological
+    /// tree cannot make teardown expensive.
+    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
+        var out: [pid_t] = [root]
+        var frontier = [root]
+        for _ in 0..<4 {
+            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
+            if next.isEmpty { break }
+            out.append(contentsOf: next)
+            frontier = next
+        }
+        return out
+    }
 }
