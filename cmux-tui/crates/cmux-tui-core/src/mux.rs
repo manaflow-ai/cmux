@@ -230,6 +230,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -347,9 +348,11 @@ mod terminal_live;
 pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
+mod terminal_port_watch;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+pub(crate) use terminal_port_watch::PortMark;
 mod terminal_tail_pins;
 pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
@@ -751,6 +754,8 @@ pub struct Mux {
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
     terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    /// The terminals that printed, for their workspaces' `ports` entries.
+    terminal_port_watch: terminal_port_watch::TerminalPortWatch,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -771,6 +776,8 @@ pub struct Mux {
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     /// Git HEAD lookups keyed by directory, with the time they were read.
     git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -1178,26 +1185,6 @@ impl Mux {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
-
-    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
-        if runtime.surface != Some(id) {
-            return false;
-        }
-        runtime.surface = None;
-        runtime.failures = runtime.failures.saturating_add(1);
-        let delay = sidebar_retry_delay(runtime.failures);
-        runtime.last_error = Some("sidebar plugin exited".to_string());
-        runtime.retry_at = Some(Instant::now() + delay);
-        drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
-        true
-    }
-}
-
-fn sidebar_retry_delay(failures: u32) -> Duration {
-    let shift = failures.saturating_sub(1).min(5);
-    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
@@ -1220,4 +1207,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

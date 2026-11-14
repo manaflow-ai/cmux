@@ -137,6 +137,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
     case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
+    /// `chat.attach.external`: the files another app sent to this chat, which the page adds as a
+    /// drop's (``AgentPaneDroppedPaths/hold(external:claimed:)``).
+    case attachExternal
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.

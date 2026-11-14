@@ -58,9 +58,7 @@
               "workspaces.freeing.enabled",
               "workspaces.freeing.idleMinutes",
               "workspaces.freeing.agents",
-              "workspaces.freeing.runningCommands",
-              "agents.hiddenChats.discard",
-              "agents.hiddenChats.discardAfterMinutes"
+              "workspaces.freeing.runningCommands"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -1368,7 +1366,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.ultraMode"
+              "remote.ultra"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -5324,7 +5322,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5412,7 +5410,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -24101,292 +24099,6 @@
       "title" : {
         "key" : "settings.workspaceHibernation.freeingRunningCommands",
         "text" : "Running Commands"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard.help",
-        "text" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discard",
-      "keywords" : [
-        "agent",
-        "chat",
-        "chats",
-        "release",
-        "discard",
-        "hidden",
-        "memory",
-        "ram",
-        "idle",
-        "saver"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discard"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discard"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscard",
-        "text" : "Release Hidden Agent Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        1,
-        1440,
-        720.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 15,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.workspaceHibernation",
-        "text" : "Hibernation"
-      },
-      "help" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help",
-        "text" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.hiddenChats.discardAfterMinutes",
-      "keywords" : [
-        "agent",
-        "chat",
-        "release",
-        "discard",
-        "hidden",
-        "minutes",
-        "timeout",
-        "memory"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "hiddenChats",
-        "discardAfterMinutes"
-      ],
-      "placeholder" : null,
-      "range" : {
-        "max" : 1440,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "minutes"
-      },
-      "refuses" : [
-        -1438,
-        2879,
-        "1"
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agents.hiddenChats.discardAfterMinutes"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes",
-        "text" : "Release Hidden Chats After"
       },
       "validation" : "portable"
     },
@@ -102729,28 +102441,53 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "auto",
+        "always"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
         "text" : "cmux Remote"
       },
       "help" : {
-        "key" : "settings.remote.ultraMode.help",
-        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+        "key" : "settings.remote.ultra.help",
+        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
       },
       "kept_on_reset_all" : false,
-      "key" : "remote.ultraMode",
+      "key" : "remote.ultra",
       "keywords" : [
         "ultra",
+        "auto",
         "lossy",
         "packet loss",
         "bandwidth",
@@ -102760,21 +102497,21 @@
         "latency",
         "fec"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "remote",
-        "ultraMode"
+        "ultra"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.remote.ultraMode.summary",
+        "key" : "settings.remote.ultra.summary",
         "text" : "Uses more data to stay fast on lossy networks"
       },
       "surfaces" : {
@@ -102828,13 +102565,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:remote.ultraMode"
+          "row" : "setting:remote.ultra"
         },
         "socket" : {
           "aliases" : [
@@ -102861,7 +102598,7 @@
         }
       },
       "title" : {
-        "key" : "settings.remote.ultraMode",
+        "key" : "settings.remote.ultra",
         "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"

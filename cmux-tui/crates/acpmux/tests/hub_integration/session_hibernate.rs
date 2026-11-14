@@ -16,10 +16,12 @@ use std::path::{Path, PathBuf};
 /// Leo's 2 minutes, the default (`hub::IDLE_CHILD`).
 const IDLE: Duration = acpmux::hub::IDLE_CHILD;
 
-/// The fake harness under a shell: `$dir/broken` makes its start fail (exit 3); else it appends
-/// its own pid to `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`.
+/// The fake harness under a shell: `$dir/broken` makes its start fail (exit 3); `$dir/slow_exit`
+/// makes it ignore SIGTERM, so each stop waits out its grace; else it appends its own pid to
+/// `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`.
 const HARNESS: &str = r#"d=$1; f=$2
 [ -e "$d/broken" ] && exit 3
+[ -e "$d/slow_exit" ] && trap '' TERM
 echo $$ >> "$d/harness"
 sleep 100000 </dev/null >/dev/null 2>&1 &
 echo $! >> "$d/sidecar"
@@ -166,6 +168,35 @@ async fn an_idle_session_hibernates_after_two_minutes_even_while_shown() {
     let after = r.hub.events(&id, 0, 10_000).unwrap();
     let new: Vec<&str> = after[before..].iter().map(|e| e.kind.as_str()).collect();
     assert!(new.iter().all(|k| ["status", "stopped"].contains(k)), "{new:?}");
+}
+
+/// Idle sessions whose harnesses are slow to end hibernate together, not one after another: the
+/// idle pass ended them serially, so at 1,000 idle agents it took minutes and most stayed live
+/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace.
+#[cfg(unix)]
+#[tokio::test]
+async fn idle_sessions_hibernate_at_once_not_one_after_another() {
+    const N: usize = 8;
+    const GRACE: Duration = Duration::from_millis(300);
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    std::fs::write(r.dir.join("slow_exit"), "").unwrap();
+    let mut ids = Vec::new();
+    for i in 0..N {
+        let id = new_session(&mut r.c, &format!("slow {i}")).await;
+        r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+        ids.push(id);
+    }
+    r.until("every harness started", || r.pids("harness").len() == N).await;
+    let began = std::time::Instant::now();
+    r.clock.advance(IDLE + Duration::from_secs(1));
+    r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
+        .await;
+    let took = began.elapsed();
+    // One after another is N graces (2.4 s); together, about one.
+    assert!(took < GRACE * (N as u32) / 2, "{N} idle harnesses took {took:?} to hibernate");
+    for pid in r.pids("harness") {
+        r.until("a harness outlived its hibernation", || !alive(pid)).await;
+    }
 }
 
 /// A running turn (its tool call included), a queued prompt and a pending permission each keep
