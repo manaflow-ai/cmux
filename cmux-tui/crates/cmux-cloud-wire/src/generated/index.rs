@@ -180,6 +180,9 @@ pub mod op_names {
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
+    pub const TEAM_AGENT_KEY_REMOVE: &str = "team.agent_key.remove";
+    pub const TEAM_AGENT_KEY_SET: &str = "team.agent_key.set";
+    pub const TEAM_AGENT_KEY_STATUS: &str = "team.agent_key.status";
     pub const TEAM_AI_LIMIT_GET: &str = "team.ai_limit.get";
     pub const TEAM_AI_LIMIT_MEMBER_SET: &str = "team.ai_limit.member.set";
     pub const TEAM_AI_LIMIT_SET: &str = "team.ai_limit.set";
@@ -409,6 +412,9 @@ pub mod op_names {
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
+        TEAM_AGENT_KEY_REMOVE,
+        TEAM_AGENT_KEY_SET,
+        TEAM_AGENT_KEY_STATUS,
         TEAM_AI_LIMIT_GET,
         TEAM_AI_LIMIT_MEMBER_SET,
         TEAM_AI_LIMIT_SET,
@@ -641,6 +647,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),
+        "team.agent_key.remove" => visitor.visit::<TeamAgentKeyRemoveOp>(),
+        "team.agent_key.set" => visitor.visit::<TeamAgentKeySetOp>(),
+        "team.agent_key.status" => visitor.visit::<TeamAgentKeyStatusOp>(),
         "team.ai_limit.get" => visitor.visit::<TeamAiLimitGetOp>(),
         "team.ai_limit.member.set" => visitor.visit::<TeamAiLimitMemberSetOp>(),
         "team.ai_limit.set" => visitor.visit::<TeamAiLimitSetOp>(),
