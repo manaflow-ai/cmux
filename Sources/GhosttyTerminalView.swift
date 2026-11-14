@@ -7929,7 +7929,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: ghostty_input_mouse_button_e,
         mods: ghostty_input_mods_e
     ) -> Bool {
-        withPointerDispatchIntents {
+        terminalSurface?.didReceiveExplicitInput()
+        return withPointerDispatchIntents {
             ghostty_surface_mouse_button(surface, state, button, mods)
         }
     }
@@ -8194,6 +8195,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func rememberGhosttyMouseState(from event: NSEvent) -> RememberedGhosttyMouseState {
+        if let surface, ghostty_surface_mouse_captured(surface) {
+            terminalSurface?.didReceiveExplicitInput()
+        }
         synchronizeGhosttyMouseSurfaceIdentity()
         let localPoint = convert(event.locationInWindow, from: nil)
         let surfacePoint = NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
@@ -10472,7 +10476,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        if let operation, handleCustomDropUploadIfMatched(plan: plan, operation: operation) {
+        if let operation, handleCustomDropUploadIfMatched(
+            plan: plan, operation: operation, onTextCompletion: onTextCompletion
+        ) {
             return true
         }
 
@@ -14744,6 +14750,7 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {

@@ -1278,6 +1278,10 @@ enum TextBoxSubmit {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
+    static func hasPendingSubmission(via surface: TerminalSurface) -> Bool {
+        TextBoxSubmitEventRunner.hasPendingSubmission(via: surface)
+    }
+
     static func sendEvents(
         _ events: [DispatchEvent],
         via surface: TerminalSurface,
@@ -1622,11 +1626,19 @@ private final class TextBoxSubmitEventRunner {
         self.usesPasteboard = usesPasteboard
     }
 
+    static func hasPendingSubmission(via surface: TextBoxSubmitSurfaceControlling) -> Bool {
+        let surfaceKey = ObjectIdentifier(surface)
+        return activeRunIDBySurface[surfaceKey] != nil || queuedRunsBySurface[surfaceKey]?.isEmpty == false
+    }
+
     static func run(
         _ events: [TextBoxSubmit.DispatchEvent],
         via surface: TextBoxSubmitSurfaceControlling,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)? = nil
     ) {
+        if !events.isEmpty {
+            surface.textBoxSubmitTerminalSurface?.didReceiveExplicitInput()
+        }
         let surfaceKey = ObjectIdentifier(surface)
         let pendingRun = PendingRun(events: events, surface: surface, onComplete: onComplete)
         guard activeRunIDBySurface[surfaceKey] == nil,

@@ -12,6 +12,15 @@ import Testing
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct GhosttyRightClickActionTests {
+    @Test func pointerAdmissionInvalidatesOwnedCloseIdentity() async throws {
+        try await withTerminal(rightClickAction: "ignore") { view, window in
+            let terminal = try #require(view.terminalSurface)
+            let generation = terminal.explicitInputGeneration
+            _ = try rightClickMenu(on: view, in: window)
+            #expect(terminal.explicitInputGeneration > generation)
+        }
+    }
+
     @Test(arguments: ["ignore", "copy"])
     func consumedRightClickOpensNoMenu(action: String) async throws {
         try await withTerminal(rightClickAction: action) { view, window in
