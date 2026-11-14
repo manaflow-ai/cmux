@@ -128,7 +128,9 @@ def main(argv: list[str] | None = None) -> int:
             capture_output=True, text=True, timeout=45 * 60, cwd=out,
             env=dict(os.environ),
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as timeout:
+        for name, text in (("transcript.json", timeout.stdout), ("stderr.txt", timeout.stderr)):
+            (out / name).write_text(text.decode(errors="replace") if isinstance(text, bytes) else (text or ""))
         return unjudged(findings, "agent.no-verdict", "the agent ran past 45 minutes with no verdict", str(out))
     (out / "transcript.json").write_text(proc.stdout or "")
     (out / "stderr.txt").write_text(proc.stderr or "")
@@ -137,11 +139,17 @@ def main(argv: list[str] | None = None) -> int:
         assert isinstance(items, list)
     except (OSError, json.JSONDecodeError, AssertionError):
         items = None
-    if proc.returncode != 0 or items is None:
-        detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
+    detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
+    if items is None:
         return unjudged(findings, "agent.no-verdict",
-                        f"the agent exited {proc.returncode} with {'no findings array' if items is None else 'findings'}"
-                        f" ({detail[0][:200]}); read transcript.json and stderr.txt", str(out))
+                        f"the agent exited {proc.returncode} with no findings array ({detail[0][:200]});"
+                        " read transcript.json and stderr.txt", str(out))
+    if proc.returncode != 0:
+        # A verdict it wrote before stopping (out of turns, say) still counts,
+        # and says the walk may be partial.
+        items.append({"severity": "warning", "guideline": "-",
+                      "message": f"the agent exited {proc.returncode} after writing its findings, so its walk may be"
+                                 f" incomplete ({detail[0][:200]})", "where": str(out)})
     screens = len(list(out.glob("step-*.png")))
     if not screens:
         return unjudged(findings, "agent.no-walk",

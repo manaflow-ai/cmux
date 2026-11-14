@@ -397,15 +397,23 @@ jobs:
           # 'run'"), so its pinned archive is installed as the formula does.
           AXE_URL: https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz
           AXE_SHA256: 4997a7305814d1bcbb925bf1f81667177e204fe58855d99c4896b85d749e181a
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
           if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-            # A fork pull request gets no secrets. The skip is named, and the
-            # report shows it as a warning; any other missing token is a
-            # configuration error the report would block on.
-            echo "::notice::no agent token for this event (fork pull request); skipping the agent pass"
-            echo '{"skipped":true,"reason":"no agent token for this event (fork pull request)"}' > "$RESULTS/agent-skipped.json"
-            exit 0
+            if [ "$FORK_PULL_REQUEST" = true ]; then
+              # A fork pull request gets no secrets: the skip is named, and
+              # the report shows it as a warning.
+              echo "::notice::no agent token for this event (fork pull request); skipping the agent pass"
+              echo '{"skipped":true,"reason":"no agent token for this event (fork pull request)"}' > "$RESULTS/agent-skipped.json"
+              exit 0
+            fi
+            # Anywhere else a missing token is a configuration error (an
+            # environment without the secret, a caller without secrets:
+            # inherit), never a skip.
+            echo '[{"severity":"blocker","guideline":"2.1","rule":"agent.unavailable","source":"agent reviewer pass","message":"the agent pass could not run: CLAUDE_CODE_OAUTH_TOKEN is not set for this run","where":""}]' > "$RESULTS/agent-findings.json"
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set for this run; the agent reviewer pass cannot run" >&2
+            exit 1
           fi
           axe_dir="$RUNNER_TEMP/axe"
           rm -rf "$axe_dir" && mkdir -p "$axe_dir"
