@@ -88,7 +88,12 @@ mod through_folders {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     const ABOVE_TOP_FLAGS: libc::c_int =
         libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    /// macOS: `O_SEARCH` has `O_DIRECTORY` in it and opens a folder for a
+    /// search of its names only.
+    #[cfg(target_os = "macos")]
+    const ABOVE_TOP_FLAGS: libc::c_int =
+        libc::O_SEARCH | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
     const ABOVE_TOP_FLAGS: libc::c_int = FOLDER_FLAGS;
     /// Bytes of a link's target text that count.
     const MAX_TARGET_BYTES: usize = 4096;
