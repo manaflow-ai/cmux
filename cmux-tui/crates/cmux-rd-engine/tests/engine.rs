@@ -116,6 +116,30 @@ fn cumulative_frame_ack_measures_rtt_for_socket_carriers() {
 }
 
 #[test]
+fn ack_rtt_tracks_a_slower_path_after_old_samples_expire() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    assert_eq!(e.ack_rtt_us(), Some(10_000));
+
+    let next = e
+        .damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, 2_000_000)
+        .expect("frame after the path slows");
+    send(&mut e, &next, false, 1_000, 2_000_000);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: next.frame, ..Feedback::default() }),
+        true,
+        2_050_000,
+    );
+    assert_eq!(e.ack_rtt_us(), Some(50_000), "the old short path must age out");
+}
+
+#[test]
 fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
     // Four frame intervals cover the 50 ms RTT; the helper adds one frame
     // that is being encoded while the earlier frames await acknowledgement.
