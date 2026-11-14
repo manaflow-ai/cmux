@@ -195,6 +195,26 @@ import UIKit
         #expect(rig.text == wheel)
     }
 
+    /// The modes Claude Code's full-screen renderer and Codex set on start
+    /// (captured from their PTYs): any-motion SGR mouse, so a wheel is a
+    /// wheel report at the finger and never an arrow, with 1007 on or off.
+    @Test(arguments: [
+        "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?2004h\u{1b}[?2031h",
+        "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?1007l\u{1b}[?2004h",
+    ])
+    func claudeCodeAndCodexGetWheelReports(modes: String) async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed(modes)
+        rig.sent = Data()
+        rig.wheel(rows: 3, column: 4, row: 20)
+        let up = String(repeating: "\u{1b}[<64;5;21M", count: 3)
+        let text = await rig.text(awaiting: up)
+        // Any-motion tracking may also report the pointer reaching the cell first.
+        #expect(text.hasSuffix(up))
+        #expect(!text.contains("\u{1b}[A") && !text.contains("\u{1b}OA"))
+    }
+
     /// A full-screen program the phone has never heard of gets exactly what
     /// Ghostty sends for its modes: the same bytes for less, man, vim, nano,
     /// top, a remote pager over ssh, tmux, Claude Code without mouse capture
