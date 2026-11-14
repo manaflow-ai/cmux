@@ -460,7 +460,7 @@ fn remote_row_summary(v1: &Hub, peer: &str, id: &str) -> Option<std::io::Result<
         return Some(summary_from_remote(peer, &row.summary));
     }
     drop(rows);
-    let row = v1.mesh_book_row(peer, id)?;
+    let row = v1.mesh_book_row(&format!("{peer}/{id}"))?;
     Some(summary_from_remote(peer, &row.summary))
 }
 

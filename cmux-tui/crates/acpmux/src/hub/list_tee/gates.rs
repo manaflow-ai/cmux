@@ -642,7 +642,7 @@ impl HubRowSide {
             }
             times[1].push(started.elapsed().as_nanos());
             let started = Instant::now();
-            let row = self.v1.mesh_book_row("machine-b", &id).unwrap();
+            let row = self.v1.mesh_book_row(&format!("machine-b/{id}")).unwrap();
             times[2].push(started.elapsed().as_nanos());
             let started = Instant::now();
             let summary = summary_from_remote("machine-b", &row.summary).unwrap();

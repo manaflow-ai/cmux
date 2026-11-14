@@ -192,13 +192,6 @@ impl Hub {
         }
     }
 
-    /// The hub row of machine `host`'s session `id`: one lookup, its `Arc` cloned.
-    pub(super) fn mesh_book_row(&self, host: &str, id: &str) -> Option<Arc<RemoteSession>> {
-        let key = format!("{host}/{id}");
-        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-        book.rows.get(&key).map(|(_, r)| r.clone())
-    }
-
     /// The machines the book lists and the `(host, id)` of each of its rows, copied under its
     /// lock: what the v2 list's reconcile compares its rows to (`list_tee.rs`).
     pub(super) fn mesh_book_keys(&self) -> (Vec<String>, Vec<(String, String)>) {
