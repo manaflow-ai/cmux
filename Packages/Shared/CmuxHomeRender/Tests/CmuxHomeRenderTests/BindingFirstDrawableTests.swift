@@ -23,7 +23,7 @@ import Testing
 
     @Test func anEmptyConversationTheOwnerNamedDrawsBeforeItsRead() async throws {
         let (store, source, me) = try await started()
-        let made = try await store.perform(.createGroup(title: "Fresh", participants: []))
+        let made = try await store.perform(.startConversation(contacts: [.email("fresh@example.com")], firstMessage: []))
         let id = try #require(made.conversation)
         try await until { store.confirmed.contains(id) && store.summary(id)?.lastSeq == 0 }
         source.hold()
