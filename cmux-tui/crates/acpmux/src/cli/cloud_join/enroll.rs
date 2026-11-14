@@ -321,18 +321,71 @@ fn leave_removing(home: &Path) -> bool {
     read_mark(home).is_some_and(|mark| mark.removing)
 }
 
+/// The last sign-in's enroll here: which account, and when it began (Unix ms). A leave intent
+/// from before it is stale.
+pub(super) const SIGNED_IN_FILE: &str = "machine-join.signed-in.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedIn {
+    account: String,
+    at_ms: u64,
+}
+
+/// Now, in Unix milliseconds (the app's `--signed-out-at` is on the same clock).
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Notes, before an enroll touches the leave mark, that `account` signed in at `at_ms`: an
+/// intent of that account's signing out from before then, written later, is stale
+/// ([`record_leave_intent`]).
+fn stamp_signed_in(home: &Path, account: &str, at_ms: u64) -> Result<()> {
+    let stamp = SignedIn { account: account.to_owned(), at_ms };
+    crate::config::private_state_dir(home)?;
+    recovery::write_durable(&home.join(SIGNED_IN_FILE), &serde_json::to_vec(&stamp)?, true)
+}
+
+/// Whether `account` signed in here after `at_ms` (a tie is not: the intent is recorded).
+fn signed_in_since(home: &Path, account: &str, at_ms: u64) -> bool {
+    crate::config::private_state_file(&home.join(SIGNED_IN_FILE))
+        .ok()
+        .and_then(|file| serde_json::from_reader::<_, SignedIn>(file).ok())
+        .is_some_and(|stamp| stamp.account == account && stamp.at_ms > at_ms && false)
+}
+
 /// Records that `account` signs out (`acpmux machine leave-intent`), with no daemon: the app
 /// writes it before it sends its leave, so a leave the daemon never gets (it was down, or the app
 /// quit first) is still finished as that account's, at the daemon's next start or by the next
 /// leave, which may name no account (a launch signed out). Only that account's sign-in join
 /// is left by it ([`owner_among`]).
-pub(crate) async fn record_leave_intent(account: &str) -> Result<()> {
+///
+/// `signed_out_at` (Unix ms; None: now, before the wait for the join lock) is when the sign-out
+/// happened. An intent written after that account signed in again (its writer waited on the
+/// lock while the new sign-in's enroll held it) is stale and not recorded: it never leaves the
+/// newer join. False when it was stale.
+pub(crate) async fn record_leave_intent(account: &str, signed_out_at: Option<u64>) -> Result<bool> {
+    record_leave_intent_at(&state_dir(), account, signed_out_at).await
+}
+
+async fn record_leave_intent_at(
+    home: &Path,
+    account: &str,
+    signed_out_at: Option<u64>,
+) -> Result<bool> {
+    let at = signed_out_at.unwrap_or_else(now_ms);
     let account = safe_id(account.trim()).ok_or_else(|| anyhow!("the user id is malformed"))?;
-    let home = state_dir();
-    let _lock = wait_for_lock(&home)
+    let _lock = wait_for_lock(home)
         .await
         .ok_or_else(|| anyhow!("another join or leave holds this machine; try again"))?;
-    mark_leave(&home, Some(&account))
+    if signed_in_since(home, &account, at) {
+        tracing::info!("sign-out intent: that account signed in again since; not recorded");
+        return Ok(false);
+    }
+    mark_leave(home, Some(&account))?;
+    Ok(true)
 }
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
@@ -364,7 +417,15 @@ pub(super) async fn enroll_at(
 ) -> EnrollOutcome {
     // No account: a join made now would be no one's, and one here is not known to be this one's.
     let Some(account) = user_id else { return EnrollOutcome::OwnerUnknown };
+    // When this sign-in asked, before any wait: a sign-out after it, whose intent waits for the
+    // lock this enroll holds, is still recorded.
+    let asked_at = now_ms();
     let Some(_lock) = wait_for_lock(home).await else { return EnrollOutcome::Unavailable };
+    // This account's sign-out intents from before it asked are stale from here on, even one
+    // written after this enroll (its writer waited for this lock).
+    if stamp_signed_in(home, account, asked_at).is_err() {
+        return EnrollOutcome::Unavailable;
+    }
     // A sign-out whose local cleanup stopped part way left the record marked revoked: finished
     // first, so that mark is never read as a revoke at the hub.
     if leave_removing(home) {
@@ -1946,6 +2007,34 @@ mod tests {
     /// The app's intent for `account`, as `acpmux machine leave-intent` writes it.
     fn intent(home: &Path, account: &str) {
         mark_leave(home, Some(account)).unwrap();
+    }
+
+    /// #38319 review F2 (#38440 F3): the app signs out, its intent writer starts and waits for
+    /// the join lock, the same account signs back in and enrolls, and only then does the writer
+    /// get the lock. Its intent is from before that sign-in: not recorded, and the next start
+    /// leaves the newer join. A sign-out after that sign-in is recorded and leaves.
+    #[tokio::test]
+    async fn a_leave_intent_written_late_never_leaves_the_newer_join() {
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub::at(home.path());
+        let signed_out_at = now_ms().saturating_sub(1_000);
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        let joined = load_at(home.path()).unwrap().expect("joined");
+        let late = record_leave_intent_at(home.path(), "user_me", Some(signed_out_at)).await;
+        assert!(!late.unwrap(), "a stale intent is not recorded");
+        let at_start = finish_marked_at_start(home.path()).await;
+        assert!(at_start.as_ref().is_none_or(|left| !left.left), "{at_start:?}");
+        let kept = load_at(home.path()).unwrap().expect("the newer join stays");
+        assert_eq!(kept.credential, joined.credential);
+        assert!(!kept.revoked);
+        // Another account's late intent is still recorded: this sign-in was not theirs.
+        assert!(record_leave_intent_at(home.path(), "user_b", Some(signed_out_at)).await.unwrap());
+        remove_mark(home.path(), LEAVE_FILE);
+        // A sign-out after this sign-in is recorded, and the start leaves the join.
+        assert!(record_leave_intent_at(home.path(), "user_me", None).await.unwrap());
+        let left = finish_marked_at_start(home.path()).await.expect("a leave is marked");
+        assert!(left.left, "{left:?}");
+        assert!(load_at(home.path()).unwrap().is_none());
     }
 
     /// A leave asked of the daemon by `account` (None: a launch signed out).
