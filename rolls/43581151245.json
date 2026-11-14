@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43581151245",
+  "recorded_at": "2026-11-14T09:48:26Z",
+  "reason": "cmux-tui 7a9bf6bc0016 changes the image's cmux-tui (pinned 698b7e2954ce)",
+  "dry_run": false,
+  "cmux_tui": "7a9bf6bc001619dced96cf533554ce28f1abccac",
+  "fixes": [
+    {
+      "sha": "7a9bf6bc001619dced96cf533554ce28f1abccac",
+      "mergedAt": "2026-11-14T01:15:36-08:00",
+      "subject": "acpmux: move shared list records into a storage-independent crate (#42810)"
+    },
+    {
+      "sha": "4aea248db5ef4c1936a8ae7a2459a90f732f793e",
+      "mergedAt": "2026-11-14T01:11:58-08:00",
+      "subject": "agent service v2: core peer list projection (#42850)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:48:26Z",
+    "snapshot_id": "sh-77e79497c0644a80b9c2be09f75ed593",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43581151245): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d13648877a18ccca1dd32ab2ee990e9c55141445",
+    "image": "cloud-native-auto-7a9bf6bc-43581151245-1",
+    "revision": "ci-43581151245-1",
+    "at": "2026-11-14T09:48:26Z"
+  },
+  "rolled_back": false
+}
