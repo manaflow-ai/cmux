@@ -154,8 +154,13 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
     let mut second = Client::connect(&hub).await;
     let second_attach = second.call(method::MUX_ATTACH, hold(json!(["named_kind"]))).await;
     assert!(second_attach.get("error").is_none(), "{second_attach}");
-    let presence = first.notification_method(method::MUX_PRESENCE).await;
-    let participants_before_detach = presence["params"]["participants"].as_array().unwrap().len();
+    let participants_before_detach = loop {
+        let presence = first.notification_method(method::MUX_PRESENCE).await;
+        let count = presence["params"]["participants"].as_array().unwrap().len();
+        if count >= 2 {
+            break count;
+        }
+    };
 
     hub.append(&session, "mux", "named_kind", json!({"ok": true}));
     hub.append(&session, "mux", "not_named", json!({"ok": false}));
