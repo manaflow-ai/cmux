@@ -140,8 +140,7 @@ test("with a native host, feedback and failures are native toasts and the page d
   });
   notices.transient("Copied the link", "copy");
   notices.failed("Could not open the chat");
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(posted).toEqual([
     { message: "Copied the link", tone: "neutral", group: "copy" },
     { message: "Could not open the chat", tone: "error", group: "feedback" },
@@ -153,7 +152,6 @@ test("a host that refuses the toast leaves it to the page's own stack", async ()
   const toasts = createNoticeQueue();
   const notices = paneNotices({ transcript: () => undefined, toasts, native: async () => false });
   notices.transient("Copied the link");
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(toasts.snapshot().map((entry) => entry.spec.message)).toEqual(["Copied the link"]);
 });
