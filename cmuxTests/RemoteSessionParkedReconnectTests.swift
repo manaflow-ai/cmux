@@ -81,6 +81,136 @@ struct RemoteSessionParkedReconnectTests {
         workspace.teardownAllPanels()
     }
 
+    @Test(arguments: [WorkspaceRemoteConnectionState.suspended, .error])
+    func launchingAttachPreservesAnExistingParkedController(
+        state: WorkspaceRemoteConnectionState
+    ) async throws {
+        let workspace = Workspace()
+        let runner = ParkedReconnectRecordingRunner(cleanupStatus: 64)
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: true)
+        await workspace.remoteSessionTransitionTask?.value
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedTerminalPanel)
+        try #require(workspace.remoteSessionController != nil)
+        let detail = "Remote daemon bootstrap failed. Use Reconnect to try again."
+        workspace.applyRemoteConnectionStateUpdate(state, detail: detail, target: "cmux-macmini")
+
+        #expect(workspace.markRemoteTerminalSessionLaunching(
+            surfaceId: panel.id,
+            terminalLifecycleID: panel.surface.terminalLifecycleId,
+            attemptID: UUID()
+        ))
+        #expect(workspace.remoteConnectionState == state)
+        #expect(workspace.remoteConnectionDetail == detail)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        await workspace.remoteSessionTransitionTask?.value
+    }
+
+    @Test
+    func initialDeferredConnectionIsNotAnExplicitDisconnect() async throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
+        await workspace.remoteSessionTransitionTask?.value
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        #expect(workspace.remoteSessionParkedDetailWithoutController == nil)
+        #expect(workspace.markRemoteTerminalSessionLaunching(
+            surfaceId: panel.id,
+            terminalLifecycleID: panel.surface.terminalLifecycleId,
+            attemptID: UUID()
+        ))
+        #expect(workspace.remoteConnectionState == .connecting)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aDeliberateDisconnectStopsWaitingAttachAndKeepsDisconnectedPresentation() async throws {
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+        let configuration = Self.configuration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64012",
+            target: "cmux-macmini"
+        )
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(
+                    try #require(workspace.remoteConfiguration).proxyBrokerTransportKey
+                )
+            )
+        )
+
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+        try #require(workspace.remoteSessionTransitionTask != nil)
+        #expect(workspace.markRemoteTerminalSessionLaunching(
+            surfaceId: panel.id,
+            terminalLifecycleID: panel.surface.terminalLifecycleId,
+            attemptID: UUID()
+        ))
+        #expect(workspace.remoteConnectionState == .disconnected)
+        #expect(workspace.remoteSessionParkedDetailWithoutController != nil)
+        workspace.reconcileRemoteTerminalPresentationAfterSessionEnd()
+        #expect(workspace.remoteConnectionState == .disconnected)
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(workspace.remoteSessionController == nil)
+        #expect(workspace.remoteConnectionState == .disconnected)
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panel.id,
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        #expect(workspace.remoteConnectionState == .disconnected)
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": UUID().uuidString,
+            "method": "workspace.remote.pty_bridge",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+                "session_id": "ssh-\(workspace.id.uuidString)-\(panel.id.uuidString)",
+                "attachment_id": panel.id.uuidString,
+                "require_existing": true,
+                "wait_for_ready": true,
+            ],
+        ]
+        let line = try #require(
+            String(data: JSONSerialization.data(withJSONObject: request), encoding: .utf8)
+        )
+        let response = await Task.detached {
+            TerminalController.shared.handleSocketLine(line)
+        }.value
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+        )
+        let error = try #require(payload["error"] as? [String: Any])
+
+        #expect(error["code"] as? String == "remote_session_parked")
+        #expect((error["message"] as? String)?.isEmpty == false)
+
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ParkedReconnectRecordingRunner(cleanupStatus: 64)
+        _ = workspace.reconnectRemoteConnection()
+        #expect(workspace.remoteConnectionState == .connecting)
+        #expect(workspace.remoteSessionParkedDetailWithoutController == nil)
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(workspace.remoteSessionController != nil)
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        await workspace.remoteSessionTransitionTask?.value
+    }
+
     @Test
     func aParkedAttachExitKeepsPersistentPanesAndTheirSessionsForReconnect() async throws {
         let manager = TabManager()
