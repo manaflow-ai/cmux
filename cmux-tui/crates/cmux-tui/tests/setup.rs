@@ -108,9 +108,10 @@ impl World {
         self.cli = cli;
     }
 
-    /// [`Self::with_cli_at`] a shipped install's path outside any bundle.
+    /// [`Self::with_cli_at`] a shipped install's path outside any bundle (npm's
+    /// platform package, cmux-tui/dist/npm/cmux).
     fn with_shipped_cli(self) -> Self {
-        self.with_cli_at("opt/cmux/bin/cmux", None)
+        self.with_cli_at("lib/node_modules/cmux-tui-linux-x64/bin/cmux-tui", None)
     }
 
     /// The `cmux` every command runs, as a string.
@@ -1863,9 +1864,17 @@ fn cmux_setup_mcp_from_a_cargo_target_writes_no_global_entry() {
     world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
     let result = world.json(&["setup", "mcp"]);
     assert_eq!(result["scope"], "terminals", "{result}");
-    assert!(result["terminals"]["why"].as_str().unwrap().contains("cargo target"), "{result}");
+    assert!(result["terminals"]["why"].as_str().unwrap().contains("development build"), "{result}");
     assert!(world.take_mcp_calls().is_empty(), "a cargo build wrote a global entry");
     assert!(!world.home.join(".claude.json").exists());
+    // Any folder: a custom target directory, `cargo install` output.
+    for path in [".build/cmux-tui-rust-target/debug/cmux-tui", "home/.cargo/bin/cmux-tui"] {
+        let world = World::new("mcpcargo2").with_fake_mcp_clients().with_cli_at(path, None);
+        world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+        let result = world.json(&["setup", "mcp"]);
+        assert_eq!(result["scope"], "terminals", "{path}: {result}");
+        assert!(world.take_mcp_calls().is_empty(), "{path}");
+    }
 }
 
 /// A DEV build on its own settings file whose answer is yes but whose switch
@@ -1914,26 +1923,189 @@ fn cmux_setup_mcp_keeps_an_entry_naming_the_shared_settings_file() {
     }
 }
 
-/// The undo line keeps every `env` key of the entry it replaced, shows only
-/// cmux's own values, and says which values it leaves out.
+/// An entry with settings cmux cannot put back (a cmux secret such as
+/// `CMUX_SOCKET_PASSWORD`, a token, a proxy, a Codex `cwd` or timeout) is
+/// never replaced or removed, even when a DEV build wrote it: setup names
+/// what it would lose and the exact command for the person, and never prints
+/// a secret.
 #[test]
-fn cmux_setup_mcp_undo_keeps_every_env_key_and_hides_other_values() {
-    let world = World::new("mcpundo").with_fake_mcp_clients().with_shipped_cli();
+fn cmux_setup_mcp_leaves_an_entry_it_cannot_put_back() {
+    let world = World::new("mcpkeep").with_fake_mcp_clients().with_shipped_cli();
     world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
     let root = world.home.parent().unwrap().to_path_buf();
     let dev = fake_bundle(&root.join("apps"), "cmux DEV old", "com.cmuxterm.app.debug.old");
-    let old = json!({"mcpServers": {"cmux": {"command": dev.to_str().unwrap(), "args": ["mcp", "serve"],
-                     "env": {"CMUX_TAG": "old", "API_TOKEN": "s3cret"}}}});
-    std::fs::write(world.home.join(".claude.json"), old.to_string()).unwrap();
+    let dev = dev.to_str().unwrap();
+    let claude_json = world.home.join(".claude.json");
+    for (name, env, lost) in [
+        (
+            "secret",
+            json!({"CMUX_SOCKET_PASSWORD": "pw-s3cret", "CMUX_TAG": "old"}),
+            "env CMUX_SOCKET_PASSWORD",
+        ),
+        ("token", json!({"API_TOKEN": "tok-s3cret"}), "env API_TOKEN"),
+        ("proxy", json!({"HTTPS_PROXY": "http://proxy-s3cret:1"}), "env HTTPS_PROXY"),
+        ("number", json!({"CMUX_TAG": 7}), "env CMUX_TAG"),
+    ] {
+        let old =
+            json!({"mcpServers": {"cmux": {"command": dev, "args": ["mcp", "serve"], "env": env}}});
+        std::fs::write(&claude_json, old.to_string()).unwrap();
+        for args in [&["setup", "mcp", "claude"][..], &["setup", "mcp", "claude", "--remove"]] {
+            let result = world.json(args);
+            assert_eq!(result["state"], "needs_user", "{name} {args:?}: {result}");
+            let action = &result["user_action"];
+            assert_eq!(action["kind"], "keep", "{name}: {result}");
+            assert!(action["text"].as_str().unwrap().contains(lost), "{name}: {action}");
+            let command = if args.len() == 4 {
+                "claude mcp remove --scope user cmux".to_owned()
+            } else {
+                "claude mcp remove --scope user cmux && cmux setup mcp claude".to_owned()
+            };
+            assert_eq!(action["command"], command, "{name}");
+            assert!(!result.to_string().contains("s3cret"), "{name}: printed a secret: {result}");
+            assert!(world.take_mcp_calls().is_empty(), "{name} {args:?}: touched the entry");
+            let now: Value =
+                serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+            assert_eq!(now, old, "{name}");
+        }
+    }
+    // Codex fields setup does not read.
+    let codex_toml = world.codex_home(
+        ".codex",
+        &format!(
+            "[mcp_servers.cmux]\ncommand = \"{dev}\"\nargs = [\"mcp\", \"serve\"]\ncwd = \"/w\"\nstartup_timeout_sec = 30\n"
+        ),
+    );
+    let codex_toml = codex_toml.join("config.toml");
+    let before = std::fs::read_to_string(&codex_toml).unwrap();
+    let result = world.json(&["setup", "mcp", "codex"]);
+    assert_eq!(result["user_action"]["kind"], "keep", "{result}");
+    let text = result["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("cwd") && text.contains("startup_timeout_sec"), "{text}");
+    assert!(world.take_mcp_calls().is_empty());
+    assert_eq!(std::fs::read_to_string(&codex_toml).unwrap(), before);
+}
+
+/// An entry whose command is a shipped cmux is a shipped entry whatever
+/// settings file its `env` names (a leading `~` is the home): setup keeps it.
+#[test]
+fn cmux_setup_mcp_keeps_a_shipped_entry_whatever_settings_file_it_names() {
+    let world = World::new("mcpfile").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let cmux = world.cli();
+    let other = world.home.join(".config/cmux/other.json");
+    std::fs::write(&other, "{}").unwrap();
+    let claude_json = world.home.join(".claude.json");
+    for file in
+        ["~/.config/cmux/other.json", other.to_str().unwrap(), "~/.config/cmux/cmux-next.json"]
+    {
+        let entry = json!({"mcpServers": {"cmux": {"command": cmux, "args": ["mcp", "serve"],
+                           "env": {"CMUX_NEXT_CONFIG_FILE": file}}}});
+        std::fs::write(&claude_json, entry.to_string()).unwrap();
+        let result = world.json(&["setup", "mcp", "claude"]);
+        assert_eq!(result["state"], "ok", "{file}: {result}");
+        assert!(world.take_mcp_calls().is_empty(), "{file}");
+    }
+}
+
+/// A DEV build's `--remove` takes out an entry of a DEV app that is gone (no
+/// Info.plist to read), and leaves one of a shipped app that is gone, saying
+/// only what is true of it.
+#[test]
+fn cmux_setup_mcp_from_a_dev_build_removes_an_entry_of_a_deleted_dev_app() {
+    let world = World::new("mcpgone").with_fake_mcp_clients();
+    let root = world.home.parent().unwrap().to_path_buf();
+    let own = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, json!({"agents": {"cmuxMcp": "on"}}).to_string()).unwrap();
+    let gone_dev = root.join("gone/cmux DEV old.app/Contents/Resources/bin/cmux");
+    let gone_shipped = root.join("gone/cmux NEXT.app/Contents/Resources/bin/cmux");
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": {"command": gone_dev.to_str().unwrap(), "args": ["mcp", "serve"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    world.codex_home(
+        ".codex",
+        &format!(
+            "[mcp_servers.cmux]\ncommand = \"{}\"\nargs = [\"mcp\", \"serve\"]\n",
+            gone_shipped.display()
+        ),
+    );
+    let output = world
+        .command(&["setup", "mcp", "--remove"])
+        .env("CMUX_NEXT_CONFIG_FILE", &own)
+        .output()
+        .unwrap();
+    let removed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(removed["clients"][0]["state"], "changed", "{removed}");
+    assert_eq!(removed["clients"][1]["state"], "ok", "{removed}");
+    let kept = removed["clients"][1]["kept"].as_str().unwrap();
+    assert!(!kept.contains("shipped cmux wrote"), "{kept}");
+    assert_eq!(world.take_mcp_calls(), ["claude mcp remove --scope user cmux".to_owned()]);
+}
+
+/// Setup writes the path it judged: the CLI with its links followed, not the
+/// link it was started through.
+#[test]
+fn cmux_setup_mcp_writes_the_resolved_cli_path() {
+    let mut world = World::new("mcplink").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let real = world.cli();
+    let link = world.home.parent().unwrap().join("links/cmux");
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    world.cli = link;
     let result = world.json(&["setup", "mcp", "claude"]);
     assert_eq!(result["state"], "changed", "{result}");
-    let undo = result["undo"].as_str().unwrap();
-    assert!(undo.contains("--env CMUX_TAG=old"), "{undo}");
-    assert!(undo.contains("API_TOKEN=<value of API_TOKEN>"), "{undo}");
-    assert!(!result.to_string().contains("s3cret"), "{result}");
-    assert_eq!(result["undo_exact"], false, "{result}");
-    assert_eq!(result["clients"][0]["undo_exact"], false, "{result}");
-    assert!(result["clients"][0]["undo_note"].as_str().unwrap().contains("API_TOKEN"), "{result}");
+    assert_eq!(
+        world.take_mcp_calls(),
+        [format!("claude mcp add --scope user cmux -- {real} mcp serve")]
+    );
+}
+
+/// The report the app reads (`AgentToolsAgent.agents`, `AgentToolsStepModel`)
+/// is the one this CLI prints: the fields the app reads, for a DEV build
+/// whose Claude Code still has an old DEV entry, equal the fixture the
+/// Swift tests run (Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools).
+#[test]
+fn cmux_setup_mcp_report_matches_the_apps_fixture() {
+    let world = World::new("mcpfixture").with_fake_mcp_clients();
+    let root = world.home.parent().unwrap().to_path_buf();
+    let own = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, json!({"agents": {"cmuxMcp": "on"}}).to_string()).unwrap();
+    let dev = fake_bundle(&root.join("apps"), "cmux DEV older", "com.cmuxterm.app.debug.older");
+    std::fs::write(
+        world.home.join(".claude.json"),
+        json!({"mcpServers": {"cmux": {"command": dev.to_str().unwrap(), "args": ["mcp", "serve"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    let output =
+        world.command(&["setup", "mcp"]).env("CMUX_NEXT_CONFIG_FILE", &own).output().unwrap();
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let project = |client: &Value| {
+        json!({
+            "id": client["id"],
+            "name": client["name"],
+            "installed": client["installed"],
+            "state": client["state"],
+            "stale_entry": client["stale_entry"].as_object().map(|e| json!({"name": e["name"]})),
+            "user_action": client["user_action"].as_object().map(|a| json!({"kind": a["kind"]})),
+        })
+    };
+    let projected = json!({
+        "scope": report["scope"],
+        "state": report["state"],
+        "clients": report["clients"].as_array().unwrap().iter().map(project).collect::<Vec<_>>(),
+    });
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json",
+    );
+    let expected: Value =
+        serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap()).unwrap();
+    assert_eq!(projected, expected, "the app's fixture no longer matches the CLI: {report}");
 }
 
 /// A DEV build names the entry an older DEV build left in an agent's config,
@@ -1954,9 +2126,13 @@ fn cmux_setup_mcp_from_a_dev_build_removes_only_dev_entries() {
             .to_string(),
     )
     .unwrap();
+    let shipped = fake_bundle(&root.join("apps"), "cmux", "com.cmuxterm.app");
     let codex_toml = world.codex_home(
         ".codex",
-        "[mcp_servers.cmux]\ncommand = \"/usr/local/bin/cmux\"\nargs = [\"mcp\", \"serve\"]\n",
+        &format!(
+            "[mcp_servers.cmux]\ncommand = \"{}\"\nargs = [\"mcp\", \"serve\"]\n",
+            shipped.display()
+        ),
     );
     let codex_toml = codex_toml.join("config.toml");
     let codex_before = std::fs::read_to_string(&codex_toml).unwrap();
@@ -2024,7 +2200,8 @@ fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
         ("derived", json!({"command": derived.to_str().unwrap(), "args": ["mcp", "serve"]})),
         (
             "settings",
-            json!({"command": cmux, "args": ["mcp", "serve"], "env": {"CMUX_NEXT_CONFIG_FILE": file}}),
+            json!({"command": dev_cli.to_str().unwrap(), "args": ["mcp", "serve"],
+                   "env": {"CMUX_NEXT_CONFIG_FILE": file, "CMUX_TAG": "cu-fresh"}}),
         ),
     ];
     for (name, entry) in cases {
@@ -2046,7 +2223,8 @@ fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
             serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
         assert_eq!(now["mcpServers"]["cmux"]["command"], cmux, "{name}: {now}");
         assert_eq!(now["mcpServers"]["cmux"]["env"], json!({}), "{name}: {now}");
-        // The undo line puts the DEV build's entry back as it was.
+        // The undo line puts the DEV build's entry back exactly as it was.
+        assert_eq!(result["undo_exact"], true, "{name}: {result}");
         let undo = result["undo"].as_str().unwrap();
         world.shell(undo);
         let back: Value =
@@ -2061,6 +2239,7 @@ fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
                 file.as_str(),
                 "{undo}"
             );
+            assert_eq!(back["mcpServers"]["cmux"]["env"]["CMUX_TAG"], "cu-fresh", "{undo}");
         }
     }
 }

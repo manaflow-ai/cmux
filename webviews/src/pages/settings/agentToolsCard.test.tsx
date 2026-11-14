@@ -97,3 +97,24 @@ test("a DEV build names an old development entry, and Remove is there to take it
   expect(button(element, "add").disabled).toBe(true);
   page.unmount();
 });
+
+test("an entry cmux cannot put back shows as kept, with a warning, and nothing to add", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentTools = {
+        loaded: true,
+        applying: false,
+        failed: false,
+        rows: [{ id: "claude", name: "Claude Code", state: "kept" }],
+      };
+    },
+  });
+  await settle();
+  const element = card(page.container);
+  expect(states(element)).toEqual(["claude:kept"]);
+  expect(element.textContent).toContain("Has its own cmux settings, left as is");
+  expect(element.querySelector(".badge-warning")).not.toBeNull();
+  expect(button(element, "add").disabled).toBe(true);
+  page.unmount();
+});

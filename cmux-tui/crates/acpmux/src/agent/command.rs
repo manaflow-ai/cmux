@@ -661,6 +661,26 @@ mod tests {
         );
     }
 
+    /// An agent acpmux starts reads the settings file the app runs on: the app
+    /// hands `CMUX_NEXT_CONFIG_FILE` to the daemon (CmuxNext
+    /// `LaunchIdentity.terminalEnvironment`), and a local agent's launch never
+    /// takes it out of the environment it inherits, so the agent's `claude` or
+    /// `codex` and the `cmux mcp serve` it starts read that file.
+    #[test]
+    fn a_local_agent_keeps_the_apps_settings_file() {
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"]
+        }))
+        .unwrap();
+        let command =
+            harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let key = crate::user_settings::CONFIG_OVERRIDE;
+        let removed = explicit_env(command.as_std())
+            .into_iter()
+            .any(|(name, value)| name == key && value.is_none());
+        assert!(!removed, "a local agent's launch removed {key}");
+    }
+
     /// The env `harness_command` gives a session `id` of `profile_env`, with
     /// the per-user directory in `base`.
     #[cfg(unix)]

@@ -17,4 +17,11 @@ struct ChiefOwnerSettingsFileTests {
     @Test func anAppOnTheSharedFileSetsNone() {
         #expect(DaemonLauncher.chiefEnvironment(["HOME": "/h"])["CMUX_NEXT_CONFIG_FILE"] == nil)
     }
+
+    /// The owner gets the absolute path the app's terminals get, not the raw value: a leading `~`
+    /// is the home.
+    @Test func theChiefOwnerGetsTheNormalizedPath() {
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_CONFIG_FILE": "~/.config/cmux/x.json"])
+        #expect(environment["CMUX_NEXT_CONFIG_FILE"] == "/h/.config/cmux/x.json")
+    }
 }

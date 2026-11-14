@@ -34,4 +34,12 @@ struct AgentToolsTerminalsTests {
         let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
         #expect(agents.map(\.stale) == [true, false])
     }
+
+    /// An entry with settings cmux cannot put back is left alone: the agent shows as kept, not
+    /// as ready to add.
+    @Test func anEntryCmuxCannotPutBackShowsAsKept() throws {
+        let report = #"{"state": "needs_user", "clients": [{"id": "claude", "name": "Claude Code", "installed": true, "state": "needs_user", "user_action": {"kind": "keep", "command": "claude mcp remove --scope user cmux && cmux setup mcp claude"}}]}"#
+        let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
+        #expect(agents.map(\.state.rawValue) == ["kept"])
+    }
 }

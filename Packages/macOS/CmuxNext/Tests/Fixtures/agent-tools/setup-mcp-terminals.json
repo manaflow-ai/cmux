@@ -1,0 +1,22 @@
+{
+  "scope": "terminals",
+  "state": "ok",
+  "clients": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "installed": true,
+      "state": "terminals",
+      "stale_entry": {"name": "cmux"},
+      "user_action": null
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "installed": true,
+      "state": "terminals",
+      "stale_entry": null,
+      "user_action": null
+    }
+  ]
+}
