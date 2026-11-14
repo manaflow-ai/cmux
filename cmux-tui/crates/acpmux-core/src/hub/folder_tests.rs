@@ -1,6 +1,7 @@
 use super::*;
 use crate::wire::{
-    FolderPageResult, FolderPosition, FolderWindow, ListView, Page, PageKey, PageSide,
+    Anchor, AnchorSide, FolderPageResult, FolderPosition, FolderWindow, ListFilter, ListView, Page,
+    PageKey, PageSide,
 };
 use acpmux_book::index::folders::{FolderKey, FolderOp};
 
@@ -138,10 +139,7 @@ fn folder_windows_pages_and_keyed_reads_keep_long_keys_and_bounds() {
     assert_eq!(reply.missing, vec![missing]);
     // Like summary keys, explicit identities are looked up independently of
     // the cursor walk's origin filter. No requested identity disappears.
-    keyed.filter = Some(crate::wire::ListFilter {
-        origin: Some("another-origin".into()),
-        ..Default::default()
-    });
+    keyed.filter = Some(ListFilter { origin: Some("another-origin".into()), ..Default::default() });
     let filtered: FolderPageResult = hub.page(&keyed).unwrap().decode_json().unwrap();
     assert_eq!(filtered, reply);
     keyed.max_bytes = 8192;
@@ -159,10 +157,8 @@ fn folder_view_refuses_table_filters_and_hides_removed_origins() {
     remote.origin = "peer".into();
     writer.apply(remote).unwrap();
     let mut request = sub();
-    request.filter = Some(crate::wire::ListFilter {
-        folder: Some(acpmux_book::index::FolderKey::new("peer", "/a")),
-        ..Default::default()
-    });
+    request.filter =
+        Some(ListFilter { folder: Some(FolderKey::new("peer", "/a")), ..Default::default() });
     assert!(hub.subscribe(&request).is_err());
     let mut p = page(FolderPosition { at: 0, origin: "peer".into(), folder: "/a".into() });
     p.filter = request.filter;
@@ -224,11 +220,11 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
     p.keys = Some(vec![folder, summary]);
     assert!(hub.page(&p).is_err());
     let mut s = sub();
-    s.anchor = Some(crate::wire::Anchor::Row { row_id: 1, side: crate::wire::AnchorSide::After });
+    s.anchor = Some(Anchor::Row { row_id: 1, side: AnchorSide::After });
     assert!(hub.subscribe(&s).is_err());
     assert!(hub.subscribe_replay(&s, 0).is_err());
     s.anchor = None;
-    s.filter = Some(crate::wire::ListFilter::default());
+    s.filter = Some(ListFilter::default());
     assert!(hub.subscribe(&s).is_err());
 }
 

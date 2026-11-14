@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, PageSide, Position, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -1034,11 +1034,11 @@ impl Hub {
             return Err(HubError::InvalidPage);
         }
         let (key, side) = match request.side() {
-            Some((side, crate::wire::Position::List(key))) => (
+            Some((side, Position::List(key))) => (
                 Some(book_key(key)),
                 match side {
-                    crate::wire::PageSide::Before => ReadSide::Before,
-                    crate::wire::PageSide::After => ReadSide::After,
+                    PageSide::Before => ReadSide::Before,
+                    PageSide::After => ReadSide::After,
                 },
             ),
             None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
