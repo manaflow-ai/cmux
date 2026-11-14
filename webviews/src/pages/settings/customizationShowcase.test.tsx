@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import showcase from "../../../../skills/cmux-customization/showcase.json";
+import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
 import { installDom } from "./testDom";
 import { SHOWCASE_REF, templateInstallCommand } from "./components/CustomizeExamplesCard";
 
@@ -187,4 +188,21 @@ test("Customize > Examples copies the exact generated command for the first temp
   expect(ops(page.provider, "cmux.app.clipboard.write")).toContainEqual({
     text: templateInstallCommand(template),
   });
+});
+
+test("Customize > Examples draws each description as one line of at most 60 characters, in every language", async () => {
+  const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const long: string[] = [];
+  for (const locale of LOCALES as string[]) {
+    page = await renderPage({ path: "/settings/customize", locale });
+    const lines = [...page.container.querySelectorAll<HTMLElement>('[data-card="customization-examples"] .row-help')];
+    expect(lines.length).toBe(showcase.samples.length + 1);
+    for (const line of lines) {
+      const text = line.textContent?.trim() ?? "";
+      if (text.includes("\n") || [...graphemes.segment(text)].length > 60) long.push(`${locale}: ${text}`);
+    }
+    page.unmount();
+    page = null;
+  }
+  expect(long).toEqual([]);
 });

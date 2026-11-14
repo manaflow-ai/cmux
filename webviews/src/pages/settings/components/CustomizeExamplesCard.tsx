@@ -15,17 +15,13 @@ const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const HELP_LIMIT = 60;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-// Settings keeps helper lines compact in every locale. The catalog may contain a
-// fuller translation, but the card must never turn a short example into a tall
-// block when a locale expands the copy.
+// A Settings description is one short line (rowSummary.test.tsx): the card draws only the
+// first line of a catalog description, cut to 60 characters, so a fuller or longer
+// translation never turns a short example into a tall block.
 function compactHelp(value: string): string {
-  return value
-    .split("\n")
-    .map((line) => {
-      const characters = Array.from(graphemes.segment(line), (part) => part.segment);
-      return characters.length > HELP_LIMIT ? `${characters.slice(0, HELP_LIMIT - 1).join("")}…` : line;
-    })
-    .join("\n");
+  const line = value.split("\n", 1)[0] ?? "";
+  const characters = Array.from(graphemes.segment(line), (part) => part.segment);
+  return characters.length > HELP_LIMIT ? `${characters.slice(0, HELP_LIMIT - 1).join("")}…` : line;
 }
 
 export function templateInstallCommand(example: Example): string {
