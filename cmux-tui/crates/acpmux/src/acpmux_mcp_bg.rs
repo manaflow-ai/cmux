@@ -128,6 +128,11 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
+            if name == "bg_start"
+                && let Some(why) = structured.get("exitWarning").and_then(Value::as_str)
+            {
+                text.push_str(&format!("\n{}", exit_warning_text(why)));
+            }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
                 // Claude Code shows the structured result, not the text, when there is one.
@@ -137,6 +142,14 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         }
         Err(e) => refusal(e),
     }
+}
+
+/// What a `bg_start` result says when its command may hide a failure (`bg_exit_masking`): it
+/// still runs, and its end message will carry the same reason.
+fn exit_warning_text(why: &str) -> String {
+    format!(
+        "Warning: this command's exit may not be its own ({why}). It runs as given, and its end message says so. To keep its exit, end on the command itself (or `exit` with its status), drop `|| true`, and put `set -o pipefail;` before a pipe."
+    )
 }
 
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
@@ -304,6 +317,19 @@ esac
         // The pinned-elsewhere call never waited: the one wait is the earlier call's.
         assert_eq!(calls.matches("--watch").count(), 1, "{calls}");
         assert!(calls.contains("run watch 7 --repo o/r --exit-status"), "{calls}");
+    }
+
+    /// A start whose command may hide its exit says why and how to keep it.
+    #[test]
+    fn a_masked_start_says_why_and_how_to_keep_its_exit() {
+        let text = exit_warning_text("|| true hides a failure");
+        assert!(
+            text.starts_with(
+                "Warning: this command's exit may not be its own (|| true hides a failure)."
+            ),
+            "{text}"
+        );
+        assert!(text.contains("set -o pipefail"), "{text}");
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
