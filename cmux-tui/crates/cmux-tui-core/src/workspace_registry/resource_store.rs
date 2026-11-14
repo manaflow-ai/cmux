@@ -579,7 +579,8 @@ fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<(
          )",
         [i64::try_from(RESOURCE_MUTATION_REPLAY_CAPACITY)?],
     )?;
-    Ok(())
+    // The receipts answer the same retries: the same window, at the same times.
+    super::effect_store::compact_resource_receipts(transaction)
 }
 
 pub(crate) fn migrate_resource_browser_metadata(

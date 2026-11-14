@@ -14,9 +14,11 @@ mod creation_record;
 mod effect_intent;
 mod input_receipts;
 mod receipt_presence;
+mod receipt_retention;
 use creation_record::read_creation_record;
 pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
+pub(crate) use receipt_retention::compact_resource_receipts;
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
