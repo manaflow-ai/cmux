@@ -48,6 +48,33 @@ import Testing
         sizing.tuiStarted()
         #expect(rows(sizing) == 20)
     }
+
+    /// The keyboard's lift is kept as a distance. A dock or page change after
+    /// it moves the resting top, and the rows follow: a kept page position
+    /// gave a TUI rows under the composer (vim opened with its first rows
+    /// clipped) or above it (a band of black).
+    @Test func theRowsFollowTheRestingTopAfterTheKeyboardSettled() {
+        var sizing = TerminalTUISizing()
+        sizing.tuiStarted()
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
+        #expect(rows(sizing) == 20)
+        // The dock grew by 76 pt (the composer came in): the keyboard still
+        // lifts the stack 276 pt, so (600 - 276 - 62) / 16.4 = 15 rows.
+        #expect(sizing.rows(restingStackTop: 600, chromeTop: top, cellHeight: cell) == 15)
+        // The page grew by 100 pt: (776 - 276 - 62) / 16.4 = 26 rows, not the old position's 20.
+        #expect(sizing.rows(restingStackTop: 776, chromeTop: top, cellHeight: cell) == 26)
+    }
+
+    /// With the keyboard down a TUI gets exactly the resting rows, wherever
+    /// the resting top moves.
+    @Test func aTUIWithTheKeyboardDownGetsTheRestingRowsWhereverTheDockMoves() {
+        var sizing = TerminalTUISizing()
+        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, isTUI: false)
+        sizing.tuiStarted()
+        #expect(rows(sizing) == 37)
+        // (810 - 62) / 16.4 = 45.6: the resting rows, not 37.
+        #expect(sizing.rows(restingStackTop: 810, chromeTop: top, cellHeight: cell) == 45)
+    }
 }
 
 /// User report 2026-10-14: no resize for a size that only lasts a layout pass.

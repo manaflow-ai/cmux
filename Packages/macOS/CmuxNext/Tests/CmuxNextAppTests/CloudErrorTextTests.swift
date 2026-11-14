@@ -1,6 +1,8 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -77,7 +79,8 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(CloudAPIError.noBackend(URL(string: "http://127.0.0.1:1")!)) == CloudStrings.localBackend)
         #expect(CloudStrings.errorText(CloudAPIError.timedOut("/api/vm")) == CloudStrings.apiTimedOut)
         #expect(!CloudStrings.apiTimedOut.contains("/api/"))
-        #expect(CloudStrings.errorText(CloudAPIError.transport("offline")) == CloudStrings.apiUnreachable("offline"))
+        #expect(CloudStrings.errorText(CloudAPIError.transport("The Internet connection appears to be offline.")) == CloudStrings.apiUnreachable)
+        #expect(!CloudStrings.apiUnreachable.contains("offline."), "the system's network text reached the toast")
         #expect(CloudStrings.errorText(CloudAPIError.decoding("keyNotFound(…)")) == CloudStrings.apiUnreadable)
     }
 
@@ -85,6 +88,33 @@ struct CloudErrorTextTests {
         let error = CloudAPIError.http(status: 409, code: "vm_other", message: "Busy.", action: "Retry in a minute.", traceId: "t1")
         #expect(CloudService.workerApprovalsFailure(error) == .failed("Busy. Retry in a minute. \(CloudStrings.trace("t1"))"))
         #expect(CloudService.workerApprovalsFailure(.decoding("keyNotFound(…)")) == .failed(CloudStrings.apiUnreadable))
+    }
+
+    private struct Opaque: Error {}
+
+    /// A system error reads in plain words, any other as one plain generic line: never Cocoa's
+    /// "Error Domain=… Code=…" or a Swift dump (Leo, 2026-11-12: "we want good error states. We
+    /// don't want busted errors.").
+    @Test func aSystemOrUnknownErrorReadsInPlainWords() {
+        #expect(CloudStrings.errorText(URLError(.notConnectedToInternet)) == PlainErrorText.words(.offline))
+        #expect(CloudStrings.errorText(POSIXError(.ENOSPC)) == PlainErrorText.words(.noSpace))
+        #expect(CloudStrings.errorText(Opaque()) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: "x", code: -1)) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: NSCocoaErrorDomain, code: 4)) == PlainErrorText.words(.notFound))
+        let errors: [any Error] = [URLError(.badServerResponse), CocoaError(.fileWriteUnknown), Opaque(),
+                                   NSError(domain: "x", code: -1), CloudAPIError.transport("Error Domain=NSURLErrorDomain Code=-1009")]
+        for error in errors {
+            let text = CloudStrings.errorText(error)
+            #expect(!text.contains("Error Domain=") && !text.contains("Code=") && !text.contains("Opaque"), "\(text)")
+        }
+    }
+
+    /// No Cloud failure toast tells a person to run a CLI command; Retry on the toast is the way on.
+    @Test func noFailureNamesTheDiagnosticsCommand() {
+        for text in [CloudStrings.apiTimedOut, CloudStrings.apiUnreachable, CloudMoveStrings.moveFailed("x"),
+                     CloudBringBackStrings.failed("x"), CloudStrings.linkCheckFailed] {
+            #expect(!text.contains("cmux cloud diagnostics"), "\(text)")
+        }
     }
 
     @Test func anActionFailureReadsAsItsMessage() {

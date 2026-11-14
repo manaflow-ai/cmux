@@ -13,10 +13,11 @@ run-name: >-
 # The production pipeline calls it (workflow_call) on the exact feat-cmux-next
 # SHA it builds, before upload, and refuses to submit unless it is green on
 # that SHA (outputs `blocking` and `sha`). It also runs on every feat-cmux-next
-# push that touches the app, and on pull requests that change the gate itself
-# (an app pull request does not pay for a macOS walk; its push to
-# feat-cmux-next does). A scheduled run would fire only from the default
-# branch's copy of this file, so there is none here.
+# push and pull request that touches the app, and fails one that adds a
+# blocker not in cmux-next-ios/AppStoreReview/known-blockers.json: a change
+# that breaks the reviewer's path is red before it merges, not found by Apple.
+# A scheduled run would fire only from the default branch's copy of this file,
+# so there is none here.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
   push:
@@ -28,11 +29,14 @@ on:
       - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
+  # Every app pull request walks the reviewer path (one macOS job, about 45
+  # minutes), so a change that breaks it is red before it merges.
   pull_request:
     paths:
-      - "cmux-next-ios/UITests/AppReviewGateUITests.swift"
-      - "cmux-next-ios/AppStoreReview/rejection-history.json"
-      - "cmux-next-ios/scripts/app_review_*.py"
+      - "cmux-next-ios/**"
+      - "Packages/iOS/CmuxConversation/**"
+      - "Packages/Shared/**"
+      - "scripts/cmux-next/check-app-store-rules.py"
       - "tests/test_ios_app_review_gate.py"
       - ".github/workflows/ios-review-gate.yml"
   workflow_dispatch:
@@ -193,7 +197,9 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.ipa_artifact_name }}
-          path: ipa
+          # The runner's temp folder, emptied before each job: a self-hosted worker keeps its workspace, and an
+          # .ipa an earlier job left in `ipa/` would be linted as this binary (the self-hosted downloads guard, test_ci_self_hosted_downloads_are_fresh, run by hand).
+          path: ${{ runner.temp }}/ipa
       - name: Download the dispatched run's binary
         if: inputs.ipa_artifact_run != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -201,7 +207,7 @@ jobs:
           name: app-store-ipa
           run-id: ${{ inputs.ipa_artifact_run }}
           github-token: ${{ github.token }}
-          path: ipa
+          path: ${{ runner.temp }}/ipa
       - name: Lint
         env:
           WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
@@ -209,7 +215,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
-          ipa="$(find ipa -name '*.ipa' 2>/dev/null | head -n 1 || true)"
+          ipa="$(find "$RUNNER_TEMP/ipa" -name '*.ipa' 2>/dev/null | head -n 1 || true)"
           if [ -n "$ipa" ]; then
             # The binary must be built from the judged commit.
             args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
@@ -488,7 +494,19 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           persist-credentials: false
-          sparse-checkout: cmux-next-ios/scripts
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
+      # A pull request is judged on its base's known blockers, never on a list
+      # it could edit to pin its own regression.
+      - name: Checkout the base's known blockers
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: cmux-next-ios/AppStoreReview
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         continue-on-error: true
         with:
@@ -499,10 +517,11 @@ jobs:
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
-          # A direct push or pull_request run reports the app's readiness for
-          # the record; a submission (dispatch, or a call from the production
-          # pipeline) is the one that refuses on a blocker.
-          ADVISORY: ${{ contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && (github.event_name == 'push' || github.event_name == 'pull_request') }}
+          # A direct push or pull_request run fails on a new blocker only:
+          # the ones in known-blockers.json were there before it. A
+          # submission (dispatch, or a call from the production pipeline)
+          # refuses every blocker.
+          RATCHET: ${{ contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && (github.event_name == 'push' || github.event_name == 'pull_request') }}
         run: |
           set -uo pipefail
           echo "Judged: \`$JUDGED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
@@ -522,16 +541,21 @@ jobs:
           done
           while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
           if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
+          known=cmux-next-ios/AppStoreReview/known-blockers.json
+          if [ "$RATCHET" = true ] && [ -f "base/$known" ]; then
+            args+=(--known-blockers "base/$known" --proposed-known-blockers "$known")
+          elif [ "$RATCHET" = true ]; then
+            # The base has no list yet: only the pull request that adds it.
+            args+=(--known-blockers "$known")
+          fi
           # Actions runs `bash -e`: take the verdict's status without exiting.
           code=0
           python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || code=$?
           echo "blocking=$(grep -oE '[0-9]+ blocking' review-gate.md | head -n1 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          if [ "$code" -ne 0 ] && [ "$ADVISORY" = true ]; then
-            # The verdict judges the whole app at this commit, not the change
-            # that started the run, so it never turns a push or a pull request
-            # red; the summary above and the `blocking` output carry it.
-            echo "::warning::App Review gate: this commit would not pass App Review yet (see the run summary); a submission run refuses it"
-            exit 0
+          if [ "$code" -ne 0 ] && [ "$RATCHET" = true ]; then
+            echo "::error::App Review gate: this change adds a blocker App Review would reject (see \"New in this change\" in the run summary)"
+          elif [ "$RATCHET" = true ] && grep -q '^\*\*NO\*\*' review-gate.md; then
+            echo "::warning::App Review gate: no new blocker, but the app would still not pass App Review (known-blockers.json); a submission run refuses it"
           fi
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

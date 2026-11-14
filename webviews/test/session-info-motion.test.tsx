@@ -16,6 +16,7 @@ import {
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { ProcessRegistry } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -65,6 +66,7 @@ afterEach(async () => {
   transition = "0.15s";
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

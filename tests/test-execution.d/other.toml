@@ -82,6 +82,16 @@ path = "tests/test_car_guards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cargo_lock_new_versions.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/cargo-lock-new-versions.py and the pre-push gate's Cargo.lock new-crate-versions check; run python3 tests/test_cargo_lock_new_versions.py yourself after changing either (about a second, no build)."
+
+[[test]]
+path = "tests/test_cargo_locks_explain.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/cargo-locks.py explain and the CI wrappers that hand it cargo's output (fake cargo, no build), and lists every cargo --locked wrapper; run python3 -m unittest tests/test_cargo_locks_explain.py yourself after changing cargo-locks.py or a wrapper that runs cargo with --locked (about 10 s)."
+
+[[test]]
 path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
@@ -226,6 +236,10 @@ path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_history.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_git_mirror_bundle.py"
 lane = "linux-guard"
 
@@ -238,8 +252,18 @@ path = "tests/test_github_spend.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_group_kill_without_leader.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a cleanup owning a process group kills the group whatever its leader's state (cmux#41767 review F1): a behaviour row on rust-live.py's Builder.cancel() and an AST scan of scripts/; run python3 tests/test_group_kill_without_leader.py yourself after adding or changing a script that starts a process in its own session or kills a process group (about 5 s; python3, sh, sleep and ps)."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guard_logs_survive_closed_pipe.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's message before its kill never skips the kill when nobody reads its output (SIGPIPE), and scans scripts/ for a message before a kill not in the safe form; run python3 -I tests/test_guard_logs_survive_closed_pipe.py yourself after adding or changing a shell guard that logs before it kills (about 30 s; bash, curl and procps)."
 
 [[test]]
 path = "tests/test_guards_new_reds.py"
@@ -287,6 +311,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_known_red.py"
 lane = "linux-guard"
 
 [[test]]
@@ -486,6 +514,10 @@ path = "tests/test_poll_notary_submission.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_portable_jobs_bring_their_python.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_post_edit_checks.py"
 lane = "linux-guard"
 
@@ -528,6 +560,11 @@ path = "tests/test_published_in_comments.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_python_guard_logs_survive_closed_pipe.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a Python script's line right before it stops a process never skips the kill on a closed stdout (BrokenPipeError): behaviour rows on three cmux-next cleanups and an AST scan of scripts/; run python3 -I tests/test_python_guard_logs_survive_closed_pipe.py yourself after adding or changing a script that prints right before it stops a process (about 20 s; python3 and ps)."
+
+[[test]]
 path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
@@ -558,6 +595,11 @@ lane = "legacy"
 [[test]]
 path = "tests/test_recovery_app_archive.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_refuse_stray_processes.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/ci/refuse_stray_processes.py, which nightly-next-one runs before its signing and publication secrets: the runner, the processes of the job hooks its Runner.Worker was started with and the check's own tree pass, a detached process with the job's RUNNER_TRACKING_ID or a cwd under the runner fails; run python3 tests/test_refuse_stray_processes.py yourself after changing it (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_reload_build_only_app_path_readers.py"
@@ -723,6 +765,11 @@ reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml'
 [[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stale_base_readers.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins that each tool measuring a branch's own change from where HEAD meets origin/feat-cmux-next (affected tests, the Rust panic ratchet, build_class, gate-plan, the test-determinism scan, codebase-health, a manual arch-ratchet run) fetches that base first; run python3 -I tests/test_stale_base_readers.py yourself after changing one (a few seconds, no build)."
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"

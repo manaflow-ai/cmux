@@ -21,6 +21,8 @@ use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 const CASES: u64 = 48;
 /// Steps per case.
 const STEPS: usize = 12;
+/// The longest that [`wait_for_a_later_millisecond`] waits for the wall clock.
+const LATER_MILLISECOND_WAIT: Duration = Duration::from_secs(5);
 
 struct Rng(u64);
 
@@ -170,6 +172,32 @@ fn terminal_hex(prefix: &str, index: usize) -> String {
     format!("{prefix}000000000040008000{index:012x}")
 }
 
+/// Return once the wall clock reads a later millisecond than `process_end_ms`.
+///
+/// The model has no clock: each of its process ends is before the restart
+/// that follows. The owner reads both times from the wall clock, in
+/// milliseconds, and the steps run with no wait between them, so a process
+/// end and the next shutdown start can be the same millisecond. The owner
+/// cannot tell which came first there, and it keeps the tab: a status exit
+/// from the recorded shutdown start on is a host loss (`session-shutdown`).
+/// A restart step that starts its shutdown one millisecond later keeps that
+/// case out of the run. No test asserts on it.
+///
+/// The wait is less than a millisecond while the wall clock goes forward. A
+/// wall clock that was set back is waited out for [`LATER_MILLISECOND_WAIT`]
+/// at most (measured on the monotonic clock); then the test fails, it does
+/// not hang.
+fn wait_for_a_later_millisecond(process_end_ms: u64) {
+    let started = Instant::now();
+    while crate::session_shutdown::unix_now_ms() <= process_end_ms {
+        assert!(
+            started.elapsed() < LATER_MILLISECOND_WAIT,
+            "the wall clock did not pass {process_end_ms} ms in {LATER_MILLISECOND_WAIT:?}"
+        );
+        std::thread::yield_now();
+    }
+}
+
 fn run_case(seed: u64) -> usize {
     let mut rng = Rng::new(seed);
     let root = std::env::temp_dir()
@@ -204,6 +232,7 @@ fn run_case(seed: u64) -> usize {
     }
 
     let mut executed = 0;
+    let mut latest_process_end_ms = 0_u64;
     for step_index in 0..STEPS {
         let step = match rng.below(10) {
             0..=3 => Step::HostDeath(rng.below(terminals.len())),
@@ -220,9 +249,9 @@ fn run_case(seed: u64) -> usize {
                 let Some(surface) = runtime_surface(&mux, terminal) else { continue };
                 if let Step::ProcessEnd(_) = step {
                     let code = i32::try_from(rng.below(3)).unwrap();
-                    mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
-                        TerminalExitOutcome::Exit { code },
-                    ));
+                    let exit = TerminalExit::now(TerminalExitOutcome::Exit { code });
+                    latest_process_end_ms = latest_process_end_ms.max(exit.exited_at_ms);
+                    mux.surface(surface).unwrap().record_process_end_for_test(exit);
                 }
                 mux.surface_exited(surface);
                 if terminal.life == Life::Running {
@@ -241,6 +270,7 @@ fn run_case(seed: u64) -> usize {
                 terminal.life = Life::Closed;
             }
             Step::Restart => {
+                wait_for_a_later_millisecond(latest_process_end_ms);
                 mux.shutdown();
                 drop(mux);
                 mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
@@ -496,6 +526,81 @@ fn session_shutdown_settles_a_live_signal_exit_after_the_lead() {
     drop(reopened);
     let reopened = Mux::open_persistent(session, options, &root).unwrap();
     assert_eq!(topology(&reopened), after_normal, "a second restart removed a logout tab");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A macOS restart (2026-11-12): loginwindow sends SIGTERM to the owner, the
+/// hosts survive it, and some seconds later every shell of the session ends
+/// with an exit status (zsh exits 1 when it loses its terminal), not a
+/// signal. Those ends are part of the shutdown: a host loss, so the tab stays
+/// dead and the next owner brings it back. Before the fix, 103 shells ended
+/// with status 1 during one restart, and each closed its tab (and six
+/// workspaces whose last tab it was). Outside a shutdown a status exit is
+/// still a real end, and its tab goes at once, with no lead to wait out.
+#[cfg(unix)]
+#[test]
+fn session_shutdown_keeps_the_tab_of_a_status_exit() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-shutdown-status-exit-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "shutdown-status-exit";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let base = crate::session_shutdown::unix_now_ms() - 60_000;
+    mux.set_session_clock_now_for_test(base);
+    let seed = |index: usize| {
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let before = tabs_of(&topology(&mux));
+        let surface = mux
+            .seed_running_terminal_with_on_exit_for_test(
+                &terminal_hex("00", index),
+                &terminal_hex("10", index),
+                &workspace.key,
+                TerminalOnExit::Close,
+            )
+            .unwrap();
+        let tabs = tabs_of(&topology(&mux)).difference(&before).cloned().collect::<BTreeSet<_>>();
+        (surface, tabs)
+    };
+    let (normal, normal_tabs) = seed(1);
+    let (restart, _) = seed(2);
+    let status = |exited_at_ms| TerminalExit {
+        outcome: TerminalExitOutcome::Exit { code: 1 },
+        exited_at_ms,
+    };
+    let full = topology(&mux);
+
+    // While the owner runs normally, a status exit is a real end: its tab
+    // goes now.
+    mux.surface(normal).unwrap().record_process_end_for_test(status(base));
+    mux.surface_exited(normal);
+    let after_normal = topology(&mux);
+    assert_eq!(
+        tabs_of(&after_normal),
+        tabs_of(&full).difference(&normal_tabs).cloned().collect::<BTreeSet<_>>(),
+        "a status exit outside a shutdown kept its tab"
+    );
+
+    // The restart begins, and 17 s later the shell ends with status 1.
+    let at = base + 10_000;
+    mux.set_session_clock_now_for_test(at);
+    mux.begin_session_shutdown();
+    mux.set_session_clock_now_for_test(at + 17_000);
+    mux.surface(restart).unwrap().record_process_end_for_test(status(at + 17_000));
+    mux.surface_exited(restart);
+    let resolved = mux.resolve_terminal(&terminal_hex("00", 2)).unwrap().unwrap();
+    assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(topology(&mux), after_normal, "a status exit during a shutdown removed its tab");
+    mux.shutdown();
+    drop(mux);
+
+    // The next owner still shows the tab.
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    assert_eq!(topology(&reopened), after_normal, "a restart removed a shutdown status-exit tab");
     reopened.shutdown();
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);

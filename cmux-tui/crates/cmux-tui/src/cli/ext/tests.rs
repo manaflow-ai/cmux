@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::dev::{self, Phase};
-use super::{DevOptions, Request, exit, parse, scaffold};
+use super::{DevOptions, Request, exit, parse, scaffold, scene, shot};
 use crate::cli::GlobalArgs;
 
 fn words(text: &str) -> Vec<String> {
@@ -96,6 +96,34 @@ fn parses_new_dev_list_remove_and_help() {
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn capabilities_parse_and_print_the_manifest_rows() {
+    assert_eq!(parse(&words("capabilities")), Ok(Request::Capabilities { op: None }));
+    assert_eq!(
+        parse(&words("capabilities --op net.fetch")),
+        Ok(Request::Capabilities { op: Some("net.fetch".into()) })
+    );
+    for bad in ["capabilities --op", "capabilities net.fetch", "capabilities --op a b"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+    let table = cmux_app_manifest::Capabilities::get();
+    let all = super::capabilities_table(&table.manifest_json(None).unwrap());
+    assert!(all.starts_with("OP "), "{all}");
+    let create =
+        all.lines().find(|l| l.starts_with("workspace.create ")).expect("workspace.create");
+    assert!(
+        create.contains("workspace:write") && create.contains("mutation sensitive"),
+        "{create}"
+    );
+    assert!(create.contains("with a command: workspace:execute"), "{create}");
+    let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
+    assert!(fetch.contains("refused when sandboxed"), "{fetch}");
+    assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    let never = table.never().next().unwrap();
+    let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
+    assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
 }
 
 #[test]
@@ -383,7 +411,28 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
                 } else {
                     out.push(json!({"event": "apps-log", "app": app, "level": "info", "message": "rendered"}));
-                    out.push(json!({"event": "apps-scene", "mount_id": mount_id, "ops": []}));
+                    out.push(
+                        json!({"event": "apps-scene", "mount_id": mount_id, "ops": hello_scene()}),
+                    );
+                }
+            }
+            // The capability manifest, when the test put a live types file
+            // next to the local folder (`LIVE_TYPES`); else an older daemon's `{}`.
+            "apps-capabilities" => {
+                let live = local.parent().map(|state| state.join(LIVE_TYPES));
+                match live.and_then(|path| std::fs::read_to_string(path).ok()) {
+                    Some(types) => {
+                        let digest = format!(
+                            "{:x}",
+                            types.len() * 31 + types.bytes().map(usize::from).sum::<usize>()
+                        );
+                        let mut data = json!({"apiVersion": "9.9.9", "typesDigest": digest});
+                        if request["brief"] != true {
+                            data["types"] = json!(types);
+                        }
+                        out.push(reply(data));
+                    }
+                    None => out.push(reply(json!({}))),
                 }
             }
             _ => out.push(reply(json!({}))),
@@ -461,6 +510,73 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
     assert!(!copy.exists());
 }
 
+/// The live types file the fake daemon serves as `apps-capabilities`.
+const LIVE_TYPES: &str = "live-cmux-app.d.ts";
+
+/// Hot reload of the API: `ext dev` writes the running cmux's typed global
+/// into the project when it differs, on start and when the daemon's digest
+/// moves; an unchanged digest fetches nothing more, and a daemon without the
+/// manifest (older) changes nothing.
+#[test]
+fn ext_dev_writes_the_live_types_when_they_differ() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "typed");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/typed", true);
+    let options = dev_options(&dir);
+    let scaffolded = std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap();
+
+    // An older daemon: no manifest, the file stays.
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated, None);
+    assert_eq!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(), scaffolded);
+
+    // A daemon whose API differs: the file becomes its text, once.
+    // Next to the local folder, where the fake daemon looks.
+    let live = root.path().join("state/apps").join(LIVE_TYPES);
+    std::fs::write(&live, "declare const cmux: { newOp(): void }\n").unwrap();
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated.as_deref(), Some("9.9.9"));
+    assert!(outcome.line().contains("cmux-app.d.ts now matches this cmux"), "{}", outcome.line());
+    assert_eq!(outcome.to_json(&dir)["typesUpdated"], "9.9.9");
+    assert_eq!(
+        std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(),
+        "declare const cmux: { newOp(): void }\n"
+    );
+    let again = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(again.types_updated, None, "the same text is not written again");
+
+    // One session: the digest is remembered, so a reload with no API change
+    // asks only the brief answer; a moved digest (a new cmux) rewrites.
+    let (sender, wakes) = std::sync::mpsc::channel();
+    let daemon = super::daemon::Daemon::connect(&global(&fake.socket), sender, wakes).unwrap();
+    let mut session = dev::Session::new(dir.clone(), &options, daemon);
+    std::fs::write(dir.join(dev::TYPES_FILE), "stale").unwrap();
+    assert_eq!(session.reload(true).types_updated.as_deref(), Some("9.9.9"));
+    let full = |fake: &FakeDaemon| {
+        let requests = fake.requests.lock().unwrap();
+        requests.iter().filter(|r| r["cmd"] == "apps-capabilities" && r["brief"] != true).count()
+    };
+    let before = full(&fake);
+    assert_eq!(session.reload(false).types_updated, None);
+    assert_eq!(full(&fake), before, "an unchanged digest fetches no manifest");
+    std::fs::write(&live, "declare const cmux: { newerOp(): void }\n").unwrap();
+    assert_eq!(session.reload(false).types_updated.as_deref(), Some("9.9.9"));
+    assert!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap().contains("newerOp"));
+    assert!(
+        !dir.join(format!(".{}.cmux-ext-dev", dev::TYPES_FILE)).exists(),
+        "no staged file left"
+    );
+
+    // A folder that does not use the types gets none.
+    let plain = root.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert!(!dev::write_types(&plain, "x").unwrap());
+    assert!(!plain.join(dev::TYPES_FILE).exists());
+}
+
 #[test]
 fn a_local_folder_ext_dev_did_not_make_is_left_alone() {
     let root = tempfile::tempdir().unwrap();
@@ -485,4 +601,163 @@ fn the_fingerprint_follows_contents_and_skips_dot_files() {
     assert_eq!(dev::fingerprint(&dir), before, "an editor's swap file is no change");
     std::fs::write(dir.join("src/main.ts"), "export function renderSection() {}\n").unwrap();
     assert_ne!(dev::fingerprint(&dir), before);
+}
+
+#[test]
+fn parses_shot_as_one_reload_with_an_out_path() {
+    let Ok(Request::Shot(options)) = parse(&words("shot")) else { panic!("shot") };
+    assert_eq!(options.dev.dir, PathBuf::from("."));
+    assert!(options.dev.once && !options.dev.install, "one reload, no install card");
+    assert_eq!(options.out, None);
+    let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
+        panic!("shot with options")
+    };
+    assert_eq!(options.dev.dir, PathBuf::from("ext/x"));
+    assert_eq!(options.out, Some(PathBuf::from("a.png")));
+    assert_eq!(options.dev.build.as_deref(), Some("make"));
+    assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    for bad in [
+        "shot --out",
+        "shot --out -",
+        "shot a b",
+        "shot --once",
+        "shot --remove-on-exit",
+        "shot --bogus",
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+/// A scene as the app host sends it: a create per node, children, the root.
+fn hello_scene() -> Value {
+    json!([
+        {"op": "create", "id": "n1", "type": "VStack", "props": {}},
+        {"op": "create", "id": "n2", "type": "Text", "props": {"text": "Hello  from\nhello", "font": "headline"}},
+        {"op": "create", "id": "n3", "type": "Button", "props": {"title": "Refresh", "icon": "arrow.clockwise", "tint": "accent"}},
+        {"op": "create", "id": "n4", "type": "Badge", "props": {"count": 3}},
+        {"op": "children", "id": "n1", "children": ["n2", "n3", "n4"]},
+        {"op": "root", "id": "n1"},
+    ])
+}
+
+#[test]
+fn the_outline_prints_the_scene_from_its_root_in_order() {
+    let scene = hello_scene();
+    assert_eq!(
+        scene::outline(&[&scene]),
+        vec![
+            "VStack".to_string(),
+            "  Text text=\"Hello from hello\" font=headline".into(),
+            "  Button title=\"Refresh\" icon=arrow.clockwise tint=accent".into(),
+            "  Badge count=3".into(),
+        ]
+    );
+    // A later batch updates, removes and reorders, as the runtime's diffs do.
+    let later = json!([
+        {"op": "update", "id": "n3", "props": {"title": "Reload", "tint": null}},
+        {"op": "remove", "id": "n4"},
+        {"op": "children", "id": "n1", "children": ["n3", "n2"]},
+    ]);
+    assert_eq!(
+        scene::outline(&[&scene, &later]),
+        vec![
+            "VStack".to_string(),
+            "  Button title=\"Reload\" icon=arrow.clockwise".into(),
+            "  Text text=\"Hello from hello\" font=headline".into(),
+        ]
+    );
+    // A node two parents name prints once (the runtime never sends this; the walk stays bounded).
+    let shared = json!([
+        {"op": "create", "id": "r", "type": "VStack", "props": {}},
+        {"op": "create", "id": "s", "type": "Text", "props": {}},
+        {"op": "children", "id": "r", "children": ["s", "s"]},
+        {"op": "root", "id": "r"},
+    ]);
+    assert_eq!(scene::outline(&[&shared]), vec!["VStack".to_string(), "  Text".into()]);
+    // No root: nothing rendered yet.
+    assert!(
+        scene::outline(&[&json!([{"op": "create", "id": "a", "type": "Text", "props": {}}])])
+            .is_empty()
+    );
+    // A huge scene stops at the cap and says how many more.
+    let mut ops = vec![json!({"op": "create", "id": "r", "type": "List", "props": {}})];
+    let ids: Vec<String> = (0..scene::MAX_LINES + 5).map(|i| format!("t{i}")).collect();
+    for id in &ids {
+        ops.push(json!({"op": "create", "id": id, "type": "Text", "props": {"text": id}}));
+    }
+    ops.push(json!({"op": "children", "id": "r", "children": ids}));
+    ops.push(json!({"op": "root", "id": "r"}));
+    let big = scene::outline(&[&Value::Array(ops)]);
+    assert_eq!(big.len(), scene::MAX_LINES + 1);
+    assert_eq!(big.last().unwrap(), "… 6 more");
+}
+
+#[test]
+fn the_picture_is_read_from_the_screenshot_reply_or_its_refusal() {
+    let reply = r#"{"ok":true,"run":{"result":{"path":"/tmp/s.png","width":2880,"height":1800,"scale":2.0,"method":"window"}}}"#;
+    assert_eq!(
+        shot::picture_from(0, reply, ""),
+        Ok(shot::Picture { path: "/tmp/s.png".into(), width: Some(2880), height: Some(1800) })
+    );
+    let refused = r#"{"ok":false,"error":{"code":"screenshot.unavailable","reason":"the window is not on screen"}}"#;
+    let problem = shot::picture_from(1, refused, "").unwrap_err();
+    assert_eq!(problem.message, "no picture: the window is not on screen");
+    let problem = shot::picture_from(1, "", "cmux: no app is running\n").unwrap_err();
+    assert_eq!(problem.message, "no picture: cmux: no app is running");
+    assert_eq!(
+        shot::screenshot_argv(&words("--socket /s"), Some(Path::new("/o.png"))),
+        words("--socket /s window screenshot --out /o.png --json")
+    );
+    assert_eq!(shot::screenshot_argv(&[], None), words("window screenshot --json"));
+    // `cmux --json ext shot`: the child takes one output mode, its own.
+    assert_eq!(
+        shot::screenshot_argv(&words("--json --socket /s"), None),
+        words("--socket /s window screenshot --json")
+    );
+}
+
+#[test]
+fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "pic");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/pic", false);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.scene, scene::outline(&[&hello_scene()]));
+    assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
+    // Not installed: it rendered as a preview, which no window shows.
+    assert!(!shot::shown(&outcome));
+    let (text, code) = shot::report(&outcome, &dir, None, false);
+    assert_eq!(code, exit::SHOT_FAILED);
+    assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
+    assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
+    assert_eq!(json["exitCode"], exit::SHOT_FAILED);
+    assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+
+    // Installed and shown: the picture is reported with where the extension is.
+    let fake = FakeDaemon::start(&local, "local/pic", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert!(shot::shown(&outcome), "{:?}", outcome.placed);
+    let picture =
+        Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    assert_eq!(code, exit::OK);
+    assert!(
+        text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
+        "{text}"
+    );
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
+    assert_eq!(json["shot"]["path"], "/tmp/p.png");
+
+    // A failed load is reported as ext dev reports it: its own exit code, no picture.
+    std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
+    let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    let (_, code) = shot::report(&broken, &dir, None, false);
+    assert_eq!(code, exit::LOAD_FAILED);
 }

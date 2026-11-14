@@ -89,13 +89,27 @@ change. So a pull request cannot pin a release of its own FFI sources, and
 FFI inputs: split it into a Rust-only step A and a Swift step B after the
 re-pin.
 
+A crate's `tests/`, `benches/` and `examples/` are not FFI inputs
+(`--list-excluded`): Cargo never builds them into the library, so a test-only
+change (a new test, a `cargo fmt` of one) needs no release and no re-pin. A
+library file that names one of those folders (an `include_str!` of a test
+vector, a build script) keeps it an input. `scripts/ci/app_ffi_pin.py`
+(`NOT_BUILT`) is the one definition; the pin check, the pin on the base, the
+release workflow's push paths, the router, `build_class.py` and
+`base_red_excuse.py` read it.
+
 1. **Step A: the Rust change only.** Make it additive, so that the Swift on
    `feat-cmux-next` keeps working with the new Rust. Do not change Swift,
    `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin
    red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
    the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
    opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
-   merges the re-pin first.
+   merges the re-pin first. A function that step A adds to a header is not
+   port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
+   release lacks it: the app cannot call it yet, so the check prints a note,
+   not a finding. From the re-pin on, it needs its Swift caller, which is
+   step B. A re-pin, the bot's or one by hand, is never refused by the
+   check.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 
@@ -163,8 +177,13 @@ gh run view "$RUN" --repo manaflow-ai/cmux --json headSha,workflowName --jq '.he
    ```
 
 7. Pin move, by the lane that owns the window: in a fresh worktree from the
-   newest `origin/feat-cmux-next`, set the `CCmuxAppFFI` binaryTarget `url`
-   and `checksum` in `Packages/macOS/CmuxNext/Package.swift`, commit, then
+   newest `origin/feat-cmux-next`, run
+   `scripts/cmux-next/repin-app-ffi.sh <source sha> <checksum>`, which writes
+   `url` and `checksum` into `Packages/macOS/CmuxNext/app-ffi-pin.json` (the
+   file Package.swift reads) and the same checksum into Package.swift's one
+   `// app-ffi-pin-checksum:` line (SwiftPM caches the manifest by its text, so
+   the manifest must change with the pin; never edit anything else there),
+   commit, then
 
    ```bash
    if scripts/cmux-next/check-app-ffi-pin.sh --verify-release; then <safe-push>; fi

@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { WatchedWorker } from "../src/agent-session/acpmux/conversation/highlightWatchdog";
+import { teardownDom } from "./support/domTeardown";
 
 let creates = 0;
 let renders = 0;
@@ -82,13 +83,9 @@ afterEach(async () => {
   creates = renders = cleanups = 0;
   poolWorks = true;
 });
-afterAll(() => {
+afterAll(async () => {
   mock.restore();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 async function draw(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");

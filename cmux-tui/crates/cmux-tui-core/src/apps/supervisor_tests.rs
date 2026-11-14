@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FromHost, ToHost};
+use cmux_app_host::{FatalReason, FromHost, ToHost};
 use serde_json::{Value, json};
 
 use super::catalog::Sources;
@@ -52,7 +52,12 @@ fn scripted_app_host() {
                 });
             }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
-            ToHost::Mount { mount, export, .. } => {
+            ToHost::Mount { mount, export, ctx } => {
+                // `timeout`: the render runs past its entry deadline, every time.
+                if ctx["timeout"] == true {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "mount".into() });
+                    std::process::exit(70);
+                }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
                     continue;
@@ -109,9 +114,11 @@ fn scripted_app_host() {
                     .find(|(c, _)| *c == cb)
                     .map(|(_, m)| m.clone())
                     .unwrap_or_default();
+                // One node per call: two answers in one frame stay two ops
+                // when the supervisor coalesces them (budget.rs).
                 send(FromHost::Scene {
                     mount,
-                    ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
+                    ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
             ToHost::Run { cb, export, gesture, .. } => {
@@ -248,7 +255,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" }, "cmux.newtab.widget/1": { "export": "renderWidget", "title": "Clock", "symbol": "clock", "options": { "size": "wide" } } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -471,64 +478,6 @@ fn session_info_panels_lists_only_visible_installed_apps() {
         f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap()["panels"],
         json!([])
     );
-}
-
-#[test]
-fn new_tab_widgets_list_with_the_layout_and_start_no_host() {
-    const WIDGET: &str = "cmux.newtab.widget/1";
-    let f = fixture();
-    let list = || {
-        f.supervisor
-            .store_call(CLIENT, "apps.panels.list", json!({ "interface": WIDGET }), Origin::Script)
-            .unwrap()
-    };
-    assert_eq!(list(), json!({ "panels": [], "layout": [] }));
-
-    f.install("cmux/demo");
-    let hosts = || f.supervisor.inner.lock().unwrap().hosts.len();
-    let before = hosts();
-    assert_eq!(
-        list()["panels"],
-        json!([{
-            "app": "cmux/demo", "section": WIDGET, "title": "Clock", "symbol": "clock", "size": "wide"
-        }])
-    );
-    // R1: listing a page's widgets reads the catalog only; a host starts on a mount.
-    assert_eq!(hosts(), before);
-
-    let layout = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
-    let set = |origin: Origin, layout: Value| {
-        f.supervisor.store_call(
-            CLIENT,
-            "apps.panels.layout.set",
-            json!({ "interface": WIDGET, "layout": layout, "idempotency_key": "layout-1" }),
-            origin,
-        )
-    };
-    assert_eq!(set(Origin::Script, layout.clone()).unwrap_err().code, "apps.origin");
-    assert_eq!(set(Origin::User, json!(["clock", "clock"])).unwrap_err().code, "bad-request");
-    assert_eq!(set(Origin::User, layout.clone()).unwrap()["layout"], layout);
-    assert_eq!(list()["layout"], layout);
-    let saved: Value =
-        serde_json::from_slice(&std::fs::read(f.state.join("apps-newtab-layout.json")).unwrap())
-            .unwrap();
-    assert_eq!(saved["layout"], layout);
-
-    // Session Info keeps its listing (no interface named), and a sidebar section is no page panel.
-    let session =
-        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
-    assert_eq!(session["panels"][0]["section"], "cmux.session.info.section/1");
-    assert!(session.get("layout").is_none());
-    let refused = f
-        .supervisor
-        .store_call(
-            CLIENT,
-            "apps.panels.list",
-            json!({ "interface": "cmux.section/1" }),
-            Origin::Script,
-        )
-        .unwrap_err();
-    assert_eq!(refused.code, "apps.panels.interface");
 }
 
 #[test]
@@ -765,9 +714,12 @@ fn view_state_ops_need_a_live_token_for_this_app_spent_once() {
         .unwrap();
     let mut results = Vec::new();
     while results.len() < 2 {
+        // Both answers may come in one coalesced batch.
         let update =
             f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
-        results.push(update["ops"][0]["props"]["result"].clone());
+        for op in update["ops"].as_array().into_iter().flatten() {
+            results.push(op["props"]["result"].clone());
+        }
     }
     // Answers arrive in any order: a refusal is immediate, an accepted call
     // answers from its worker thread.
@@ -1079,3 +1031,6 @@ mod run_lifecycle;
 
 #[path = "supervisor_rollback_tests.rs"]
 mod rollback_tolerance;
+
+#[path = "supervisor_budget_tests.rs"]
+mod budget;

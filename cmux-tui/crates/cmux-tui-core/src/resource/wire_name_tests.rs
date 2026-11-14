@@ -17,6 +17,7 @@ fn wire_name_round_trips_through_serde() {
         "diff.comments.list",
         "diff.comments.save",
         "diff.comments.delete",
+        "diff.comments.send",
         "stream.cancel",
         "origin.confirmation.issue",
         "chief.continue",
@@ -25,10 +26,19 @@ fn wire_name_round_trips_through_serde() {
         "classic_import.record",
         "conductor_import.plan",
         "conductor_import.record",
+        "browser_import.read",
         "cloud.vm.domains",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
+        "cloud.machine.chat_access",
+        "cloud.machine.share_chat",
         "palette.rank",
+        "chat.list",
+        "chat.mark_read",
+        "chat.pin",
+        "theme.scheme.convert",
+        "theme.scheme.export",
+        "theme.scheme.from_image",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

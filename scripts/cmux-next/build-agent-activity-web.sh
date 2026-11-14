@@ -3,6 +3,7 @@
 set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_DIR="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 MODE=build
 # --out DIR writes index.html into DIR instead (build-web-bundles.sh --out-root, checks).
 while [ $# -gt 0 ]; do
@@ -23,7 +24,12 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 # esbuild writes the CSS the page imports (the shared desktop layer, then styles.css) to app.css.
-bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js"
+metafile_args=""
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR"
+  metafile_args="--metafile=$REPORT_DIR/agent-activity.json"
+fi
+bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js" $metafile_args
 [ -s "$WORK/app.css" ] || { echo "error: the Activity bundle has no CSS" >&2; exit 1; }
 cp "$WORK/app.css" "$WORK/styles.css"
 # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
