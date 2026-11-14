@@ -13,6 +13,7 @@ mod model;
 mod network;
 mod removal;
 pub(crate) mod removed;
+pub(crate) mod setup;
 #[cfg(test)]
 mod tests;
 
@@ -34,6 +35,8 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
+       cmux device setup DEVICE|--all [--json] [--dry-run]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
        cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
@@ -43,8 +46,10 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] =
-    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
+const VERBS: &[&str] = &[
+    "list", "ls", "remove", "rm", "audit", "network", "invite", "setup", "start", "help", "-h",
+    "--help",
+];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -94,6 +99,8 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "remove" | "rm" => remove(args),
         "audit" => show_audit(args),
         "network" => show_network(args),
+        "setup" => setup::verb(args, setup::Mode::Setup),
+        "start" => setup::verb(args, setup::Mode::Start),
         _ => {
             println!("{USAGE}");
             return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };

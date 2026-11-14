@@ -1,0 +1,584 @@
+//! `cmux device setup|start` with a fake Mac (no ssh): every remote script it sends is recorded
+//! and answered from the fake's state.
+
+use std::cell::RefCell;
+use std::path::Path;
+use std::process::Child;
+
+use acpmux::cli::hosts::{Remote, RemoteOut};
+use serde_json::json;
+
+use super::super::model::{self, Device, Kind, Role, Sources, State, Via};
+use super::super::network::{NetworkKind, NetworkStatus};
+use super::*;
+
+/// One Mac's state as the scripts see it.
+#[derive(Clone)]
+struct Mac {
+    os: &'static str,
+    user: &'static str,
+    console: &'static str,
+    version: String,
+    running: bool,
+    plist: Option<String>,
+    signed_in: bool,
+    redeem: &'static str,
+    grants: (bool, bool),
+    shared: bool,
+}
+
+impl Default for Mac {
+    fn default() -> Self {
+        Self {
+            os: "Darwin",
+            user: "leo",
+            console: "leo",
+            version: String::new(),
+            running: false,
+            plist: None,
+            signed_in: true,
+            redeem: "ok",
+            grants: (true, true),
+            shared: true,
+        }
+    }
+}
+
+/// A fake [`Remote`] holding a [`Mac`].
+struct FakeMac {
+    mac: RefCell<Mac>,
+    sent: RefCell<Vec<(String, Option<Vec<u8>>)>>,
+    reachable: bool,
+}
+
+fn ok(stdout: impl Into<String>) -> RemoteOut {
+    RemoteOut { ok: true, stdout: stdout.into(), stderr: String::new() }
+}
+
+fn failed(stdout: &str, stderr: &str) -> RemoteOut {
+    RemoteOut { ok: false, stdout: stdout.into(), stderr: stderr.into() }
+}
+
+impl FakeMac {
+    fn new(mac: Mac) -> Self {
+        Self { mac: RefCell::new(mac), sent: RefCell::default(), reachable: true }
+    }
+
+    fn scripts(&self) -> Vec<String> {
+        self.sent.borrow().iter().map(|(s, _)| s.clone()).collect()
+    }
+
+    fn sent_script(&self, script: &str) -> Vec<Option<Vec<u8>>> {
+        self.sent.borrow().iter().filter(|(s, _)| s == script).map(|(_, i)| i.clone()).collect()
+    }
+}
+
+impl Remote for FakeMac {
+    fn host(&self) -> &str {
+        "leo@air-blue"
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> anyhow::Result<RemoteOut> {
+        self.sent.borrow_mut().push((script.to_owned(), stdin.map(<[u8]>::to_vec)));
+        if !self.reachable {
+            return Ok(failed("", "ssh: connect to host air-blue port 22: Connection refused"));
+        }
+        let mut mac = self.mac.borrow_mut();
+        let input = stdin.map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
+        Ok(if script == PROBE {
+            if mac.os != "Darwin" {
+                ok(format!("os={}\nuid=1000\nuser={}\n", mac.os, mac.user))
+            } else {
+                ok(format!(
+                    "os=Darwin\nuid=501\nuser={}\nconsole={}\nversion={}\nrunning={}\n",
+                    mac.user,
+                    mac.console,
+                    mac.version,
+                    u8::from(mac.running)
+                ))
+            }
+        } else if script == INSTALL {
+            if mac.running {
+                failed("error=cmux NIGHTLY is running", "")
+            } else {
+                mac.version = "2100".into();
+                ok("installed=2100\n")
+            }
+        } else if script == KEEPALIVE {
+            let same = mac.plist.as_deref() == Some(input.as_str());
+            mac.plist = Some(input);
+            let load = if mac.console == mac.user { "bootstrapped" } else { "next-login" };
+            ok(format!("file={}\nload={load}\n", if same { "same" } else { "written" }))
+        } else if script == KEEPALIVE_CHECK {
+            ok(match mac.plist.as_deref() {
+                None => "file=missing\n",
+                Some(p) if p == input => "file=same\n",
+                Some(_) => "file=differs\n",
+            })
+        } else if script == START {
+            mac.running = true;
+            ok("ready=1\n")
+        } else if script == WHOAMI {
+            if mac.signed_in {
+                ok("rc=0\n{\"email\":\"leo@manaflow.ai\"}\n")
+            } else {
+                ok("rc=3\n{\"ok\":false,\"error\":{\"code\":\"not_signed_in\"}}\n")
+            }
+        } else if script == REDEEM {
+            match mac.redeem {
+                "ok" if input == "code-123\n" => {
+                    mac.signed_in = true;
+                    ok("rc=0\n{\"ok\":true}\n")
+                }
+                "unknown" => ok("rc=2\ncmux: unknown command \"handoff\"\n"),
+                _ => ok("rc=1\nthe code expired\n"),
+            }
+        } else if script == SHARE_STATUS {
+            ok(json!({"state": "running", "host": {
+                "permissions": {"accessibility": mac.grants.0, "screen_recording": mac.grants.1},
+                "screen": {"shared": mac.shared}}})
+            .to_string())
+        } else if script == OPEN_SETTINGS {
+            ok("")
+        } else {
+            failed("", "unexpected script")
+        })
+    }
+
+    fn push(&self, _: &Path, _: &str) -> anyhow::Result<()> {
+        anyhow::bail!("setup never pushes files")
+    }
+
+    fn spawn(&self, _: &str) -> anyhow::Result<Child> {
+        anyhow::bail!("setup never spawns")
+    }
+}
+
+/// The asking side, with a fixed feed.
+struct Asker {
+    feed: String,
+    mint: Result<String, MintError>,
+    team: Option<String>,
+}
+
+impl Default for Asker {
+    fn default() -> Self {
+        Self { feed: feed(2100), mint: Ok("code-123".into()), team: Some("7WLXT3NR37".into()) }
+    }
+}
+
+impl Asking for Asker {
+    fn feed(&self) -> Result<String, String> {
+        Ok(self.feed.clone())
+    }
+    fn team_id(&self) -> Option<String> {
+        self.team.clone()
+    }
+    fn mint_handoff(&self) -> Result<String, MintError> {
+        self.mint.clone()
+    }
+}
+
+fn item(build: u64, channel: Option<&str>, url: &str) -> String {
+    let channel =
+        channel.map(|c| format!("<sparkle:channel>{c}</sparkle:channel>")).unwrap_or_default();
+    format!(
+        "<item><title>NIGHTLY {build}</title><sparkle:version>{build}</sparkle:version>{channel}\
+         <enclosure url=\"{url}\" sparkle:edSignature=\"x\" length=\"{len}\" type=\"application/octet-stream\"/></item>",
+        len = build * 10
+    )
+}
+
+fn feed(newest: u64) -> String {
+    let base = "https://files-next.cmux.com/nightly-next/next/";
+    format!(
+        "<rss><channel>{}{}{}</channel></rss>",
+        item(newest - 100, None, &format!("{base}cmux-{}.dmg", newest - 100)),
+        item(newest, Some("cmux-next"), &format!("{base}cmux-{newest}.dmg")),
+        item(newest + 50, Some("cmux-next-dev"), &format!("{base}cmux-{}.dmg", newest + 50)),
+    )
+}
+
+fn setup(mac: &FakeMac, asker: &Asker) -> Run {
+    run_device("air-blue", mac, asker, Mode::Setup, false, &mut |_| {})
+}
+
+fn state(run: &Run, step: &str) -> StepState {
+    run.lines.iter().find(|l| l.step == step).unwrap_or_else(|| panic!("no {step}: {run:?}")).state
+}
+
+fn detail<'a>(run: &'a Run, step: &str) -> &'a str {
+    &run.lines.iter().find(|l| l.step == step).unwrap().detail
+}
+
+#[test]
+fn the_feed_pick_is_the_newest_nightly_channel_item_never_a_dev_ring_one() {
+    let picked = pick(&feed(2100)).unwrap();
+    assert_eq!(picked.build, 2100, "the cmux-next-dev item (2150) is a Dev-ring build");
+    assert_eq!(picked.url, "https://files-next.cmux.com/nightly-next/next/cmux-2100.dmg");
+    assert_eq!(picked.length, 21000);
+    let stable = format!(
+        "{}{}",
+        item(
+            5,
+            Some("cmux-next-stable"),
+            "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/a.dmg"
+        ),
+        item(4, None, "https://files-next.cmux.com/nightly-next/next/b.dmg")
+    );
+    assert_eq!(pick(&stable).unwrap().build, 5);
+    let canary = item(9, Some("canary"), "https://files-next.cmux.com/nightly-next/next/c.dmg");
+    assert!(pick(&canary).is_err(), "no Nightly item at all");
+}
+
+#[test]
+fn the_feed_pick_refuses_a_dmg_outside_the_nightly_prefixes() {
+    let evil = format!(
+        "{}{}",
+        item(7, None, "https://evil.example/nightly-next/next/x.dmg"),
+        item(6, None, "https://files-next.cmux.com/nightly-next/next/y.dmg")
+    );
+    let error = pick(&evil).unwrap_err();
+    assert!(error.contains("is not a nightly-next download"), "{error}");
+}
+
+#[test]
+fn a_fresh_mac_gets_the_app_the_login_item_a_start_and_a_sign_in() {
+    let mac = FakeMac::new(Mac { signed_in: false, ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "reach"), StepState::Ok);
+    assert_eq!(state(&run, "app"), StepState::Changed);
+    assert_eq!(state(&run, "login-item"), StepState::Changed);
+    assert_eq!(state(&run, "start"), StepState::Changed);
+    assert_eq!(state(&run, "sign-in"), StepState::Changed);
+    assert_eq!(state(&run, "share"), StepState::Ok);
+    assert_eq!(run.changed, ["app none->2100", "login-item", "started", "signed in"]);
+    assert!(run.failed().is_empty());
+    // The install got the URL, length and Team ID on stdin; the script text carries no data.
+    let install = mac.sent_script(INSTALL);
+    let stdin = String::from_utf8(install[0].clone().unwrap()).unwrap();
+    assert_eq!(
+        stdin,
+        "https://files-next.cmux.com/nightly-next/next/cmux-2100.dmg\n21000\n7WLXT3NR37\n"
+    );
+    // The handoff code went only on the redeem script's stdin.
+    let redeem = mac.sent_script(REDEEM);
+    assert_eq!(redeem, [Some(b"code-123\n".to_vec())]);
+    assert!(mac.scripts().iter().all(|s| !s.contains("code-123")));
+    let order: Vec<_> = run.lines.iter().map(|l| l.step).collect();
+    assert_eq!(order, ["reach", "app", "login-item", "start", "sign-in", "share"]);
+}
+
+#[test]
+fn an_older_app_that_is_not_running_is_updated() {
+    let mac = FakeMac::new(Mac { version: "2000".into(), ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "app"), StepState::Changed);
+    assert_eq!(run.changed.first().map(String::as_str), Some("app 2000->2100"));
+    assert_eq!(mac.sent_script(INSTALL).len(), 1);
+}
+
+#[test]
+fn an_older_app_that_runs_is_never_replaced_only_reported() {
+    let mac = FakeMac::new(Mac { version: "2000".into(), running: true, ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "app"), StepState::Warn);
+    assert_eq!(detail(&run, "app"), "running 2000, Sparkle updates it to 2100");
+    assert_eq!(state(&run, "start"), StepState::Ok);
+    for script in mac.scripts() {
+        for word in ["hdiutil", "ditto", "kill", "quit", "osascript"] {
+            assert!(!script.contains(word), "sent {word} to a running app:\n{script}");
+        }
+    }
+    assert!(mac.sent_script(INSTALL).is_empty());
+    assert!(mac.sent_script(START).is_empty());
+}
+
+#[test]
+fn a_current_app_is_ok() {
+    let mac = FakeMac::new(Mac { version: "2100".into(), running: true, ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "app"), StepState::Ok);
+    assert_eq!(detail(&run, "app"), "NIGHTLY 2100 is current");
+}
+
+#[test]
+fn the_launch_agent_is_written_once_then_ok_on_a_rerun() {
+    let mac = FakeMac::new(Mac { version: "2100".into(), ..Mac::default() });
+    let first = setup(&mac, &Asker::default());
+    assert_eq!(state(&first, "login-item"), StepState::Changed);
+    let second = setup(&mac, &Asker::default());
+    assert_eq!(state(&second, "login-item"), StepState::Ok);
+    assert!(!second.changed.contains(&"login-item".to_owned()));
+    let plist = mac.mac.borrow().plist.clone().unwrap();
+    assert_eq!(plist, keepalive_plist());
+    assert!(plist.contains("<key>RunAtLoad</key>\n\t<true/>"));
+    assert!(plist.contains("<integer>300</integer>"));
+    assert!(plist.contains(KEEPALIVE_LABEL));
+    assert!(plist.contains("open -g -j -a '/Applications/cmux NIGHTLY.app'"));
+    assert!(!plist.contains("kill"), "the keepalive never kills anything");
+    assert!(KEEPALIVE.contains("launchctl bootstrap \"gui/$uid\""));
+}
+
+#[test]
+fn no_gui_session_warns_and_starts_nothing() {
+    let mac = FakeMac::new(Mac { version: "2100".into(), console: "root", ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "start"), StepState::Warn);
+    assert_eq!(detail(&run, "start"), "nobody is logged in on air-blue; it starts at next login");
+    assert!(detail(&run, "login-item").contains("next login"));
+    assert!(mac.sent_script(START).is_empty());
+    assert_eq!(state(&run, "sign-in"), StepState::Skip);
+}
+
+#[test]
+fn a_missing_grant_is_named_and_its_settings_pane_opened() {
+    let mac = FakeMac::new(Mac {
+        version: "2100".into(),
+        running: true,
+        grants: (true, false),
+        shared: false,
+        ..Mac::default()
+    });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "share"), StepState::Warn);
+    let text = detail(&run, "share");
+    assert!(text.contains("Share This Mac is off"), "{text}");
+    assert!(text.contains("missing Screen Recording"), "{text}");
+    assert!(!text.contains("Accessibility"), "{text}");
+    assert_eq!(mac.sent_script(OPEN_SETTINGS), [Some(b"screen-recording\n".to_vec())]);
+    // Setup never turns sharing on.
+    assert!(mac.scripts().iter().all(|s| !s.contains("share on")));
+}
+
+#[test]
+fn a_route_that_is_not_a_mac_is_skipped() {
+    let mac = FakeMac::new(Mac { os: "Linux", ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(run.lines.len(), 1);
+    assert_eq!(state(&run, "reach"), StepState::Skip);
+    assert_eq!(detail(&run, "reach"), "not a Mac (Linux)");
+    assert!(run.failed().is_empty());
+}
+
+#[test]
+fn an_unreachable_mac_fails_reach_with_the_fix() {
+    let mut mac = FakeMac::new(Mac::default());
+    mac.reachable = false;
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(run.failed(), ["reach"]);
+    let line = &run.lines[0];
+    assert!(line.detail.contains("Connection refused"), "{line:?}");
+    assert!(line.fix.contains("cmux device add air-blue"), "{line:?}");
+}
+
+#[test]
+fn sign_in_without_the_handoff_verb_asks_for_a_newer_cmux() {
+    let mac = FakeMac::new(Mac {
+        version: "2100".into(),
+        running: true,
+        signed_in: false,
+        ..Mac::default()
+    });
+    let asker = Asker { mint: Err(MintError::Unsupported), ..Asker::default() };
+    let run = setup(&mac, &asker);
+    assert_eq!(state(&run, "sign-in"), StepState::Warn);
+    assert_eq!(detail(&run, "sign-in"), "sign in on air-blue: sign-in handoff needs a newer cmux");
+    assert!(mac.sent_script(REDEEM).is_empty());
+
+    let old_target = FakeMac::new(Mac {
+        version: "2100".into(),
+        running: true,
+        signed_in: false,
+        redeem: "unknown",
+        ..Mac::default()
+    });
+    let run = setup(&old_target, &Asker::default());
+    assert_eq!(detail(&run, "sign-in"), "sign in on air-blue: sign-in handoff needs a newer cmux");
+}
+
+#[test]
+fn start_runs_reach_login_item_and_start_only() {
+    let mac = FakeMac::new(Mac { version: "1".into(), ..Mac::default() });
+    let run = run_device("air-blue", &mac, &Asker::default(), Mode::Start, false, &mut |_| {});
+    let order: Vec<_> = run.lines.iter().map(|l| l.step).collect();
+    assert_eq!(order, ["reach", "login-item", "start"]);
+    assert!(mac.sent_script(INSTALL).is_empty(), "start never installs");
+    assert_eq!(state(&run, "start"), StepState::Changed);
+}
+
+#[test]
+fn a_dry_run_changes_nothing() {
+    let mac = FakeMac::new(Mac { signed_in: false, grants: (false, true), ..Mac::default() });
+    let run = run_device("air-blue", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
+    assert!(run.changed.is_empty(), "{run:?}");
+    for script in [INSTALL, KEEPALIVE, START, REDEEM, OPEN_SETTINGS] {
+        assert!(mac.sent_script(script).is_empty());
+    }
+    assert_eq!(state(&run, "app"), StepState::Skip);
+}
+
+#[test]
+fn json_lines_have_the_contract_shape() {
+    let line = Line {
+        step: "app",
+        state: StepState::Changed,
+        detail: "installed NIGHTLY 2100 (was 2000)".into(),
+        fix: String::new(),
+    };
+    assert_eq!(
+        line.json("air-blue"),
+        json!({"device": "air-blue", "step": "app", "state": "changed",
+               "detail": "installed NIGHTLY 2100 (was 2000)", "fix": ""})
+    );
+    let mut emitted = Vec::new();
+    let mac = FakeMac::new(Mac::default());
+    let run =
+        run_device("air-blue", &mac, &Asker::default(), Mode::Setup, false, &mut |l: &Line| {
+            emitted.push(l.json("air-blue"));
+        });
+    assert_eq!(emitted.len(), run.lines.len());
+    for line in &emitted {
+        let keys: Vec<_> = line.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys.len(), 5, "{line}");
+        for key in ["device", "step", "state", "detail", "fix"] {
+            assert!(line.get(key).is_some(), "{key} in {line}");
+        }
+        assert!(
+            ["ok", "changed", "warn", "fail", "skip"].contains(&line["state"].as_str().unwrap())
+        );
+    }
+    let summary = run.summary_json();
+    assert_eq!(summary["device"], "air-blue");
+    assert_eq!(summary["changed"], json!(["app none->2100", "login-item", "started"]));
+    assert!(summary["summary"].as_str().unwrap().starts_with("air-blue: changed app none->2100"));
+}
+
+fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Device {
+    Device {
+        id: id.into(),
+        name: name.into(),
+        kind,
+        roles: vec![Role::RunsAgents],
+        state: State::Offline,
+        os: os.map(str::to_owned),
+        reach: None,
+        via: vec![via],
+        added_at: None,
+        detail: None,
+        full_access: None,
+    }
+}
+
+#[test]
+fn all_selects_routed_macs_and_skips_phones_cloud_pool_and_unrouted_devices() {
+    let peer = |n: &str| Via::Peer { name: n.into() };
+    let listing = model::Listing {
+        network: NetworkStatus { kind: NetworkKind::Tailscale, up: true, this: None, detail: None },
+        devices: vec![
+            device("peer:air-blue", "air-blue", Kind::Computer, Some("macOS"), peer("air-blue")),
+            device("peer:cmux16", "cmux16", Kind::Computer, None, peer("cmux16")),
+            device(
+                "paired:p",
+                "leo-iphone",
+                Kind::Phone,
+                Some("iOS"),
+                Via::Paired { id: "p".into() },
+            ),
+            device(
+                "joined:m",
+                "cloud-vm",
+                Kind::Computer,
+                Some("linux"),
+                Via::Joined { machine_id: "m".into() },
+            ),
+            device(
+                "peer:pool",
+                "ci-linux-pool-3fa17bde",
+                Kind::Computer,
+                None,
+                peer("ci-linux-pool-3fa17bde"),
+            ),
+            device("peer:box", "build-box", Kind::Computer, Some("linux"), peer("build-box")),
+            device("peer:sandbox", "sandbox", Kind::Computer, Some("macOS"), peer("sandbox")),
+        ],
+        available: Vec::new(),
+        pools: Vec::new(),
+        invites: Vec::new(),
+    };
+    let sources = Sources {
+        peers: json!({"peers": [
+            {"name": "air-blue", "url": "ssh://leo@air-blue.tail1234.ts.net"},
+            {"name": "cmux16", "url": "ssh://cmux16:47811"},
+            {"name": "ci-linux-pool-3fa17bde", "url": "ssh://pool"},
+            {"name": "build-box", "url": "ssh://build-box"},
+            {"name": "sandbox", "url": "ws://127.0.0.1:47811"}
+        ]}),
+        ..Sources::default()
+    };
+    let picks = select(&listing, &sources);
+    assert_eq!(picks.len(), listing.devices.len(), "one line per device");
+    let of = |name: &str| picks.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    assert_eq!(of("air-blue"), Ok("leo@air-blue.tail1234.ts.net".into()));
+    assert_eq!(of("cmux16"), Ok("cmux16".into()), "the URL's port is the daemon's, not ssh's");
+    assert_eq!(of("leo-iphone"), Err("a phone".into()));
+    assert!(of("cloud-vm").unwrap_err().contains("Cloud"));
+    assert!(of("ci-linux-pool-3fa17bde").unwrap_err().contains("pool"));
+    assert_eq!(of("build-box"), Err("not a Mac (linux)".into()));
+    assert!(of("sandbox").unwrap_err().contains("no ssh route"));
+}
+
+#[test]
+fn an_ssh_config_host_is_a_route_too() {
+    let d =
+        device("joined:x", "studio", Kind::Computer, None, Via::Joined { machine_id: "x".into() });
+    let sources = Sources {
+        ssh_hosts: vec![crate::machine_runtime::SshConfigHost {
+            alias: "studio".into(),
+            host_name: None,
+        }],
+        ..Sources::default()
+    };
+    assert_eq!(route(&d, &sources), Ok("studio".into()));
+    assert!(route(&d, &Sources::default()).is_err());
+}
+
+#[test]
+fn the_device_usage_lists_setup_and_start() {
+    for verb in ["device setup DEVICE|--all", "--dry-run", "device start DEVICE"] {
+        assert!(super::super::USAGE.contains(verb), "{verb} missing");
+    }
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        super::super::device_args(&words(&["device", "setup", "air-blue"])),
+        Some(words(&["setup", "air-blue"]))
+    );
+    assert_eq!(
+        super::super::device_args(&words(&["device", "start", "air-blue"])),
+        Some(words(&["start", "air-blue"]))
+    );
+}
+
+#[test]
+fn scripts_carry_no_data_and_no_sudo() {
+    for script in [
+        PROBE,
+        INSTALL,
+        KEEPALIVE,
+        KEEPALIVE_CHECK,
+        START,
+        WHOAMI,
+        REDEEM,
+        SHARE_STATUS,
+        OPEN_SETTINGS,
+    ] {
+        assert!(!script.contains("sudo"), "{script}");
+        assert!(!script.contains("pkill") && !script.contains("killall"), "{script}");
+    }
+    // pgrep never matches the shell running the script itself.
+    for script in [PROBE, INSTALL] {
+        assert!(script.contains("NIGHTLY.ap[p]/Contents/MacOS/"));
+    }
+    assert!(keepalive_plist().contains("NIGHTLY.ap[p]/Contents/MacOS/"));
+    assert!(INSTALL.contains("mktemp -d") && INSTALL.contains("trap cleanup EXIT"));
+}
