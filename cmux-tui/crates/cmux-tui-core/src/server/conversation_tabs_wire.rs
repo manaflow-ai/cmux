@@ -531,7 +531,11 @@ impl TabProjection {
     /// `data`: the reply's other fields (`id`, `ok`) are not tab values. `data` goes into that
     /// envelope and comes back, so the rewrite is the one of the whole message, with no copy.
     pub(crate) fn project_data(self, data: &mut Value) -> bool {
-        let mut reply = json!({ "data": data.take() });
+        // The envelope is a map made by hand. `json!` serializes an expression into a new
+        // value, which is a deep copy of `data`.
+        let mut envelope = serde_json::Map::new();
+        envelope.insert("data".to_owned(), data.take());
+        let mut reply = Value::Object(envelope);
         let changed = self.project(&mut reply);
         *data = reply.get_mut("data").map(Value::take).unwrap_or_default();
         changed
