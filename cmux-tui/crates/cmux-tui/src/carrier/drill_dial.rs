@@ -88,10 +88,13 @@ struct Session {
     multiplexer: Arc<ServiceMultiplexer>,
     routes: Arc<CarrierRoutes>,
     current: Arc<CurrentRoute>,
+    /// Owns each `lines` call's pump; the session's drop cancels them.
+    pumps: cmux_scope::Scope,
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.pumps.token().cancel();
         let (connection, multiplexer) = (self.connection.clone(), self.multiplexer.clone());
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
@@ -114,7 +117,7 @@ impl CarrierSession for Session {
             .map_err(|error| format!("the daemon did not open a mux control stream: {error}"))?;
         let (ours, theirs) = tokio::io::duplex(1 << 20);
         let (their_reader, their_writer) = tokio::io::split(theirs);
-        let pump = tokio::spawn(async move {
+        let pump = self.pumps.spawn_until_cancelled("drill mux pump", async move {
             let _ = mux.bridge(their_reader, their_writer).await;
         });
         let (reader, writer) = tokio::io::split(ours);
@@ -170,5 +173,11 @@ pub(crate) async fn dial(spec: DialSpec) -> Result<Arc<dyn CarrierSession>, Stri
     let client::Dialed { connection, multiplexer, mux, routes, current, .. } = dialed;
     // Each of the drill's streams opens its own mux control stream.
     mux.close().await;
-    Ok(Arc::new(Session { connection, multiplexer, routes, current }))
+    Ok(Arc::new(Session {
+        connection,
+        multiplexer,
+        routes,
+        current,
+        pumps: cmux_scope::Scope::new("carrier drill session"),
+    }))
 }
