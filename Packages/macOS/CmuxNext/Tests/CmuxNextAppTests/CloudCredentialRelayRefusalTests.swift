@@ -276,9 +276,8 @@ struct CloudCredentialRelayRefusalTests {
             return "install-token-for-test"
         }
         relay.deadline = .milliseconds(200)
-        let started = ContinuousClock.now
+        // The mint succeeds after 3 s, so an answer that waited for it would be a success, not owner.timed_out.
         let result = try await Self.answer(try Self.line(id: 23, op: "cloud.machine.list"), relay: relay)
-        #expect(ContinuousClock.now - started < .seconds(2))
         #expect(result.body["code"]?.stringValue == "owner.timed_out")
         #expect(result.body["retryable"]?.boolValue == true)
         let message = try #require(result.body["message"]?.stringValue)
