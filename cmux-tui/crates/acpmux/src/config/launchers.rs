@@ -254,63 +254,7 @@ fn native_install(bin: &str) -> Option<String> {
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use super::which_in;
-    use std::os::unix::fs::PermissionsExt as _;
-
-    /// A `claude` the shell could not run (no execute bit) earlier on PATH does not hide the one it
-    /// would run.
-    #[test]
-    fn which_skips_a_file_it_could_not_run() {
-        let first = tempfile::tempdir().unwrap();
-        let second = tempfile::tempdir().unwrap();
-        std::fs::write(first.path().join("claude"), "").unwrap();
-        let runnable = second.path().join("claude");
-        std::fs::write(&runnable, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&runnable, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let path = std::env::join_paths([first.path(), second.path()]).unwrap();
-        assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
-        assert_eq!(which_in(&path, "codex"), None);
-    }
-}
+mod tests;
 
 #[cfg(test)]
-mod cache_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn launcher_cache_keeps_parallel_successes_and_only_current_versions() {
-        let dir = tempfile::tempdir().unwrap();
-        let cache = dir.path().join("checks.json");
-        let mut cfg = Config::default();
-        cfg.harnesses.clear();
-        for name in ["first", "second"] {
-            let binary = dir.path().join(name);
-            std::fs::write(&binary, "version one").unwrap();
-            let profile = serde_json::from_value(serde_json::json!({
-                "argv": [binary, "claude", "proxy"]
-            }))
-            .unwrap();
-            cfg.harnesses.insert(name.into(), profile);
-        }
-        let calls = AtomicUsize::new(0);
-        let probe = |_: &[String]| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        };
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 2, "warm launch reran a successful probe");
-        std::fs::write(dir.path().join("first"), "version two is a different size").unwrap();
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        assert_eq!(calls.load(Ordering::Relaxed), 3, "only the changed binary is reprobed");
-        cfg.harnesses.remove("second");
-        verify_launchers_cached(&mut cfg, None, &cache, &probe);
-        let keys: std::collections::BTreeSet<String> =
-            serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
-        assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
-        assert_eq!(calls.load(Ordering::Relaxed), 3);
-    }
-}
+mod cache_tests;

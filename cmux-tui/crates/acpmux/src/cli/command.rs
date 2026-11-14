@@ -2158,43 +2158,7 @@ mod help_contract_tests {
 }
 
 #[cfg(test)]
-mod config_set_tests {
-    use super::{Cli, Command};
-    use clap::Parser;
-
-    #[test]
-    fn config_set_accepts_session_resource_assignment() {
-        let cli =
-            Cli::try_parse_from(["acpmux", "config", "--set", "session.memory_mb=6144"]).unwrap();
-        match cli.command {
-            Some(Command::Config { set: Some(value), .. }) => {
-                assert_eq!(value, "session.memory_mb=6144")
-            }
-            _ => panic!("unexpected command"),
-        }
-    }
-}
+mod config_set_tests;
 
 #[cfg(test)]
-mod deadline_defaults_tests {
-    use super::{Cli, Command};
-    use clap::Parser;
-
-    #[test]
-    fn send_waits_for_a_live_peer_by_default() {
-        let cli = Cli::try_parse_from(["acpmux", "send", "session", "slow reply"]).unwrap();
-        match cli.command {
-            Some(Command::Send { stall, .. }) => assert_eq!(stall, 0),
-            _ => panic!("expected send command"),
-        }
-    }
-
-    #[test]
-    fn explicit_stall_remains_a_caller_choice() {
-        let cli = Cli::try_parse_from(["acpmux", "send", "session", "--stall", "7"]).unwrap();
-        match cli.command {
-            Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
-            _ => panic!("expected send command"),
-        }
-    }
-}
+mod deadline_defaults_tests;
