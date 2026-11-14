@@ -32,13 +32,17 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         // Non-blocking: the kept rows still open.
         row.tap()
         XCTAssertTrue(app.buttons["home.compose"].waitForNonExistence(timeout: 10), "a kept row opens\n\(app.debugDescription)")
-        // The conversation itself opens, under its "Not connected" bar, never a full-screen error.
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Not connected to your Mac")).firstMatch
-                        .waitForExistence(timeout: 20),
-                      "the conversation's own bar\n\(app.debugDescription)")
-        XCTAssertFalse(app.buttons["home.conversation.retry"].exists, "no full-screen error")
-        XCTAssertTrue(app.textViews.firstMatch.exists || app.textFields.firstMatch.exists, "the composer shows\n\(app.debugDescription)")
+        // The conversation itself opens (its header, transcript and composer), never a
+        // full-screen error. Chief draws no connection banner (Aziz 2026-11-12): the header
+        // says it is connecting and the outbox holds what is written.
+        let composer = app.descendants(matching: .any)["conversation.composer.text"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "the composer\n\(app.debugDescription)")
+        // Past the load: the full-screen error (before this change) would have replaced it by now.
+        _ = app.buttons["home.conversation.retry"].waitForExistence(timeout: 8)
         attach(app, "2-row-opened-conversation")
+        XCTAssertFalse(app.buttons["home.conversation.retry"].exists, "no full-screen error")
+        XCTAssertTrue(composer.exists, "the composer stays\n\(app.debugDescription)")
+        XCTAssertTrue(app.descendants(matching: .any)["conversation.header.name"].exists, "the header\n\(app.debugDescription)")
 
         // Back on Home: the Mac button says it, with Retry; the rows stay after it.
         app.navigationBars.buttons.element(boundBy: 0).tap()
