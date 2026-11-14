@@ -91,12 +91,12 @@ extension WindowRules {
         }
 
         /// A terminal known to run a program in front: its shell reported a running command (OSC 133 C,
-        /// `commandSinceMs`), or an agent reports from it (hooks: `agent`, OSC 7501 `programStatus`, in any state, idle
-        /// between turns too) while no prompt shows. An agent launched as the terminal's program (cmux's agent
+        /// `commandSinceMs`), or an agent reports from it (hooks: `agent`, idle between turns too but not `done`, its
+        /// session's end; OSC 7501 `programStatus`) while no prompt shows. An agent launched as the terminal's program (cmux's agent
         /// terminals, a resumed session) has no shell to report a command; a shell back at its prompt after its agent
         /// quit shows the prompt.
         @MainActor public static func runsKnownProgram(_ tab: TabModel) -> Bool {
-            tab.commandSinceMs != nil || tab.promptSinceMs == nil && (tab.agent != nil || !tab.programStatus.isEmpty)
+            tab.commandSinceMs != nil || tab.promptSinceMs == nil && (tab.agent.map { $0.state != .done } ?? false || !tab.programStatus.isEmpty)
         }
     }
 
