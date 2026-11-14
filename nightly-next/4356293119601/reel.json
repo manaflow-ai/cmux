@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "build": "4356293119601",
+  "notes": "notes/4356293119601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42844,
+      "title": "test(webviews): make motion sampling deterministic (succeeds #42378)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42874,
+      "title": "measure: a restore opens the chat's own tab, so its trace records first content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42881,
+      "title": "cmux chat --on a joined machine: fix forward the #38355 review",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42861,
+      "title": "cmux NEXT: Chief's welcome lists Start Agent from Any App with a one-click link that turns its key on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40937,
+      "title": "Agent chat: a reloading page is never killed mid-boot; a failing attachment preview is its file chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42811,
+      "title": "CMUX-572: grow remote desktop link UDP buffers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42862,
+      "title": "perf cron: terminal throughput part, NEXT vs standalone Ghostty MB/s and their ratio",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42802,
+      "title": "Agent chat: a turn's end folds nothing away under a scrolled-up reader (#24569 turn_end rows)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42839,
+      "title": "Agent chat: a chat at rest asks for no display frames (idle wakeups 141 to 58 unread, 107 to 8 read ahead)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42858,
+      "title": "scripts/measure: fresh-home launch A/B in one measure step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42853,
+      "title": "cmux-next iOS: the idle tab grid asks the Mac nothing and has no timer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42836,
+      "title": "cmux-next-ios: the app's backgrounds stay the stock ones, not the Mac's",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42826,
+      "title": "test(cmux-tui-core): the host-death property test starts a restart after the millisecond of a process end",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42779,
+      "title": "cmux-next-ios: a full-screen app never gets more rows than the keyboard-down layout",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42854,
+      "title": "verify-cmux-tui-hosted: an unreadable run state ends the wait (exit 5), never reads as not-yet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42875,
+      "title": "check-test-determinism: an opt-out counts by whether and when it runs (succeeds #41944)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41880,
+      "title": "fix(scripts): a cleanup kills its process group whatever the leader's state (cmux#41767 review F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42782,
+      "title": "cmux-tui: a terminal that lived through a daemon restart has its class before its adoption ends",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42838,
+      "title": "ci: shorten debug artifact retention",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42834,
+      "title": "v2 5g part two: the list tee answers a rebuild",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42865,
+      "title": "perf cron: a memory-agents part stores the app's idle memory, empty and with 10 agent chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42841,
+      "title": "measure: perf-10x-idle attribute=1 names what wakes the app and the GPU process",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42857,
+      "title": "cmux-health-core: a page's rest beat stops timing its silence (CMUX-571, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
