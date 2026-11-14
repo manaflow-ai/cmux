@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43559686885",
+  "recorded_at": "2026-11-14T05:11:04Z",
+  "reason": "cmux-tui 1a47d4dabef1 changes the image's cmux-tui (pinned a27af61ce394)",
+  "dry_run": false,
+  "cmux_tui": "1a47d4dabef1bf1b814435386131cd4fc1445fb8",
+  "fixes": [
+    {
+      "sha": "1a47d4dabef1bf1b814435386131cd4fc1445fb8",
+      "mergedAt": "2026-11-13T20:39:43-08:00",
+      "subject": "cmux-health-core: a page's rest beat stops timing its silence (CMUX-571, step A) (#42857)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:11:04Z",
+    "snapshot_id": "sh-605d787b5aa7426b97572ddae702a887",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43559686885): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f1326c3fe3885dacb36a6f2fa38b8e042d1805da",
+    "image": "cloud-native-auto-1a47d4da-43559686885-1",
+    "revision": "ci-43559686885-1",
+    "at": "2026-11-14T05:11:04Z"
+  },
+  "rolled_back": false
+}
