@@ -46,7 +46,10 @@ pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
 pub use kin::{FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
-pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
+pub use snapshot::{
+    DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
+    is_fatal_snapshot_read,
+};
 
 use std::io;
 
@@ -96,6 +99,8 @@ pub struct Summary {
     pub workspace: Option<String>,
     pub origin: String,
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_form: Option<Box<RawValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,6 +124,11 @@ pub const HOT_WINDOW_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 /// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
 pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
+
+/// Returns whether a v1 list state belongs to the live view.
+pub fn is_live_state(state: &str) -> bool {
+    state != "closed"
+}
 static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
 static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
 static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
@@ -154,6 +164,7 @@ impl Clone for Summary {
             workspace: self.workspace.clone(),
             origin: self.origin.clone(),
             pinned: self.pinned,
+            archived: self.archived,
             peer_form: self.peer_form.as_ref().map(|value| value.to_owned()),
             parent: self.parent.clone(),
             fork_of: self.fork_of.clone(),
@@ -176,6 +187,7 @@ impl Summary {
             workspace: None,
             origin: "local".to_owned(),
             pinned: false,
+            archived: false,
             peer_form: None,
             parent: None,
             fork_of: None,
@@ -193,18 +205,10 @@ impl Summary {
     /// archived or non-root parent cannot hide a child after it changes.
     pub fn listed_under(child: &Summary, parent: Option<&Summary>) -> bool {
         let Some(parent) = parent else { return false };
-        if child.key() == parent.key() || parent.parent.is_some() || parent.archived() {
+        if child.key() == parent.key() || parent.parent.is_some() || parent.archived {
             return false;
         }
         child.parent.as_ref() == Some(&parent.key())
-    }
-
-    fn archived(&self) -> bool {
-        serde_json::from_str::<serde_json::Value>(self.extra.get())
-            .ok()
-            .as_ref()
-            .and_then(|value| value.pointer("/tags/archived"))
-            .is_some_and(|value| !value.is_null())
     }
 
     /// Keys are refused, never shortened. Opaque data stays opaque.
@@ -236,7 +240,7 @@ impl Summary {
     }
 
     pub fn is_live(&self) -> bool {
-        self.state != "closed"
+        is_live_state(&self.state)
     }
 
     pub fn is_hot_at(&self, now: u64) -> bool {
@@ -255,6 +259,7 @@ impl Summary {
             workspace,
             origin,
             pinned,
+            archived,
             peer_form,
             parent,
             fork_of,
@@ -270,6 +275,7 @@ impl Summary {
             && workspace == &other.workspace
             && origin == &other.origin
             && pinned == &other.pinned
+            && archived == &other.archived
             && peer_form.as_ref().map(|value| value.get())
                 == other.peer_form.as_ref().map(|value| value.get())
             && parent == &other.parent
@@ -435,6 +441,7 @@ pub struct SummaryIndex {
     leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
     kin: KinTables,
+    folders: folders::Folders,
 }
 
 impl Default for SummaryIndex {
@@ -457,6 +464,7 @@ impl SummaryIndex {
             leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
             kin: KinTables::new(),
+            folders: folders::Folders::new(),
         }
     }
 
@@ -475,6 +483,24 @@ impl SummaryIndex {
             origins,
             ..Self::new()
         }
+    }
+
+    /// An empty derived view for a rebuild. Sequence numbers remain monotonic
+    /// with the writer's published history while the old disk generation is
+    /// absent, so new source-walk rows can be appended immediately.
+    pub fn empty_for_rebuild(&self) -> Self {
+        let mut next = self.clone();
+        next.disk = None;
+        next.shadowed = OrdSet::new();
+        next.removed_snapshot_seq = OrdMap::new();
+        next
+    }
+
+    /// Constructs a first-start index with an explicit edition fence.
+    pub fn empty_with_edition(edition: u32) -> Self {
+        let mut index = Self::new();
+        index.edition = edition;
+        index
     }
 
     /// Merge the immutable disk generation with the current hot/tail overlay.
@@ -500,6 +526,9 @@ impl SummaryIndex {
                             next_disk = Some(row);
                         }
                         Some(Err(error)) => {
+                            if is_corrupt_snapshot_row(&error) {
+                                return Some(Err(error));
+                            }
                             disk_done = true;
                             return Some(Err(error));
                         }
@@ -553,6 +582,8 @@ impl SummaryIndex {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
             self.kin.remove(&row);
+            self.folders =
+                Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
             return true;
         }
         false
@@ -574,7 +605,9 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert(row);
+                self.kin.insert_arc(row);
+                self.folders =
+                    Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
         }
     }
@@ -701,6 +734,8 @@ impl SummaryIndex {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
                 next.kin.remove(&old);
+                next.folders =
+                    Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
             }
             next.shadowed.insert(key.clone());
         }
@@ -723,6 +758,8 @@ impl SummaryIndex {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
             next.kin.remove(&old);
+            next.folders =
+                Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
         }
         next
     }
@@ -730,6 +767,86 @@ impl SummaryIndex {
     /// The kin/folder tables contain only rows present in the hot overlay.
     pub fn kin(&self) -> &KinTables {
         &self.kin
+    }
+
+    /// The persistent folder projection published with the hot index.
+    pub fn folders(&self) -> &folders::Folders {
+        &self.folders
+    }
+
+    /// Returns the folder operations caused by one hot-row replacement. The
+    /// caller supplies the previous published index and the row pair that was
+    /// replaced, so this examines at most the old and new folder paths.
+    pub fn folder_changes(
+        &self,
+        previous: &Self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> Vec<folders::FolderOp> {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut changes = Vec::with_capacity(2);
+        let mut check = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let before = previous.folders.get(&key);
+            let after = self.folders.get(&key);
+            if before == after {
+                return;
+            }
+            match after {
+                Some(row) => changes.push(folders::FolderOp::Folder(row)),
+                None if before.is_some() => changes.push(folders::FolderOp::Gone(key)),
+                None => {}
+            }
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            check(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            check(folder);
+        }
+        changes
+    }
+
+    fn refresh_folders(
+        base: &folders::Folders,
+        kin: &KinTables,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> folders::Folders {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut next = base.clone();
+        let mut refresh = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let entry = kin
+                .folder_entry(folder, rows)
+                .map(|entry| {
+                    folders::FolderEntry::new(
+                        key.origin.clone(),
+                        key.folder.clone(),
+                        entry.newest,
+                        entry.at,
+                        entry.count,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    folders::FolderEntry::new(key.origin.clone(), key.folder.clone(), None, 0, 0)
+                });
+            next = next.apply_validated(entry).0;
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            refresh(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            refresh(folder);
+        }
+        next
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
@@ -753,7 +870,14 @@ impl SummaryIndex {
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
-        next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
+        next.folders = Self::refresh_folders(
+            &next.folders,
+            &next.kin,
+            &next.by_id,
+            old.as_deref(),
+            Some(&row),
+        );
         next
     }
 
@@ -813,7 +937,14 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
+        next.folders = Self::refresh_folders(
+            &self.folders,
+            &next.kin,
+            &next.by_id,
+            old.as_deref(),
+            Some(&summary),
+        );
         next
     }
 
@@ -956,6 +1087,13 @@ impl SummaryIndex {
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
         next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        next.folders = Self::refresh_folders(
+            &self.folders,
+            &next.kin,
+            &next.by_id,
+            old.map(Arc::as_ref),
+            None,
+        );
         Some(next)
     }
 }
@@ -1000,17 +1138,47 @@ mod tests {
         assert!(!Summary::listed_under(&nested, Some(&parent)));
 
         parent.parent = None;
-        parent.extra = RawValue::from_string("{\"tags\":{\"archived\":true}}".to_owned()).unwrap();
+        parent.archived = true;
         assert!(!Summary::listed_under(&child, Some(&parent)));
 
+        parent.archived = true;
         parent.extra =
             RawValue::from_string("{\"tags\":{\"archived\":\"reason\"}}".to_owned()).unwrap();
         assert!(!Summary::listed_under(&child, Some(&parent)));
         assert!(!Summary::listed_under(&parent, Some(&parent)));
 
+        parent.archived = false;
         parent.extra = RawValue::from_string("{\"tags\":{}}".to_owned()).unwrap();
         child.parent = Some(RowKey::new("local", "other"));
         assert!(!Summary::listed_under(&child, Some(&parent)));
+    }
+
+    #[test]
+    fn archived_is_typed_through_bounds_and_codec_with_legacy_default() {
+        let legacy: Summary = serde_json::from_str(
+            r#"{"chatId":"legacy","title":"","harness":"","state":"closed","lastActivity":0,"unread":0,"workspace":null,"origin":"local","pinned":false,"extra":{}}"#,
+        )
+        .unwrap();
+        assert!(!legacy.archived);
+
+        let mut archived = Summary::new("archived");
+        archived.archived = true;
+        archived.extra =
+            RawValue::from_string(format!("{{\"blob\":\"{}\"}}", "x".repeat(8_000))).unwrap();
+        let index = SummaryIndex::new().apply(1, archived);
+        let row = index.get("archived").unwrap();
+        assert!(row.archived);
+        assert_eq!(row.extra.get(), "{}");
+        let mut child = Summary::new("child");
+        child.parent = Some(row.key());
+        assert!(!Summary::listed_under(&child, Some(&row)));
+
+        let dir = tempdir().unwrap();
+        let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+        log.append(row.as_ref().clone()).unwrap();
+        log.sync().unwrap();
+        let restored = replay_log(log.path(), SummaryIndex::new()).unwrap();
+        assert!(restored.get("archived").unwrap().archived);
     }
 
     #[test]
@@ -1144,6 +1312,90 @@ mod tests {
             }
             assert_eq!(actual, expected, "change {seq}");
         }
+    }
+
+    #[test]
+    fn every_index_mutator_keeps_live_pages_equal_to_the_ordered_filter() {
+        fn assert_live_matches_filter(index: &SummaryIndex) {
+            let expected = index
+                .iter()
+                .filter(|row| row.is_live() && !index.is_origin_removed(row.origin.as_str()))
+                .map(|row| row.key())
+                .collect::<Vec<_>>();
+            let mut actual = Vec::new();
+            let mut anchor = None;
+            loop {
+                let page = index
+                    .read_live_page(anchor.as_ref(), ReadSide::After, false, 16, 64 * 1024, None)
+                    .unwrap();
+                actual.extend(page.rows.iter().map(|row| row.key()));
+                if !page.has_after {
+                    break;
+                }
+                anchor = page.after_key;
+            }
+            assert_eq!(actual, expected);
+        }
+
+        let mut peer = summary("peer", 20, "{}");
+        peer.origin = "peer".into();
+        peer.state = "running".into();
+        let mut local = summary("local", 10, "{}");
+        local.state = "running".into();
+        let mut closed = summary("closed", 5, "{}");
+        closed.state = "closed".into();
+        let mut index = SummaryIndex::new().apply(1, peer.clone()).apply(2, local).apply(3, closed);
+        assert_live_matches_filter(&index);
+
+        let mut hydrated = peer.clone();
+        hydrated.last_activity = 30;
+        index = index.hydrate(Arc::new(hydrated), 100);
+        assert_live_matches_filter(&index);
+
+        let key = peer.key();
+        let mut evicted = index;
+        assert!(evicted.evict_compacted(&key));
+        assert_live_matches_filter(&evicted);
+        evicted.hydrate_compacted(Arc::new(peer.clone()));
+        assert_live_matches_filter(&evicted);
+
+        let mut removed =
+            evicted.apply_origin(10, origin_record("peer".into(), 10, OriginState::Removed));
+        assert_live_matches_filter(&removed);
+        let (next, count) = removed.remove_origin_batch(10, "peer", 256);
+        removed = next;
+        assert_eq!(count, 1);
+        assert_live_matches_filter(&removed);
+        removed = removed.finish_origin_removal("peer");
+        assert_live_matches_filter(&removed);
+
+        removed =
+            removed.apply_origin(11, origin_record("peer".into(), 11, OriginState::Connected));
+        assert_live_matches_filter(&removed);
+
+        let mut returned = peer.clone();
+        returned.chat_id = "peer-returned".into();
+        returned.last_activity = 40;
+        removed = removed.apply(12, returned.clone());
+        assert_live_matches_filter(&removed);
+        removed = removed.remove_row(13, &returned.key()).unwrap();
+        assert_live_matches_filter(&removed);
+        removed = removed.remove_row(14, &RowKey::new("local", "local")).unwrap();
+        assert_live_matches_filter(&removed);
+        let mut ephemeral = peer;
+        ephemeral.chat_id = "peer-ephemeral".into();
+        ephemeral.last_activity = 50;
+        let removed = removed.apply(15, ephemeral.clone());
+        assert_live_matches_filter(&removed);
+        let removed = removed.remove_ephemeral(&ephemeral.key());
+        assert_live_matches_filter(&removed);
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.snap");
+        SortedSnapshot::write(&path, &removed).unwrap();
+        let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+        let (compacted, _) = removed.with_compacted_snapshot(disk, Default::default());
+        assert_live_matches_filter(&compacted);
     }
 
     #[test]
@@ -1439,5 +1691,57 @@ mod tests {
         reopened.sync().unwrap();
         let restored = SortedSnapshot::read(&snap_path).unwrap().unwrap();
         assert_eq!(replay_log_from(reopened.path(), 0, restored).unwrap().seq(), 2);
+    }
+
+    #[test]
+    fn folder_projection_matches_rebuild_after_ten_thousand_hot_updates() {
+        use std::collections::BTreeMap;
+
+        let mut index = SummaryIndex::new();
+        let mut seed = 0x5f_u64;
+        for seq in 1..=10_000 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let id = format!("chat-{}", (seed >> 32) % 64);
+            let mut row = Summary::new(id);
+            row.origin = if seed & 1 == 0 { "local" } else { "peer" }.into();
+            row.state = if seed & 7 == 0 { "closed" } else { "running" }.into();
+            row.last_activity = seed;
+            row.folder = (seed & 3 != 0).then(|| format!("/folder-{}", (seed >> 8) % 17));
+            index = index.apply_summary(seq, row);
+
+            let mut model = BTreeMap::<folders::FolderKey, (SortKey, RowKey, u32)>::new();
+            for hot in index.iter() {
+                let Some(folder) = FolderKey::of(hot) else { continue };
+                let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+                let sort = SortKey::of(hot);
+                let entry = model.entry(key).or_insert_with(|| (sort.clone(), hot.key(), 0));
+                if sort < entry.0 {
+                    entry.0 = sort.clone();
+                    entry.1 = hot.key();
+                }
+                entry.2 += 1;
+            }
+            let rebuilt = model
+                .into_iter()
+                .try_fold(folders::Folders::new(), |view, (key, (sort, newest, count))| {
+                    view.apply(folders::FolderEntry::new(
+                        key.origin,
+                        key.folder,
+                        Some(newest),
+                        sort.last_activity,
+                        count,
+                    ))
+                    .map(|(view, _)| view)
+                })
+                .unwrap();
+            let actual = index
+                .folders()
+                .iter()
+                .map(|row| (row.key(), row.as_ref().clone()))
+                .collect::<Vec<_>>();
+            let expected =
+                rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
+            assert_eq!(actual, expected, "folder projection mismatch at update {seq}");
+        }
     }
 }

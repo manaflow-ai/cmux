@@ -38,8 +38,8 @@ SwiftPM closure of `Packages/macOS/CmuxNext` (13 nodes):
 | Packages/Shared/CmuxAuthRuntime | 17,432 | CmuxNextCloud |
 | vendor/stack-auth-swift-sdk-prerelease | 7,875 | via CmuxAuthRuntime |
 | Packages/Shared/CMUXMobileCore | 55,218 | CmuxNextMobile |
-| Packages/Shared/CmuxIrxTransport | 21,577 | CmuxNextMobile (+ remote `iroh-ffi`) |
-| Packages/Shared/CmuxIrohTransport | 62,472 | via CmuxIrxTransport |
+| Packages/Shared/CmuxIrxTransport | 21,577 | none since 2026-11-13 (the iroh phone listener was removed); classic's iOS app still links it |
+| Packages/Shared/CmuxIrohTransport | 62,472 | via CmuxIrxTransport (classic only) |
 | Packages/iOS/CmuxMobileRPC | test only | CmuxNextMobileTests |
 | Packages/iOS/CmuxMobileSSH, CmuxMobileTunnel, CmuxMobileShellModel, CmuxMobileSupport | test only | CmuxNextMobileTests (swift-nio-ssh etc.) |
 

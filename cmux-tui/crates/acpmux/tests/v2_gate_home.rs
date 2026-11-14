@@ -20,9 +20,9 @@ fn skipped_placeholder_passes() {
     let report = home::report(&[]).unwrap();
     let rows = report["rows"].as_array().unwrap();
     let ids = rows.iter().map(|row| row["pr"].as_str().unwrap()).collect::<HashSet<_>>();
-    for pr in
-        ["1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"]
-    {
+    for pr in [
+        "1", "1b", "2", "2b", "3", "4", "5", "5b", "5g", "6", "7", "8", "9", "10", "11", "12", "13",
+    ] {
         assert!(ids.contains(pr), "missing placeholder for PR {pr}");
     }
     assert_eq!(rows[0]["status"], "skipped");

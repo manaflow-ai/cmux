@@ -18,7 +18,7 @@ import Testing
     /// Default Chrome's `kVerticalTabHeight` (30, also the Codex sidebar row), Compact today's 24 pt
     /// tab and row, Ultra-compact a 20 pt row with 11 pt omnibar text.
     nonisolated static let expectedHeight: [DensityPreset: CGFloat] = [
-        .ultraCompact: 20, .compact: 24, .cozy: 30, .comfortable: 34, .spacious: 42,
+        .ultraCompact: 20, .compact: 20, .cozy: 30, .comfortable: 34, .spacious: 42,  // Compact 20 (Lawrence 2026-11-13)
     ]
 
     /// Chromium's ratio (8 on 30), rounded to whole points.
@@ -49,10 +49,16 @@ import Testing
         let height = try #require(Self.expectedHeight[preset])
         let chrome = Self.chromeRadius(height)
         inDensity(preset) {
-            let omnibar = OmnibarStyle.cardCornerRadius
+            // The resting bar rounds as a tab; its open dropdown takes Helium's roundness on the row's height, 17 on 39
+            // (Lucas 2026-11-14), and its highlighted row the tab's ratio on its own height.
+            let omnibar = OmnibarGlassLook.current.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight)
             let tab = Metrics.tabCornerRadius
             let row = tab  // rows draw the tab radius (SidebarDensityTokens.rowCornerRadius)
             #expect(omnibar == chrome, "\(preset): omnibar radius \(omnibar), Chrome's \(chrome)")
+            let card = OmnibarStyle.cardCornerRadius
+            #expect(card == min((OmnibarStyle.rowHeight * 17 / 39).rounded(), OmnibarStyle.barHeight / 2),
+                    "\(preset): the dropdown's corner \(card) is Helium's share of its row")
+            #expect(OmnibarStyle.rowCornerRadius == Metrics.chromeRowCornerRadius(height: OmnibarStyle.rowHeight))
             #expect(tab == chrome, "\(preset): tab radius \(tab), Chrome's \(chrome)")
             #expect(row == chrome, "\(preset): row radius \(row), Chrome's \(chrome)")
         }
