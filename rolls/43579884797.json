@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43579884797",
+  "recorded_at": "2026-11-14T09:25:21Z",
+  "reason": "cmux-tui f107a96c78df changes the image's cmux-tui (pinned 1c3ccb67ea2a)",
+  "dry_run": false,
+  "cmux_tui": "f107a96c78dfb4a294bab5440d4144336165065c",
+  "fixes": [
+    {
+      "sha": "f107a96c78dfb4a294bab5440d4144336165065c",
+      "mergedAt": "2026-11-14T00:58:04-08:00",
+      "subject": "cmux-source-scan: a nextest regex filter keeps its escapes (succeeds #41707) (#42941)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:25:21Z",
+    "snapshot_id": "sh-02843f830e7c4784a6b6439a9bf8a5e9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43579884797): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "699eebb37520ae1abcef5b82ae0e3644dc69d9bc",
+    "image": "cloud-native-auto-f107a96c-43579884797-1",
+    "revision": "ci-43579884797-1",
+    "at": "2026-11-14T09:25:21Z"
+  },
+  "rolled_back": false
+}
