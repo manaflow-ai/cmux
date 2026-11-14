@@ -1194,5 +1194,5 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
 
 /// Row 3c's release gates, beside the tests whose chats and clients they use.
 #[cfg(target_os = "linux")]
-#[path = "gates.rs"]
+#[path = "gates_tests.rs"]
 mod gates;
