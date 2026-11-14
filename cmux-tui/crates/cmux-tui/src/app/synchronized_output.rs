@@ -28,6 +28,11 @@ struct PaneFrame {
     since: Option<Instant>,
     /// The hold ran out and the pane drew the update live: no more wake.
     released: bool,
+    /// The terminal's synchronized update start count when the pane last
+    /// saw it in an update ([`ghostty_vt::Terminal::synchronized_update_starts`]).
+    /// Another count means a new update began since, even when the last
+    /// one ended and the next began between two draws.
+    starts: u64,
 }
 
 /// Each drawn terminal's last frame and its synchronized update, if any. One
@@ -40,23 +45,38 @@ pub(crate) struct SynchronizedOutput {
 impl SynchronizedOutput {
     /// The frame to draw for `surface` now: the last drawn frame while a
     /// synchronized update holds it, else `build()`'s (kept as the last).
+    /// `update`: the update the terminal holds open now, by its start count
+    /// (`SurfaceHandle::synchronized_update`); `None` when it holds none.
     pub(crate) fn frame<E>(
         &mut self,
         surface: SurfaceId,
-        synchronized: bool,
+        update: Option<u64>,
         now: Instant,
         build: impl FnOnce() -> Result<Arc<SurfaceRenderFrame>, E>,
     ) -> Result<Arc<SurfaceRenderFrame>, E> {
         if let Some(pane) = self.panes.get_mut(&surface) {
-            if !synchronized {
-                pane.since = None;
-                pane.released = false;
-            } else {
-                let since = *pane.since.get_or_insert(now);
-                if !pane.released && now < since + SYNCHRONIZED_OUTPUT_HOLD {
-                    return Ok(pane.last.clone());
+            match update {
+                None => {
+                    pane.since = None;
+                    pane.released = false;
                 }
-                pane.released = true;
+                Some(starts) => {
+                    // An update that began after the one whose hold ran out
+                    // holds again, even when the program ended the old one
+                    // and began this one since the last draw. One that began
+                    // while a hold runs keeps that hold's end, so a program
+                    // always inside an update is still drawn once a hold.
+                    if pane.released && pane.starts != starts {
+                        pane.since = None;
+                        pane.released = false;
+                    }
+                    pane.starts = starts;
+                    let since = *pane.since.get_or_insert(now);
+                    if !pane.released && now < since + SYNCHRONIZED_OUTPUT_HOLD {
+                        return Ok(pane.last.clone());
+                    }
+                    pane.released = true;
+                }
             }
         }
         let frame = build()?;
@@ -64,6 +84,7 @@ impl SynchronizedOutput {
             last: frame.clone(),
             since: None,
             released: false,
+            starts: update.unwrap_or_default(),
         });
         pane.last = frame.clone();
         Ok(frame)
@@ -137,7 +158,7 @@ mod tests {
 
     fn draw(hold: &mut SynchronizedOutput, synchronized: bool, at: Instant, live: &str) -> String {
         let built = frame_of(live);
-        text(&hold.frame::<()>(1, synchronized, at, || Ok(built)).unwrap())
+        text(&hold.frame::<()>(1, synchronized.then_some(1), at, || Ok(built)).unwrap())
     }
 
     #[test]

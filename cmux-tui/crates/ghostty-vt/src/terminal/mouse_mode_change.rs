@@ -1,4 +1,5 @@
-//! Recognizes control sequences that can change Ghostty's mouse modes, so the terminal re-queries them only when needed.
+//! Recognizes control sequences that can change Ghostty's mouse modes, so the terminal re-queries them only when needed,
+//! and counts the sequences that start a synchronized update (DEC mode 2026) as the parser meets them.
 
 use super::*;
 
@@ -16,6 +17,14 @@ pub(super) struct MouseModeChangeDetector {
     pub(super) csi_has_mouse_mode: bool,
     pub(super) csi_intermediate: Option<u8>,
     pub(super) csi_invalid: bool,
+    /// The CSI being read names DEC mode 2026, synchronized output.
+    pub(super) csi_has_synchronized_output: bool,
+    /// How many sequences that may start a synchronized update (`CSI ? 2026
+    /// h`, or `r` restoring it) the stream has carried. A reader that looks
+    /// at mode 2026 only between writes compares it to tell a new update
+    /// from the one it saw, even when one ended and the next began between
+    /// two looks.
+    pub(super) synchronized_update_starts: u64,
 }
 
 #[derive(Default)]
@@ -108,6 +117,7 @@ impl MouseModeChangeDetector {
                     0x40..=0x7e => {
                         self.finish_csi_parameter();
                         may_have_changed |= self.csi_changes_mouse_mode(byte);
+                        self.count_synchronized_update_start(byte);
                         self.start_csi();
                         State::Ground
                     }
@@ -126,6 +136,7 @@ impl MouseModeChangeDetector {
         self.csi_parameter = 0;
         self.csi_has_digits = false;
         self.csi_has_mouse_mode = false;
+        self.csi_has_synchronized_output = false;
         self.csi_intermediate = None;
         self.csi_invalid = false;
     }
@@ -134,8 +145,22 @@ impl MouseModeChangeDetector {
         if self.csi_has_digits && MOUSE_DEC_MODES.contains(&self.csi_parameter) {
             self.csi_has_mouse_mode = true;
         }
+        if self.csi_has_digits && self.csi_parameter == SYNCHRONIZED_OUTPUT_MODE {
+            self.csi_has_synchronized_output = true;
+        }
         self.csi_parameter = 0;
         self.csi_has_digits = false;
+    }
+
+    fn count_synchronized_update_start(&mut self, final_byte: u8) {
+        if !self.csi_invalid
+            && self.csi_private
+            && self.csi_intermediate.is_none()
+            && self.csi_has_synchronized_output
+            && matches!(final_byte, b'h' | b'r')
+        {
+            self.synchronized_update_starts = self.synchronized_update_starts.wrapping_add(1);
+        }
     }
 
     pub(super) fn csi_changes_mouse_mode(&self, final_byte: u8) -> bool {
