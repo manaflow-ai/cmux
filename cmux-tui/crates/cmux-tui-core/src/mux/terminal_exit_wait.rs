@@ -34,24 +34,21 @@ impl Mux {
             self.output_store.check_recovery_epoch(terminal_id, epoch)?;
             return self.output_store.make_recovery_cut(text, end);
         };
-        let (cols, rows, replay, end) =
-            surface.try_with_terminal(|terminal| -> anyhow::Result<_> {
-                anyhow::ensure!(
-                    surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0),
-                    "terminal output capture is in progress; retry"
-                );
-                let (current, _, _, end) =
-                    self.output_store.recovery_state(terminal_id).ok_or_else(|| {
-                        anyhow::anyhow!("terminal output recovery disappeared; retry")
-                    })?;
-                anyhow::ensure!(
-                    current.as_ref() == epoch,
-                    "terminal output recovery changed; retry"
-                );
-                let replay = terminal.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)?;
-                Ok((terminal.cols(), terminal.rows(), replay.into_self_contained_bytes(), end))
-            })??;
-        let text = render_terminal_output_plain(std::iter::once(replay.as_slice()), cols, rows)?;
+        let (text, end) = surface.try_with_terminal(|terminal| -> anyhow::Result<_> {
+            anyhow::ensure!(
+                surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0),
+                "terminal output capture is in progress; retry"
+            );
+            let (current, _, _, end) = self
+                .output_store
+                .recovery_state(terminal_id)
+                .ok_or_else(|| anyhow::anyhow!("terminal output recovery disappeared; retry"))?;
+            anyhow::ensure!(current.as_ref() == epoch, "terminal output recovery changed; retry");
+            let text = terminal
+                .recovery_text_bounded(usize::try_from(max_bytes.min(4 * 1024 * 1024))?)?
+                .ok_or_else(|| anyhow::anyhow!("terminal recovery snapshot exceeds max_bytes"))?;
+            Ok((text, end))
+        })??;
         anyhow::ensure!(
             text.len() as u64 <= max_bytes.min(4 * 1024 * 1024),
             "terminal recovery snapshot exceeds max_bytes"

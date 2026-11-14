@@ -862,6 +862,41 @@ fn output_recovery_idle_adoption_resets_a_cursor_beyond_persisted_end() {
 
 #[cfg(unix)]
 #[test]
+fn output_recovery_keeps_short_primary_history_under_an_alternate_screen() {
+    with_output_recovery_fixture(|mux, surface, terminal| {
+        let mut output = String::new();
+        for line in 0..3_000 {
+            output.push_str(&format!("history {line:04}\r\n"));
+        }
+        output.push_str("\x1b[?1049h\x1b[2J\x1b[Halternate screen\r\n");
+        surface.apply_stream_output_for_test(output.as_bytes()).unwrap();
+        mux.output_store.stream_gap(terminal, &Arc::from("1000000000004000800000000000005f"));
+        let read =
+            mux.terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some("")).unwrap();
+        assert_eq!(read["snapshot"], true, "{read}");
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("history 0000"), "old primary history was lost: {text:?}");
+        assert!(text.contains("history 2999"), "new primary history was lost: {text:?}");
+        assert!(text.contains("alternate screen"), "alternate screen was lost: {text:?}");
+        assert!(text.ends_with('\n'), "snapshot line boundary was lost: {text:?}");
+        surface.apply_stream_output_for_test(b"suffix\r\n").unwrap();
+        mux.output_store.append(
+            terminal,
+            &Arc::from("1000000000004000800000000000005f"),
+            b"suffix\r\n",
+            None,
+        );
+        let token = read["recovery"].as_str().unwrap();
+        let suffix = mux
+            .terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some(token))
+            .unwrap();
+        assert_eq!(suffix["snapshot"], false, "{suffix}");
+        assert_eq!(suffix["text"], "suffix\n", "{suffix}");
+    });
+}
+
+#[cfg(unix)]
+#[test]
 fn output_recovery_budget_failure_never_claims_complete_and_can_retry() {
     with_output_recovery_fixture(|mux, _, terminal| {
         let error =

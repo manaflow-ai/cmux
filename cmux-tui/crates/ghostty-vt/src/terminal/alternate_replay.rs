@@ -18,6 +18,58 @@ use super::*;
 use crate::snapshot::{DecodedTerminal, SnapshotPhase};
 
 impl Terminal {
+    /// Bounded text used when a daemon must replace a reader's held output
+    /// after a reconnect. While the alternate screen is active, plain_text
+    /// intentionally exposes only that screen; recoveries also retain the
+    /// primary screen and its scrollback so replacing the held text does not
+    /// erase the shell history underneath a full-screen program.
+    pub fn recovery_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
+        if self.active_screen() != Screen::Alternate {
+            let Some(mut text) = self.plain_text_bounded(max_bytes)? else {
+                return Ok(None);
+            };
+            append_omitted_line_feeds(&mut text, self);
+            if text.len() > max_bytes {
+                return Ok(None);
+            }
+            return Ok(Some(text));
+        }
+        if !self.vt_stream_is_ground() {
+            return Err(Error::InvalidValue);
+        }
+        let mut active = self.plain_text_bounded(max_bytes)?.ok_or(Error::OutOfSpace)?;
+        append_omitted_line_feeds(&mut active, self);
+        let leave: &[u8] = if self.mode(1049, false) {
+            b"\x1b[?1049l"
+        } else if self.mode(1047, false) {
+            b"\x1b[?1047l"
+        } else if self.mode(47, false) {
+            b"\x1b[?47l"
+        } else {
+            return Err(Error::InvalidValue);
+        };
+        let complete = self.encode_snapshot(SnapshotPhase::Complete)?;
+        let copy = DecodedTerminal::decode(&complete)?;
+        unsafe { sys::ghostty_terminal_vt_write(copy.raw(), leave.as_ptr(), leave.len()) };
+        let mut primary = self.with_replay_grid(Some(&copy), |term| {
+            let mut primary = term.plain_text_bounded(max_bytes)?.ok_or(Error::OutOfSpace)?;
+            append_omitted_line_feeds(&mut primary, term);
+            Ok::<_, Error>(primary)
+        })?;
+        let separator =
+            usize::from(!primary.is_empty() && !active.is_empty() && !primary.ends_with('\n'));
+        if primary.len().saturating_add(separator).saturating_add(active.len()) > max_bytes {
+            return Ok(None);
+        }
+        let mut text = String::with_capacity(primary.len() + separator + active.len());
+        text.push_str(&primary);
+        if separator != 0 {
+            text.push('\n');
+        }
+        text.push_str(&active);
+        Ok(Some(text))
+    }
+
     /// Replay text of the primary screen under the active alternate
     /// screen, at most `max_bytes`, or `None` when the primary screen is
     /// active, it does not fit, or no copy can be made (an unfinished
@@ -80,4 +132,14 @@ impl Terminal {
         text.range?;
         (text.bytes.len() <= max_bytes).then_some(text.bytes)
     }
+}
+
+fn append_omitted_line_feeds(text: &mut String, terminal: &Terminal) {
+    let Some((_, cursor_row)) = terminal.cursor_position() else {
+        return;
+    };
+    let cursor_row = u64::from(terminal.scrollback_rows()).saturating_add(u64::from(cursor_row));
+    let lines = text.split('\n').count() as u64;
+    let missing = cursor_row.saturating_add(1).saturating_sub(lines);
+    text.extend(std::iter::repeat_n('\n', usize::try_from(missing).unwrap_or(usize::MAX)));
 }

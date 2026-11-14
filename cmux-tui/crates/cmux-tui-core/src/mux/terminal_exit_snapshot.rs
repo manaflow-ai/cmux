@@ -6,8 +6,11 @@ use cmux_json::JsonSet as _;
 /// Render raw terminal output bytes to plain text by replaying them through
 /// a fresh terminal emulator sized to the recorded geometry, then formatting
 /// the full page list without escapes ([`ghostty_vt::Terminal::plain_text`]).
-/// The scrollback budget is the window's own byte count, so no row of the
-/// bounded window is evicted before formatting.
+/// The temporary emulator must not use the input byte count as its
+/// scrollback budget: Ghostty accounts resident page bytes, so many short
+/// lines can evict history even when their VT replay is small. The default
+/// renderer gives it a bounded resident budget and refuses a projection that
+/// reaches that cap rather than claiming a complete window.
 ///
 /// The formatter trims trailing blank rows, so a window that ends on a line
 /// feed would lose it, and a client that appends each window from its
@@ -19,7 +22,22 @@ pub(super) fn render_terminal_output_plain<'a>(
     cols: u16,
     rows: u16,
 ) -> anyhow::Result<String> {
-    let scrollback: usize = chunks.clone().map(<[u8]>::len).sum();
+    const MAX_RENDER_SCROLLBACK_BYTES: usize = 64 * 1024 * 1024;
+    let input_bytes = chunks.clone().map(<[u8]>::len).sum::<usize>();
+    let scrollback = input_bytes
+        .saturating_mul(64)
+        .max(input_bytes)
+        .max(1 << 20)
+        .min(MAX_RENDER_SCROLLBACK_BYTES);
+    render_terminal_output_plain_with_scrollback(chunks, cols, rows, scrollback)
+}
+
+pub(super) fn render_terminal_output_plain_with_scrollback<'a>(
+    chunks: impl Iterator<Item = &'a [u8]> + Clone,
+    cols: u16,
+    rows: u16,
+    scrollback: usize,
+) -> anyhow::Result<String> {
     let mut terminal = ghostty_vt::Terminal::new(
         cols.max(1),
         rows.max(1),
@@ -30,6 +48,13 @@ pub(super) fn render_terminal_output_plain<'a>(
     for chunk in chunks {
         terminal.vt_write(chunk);
         ends.scan(chunk);
+    }
+    let expected_rows = ends.line_feeds.saturating_add(1);
+    if terminal.scrollbar().is_some_and(|scrollbar| scrollbar.total < expected_rows) {
+        anyhow::bail!("terminal output projection evicted retained rows");
+    }
+    if terminal.primary_resident_bytes().is_some_and(|resident| resident >= scrollback as u64) {
+        anyhow::bail!("terminal output projection exceeded its bounded history budget");
     }
     let mut text = terminal.plain_text()?;
     text.truncate(text.trim_end_matches('\n').len());
@@ -44,6 +69,7 @@ pub(super) fn render_terminal_output_plain<'a>(
 #[derive(Default)]
 struct TrailingLineFeeds {
     count: usize,
+    line_feeds: u64,
     state: EscapeState,
 }
 
@@ -62,6 +88,7 @@ impl TrailingLineFeeds {
             self.state = match (self.state, b) {
                 (EscapeState::Ground, b'\n') => {
                     self.count += 1;
+                    self.line_feeds = self.line_feeds.saturating_add(1);
                     EscapeState::Ground
                 }
                 (_, 0x1b) => EscapeState::Escape,
