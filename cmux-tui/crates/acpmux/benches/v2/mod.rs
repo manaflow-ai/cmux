@@ -817,6 +817,15 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "6c",
+        name: "v2.pr06.page_store_text",
+        done_when: "p95 for the page's row store to take one batch holding one text op on an open row whose body is 200 KB, within 1.2x of one whose body is 1 KB.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "6c",
         name: "v2.pr06.page_store_held",
         done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
         measured: false,
