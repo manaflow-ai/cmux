@@ -449,7 +449,7 @@ def notices_cache(home: Path, runner: str) -> Path:
     if cache.is_dir() and tree_bytes(cache) > NOTICES_CACHE_MAX_BYTES:
         remove(cache)
     # Keep only the crate sources fetch_crates.py writes (registry/ and git/),
-    # which the notices read as text. The iroh-ffi, cmux-cua and cmux-tui
+    # which the notices read as text. The cmux-cua and cmux-tui
     # checkouts are where generate-third-party-notices.sh runs cargo, so
     # each job checks them out again: a file another job planted there
     # (a .cargo/config.toml) never runs in this one.

@@ -13,6 +13,11 @@
 //! preview mount when it is not installed) to learn whether the new script
 //! loads and renders, and unmounts it. The daemon says where its local
 //! folder is in `apps-list` (`local_dir`).
+//!
+//! Before each build it asks the daemon for its capability manifest's digest
+//! (`apps-capabilities {brief}`) and, when the running cmux's typed global
+//! differs from the project's `cmux-app.d.ts`, writes the live one there, so
+//! the types the editor checks against are the API the daemon serves.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -60,6 +65,38 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// The packer every sample and first-party app is built with, embedded so an
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
+
+/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
+/// no copy of its own (a sample copied out of a checkout, one a person installs): the
+/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
+/// SDK's relative imports of its tables expect.
+const SDK_FILES: [(&str, &str); 3] = [
+    (
+        "cmux-extension-sdk/typescript/src/index.ts",
+        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
+    ),
+    (
+        "cmux-app-host/schema/v2/events.json",
+        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
+    ),
+    (
+        "cmux-app-host/generated/scopes.json",
+        include_str!("../../../../cmux-app-host/generated/scopes.json"),
+    ),
+];
+
+/// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
+pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::write(dir.join("pack.ts"), PACK_TS)?;
+    for (path, text) in SDK_FILES {
+        let file = dir.join("sdk").join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, text)?;
+    }
+    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+}
 
 /// One problem with file and position where known.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -249,10 +286,14 @@ pub(super) fn build(
             let packer = tempfile::Builder::new()
                 .prefix("cmux-ext-pack")
                 .tempdir()
-                .and_then(|dir| std::fs::write(dir.path().join("pack.ts"), PACK_TS).map(|()| dir));
-            let packer = packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
+                .and_then(|dir| write_packer(dir.path()).map(|sdk| (dir, sdk)));
+            let (packer, sdk) =
+                packer.map_err(|e| vec![Problem::message(format!("packer: {e}"))])?;
             let mut pack = Command::new(bun);
-            pack.arg(packer.path().join("pack.ts")).arg(&pkg.dir).current_dir(&pkg.dir);
+            pack.arg(packer.path().join("pack.ts"))
+                .arg(&pkg.dir)
+                .current_dir(&pkg.dir)
+                .env("CMUX_EXTENSION_SDK", sdk);
             run_bounded(pack, deadline)
         }
     };
@@ -651,6 +692,28 @@ pub(super) fn fingerprint(dir: &Path) -> u64 {
     hasher.finish()
 }
 
+/// The typed app global in an extension folder (`cmux ext new` writes it).
+pub(super) const TYPES_FILE: &str = "cmux-app.d.ts";
+
+/// Writes `types` to `dir/cmux-app.d.ts` when the folder uses the types (the
+/// file is there, or a `src/` folder) and the text differs; by an atomic
+/// rename. `Ok(true)` when it wrote.
+pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
+    let path = dir.join(TYPES_FILE);
+    let current = std::fs::read_to_string(&path).ok();
+    if current.is_none() && !dir.join("src").is_dir() {
+        return Ok(false);
+    }
+    if current.as_deref() == Some(types) {
+        return Ok(false);
+    }
+    // A dot name: the watch and the fingerprint skip it.
+    let staged = dir.join(format!(".{TYPES_FILE}.cmux-ext-dev"));
+    std::fs::write(&staged, types)?;
+    std::fs::rename(&staged, &path)?;
+    Ok(true)
+}
+
 /// Where each contribution shows, from the manifest.
 fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
@@ -669,6 +732,15 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
+                "cmux.chat.widget/1" => {
+                    match entry.pointer("/options/tools").and_then(Value::as_array) {
+                        Some(tools) if !tools.is_empty() => format!(
+                            "the agent chat, under tool calls named {}",
+                            tools.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        ),
+                        _ => "the agent chat, for widget parts that name this extension".into(),
+                    }
+                }
                 other => other.to_string(),
             };
             json!({ "interface": interface, "where": place, "shown": shown })
@@ -709,6 +781,8 @@ pub(super) struct Outcome {
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
     pub interrupted: bool,
+    /// `cmux-app.d.ts` was rewritten from the running cmux (API version).
+    pub types_updated: Option<String>,
 }
 
 impl Outcome {
@@ -730,6 +804,7 @@ impl Outcome {
             logs: Vec::new(),
             next: None,
             interrupted: false,
+            types_updated: None,
         }
     }
 
@@ -768,6 +843,7 @@ impl Outcome {
             "scene": self.scene,
             "logs": self.logs,
             "next": self.next,
+            "typesUpdated": self.types_updated,
         })
     }
 
@@ -795,6 +871,9 @@ impl Outcome {
                 }
                 if self.installed == Some(false) {
                     line.push_str(", as a preview (not installed)");
+                }
+                if let Some(version) = &self.types_updated {
+                    line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
                 }
                 line
             }
@@ -824,6 +903,9 @@ pub(super) struct Session {
     /// The folder's fingerprint right after the last build: what that
     /// reload loaded (its own build output included).
     pub built_print: Option<u64>,
+    /// The daemon's types digest the project's `cmux-app.d.ts` was last
+    /// checked against: the whole manifest is fetched only when it moves.
+    types_digest: Option<String>,
 }
 
 impl Session {
@@ -839,7 +921,28 @@ impl Session {
             probes: 0,
             last: None,
             built_print: None,
+            types_digest: None,
         }
+    }
+
+    /// Hot reload of the API itself: when the running cmux's typed global
+    /// (`apps-capabilities`) differs from the project's `cmux-app.d.ts`,
+    /// writes the live one. Checked on start and whenever the daemon's
+    /// digest moves; an older daemon without the manifest changes nothing.
+    /// Returns the API version when it wrote the file.
+    fn refresh_types(&mut self) -> Option<String> {
+        let brief =
+            self.daemon.call(json!({ "cmd": "apps-capabilities", "brief": true })).ok()?.ok()?;
+        let digest = brief.field("typesDigest").as_str()?.to_string();
+        if self.types_digest.as_deref() == Some(digest.as_str()) {
+            return None;
+        }
+        let manifest = self.daemon.call(json!({ "cmd": "apps-capabilities" })).ok()?.ok()?;
+        let types = manifest.field("types").as_str()?;
+        let version = manifest.field("apiVersion").as_str().unwrap_or_default().to_string();
+        let wrote = write_types(&self.dir, types).ok()?;
+        self.types_digest = Some(digest);
+        wrote.then_some(version)
     }
 
     /// Validate, build, copy, wait for the daemon's reload, check the load.
@@ -853,6 +956,9 @@ impl Session {
             Err(errors) => return outcome.failed(Phase::Manifest, errors),
         };
         outcome.app = Some(pkg.id.clone());
+        // Before the build, so the build checks against the live API and the
+        // fingerprint below includes the rewritten file (no second reload).
+        outcome.types_updated = self.refresh_types();
         let plan = build_plan(&pkg, self.build.as_deref(), self.bun.as_deref());
         outcome.build = match &plan {
             BuildPlan::Command(_) => Some("command"),

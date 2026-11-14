@@ -2,55 +2,10 @@
 use super::{
     ForkOf, IndexRecord, MAX_INDEX_RECORD_BYTES, OriginRecord, OriginState, RowKey, Summary,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::io::{self, Read};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TextRef<'a> {
-    title: &'a str,
-    harness: &'a str,
-    state: &'a str,
-    last_activity: u64,
-    unread: u32,
-    workspace: &'a Option<String>,
-    pinned: bool,
-    peer_form: &'a Option<Box<RawValue>>,
-    extra: &'a RawValue,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Text {
-    title: String,
-    harness: String,
-    state: String,
-    last_activity: u64,
-    unread: u32,
-    workspace: Option<String>,
-    pinned: bool,
-    peer_form: Option<Box<RawValue>>,
-    extra: Box<RawValue>,
-}
-
-fn text(summary: &Summary) -> TextRef<'_> {
-    TextRef {
-        title: &summary.title,
-        harness: &summary.harness,
-        state: &summary.state,
-        last_activity: summary.last_activity,
-        unread: summary.unread,
-        workspace: &summary.workspace,
-        pinned: summary.pinned,
-        peer_form: &summary.peer_form,
-        extra: &summary.extra,
-    }
-}
-
-pub(super) fn text_len(summary: &Summary) -> usize {
-    serde_json::to_vec(&text(summary)).map_or(usize::MAX, |bytes| bytes.len())
-}
+pub(crate) use acpmux_list_types::text::{Text, text};
 
 fn string(out: &mut Vec<u8>, value: &str) -> io::Result<()> {
     let len = u16::try_from(value.len()).map_err(io::Error::other)?;
@@ -215,6 +170,7 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
         summary.unread = text.unread;
         summary.workspace = text.workspace;
         summary.pinned = text.pinned;
+        summary.archived = text.archived;
         summary.peer_form = text.peer_form;
         summary.extra = text.extra;
         summary.validate()?;
@@ -321,6 +277,7 @@ mod tests {
         assert_eq!(row.seq, 7);
         assert_eq!(row.summary.chat_id, "old");
         assert!(row.summary.peer_form.is_none());
+        assert!(!row.summary.archived);
         assert_eq!(row.summary.extra.get(), r#"{"name":"old"}"#);
     }
 }

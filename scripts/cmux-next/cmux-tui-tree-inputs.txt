@@ -62,9 +62,17 @@ blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 blob plans/cmux-next/daemon-capabilities.json
-# Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
-# embeds it and cmux-motion's build.rs reads it, but no published binary links
-# either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
+# cmux-theme-tokens embeds these; the daemon (theme.scheme ops) and the cmux
+# CLI (`cmux theme`) link it. cmux-motion's build.rs also reads design-tokens.json.
+blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
+blob schemas/theme/theme-ink-vectors.json
+# cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
+# and the cmux CLI read them.
+blob Resources/theme-files/charcoal.json
+blob Resources/theme-files/classic-desktop.json
+blob Resources/theme-files/claude-desktop.json
+blob Resources/theme-files/harbor.json
+blob Resources/theme-files/phosphor.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json

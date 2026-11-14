@@ -1228,7 +1228,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
-                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
+                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
@@ -1273,6 +1273,14 @@ async fn dispatch_request_with_identity(
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
+            // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
+            // its index, named on every connection.
+            if hub.v2_lists_hub_rows()
+                && let Some(features) =
+                    reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
+            {
+                features.push(json!(crate::hub::list_tee::HUB_ROWS_FEATURE));
+            }
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
                 reply.set_path(
@@ -3179,6 +3187,7 @@ async fn dispatch_request_with_identity(
             Ok(done)
         }
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_MARK_READ => view::mark_read(hub, &params),
         method::MUX_SEEN => view::seen(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),

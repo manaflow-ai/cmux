@@ -76,6 +76,8 @@ mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod long_chat_tests;
+#[cfg(test)]
 mod owned_scope_bench_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
@@ -128,6 +130,8 @@ mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
+// chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -138,6 +142,8 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 mod peer_row;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod row_log;
@@ -394,6 +400,8 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
@@ -402,6 +410,8 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]
@@ -782,6 +792,14 @@ pub struct Hub {
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
     pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// The carrier's registration the daemon's start made from the join config
+    /// (`hub_carrier::start_kept`); a sign-out's leave drops it, which unregisters.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_serve: std::sync::Mutex<Option<crate::hub_carrier::HubServe>>,
+    /// The loopback WebSocket address the start gave the carrier, so an enroll that replaces the
+    /// join starts it again on the new join (`server/machine_enroll.rs`).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) hub_carrier_websocket: std::sync::OnceLock<std::net::SocketAddr>,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1194,9 +1212,20 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
-    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
-    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
-    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
+    /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
+    /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
+    /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
+    pub mesh: crate::mesh::MeshSlot,
+    /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
+    /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
+    pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
+    /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
+    /// reads the join's state on disk once it holds it, so none acts on what another changed.
+    pub join_transition: Arc<tokio::sync::Mutex<()>>,
+    /// The daemon start's join task (a leave the last run did not finish, then the relay), while
+    /// it may run: shutdown ends it before it stops the relay.
+    pub join_start: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
@@ -1318,6 +1347,10 @@ impl Hub {
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_serve: Default::default(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier_websocket: std::sync::OnceLock::new(),
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
@@ -1523,6 +1556,9 @@ impl Hub {
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
+            mesh_relay: Default::default(),
+            join_transition: Default::default(),
+            join_start: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
@@ -2126,6 +2162,12 @@ impl Hub {
     /// installed, which is the default for an empty `acpmux.v2` setting.
     pub(crate) fn install_v2_tee(&self, tee: Arc<list_tee::TeeHandle>) {
         self.events.install_tee(tee);
+    }
+
+    /// The v2 list holds the hub machines' rows: `initialize` names
+    /// [`list_tee::HUB_ROWS_FEATURE`] on every connection.
+    pub(crate) fn v2_lists_hub_rows(&self) -> bool {
+        self.events.tee_lists_hub_rows()
     }
 
     pub(crate) fn session_count(&self) -> usize {

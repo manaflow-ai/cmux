@@ -6,7 +6,7 @@ import Testing
     @Test func unboundActionsLeaveNoEmptyShortcutAndReboundKeysShow() throws {
         let registry = ActionRegistry.standard()
         registry.setShortcutOverride(nil, for: ChiefWelcome.goToAction)
-        for id in ChiefWelcome.shortcutActions { registry.setShortcutOverride(nil, for: id) }
+        for id in ChiefWelcome.shortcutActions + [ChiefWelcome.anyAppAction] { registry.setShortcutOverride(nil, for: id) }
         let unbound = ChiefWelcome.text(registry)
         #expect(!unbound.contains("**"))
         #expect(!unbound.contains(HomeStrings.chiefWelcomeShortcuts))
@@ -20,6 +20,26 @@ import Testing
         #expect(rebound.contains(HomeStrings.chiefWelcomeGoTo(goToKeys)))
         #expect(rebound.contains("- `\(tabKeys)` \(tabTitle)"))
         #expect(!rebound.contains("⌘P"))
+    }
+
+    /// Start Agent from Any App ends the shortcut list: while its system-wide key is off, with the
+    /// one-click link that turns it on (agent-shortcut-found); once it is on, with no link.
+    @Test func startAgentFromAnyAppIsListedWithALinkThatTurnsItOnWhileOff() throws {
+        let registry = ActionRegistry.standard()
+        let keys = try #require(registry.shortcutDisplay(for: ChiefWelcome.anyAppAction))
+        let title = try #require(registry.descriptor(for: ChiefWelcome.anyAppAction)?.title)
+        let off = ChiefWelcome.text(registry)
+        let line = "- " + HomeStrings.chiefWelcomeAnyApp("`\(keys)`", title, link: ChiefWelcome.anyAppLink)
+        #expect(off.contains(line))
+        #expect(off.contains("](cmux://settings/start-agent-from-any-app)"))
+        let shortcuts = try #require(off.range(of: HomeStrings.chiefWelcomeShortcuts)), anyApp = try #require(off.range(of: line))
+        let examples = try #require(off.range(of: HomeStrings.chiefWelcomeExamplesHeader))
+        #expect(shortcuts.lowerBound < anyApp.lowerBound && anyApp.lowerBound < examples.lowerBound)
+        let on = ChiefWelcome.text(registry, anyAppOn: true)
+        #expect(on.contains("- `\(keys)` \(title)\n"))
+        #expect(!on.contains(ChiefWelcome.anyAppLink))
+        registry.setShortcutOverride(nil, for: ChiefWelcome.anyAppAction)
+        #expect(!ChiefWelcome.text(registry).contains(title))
     }
 
     /// A leader chord (New Agent Chat's `⌘J` then `S`, since ⌘I went to Open Chief Dock) reads as two keys:

@@ -2,7 +2,9 @@ use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC, PAGE_BYTES,
     SEEK_BYTES, TRAILER_BYTES,
 };
-use crate::index::{IndexRecord, OriginRecord, SortKey, Summary, SummaryIndex, codec};
+use crate::index::{
+    IndexRecord, OriginRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row,
+};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -98,7 +100,11 @@ impl SortedSnapshot {
         let mut previous = None;
         let mut first_lengths = Vec::new();
         for row in rows {
-            let row = row?;
+            let row = match row {
+                Ok(row) => row,
+                Err(error) if is_corrupt_snapshot_row(&error) => continue,
+                Err(error) => return Err(error),
+            };
             let key = SortKey::of(&row);
             if previous.as_ref().is_some_and(|previous| previous >= &key) {
                 return Err(codec::invalid("unsorted snapshot input"));
@@ -206,10 +212,10 @@ impl SortedSnapshot {
         let mut ordinal = 0;
         while offset < snapshot.head.data_end {
             let piece = snapshot.piece(offset, ordinal, PAGE_BYTES)?;
-            if piece.rows.is_empty() {
+            if piece.physical_count == 0 || piece.next_offset <= offset {
                 return Err(codec::invalid("snapshot made no progress"));
             }
-            ordinal += piece.rows.len() as u64;
+            ordinal += piece.physical_count as u64;
             for row in piece.rows {
                 index = index.apply(snapshot.seq(), row.as_ref().clone());
             }

@@ -1,6 +1,7 @@
 use super::*;
 use crate::wire::{Page, PageResult, Position};
 use acpmux_book::index::{DiskSnapshot, ListFilter, SortedSnapshot};
+use std::fs;
 
 fn page(filter: ListFilter) -> Page {
     Page {
@@ -12,6 +13,8 @@ fn page(filter: ListFilter) -> Page {
         view: None,
         max_bytes: crate::wire::MAX_PAGE_BYTES as u32,
         filter: Some(filter),
+        edition: None,
+        fold: None,
     }
 }
 
@@ -126,7 +129,7 @@ fn restart_hydrates_tables_from_hot_rows_without_appending_log_records() {
     let mut log_bytes = None;
     for boot in [1, 2] {
         let (hub, mut writer) = Hub::open(dir.path(), boot, || boot as u32 + 1).unwrap();
-        let before = std::fs::read(dir.path().join("index.log")).unwrap();
+        let before = fs::read(dir.path().join("index.log")).unwrap();
         if let Some(previous) = &log_bytes {
             assert_eq!(previous, &before);
         }
@@ -142,8 +145,25 @@ fn restart_hydrates_tables_from_hot_rows_without_appending_log_records() {
         let reply: PageResult<Summary> =
             hub.page(&page(ListFilter::family(root.key()))).unwrap().decode_json().unwrap();
         assert_eq!(reply.rows.len(), 1);
-        let after = std::fs::read(dir.path().join("index.log")).unwrap();
+        let after = fs::read(dir.path().join("index.log")).unwrap();
         assert_eq!(before, after);
         log_bytes = Some(after);
+    }
+}
+
+#[test]
+fn live_pages_refuse_every_table_filter_even_with_keys() {
+    let (hub, _writer) = Hub::new(SummaryIndex::new());
+    for filter in [
+        ListFilter::family(RowKey::new("local", "root")),
+        ListFilter::forks(RowKey::new("local", "root")),
+        ListFilter::folder(acpmux_book::index::FolderKey::new("local", "one")),
+        ListFilter { cold: true, ..ListFilter::default() },
+    ] {
+        let mut request = page(filter);
+        request.view = Some(crate::wire::ListView::Live);
+        assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
+        request.keys = Some(vec![wire_key(SortKey::of(&Summary::new("key"))).into()]);
+        assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
     }
 }

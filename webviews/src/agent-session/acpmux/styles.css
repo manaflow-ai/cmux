@@ -137,8 +137,7 @@
    than it scrolls here rather than going past the window's edge as a flat native list. MenuPopup's
    shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
-.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;scrollbar-width:none;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
-.acpmux-menu.acpmux-composer-plus::-webkit-scrollbar{display:none;width:0;height:0}
+.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
 /* The rows scroll in the glass shell's inner viewport (ui/Menu.tsx .ui-popup-scroll): it hides the scrollbar, and the fade rules below target it. */
 .acpmux-menu.acpmux-composer-plus>.ui-popup-scroll{scrollbar-width:none}
 .acpmux-menu.acpmux-composer-plus>.ui-popup-scroll::-webkit-scrollbar{display:none;width:0;height:0}
@@ -435,7 +434,6 @@
    the message row holds a 24px button or none, and the row under it (no button in either) says cmux
    is running and the chats are kept, so one line turning into the other moves nothing. */
 .acpmux-host-line-group>.acpmux-host-line:first-child{min-height:24px;padding-bottom:0}
-.acpmux-host-line.acpmux-host-line-reassure{min-height:20px}
 .acpmux-host-line-note{flex:0 1 auto;min-width:0;margin:0;color:color-mix(in srgb,var(--agent-muted) 85%,transparent)}
 /* An optional step (Restart agent service): text in the message row, not a filled button. */
 .acpmux-host-line .acpmux-host-line-quiet{height:24px;padding:0 4px;background:transparent;color:var(--agent-muted);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--agent-muted) 40%,transparent);text-underline-offset:2px}
@@ -471,10 +469,10 @@
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 /* Quick open drops from the top as it opens (ui-enter, ui/popupSurface.css). */
 .acpmux-file-search{--ui-enter-y:-8px;animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both}
-.acpmux-file-search{position:absolute;z-index:20;top:max(48px,18%);left:50%;right:auto;margin:0;border:0;width:min(600px,calc(100vw - 32px));transform:translateX(-50%);padding:6px;box-sizing:border-box;border-radius:14px;background:var(--surface-popup);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2);color:var(--agent-text);font-size:14px}
-.acpmux-file-search input{display:block;width:100%;height:34px;padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-file-search{position:absolute;z-index:20;top:max(48px,18%);left:50%;right:auto;margin:0;border:0;width:min(calc(600 * var(--ui-px, 1px)),calc(100vw - 32px));transform:translateX(-50%);padding:calc(6 * var(--ui-px, 1px));box-sizing:border-box;border-radius:14px;background:var(--surface-popup);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2);color:var(--agent-text);font-size:var(--text-field);overflow:hidden}
+.acpmux-file-search input{display:block;width:100%;height:calc(34 * var(--ui-px, 1px));padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
-.acpmux-file-search [role=listbox]{max-height:min(360px,50vh);overflow:auto}
+.acpmux-file-search [role=listbox]{max-height:min(calc(360 * var(--ui-px, 1px)),50vh);overflow:auto}
 .acpmux-file-search [role=listbox]:not(:empty){margin-top:4px}
 .acpmux-file-result{display:flex;align-items:baseline;gap:8px;min-height:30px;padding:5px 10px;box-sizing:border-box;border-radius:8px;white-space:nowrap}
 .acpmux-file-name{flex:none}

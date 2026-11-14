@@ -106,15 +106,22 @@ test("a glide stops once the room it lands in is smaller than what it still hold
   glide.fit(0);
 });
 
-test("a send from the latest row draws the thread back by the whole rise, past any room, and fit leaves it", () => {
+test("on the scale's send step (0) a send rises nothing; on a page's own send clock it draws the thread back by the whole rise, past any room, and fit leaves it", () => {
+  // The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like,
+  // just do it."): without a token of its own the page's thread is in place at once.
+  const product = thread();
+  expect(MOTION_SEND_MS).toBe(0);
+  expect(createFollowGlide().sent(product.node, 64)).toBe(0);
+  expect(product.glides).toHaveLength(0);
+  // A page that sets `--agent-motion-send` itself (a gallery) still gets the rise on that clock.
   const glide = createFollowGlide();
-  const { node, glides, at } = thread();
+  const { node, glides, at } = thread({ token: "180ms" });
   // The sent prompt's row (64) and its reply's live line came at once: no room cap.
   expect(glide.sent(node, 64)).toBe(64);
   expect(glides[0]!.keyframes).toEqual([{ translate: "0 64px" }, { translate: "0 0" }]);
   // On the send motion (Leo 2026-11-07: "it's all just one unified motion"): the clock the sent
   // prompt's bubble and the thinking row come in on.
-  expect(glides[0]!.options.duration).toBe(MOTION_SEND_MS);
+  expect(glides[0]!.options.duration).toBe(180);
   expect(glides[0]!.options.easing).toBe(MOTION_EASE_SEND);
   // No room under the last row (the live line names a call): the send still plays to rest.
   glide.fit(0);
@@ -124,7 +131,7 @@ test("a send from the latest row draws the thread back by the whole rise, past a
   expect(glide.rise(node, 20, 4)).toBe(52);
   expect(glides[0]!.cancelled).toBe(true);
   // The reply's line that lands while the send plays keeps the send's clock.
-  expect(glides[1]!.options.duration).toBe(MOTION_SEND_MS);
+  expect(glides[1]!.options.duration).toBe(180);
   // A row the next commit brings rises on the send's glide too.
   at(0);
   expect(glide.sent(node, 30)).toBe(82);

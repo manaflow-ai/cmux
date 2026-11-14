@@ -24,7 +24,7 @@ helper="$here/base_autofix_pushed_exports.py"
 regen_actions="${CMUX_BASE_EXPORTS_REGENERATE_ACTIONS:-$here/regenerate-action-exports.sh}"
 regen_settings="${CMUX_BASE_EXPORTS_REGENERATE_SETTINGS:-$here/regenerate-settings-exports.sh}"
 
-exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$here/settings-exports.txt")
 
 sha="$(git rev-parse HEAD)"

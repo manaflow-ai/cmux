@@ -23,8 +23,9 @@ harness = false
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
-# The cmux-tui binary turns it off and installs the same value at start, so
-# a new stamp does not recompile this crate (acpmux-build-id docs).
+# The cmux-tui binary and the shipped standalone acpmux (acpmux-standalone)
+# turn it off and install the same value at start, so a new stamp does not
+# recompile this crate (acpmux-build-id docs).
 build-id = ["dep:acpmux-build-id"]
 tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
