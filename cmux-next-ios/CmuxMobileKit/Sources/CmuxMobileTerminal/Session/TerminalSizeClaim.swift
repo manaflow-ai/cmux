@@ -9,13 +9,20 @@ import Foundation
 /// Leaving the page (back, another tab, the grid, a sheet) releases after
 /// `delay`, so switching away and back quickly never resizes the Mac's pane
 /// twice. The app going to the background (another app, the lock screen)
-/// releases at once, so the Mac's pane gets its own size back (Leo,
-/// 2026-11-12: "if I do completely switch away, I want to be gone"). Coming
-/// back claims at once; the page from before holds until the reclaim's
-/// replay, so the Mac's wider grid is never painted
+/// releases after `backgroundDelay`, the Mac's size lease: back within it,
+/// nothing was sent and nothing reflows (Leo, 2026-11-14: "we want to bring
+/// back the 45 ... seconds"); gone longer, the Mac's pane has its own size
+/// back (Leo, 2026-11-12: "if I do completely switch away, I want to be
+/// gone"). A suspended app's timer never fires, so a release that fell due
+/// while it was away goes out on its return, before the claim. Coming back
+/// after a release claims at once; the page from before holds until the
+/// reclaim's replay, so the Mac's wider grid is never painted
 /// (`TerminalViewController.appActiveChanged`).
 public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable where Instant.Duration == Duration {
     public static var defaultDelay: Duration { .seconds(1) }
+    /// The Mac's size lease (`size-lease-v1`, 45 s), which ends a suspended
+    /// phone's claim on the Mac at the same time.
+    public static var backgroundDelay: Duration { .seconds(45) }
 
     public let delay: Duration
     public var pageShown = false
@@ -36,6 +43,13 @@ public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable wher
     /// when to call again (nil: nothing changes without a new state).
     public mutating func update(at now: Instant) -> (claims: Bool?, recheck: Instant?) {
         if wanted {
+            // Due while the app was suspended: the release first (the
+            // Mac's lease has ended too), the claim on the next look.
+            if claims, let due = releaseAt, now >= due {
+                releaseAt = nil
+                claims = false
+                return (false, now)
+            }
             releaseAt = nil
             guard !claims else { return (nil, nil) }
             claims = true
@@ -46,8 +60,9 @@ public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable wher
             return (nil, nil)
         }
         // The page left (or a sheet covers it): `delay`. The app left the
-        // foreground: now.
-        let at = appActive ? (releaseAt ?? now.advanced(by: delay)) : now
+        // foreground: `backgroundDelay`. A release already pending keeps
+        // its time.
+        let at = releaseAt ?? now.advanced(by: appActive ? delay : Self.backgroundDelay)
         guard now < at else {
             releaseAt = nil
             claims = false
@@ -103,10 +118,15 @@ public final class TerminalSizeClaimer<C: Clock> where C.Duration == Duration {
     }
 
     private func recheck() {
-        let (change, next) = debounce.update(at: clock.now)
+        var (change, next) = debounce.update(at: clock.now)
         pending?.cancel()
         pending = nil
         if let change { apply(change) }
+        // An overdue release went out: the claim goes now, not a tick later.
+        if let due = next, due <= clock.now {
+            (change, next) = debounce.update(at: clock.now)
+            if let change { apply(change) }
+        }
         guard let next else { return }
         // An intentional, bounded delay on the injected clock (the release
         // debounce), not a synchronization wait.

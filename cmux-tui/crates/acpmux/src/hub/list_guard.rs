@@ -83,6 +83,11 @@ impl Events {
         }
     }
 
+    /// A tee is installed and its v2 `list` holds the hub machines' rows.
+    pub(super) fn tee_lists_hub_rows(&self) -> bool {
+        self.tee.get().is_some_and(|tee| tee.lists_hub_rows())
+    }
+
     pub(super) fn remote_tee_ready(&self) {
         if let Some(tee) = self.tee.get() {
             tee.remote_ready();

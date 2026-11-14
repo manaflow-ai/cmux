@@ -9907,6 +9907,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   };
+  /// A start refused because a chat is already starting in this tab (`unavailable_now`): the same prompt and folder
+  /// go to a new Cloud chat, as the held send's refusal offers; this card closes and the composer keeps the prompt.
+  const openNewCloudChatForStart = () => {
+    const start = cloudStart;
+    if (!start) return;
+    const attempt = lastCloudAttempt.current;
+    const cwd = attempt?.key === start.key ? attempt.request.cwd : undefined;
+    dismissCloudFailure();
+    void openCloudChatWith({ prompt: start.task, ...(cwd ? { cwd } : {}) }).catch(() => undefined);
+  };
   /// A harness's local command typed alone (localCommands.ts): its GUI answer, now, mid-turn too.
   /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
   const handleLocalCommand = (command: LocalCommand): boolean => {
@@ -13309,6 +13319,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  onOpenNewCloudChat={openNewCloudChatForStart}
                                   {...cloudTooBigActions}
                                 />
                               ),
@@ -13847,6 +13858,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    onOpenNewCloudChat={openNewCloudChatForStart}
                     {...cloudTooBigActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (

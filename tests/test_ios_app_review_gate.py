@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import plistlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -645,6 +647,164 @@ class RealTreeTests(unittest.TestCase):
         self.assertNotIn("ADVISORY", workflow)
         pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
         self.assertIn('"cmux-next-ios/**"', pull_request)
+
+
+AGENT_SPEC = importlib.util.spec_from_file_location(
+    "app_review_agent_pass", ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py")
+agent_pass = importlib.util.module_from_spec(AGENT_SPEC)
+assert AGENT_SPEC.loader
+sys.modules[AGENT_SPEC.name] = agent_pass
+AGENT_SPEC.loader.exec_module(agent_pass)
+
+# A stand-in `claude`: writes what the real agent would (a findings array to
+# the path the prompt names, one screenshot per step in its folder), or
+# nothing, as STUB_CLAUDE says.
+STUB_CLAUDE = """#!/usr/bin/env python3
+import os, re, sys
+prompt = sys.argv[sys.argv.index("-p") + 1]
+mode = os.environ.get("STUB_CLAUDE", "verdict")
+if mode in ("verdict", "no-screens"):
+    path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
+    open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
+if mode == "verdict":
+    open("step-01-launch.png", "wb").write(b"png")
+print('{"result": "done"}')
+sys.exit(1 if mode == "crash" else 0)
+"""
+
+
+class AgentReviewerPassTests(unittest.TestCase):
+    """The agent pass is a check: one that judged nothing is red, never a pass."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.app = self.root / "CmuxMobileApp.app"
+        self.app.mkdir()
+        self.out = self.root / "agent-pass"
+        self.findings = self.root / "agent-findings.json"
+        self.saved = {k: os.environ.get(k) for k in ("PATH", "STUB_CLAUDE")}
+        self.bundle_id = agent_pass.bundle_id
+        agent_pass.bundle_id = lambda app: "com.cmux.app"
+
+    def tearDown(self) -> None:
+        agent_pass.bundle_id = self.bundle_id
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self.tmp.cleanup()
+
+    def tool(self, name: str, body: str = "#!/bin/sh\nexit 0\n") -> None:
+        path = self.bin / name
+        path.write_text(body)
+        path.chmod(0o755)
+
+    def run_pass(self, mode: str = "verdict") -> tuple[int, list[dict]]:
+        os.environ["PATH"] = f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
+        os.environ["STUB_CLAUDE"] = mode
+        argv = sys.argv
+        sys.argv = ["app_review_agent_pass.py", "--udid", "UDID", "--app", str(self.app),
+                    "--setup", str(self.root / "none.md"), "--out", str(self.out), "--findings", str(self.findings)]
+        try:
+            code = agent_pass.main()
+        finally:
+            sys.argv = argv
+        return code, json.loads(self.findings.read_text())
+
+    def test_a_pass_with_no_agent_tools_is_red(self) -> None:
+        # Job 132387096997 and every run since: axe never installed, and the
+        # pass wrote one warning and exited 0 in about two seconds.
+        self.tool("xcrun")
+        code, findings = self.run_pass()
+        self.assertNotEqual(code, 0)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.unavailable", "blocker")])
+
+    def test_an_agent_that_left_no_verdict_is_red(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        for mode in ("silent", "crash"):
+            code, findings = self.run_pass(mode)
+            self.assertNotEqual(code, 0, mode)
+            self.assertIn(("agent.no-verdict", "blocker"), [(f["rule"], f["severity"]) for f in findings], mode)
+
+    def test_an_agent_that_never_looked_at_the_app_is_red(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("no-screens")
+        self.assertNotEqual(code, 0)
+        self.assertIn(("agent.no-walk", "blocker"), [(f["rule"], f["severity"]) for f in findings])
+
+    def test_an_agent_verdict_passes_and_keeps_its_findings(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("verdict")
+        self.assertEqual(code, 0)
+        self.assertEqual([(f["rule"], f["severity"], f["guideline"]) for f in findings],
+                         [("agent.reviewer", "warning", "4.0")])
+
+    def report(self, *extra: str) -> tuple[int, str]:
+        out = self.root / "report.md"
+        out.unlink(missing_ok=True)
+        try:
+            code = gate.main(["report", "--asc-skipped", *extra, "--out", str(out)])
+        except SystemExit as exit:  # a flag the report does not know
+            code = exit.code
+        return code, out.read_text() if out.exists() else ""
+
+    def test_the_report_blocks_when_the_expected_agent_verdict_never_arrived(self) -> None:
+        code, text = self.report("--expect-agent")
+        self.assertEqual(code, 1)
+        self.assertIn("the agent reviewer pass left no verdict", text)
+        verdict = self.root / "agent-findings.json"
+        verdict.write_text("[]")
+        self.assertEqual(self.report("--expect-agent", "--extra", str(verdict))[0], 0)
+        # A fork pull request has no token: the pass skips by name and the
+        # report says so, as a warning.
+        skipped = self.root / "agent-skipped.json"
+        skipped.write_text(json.dumps({"skipped": True, "reason": "no agent token for this event (fork pull request)"}))
+        code, text = self.report("--expect-agent", "--agent-skipped", str(skipped))
+        self.assertEqual(code, 0)
+        self.assertIn("no agent token for this event", text)
+
+    def pick(self, exit_code: int) -> tuple[int, str, list[str]]:
+        picker = self.root / "picker.py"
+        picker.write_text(f"import sys\nprint('SIM-UDID')\nsys.exit({exit_code})\n")
+        results = self.root / f"results-{exit_code}"
+        results.mkdir()
+        github_env = self.root / f"env-{exit_code}"
+        github_env.write_text("")
+        proc = subprocess.run(
+            ["bash", "-e", str(ROOT / "cmux-next-ios/scripts/app_review_pick_step.sh"), "duo"],
+            env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env), PICKER=str(picker)),
+            capture_output=True, text=True)
+        return proc.returncode, github_env.read_text(), sorted(p.name for p in results.iterdir())
+
+    def test_only_the_pickers_no_simulator_exit_skips_a_device(self) -> None:
+        # Exit 3 is "no simulator for this family on the image": the leg
+        # skips with a marker the report reads. Any other failure fails the
+        # leg, so the report blocks on its missing result (#42997 review).
+        self.assertEqual(self.pick(0), (0, "UDID=SIM-UDID\n", []))
+        code, env, files = self.pick(3)
+        self.assertEqual((code, env, files), (0, "", ["duo.skipped.json"]))
+        code, env, files = self.pick(1)
+        self.assertEqual((code, env, files), (1, "", []))
+
+    def test_the_workflow_runs_the_agent_pass_as_a_check(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        step = workflow.split("      - name: Agent reviewer pass\n", 1)[1].split("      - name: Upload results\n", 1)[0]
+        self.assertNotIn("continue-on-error", step)
+        self.assertIn("agent-skipped.json", step)
+        self.assertIn("cmux-next-ios/scripts/app_review_pick_step.sh", workflow)
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("--expect-agent", report)
+        self.assertIn("--agent-skipped", report)
 
 
 if __name__ == "__main__":

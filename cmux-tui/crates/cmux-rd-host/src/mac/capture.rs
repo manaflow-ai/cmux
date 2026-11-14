@@ -88,6 +88,29 @@ impl PixelBuffer {
         }
     }
 
+    /// Bounded luma sample for explicitly enabled, local benchmark quality evidence.
+    #[cfg(feature = "bench")]
+    pub fn eval_roi(&self) -> Option<Vec<u8>> {
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: the retained ScreenCaptureKit NV12 image remains locked while copied.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0));
+            let result = match length {
+                Some(length) if !base.is_null() && length <= isize::MAX as usize => {
+                    crate::eval::roi(std::slice::from_raw_parts(base, length), stride)
+                }
+                _ => None,
+            };
+            cv::CVPixelBufferUnlockBaseAddress(buffer, 1);
+            result
+        }
+    }
+
     /// The buffer's IOSurface (owned by the buffer).
     pub fn io_surface(&self) -> Option<*mut c_void> {
         // SAFETY: a live CVPixelBuffer.
