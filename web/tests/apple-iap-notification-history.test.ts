@@ -144,20 +144,20 @@ describe("backfill", () => {
       { signedPayloads: [], hasMore: true, paginationToken: "page-1" },
       { signedPayloads: [], hasMore: false },
     ]);
+    const cursorAt = () => f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime() ?? 0;
     let runs = 0;
-    let complete = false;
-    while (!complete && runs < 600) {
+    while (cursorAt() < f.clock.getTime() - DAY && runs < 600) {
+      runs += 1;
       f.clock = new Date(NOW.getTime() + runs * HOUR / 2);
       requests = [];
-      const result = await history.backfillAppleNotifications(f.deps(), { pagesPerSource: 1 });
-      complete = result.sources.find((source) => source.environment === "Production" && source.bundleId === BUNDLE)!.complete;
+      await history.backfillAppleNotifications(f.deps(), { pagesPerSource: 1 });
       for (const request of productionRequests()) {
         expect(request.startDate.getTime()).toBeGreaterThan(f.clock.getTime() - 180 * DAY);
       }
-      runs += 1;
     }
-    expect(complete).toBe(true);
-    // Two runs per one-day window, 178 windows, plus the windows that open while it catches up.
+    // The cursor caught up to within a day of now: two runs per one-day
+    // window across 178 days, plus the days that passed meanwhile.
+    expect(cursorAt()).toBeGreaterThanOrEqual(f.clock.getTime() - DAY);
     expect(runs).toBeLessThan(400);
   });
 

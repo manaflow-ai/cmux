@@ -139,15 +139,14 @@ describe("notifications", () => {
   });
 
   test("the history backfill applies the same rule", async () => {
+    const shared = notification({
+      type: "SUBSCRIBED", subtype: "INITIAL_BUY", status: 1, signedDate: NOW.getTime() - HOUR,
+      tx: familyTransaction({ originalTransactionId: "family-original" }, f.tokenB),
+    });
     f.serverApi = {
       subscriptionStatus: async () => null,
       notificationHistory: async (request) => ({
-        signedPayloads: request.environment === "Production" && request.bundleId === "com.cmux.app"
-          ? [notification({
-            type: "SUBSCRIBED", subtype: "INITIAL_BUY", status: 1, signedDate: NOW.getTime() - HOUR,
-            tx: familyTransaction({ originalTransactionId: "family-original" }, f.tokenB),
-          })]
-          : [],
+        signedPayloads: request.environment === "Production" && request.bundleId === "com.cmux.app" ? [shared] : [],
         hasMore: false,
         paginationToken: null,
       }),
@@ -155,6 +154,7 @@ describe("notifications", () => {
     const result = await backfillAppleNotifications(f.deps());
     expect(result.sources.find((source) => source.environment === "Production" && source.bundleId === "com.cmux.app")?.notifications)
       .toMatchObject({ skipped: 1, processed: 0 });
+    expect([...f.store.notifications.values()].map((row) => row.error)).toEqual(["skipped: family_shared"]);
     expect(f.store.subscriptions.size).toBe(0);
   });
 });
