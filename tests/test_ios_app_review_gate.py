@@ -414,6 +414,48 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("guideline lint left no result", text)
         self.assertIn("no ipad suite result", text)
 
+    def test_a_device_job_that_left_no_result_fails_the_report(self) -> None:
+        # Each device walks in its own job: a Duo job that failed, was
+        # cancelled or uploaded nothing must fail the report, and only Duo's
+        # own skip marker (no Duo simulator on the image) stands in for it.
+        passed = {"testNodes": [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]}
+        results = []
+        for family in ("iphone", "ipad"):
+            path = self.root / f"{family}.json"
+            path.write_text(json.dumps(passed))
+            results += ["--xcresult-json", str(path)]
+        expect = ["--expect-device", "iphone", "--expect-device", "ipad", "--expect-device-or-skipped", "duo"]
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect, "--out", str(out)]), 1)
+        self.assertIn("no duo suite result", out.read_text())
+        duo_skipped = self.root / "duo.skipped.json"
+        duo_skipped.write_text(json.dumps({"family": "duo", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect,
+                                    "--skipped", str(duo_skipped), "--out", str(out)]), 0)
+        # A skip marker never excuses a device that must be walked.
+        ipad_skipped = self.root / "ipad.skipped.json"
+        ipad_skipped.write_text(json.dumps({"family": "ipad", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", results[0], results[1], *expect,
+                                    "--skipped", str(duo_skipped), "--skipped", str(ipad_skipped),
+                                    "--out", str(out)]), 1)
+        self.assertIn("no ipad suite result", out.read_text())
+
+    def test_the_report_waits_for_and_expects_every_device_job(self) -> None:
+        # The devices walk side by side, one reviewer-path job each; the
+        # report needs them all and fails closed on any family's missing
+        # result, and each job's artifact has its own name.
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("fail-fast: false", reviewer)
+        self.assertIn("        family: [iphone, ipad, duo]\n", reviewer)
+        self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
+        self.assertNotIn("for family in", reviewer)
+        self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
+        self.assertIn("pattern: review-gate-*", report)
+        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        self.assertIn("find in -name '*.skipped.json'", report)
+
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
         empty.write_text(json.dumps({"testNodes": []}))
