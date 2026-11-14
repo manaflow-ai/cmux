@@ -605,6 +605,29 @@ fn truncated_source_cursor_rebuilds_with_a_new_edition() {
 }
 
 #[test]
+fn a_book_an_older_translator_wrote_rebuilds_from_raw() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 2);
+    catch_up(config.clone());
+    let (mut log, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let mut saved = Checkpoint::from_recovered(&recovered).unwrap();
+    saved.translator_version = translate::VERSION - 1;
+    let open: Vec<u64> = saved.open.iter().map(|open| open.body.row).collect();
+    saved.write(&mut log, &open).unwrap();
+    drop(log);
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    actor.join();
+    assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, 2);
+    let rebuilt = rows(home.path());
+    // The rebuilt rows are this translator's: the turn-end notice names its result's seq.
+    assert!(rebuilt.iter().any(|(_, row)| String::from_utf8_lossy(row).contains(r#""seq":9"#)));
+    let clean = tempfile::tempdir().unwrap();
+    catch_up(fixture(clean.path(), 2));
+    assert_eq!(rebuilt, rows(clean.path()));
+}
+
+#[test]
 fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 2).with_edition_random(Arc::new(|| 77));

@@ -8,6 +8,9 @@ pub use checkpoint::Saved;
 mod claude;
 mod fold;
 mod input;
+mod kinds;
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod tests;
 mod v1;
@@ -16,9 +19,9 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 7 keeps the queue's records out of the translator's segment, in the book's own
-/// prompt section; an older book rebuilds from raw.
-pub const VERSION: u32 = 7;
+/// Version 8 writes the turn-end notice with its result's fields in every book (decision 231);
+/// an older book rebuilds from raw.
+pub const VERSION: u32 = 8;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
@@ -167,18 +170,24 @@ impl OwnedRow {
         }
     }
     fn field(&mut self, key: &str, value: &str) -> bool {
-        let truncated = value.len() > MAX_KEY_BYTES;
-        let mut end = value.len().min(MAX_KEY_BYTES);
-        while !value.is_char_boundary(end) {
-            end -= 1;
-        }
+        self.field_capped(key, value, MAX_KEY_BYTES)
+    }
+    /// A string field cut at `cap` bytes, on a character; true when it was cut.
+    fn field_capped(&mut self, key: &str, value: &str, cap: usize) -> bool {
         self.fields.insert(
             key.into(),
-            serde_json::to_string(value.get(..end).unwrap_or_default())
-                .unwrap_or_else(|_| "\"\"".into()),
+            serde_json::to_string(cut(value, cap)).unwrap_or_else(|_| "\"\"".into()),
         );
-        truncated
+        value.len() > cap
     }
+}
+/// At most `cap` bytes of `value`, cut on a character.
+fn cut(value: &str, cap: usize) -> &str {
+    let mut end = value.len().min(cap);
+    while !value.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    value.get(..end).unwrap_or_default()
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
@@ -246,7 +255,70 @@ pub struct State {
     line_errors: u64,
     turn_start_ms: u64,
     at_ms: u64,
+    /// A prompt sent now into the running turn (`queue_order` with `next`): the turn's end goes
+    /// on under it, unless a Stop came first (`stopping`) or the prompt left the queue.
+    interrupting: Option<u64>,
+    /// The prompt a turn's end went on under: its user row `continues` that turn.
+    awaiting: Option<u64>,
+    stopping: bool,
+    /// A Claude turn's tokens so far, its calls counted once by message id.
+    claude: ClaudeTurn,
+    /// Kinds in none of the tables (`kinds.rs`), by name: 32 names, then `other`.
+    #[serde(skip)]
+    unknown_kinds: BTreeMap<String, u64>,
 }
+/// A turn's token split, as the view's `TurnTokenSplit` names it. `context` and `calls` are
+/// absent when zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Tokens {
+    output: u64,
+    input: u64,
+    cache_read: u64,
+    cache_write: u64,
+    context: u64,
+    calls: u64,
+}
+impl Tokens {
+    /// None for a turn that spent nothing, which the view does not draw.
+    fn json(self) -> Option<String> {
+        use std::fmt::Write;
+        if [self.output, self.input, self.cache_read, self.cache_write].iter().all(|n| *n == 0) {
+            return None;
+        }
+        let mut out = format!(
+            r#"{{"output":{},"input":{},"cacheRead":{},"cacheWrite":{}"#,
+            self.output, self.input, self.cache_read, self.cache_write
+        );
+        if self.context > 0 {
+            let _ = write!(out, r#","context":{}"#, self.context);
+        }
+        if self.calls > 0 {
+            let _ = write!(out, r#","calls":{}"#, self.calls);
+        }
+        out.push('}');
+        Some(out)
+    }
+    fn add(self, other: Self) -> Self {
+        Self {
+            output: self.output.saturating_add(other.output),
+            input: self.input.saturating_add(other.input),
+            cache_read: self.cache_read.saturating_add(other.cache_read),
+            cache_write: self.cache_write.saturating_add(other.cache_write),
+            context: other.context,
+            calls: self.calls.saturating_add(other.calls),
+        }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct ClaudeTurn {
+    /// The calls before the one streaming now.
+    sum: Tokens,
+    /// The newest call's usage: each of its lines repeats it, the last one whole.
+    call: Tokens,
+    message: String,
+}
+const MAX_UNKNOWN_KINDS: usize = 32;
+const UNKNOWN_OTHER: &str = "other";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidJson,
@@ -303,8 +375,10 @@ fn bounded(s: &str) -> Result<(), Error> {
     }
 }
 /// Explicit lossy-cap/late-identity outcomes, for the actor's counters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Counters {
+    /// Kinds the translator has no line for, by name (`kinds.rs`); zero over every known log.
+    pub unknown_kinds: BTreeMap<String, u64>,
     pub forced_rows: u64,
     pub forced_steers: u64,
     pub dropped_fold_steers: u64,
@@ -325,6 +399,7 @@ impl State {
 
     pub fn counters(&self) -> Counters {
         Counters {
+            unknown_kinds: self.unknown_kinds.clone(),
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
@@ -586,6 +661,131 @@ impl State {
         self.turn_key.clear();
         // Background tools may complete after this turn. Preserve their original IDs.
     }
+    /// A kind in none of the tables: counted by name, never dropped silently (`kinds.rs`).
+    fn unknown(&mut self, kind: &str) {
+        let named = self
+            .unknown_kinds
+            .len()
+            .saturating_sub(usize::from(self.unknown_kinds.contains_key(UNKNOWN_OTHER)));
+        let key = if self.unknown_kinds.contains_key(kind)
+            || (named < MAX_UNKNOWN_KINDS && kind.len() <= 64)
+        {
+            kind
+        } else {
+            UNKNOWN_OTHER
+        };
+        let n = self.unknown_kinds.entry(key.to_owned()).or_insert(0);
+        *n = n.saturating_add(1);
+    }
+    /// Copy a table line's fields from `msg` into the row's fields, one pass over its keys.
+    fn copy(
+        &mut self,
+        row: &mut OwnedRow,
+        fields: &[kinds::Field],
+        msg: &serde_json::value::RawValue,
+    ) {
+        let mut cut = 0u64;
+        let _ = input::entries(msg, |key, value| {
+            for field in fields.iter().filter(|field| field.from == key) {
+                match field.ty {
+                    kinds::Ty::Str(cap) => {
+                        if let Ok(text) = input::text(value)
+                            && !text.is_empty()
+                            && row.field_capped(field.to, &text, cap)
+                        {
+                            cut = cut.saturating_add(1);
+                        }
+                    }
+                    kinds::Ty::True => {
+                        if value.get() == "true" {
+                            row.fields.insert(field.to.into(), "true".into());
+                        }
+                    }
+                }
+            }
+        });
+        self.cut_fields = self.cut_fields.saturating_add(cut);
+    }
+    /// A row drawn from one line by its table line: the row, its fields, then its text.
+    /// The row comes back open; the caller settles it.
+    fn drawn(
+        &mut self,
+        spec: &kinds::Drawn,
+        msg: &serde_json::value::RawValue,
+        out: &mut input::Output<'_>,
+    ) -> Result<OwnedRow, Error> {
+        let mut row = self.row(spec.kind, out)?;
+        if !spec.notice.is_empty() && row.field("notice", spec.notice) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        self.copy(&mut row, spec.fields, msg);
+        out.row(&row);
+        let mut text: Option<(usize, &serde_json::value::RawValue)> = None;
+        input::entries(msg, |key, value| {
+            if let Some(rank) = spec.text.iter().position(|name| *name == key)
+                && value.get() != "null"
+                && text.is_none_or(|(best, _)| rank < best)
+            {
+                text = Some((rank, value));
+            }
+        })?;
+        if let Some((_, raw)) = text {
+            out.body(row.id, BodyField::Content, false, raw);
+        }
+        Ok(row)
+    }
+    /// A prompt sent now into the running turn, which its end goes on under; not after a Stop.
+    fn interrupt(&mut self, prompt: &str) {
+        let hash = prompt_hash(prompt);
+        if self.in_turn() && !self.stopping && self.queued(hash).is_some() {
+            self.interrupting = Some(hash);
+        }
+    }
+    /// A prompt that left the queue without running: a turn it stopped ends as it did.
+    fn withdrawn(&mut self, prompt: &str) {
+        let hash = prompt_hash(prompt);
+        if self.interrupting == Some(hash) {
+            self.interrupting = None;
+        }
+        if self.awaiting == Some(hash) {
+            self.awaiting = None;
+        }
+    }
+    /// The turn-end notice settles, the group row takes its status, and the turn finishes.
+    fn end_turn(&mut self, mut end: OwnedRow, status: &str, out: &mut input::Output<'_>) {
+        // A prompt sent now ended the turn, not a failure: the turn goes on under that prompt.
+        if let Some(prompt) = self.interrupting.take()
+            && status != "failed"
+        {
+            self.awaiting = Some(prompt);
+            end.fields.insert("continued".into(), "true".into());
+        }
+        self.stopping = false;
+        end.open = false;
+        out.row(&end);
+        if !status.is_empty()
+            && let Some(group) = &mut self.group
+            && group.field("status", status)
+        {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        self.finish(out);
+    }
+    /// One Claude model call's usage. Every line of a call repeats it; a new id is a new call.
+    fn claude_call(&mut self, message: &str, call: Tokens) {
+        if message != self.claude.message || message.is_empty() {
+            self.claude.sum = self.claude.sum.add(self.claude.call);
+            self.claude.message = message.into();
+        }
+        self.claude.call = Tokens { calls: 1, ..call };
+    }
+    /// The Claude turn's split so far: its calls added up, and the newest call's context.
+    fn claude_tokens(&mut self) -> Tokens {
+        let call = self.claude.call;
+        let mut sum = std::mem::take(&mut self.claude).sum.add(call);
+        sum.context = call.input.saturating_add(call.cache_read).saturating_add(call.cache_write);
+        sum
+    }
     fn supersede(&mut self, key: &str, out: &mut input::Output<'_>) {
         if key.is_empty() || self.reply.as_ref().is_none_or(|s| s.message != key) {
             self.ignored_supersedes = self.ignored_supersedes.saturating_add(1);
@@ -787,6 +987,18 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
+        // A prompt sent now that runs before its turn ended stopped nothing; one a turn's end went
+        // on under continues that turn. Another prompt opening a turn first means it never ran.
+        if !prompt_key.is_empty() && self.interrupting == Some(hash) {
+            self.interrupting = None;
+        }
+        let continues = !prompt_key.is_empty() && self.awaiting == Some(hash);
+        if continues || !steer {
+            self.awaiting = None;
+        }
+        if !steer {
+            self.stopping = false;
+        }
         self.queue_remove(prompt_key, out);
         if steer {
             if !already_read {
@@ -803,6 +1015,9 @@ impl State {
         }
         if notice {
             row.fields.insert("notice".into(), "true".into());
+        }
+        if continues {
+            row.fields.insert("continues".into(), "true".into());
         }
         if steer {
             if !already_read {
