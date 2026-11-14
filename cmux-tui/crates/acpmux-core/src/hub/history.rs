@@ -117,7 +117,6 @@ impl HistorySnapshot {
         }
         let max_bytes = max_bytes.min(256 * 1024);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
-        let mut entries = Vec::with_capacity(count.min(max_bytes / MIN_OP_BYTES));
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
@@ -128,13 +127,12 @@ impl HistorySnapshot {
             if separator != 0 {
                 out.push(b',');
             }
-            entries.push(Entry { start: out.len(), ..entry });
             if !copy_entry_into(&self.bytes, entry, &mut out) {
                 return None;
             }
             last_seq = first.saturating_add(index as u64);
         }
-        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries: Vec::new() })
     }
 }
 
