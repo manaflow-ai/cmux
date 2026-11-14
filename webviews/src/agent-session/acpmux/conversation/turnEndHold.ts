@@ -26,6 +26,7 @@ import type { Folds } from "./viewFolds";
 /// live line, a date) are not in `rows` and need no fold. A row the turn's "Worked for" would hide
 /// holds nothing here; its key goes into `worked`, when given: the pane keeps that fold open only
 /// until the view follows the latest row again (App.tsx `heldWorked`), then it closes.
+// perf-hot: 0px transcript-turn-end
 export function foldsToHold(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
@@ -209,6 +210,7 @@ const ROWS_OVER_TAIL = 16;
 /// a run with short notes joined in for every run of it (the notes stay, as the replies they were).
 /// An id in view that is no row of `drawn` (a card the view makes after the turns: received
 /// messages, a shell) says nothing about where the reader is.
+// perf-hot: 0px transcript-turn-end
 export function rowsToHold(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
