@@ -91,7 +91,7 @@ public struct CloudAPIClient: Sendable {
 
     /// A Worker machines client (CloudAPIClient+MachineRoutes.swift).
     init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String,
-         buildSpace: CMUXBuildSpace?) {
+         buildSpace: CMUXBuildSpace? = nil) {
         self.baseURL = baseURL
         backendIsLocalOnly = false
         self.tokens = tokens
