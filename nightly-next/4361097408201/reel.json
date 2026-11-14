@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4361097408201",
+  "notes": "notes/4361097408201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43061,
+      "title": "cmux-next-ios: a public link tapped in the terminal opens on the phone; only the Mac's dev server opens on the Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42837,
+      "title": "acpmux: each chat starts on its own: a per-chat restore point and a lazy inbox (succeeds #41878)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43003,
+      "title": "acpmux v2 3b (part two): the book tee from v1's appends, its drain and background pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43105,
+      "title": "acpmux: preserve explicit message class through send relay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41738,
+      "title": "cmux-next iOS: New Task composer spawns agent workspaces with a prompt",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42965,
+      "title": "Cloud chaos: the counting turn reads files, so no step waits on a person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43112,
+      "title": "cmux-next-ios-sim: test ui=... profile records a Time Profiler trace of the UI run",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42948,
+      "title": "Cloud: the install key's Keychain calls run within Rust's deadline and the card names the item (step B: Swift)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42804,
+      "title": "Screen Sharing: open selected devices and stop targeted viewers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43084,
+      "title": "Sign-in enroll: tokenless reports, late leave intents, daemon restarts, carrier after re-enroll (#38319, #38440 review follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
