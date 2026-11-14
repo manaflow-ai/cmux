@@ -38,6 +38,11 @@ final class LinkTestClock: Clock, @unchecked Sendable {
         }
     }
 
+    /// Some timer waits past now (the heartbeat's next beat once it re-armed).
+    func isSleeping(after instant: Instant) -> Bool {
+        lock.withLock { sleepers.contains { $0.deadline > instant } }
+    }
+
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {

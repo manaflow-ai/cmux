@@ -44,8 +44,8 @@ enum WindowHandlers {
         })
         DebugTunableChoiceAction(id: "debug.sidebarToggleIcon", argument: "icon", suggestions: ActionSuggestions.debugSidebarToggleIcons,
                                  tunable: SidebarToggleIcon.tunable).bind(into: registry)
-        DebugTunableChoiceAction(id: "debug.statusIconSet", argument: "set", suggestions: ActionSuggestions.debugStatusIconSets,
-                                 tunable: StatusIconSet.tunable).bind(into: registry)
+        DebugTunableChoiceAction(id: "debug.statusIconSet", argument: "set", suggestions: ActionSuggestions.debugStatusIconSets, tunable: StatusIconSet.tunable).bind(into: registry)
+        registry.bindEffect("debug.densityOverlayPlayground", effect: { [playground = DensityOverlayPlaygroundWindow()] _ in playground.show(); return .done })
         // Debug-only actions reach the person only while Internal Developer Mode is on, read at each palette
         // open and key press (no restart); scripts reach them wherever developer tools exist.
         registry.debugActions = DebugActionGate(isOn: { [weak services = context.services] in

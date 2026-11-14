@@ -14,12 +14,14 @@ final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
     ///   - center: The toasts' center: its pick, and where Fire it shows toasts.
     ///   - themes: The light and dark sheets' themes.
     ///   - fire: Shows `style`'s toasts as real toasts (in the window the person works in).
-    init(center: CmuxToastCenter, themes: CmuxToastPlaygroundThemes, fire: @escaping (CmuxToastStyle) -> Void) {
+    ///   - focus: Which styles show (Debug Settings > Toasts > Playground shows).
+    init(center: CmuxToastCenter, themes: CmuxToastPlaygroundThemes, focus: CmuxToastPlaygroundFocus = .all,
+         fire: @escaping (CmuxToastStyle) -> Void) {
         self.center = center
         super.init(frame: .zero)
         let tuning = center.tuning
-        rows = CmuxToastStyle.allCases.enumerated().map { index, style in
-            CmuxToastPlaygroundRow(style: style, number: index + 1, themes: themes, tuning: tuning, onFire: fire) { [weak center] in
+        rows = focus.styles.map { style in
+            CmuxToastPlaygroundRow(style: style, number: (CmuxToastStyle.allCases.firstIndex(of: style) ?? 0) + 1, themes: themes, tuning: tuning, onFire: fire) { [weak center] in
                 center?.pick($0)
             }
         }

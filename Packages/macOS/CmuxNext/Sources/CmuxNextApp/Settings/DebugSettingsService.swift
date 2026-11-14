@@ -35,7 +35,7 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
         ChiefViewsPage.tunables +
-        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all + BrowserChromeTuning.descriptors
             + [AgentPaneTunables.sessionInfo.descriptor]
             + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
