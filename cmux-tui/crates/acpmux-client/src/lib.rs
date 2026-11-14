@@ -730,7 +730,10 @@ where
         let mut parent = Summary::new(id.1.clone());
         parent.origin = id.0.clone();
         parent.archived = facts.archived;
-        parent.parent = facts.parent.as_ref().map(|(origin, chat_id)| RowKey::new(origin, chat_id));
+        parent.parent = facts
+            .parent
+            .as_ref()
+            .map(|(origin, chat_id)| RowKey::new(origin.as_str(), chat_id.as_str()));
         Some(parent)
     }
 
@@ -1089,7 +1092,7 @@ where
                     }
                     return;
                 }
-                let Ok(window) = frame.decode_json::<Window<T>>() else {
+                let Ok(mut window) = frame.decode_json::<Window<T>>() else {
                     self.protocol_error("malformed window");
                     return;
                 };
