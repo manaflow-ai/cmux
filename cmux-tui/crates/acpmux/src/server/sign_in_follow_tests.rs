@@ -212,6 +212,73 @@ async fn the_same_person_again_changes_nothing() {
     assert_eq!(fake.enrolls(), 2);
 }
 
+/// #38319 review F1 (#38440 F4): signing in publishes the person while the team refresh still
+/// holds the token back, so the first report has none. That report enrolls nothing, and the
+/// next report for the same person, with the token the finished sign-in gives, enrolls: it is
+/// never dropped as the same person again. Once that enroll is answered, more of the same
+/// change nothing.
+#[tokio::test]
+async fn a_report_with_no_token_leaves_the_enroll_to_the_next_one_that_has_it() {
+    let follow = Arc::new(Follow::new(LONG));
+    let fake = Arc::new(Fake::default());
+    // The team refresh is held open: the person is published, the token is not readable yet.
+    let refreshing = Change { access: None, ..signed_in("user_a") };
+    let first = change(&follow, &fake, refreshing).await;
+    assert_eq!(first, Accepted { recorded: None, leave: false, enroll: false });
+    follow.settled().await;
+    assert_eq!(fake.enrolls(), 0, "nothing to mint with");
+    // Still held: another tokenless report changes nothing.
+    let again = change(&follow, &fake, Change { access: None, ..signed_in("user_a") }).await;
+    assert_eq!(again, Accepted { recorded: None, leave: false, enroll: false });
+    // The refresh ends; the same person comes with the token.
+    let with_token = change(&follow, &fake, signed_in("user_a")).await;
+    assert_eq!(with_token, Accepted { recorded: None, leave: false, enroll: true });
+    follow.settled().await;
+    assert_eq!(fake.calls(), ["enroll:user_a"], "the enroll goes, and only it");
+    // Answered: the same person again, token or not, changes nothing.
+    let done = change(&follow, &fake, signed_in("user_a")).await;
+    assert_eq!(done, Accepted { recorded: None, leave: false, enroll: false });
+    follow.settled().await;
+    assert_eq!(fake.enrolls(), 1);
+}
+
+/// #38319 review F3 (#38440 F2): the daemon took the sign-in, then restarted before its enroll
+/// was done (here: in the retry wait after the hub did not answer). The app sends the person
+/// again to the new daemon when its connection comes back (`CloudSignInEnroll.acpmuxReturned`),
+/// and the new daemon enrolls. A resend to a daemon that did not restart enrolls again only
+/// while its enroll is not done.
+#[tokio::test]
+async fn the_signed_in_person_sent_again_after_a_restart_still_enrolls() {
+    let before_restart = Arc::new(Follow::new(LONG));
+    let fake = Arc::new(Fake::default());
+    fake.unavailable.store(1, Ordering::SeqCst);
+    let taken = change(&before_restart, &fake, signed_in("user_a")).await;
+    assert!(taken.enroll);
+    until("the first enroll", || fake.enrolls() == 1).await;
+    // The daemon restarts in the retry wait: its follow, and the enroll it held, are gone.
+    let restarted = Arc::new(Follow::new(LONG));
+    let resent = change(&restarted, &fake, signed_in("user_a")).await;
+    assert_eq!(resent, Accepted { recorded: None, leave: false, enroll: true });
+    restarted.settled().await;
+    assert_eq!(fake.calls(), ["enroll:user_a", "enroll:user_a"], "the new daemon enrolls");
+    // A daemon that did not restart, whose enroll the hub did not answer twice: the resend
+    // enrolls again. One whose enroll was answered changes nothing.
+    let follow = Arc::new(Follow::new(Duration::ZERO));
+    let fake = Arc::new(Fake::default());
+    fake.unavailable.store(2, Ordering::SeqCst);
+    change(&follow, &fake, signed_in("user_a")).await;
+    follow.settled().await;
+    assert_eq!(fake.enrolls(), 2);
+    let resent = change(&follow, &fake, signed_in("user_a")).await;
+    assert!(resent.enroll, "{resent:?}");
+    follow.settled().await;
+    assert_eq!(fake.enrolls(), 3);
+    let after = change(&follow, &fake, signed_in("user_a")).await;
+    assert!(!after.enroll, "{after:?}");
+    follow.settled().await;
+    assert_eq!(fake.enrolls(), 3);
+}
+
 /// The RPC is the person's local line only: a connection that did not prove the person is
 /// refused before anything runs.
 #[tokio::test]

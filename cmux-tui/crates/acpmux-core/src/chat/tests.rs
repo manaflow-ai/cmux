@@ -82,7 +82,10 @@ fn wait_health(handle: &ChatHandle, expected: crate::life::Health) {
 fn rebuild(config: ChatConfig) {
     let (_tx, rx) = sync_channel(256);
     let queued = Arc::new(Mutex::new(0));
-    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false)).unwrap().unwrap();
+    let mut subs = stream::Subscribers::default();
+    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false), &mut subs)
+        .unwrap()
+        .unwrap();
     drop(state);
 }
 
@@ -371,7 +374,7 @@ fn registry_evicts_a_failed_actor_without_waiting_for_retry() {
     let registry = crate::registry::Registry::new();
     let mut config = faulty_config(home.path(), false, Arc::new(AtomicU64::new(u64::MAX)));
     config.supervision.failed_wait = Duration::from_secs(60);
-    let handle = registry.hydrate(config);
+    let handle = registry.hydrate(config).unwrap();
     wait_health(&handle, crate::life::Health::Failed);
     let started = Instant::now();
     assert!(registry.evict("chat"));
@@ -852,4 +855,34 @@ fn large_body_replacement_survives_every_raw_line_kill() {
         assert_eq!(rows(&book), expected, "kill after {cut}");
         assert_eq!(final_blobs(&book), blobs, "blob after {cut}");
     }
+}
+
+#[test]
+fn history_permits_are_two_in_turn_and_a_stop_never_waits_for_one() {
+    let permits = Arc::new(HistoryPermits::new(2));
+    let go = AtomicBool::new(false);
+    let first = permits.acquire(&go).unwrap();
+    let second = permits.acquire(&go).unwrap();
+    assert_eq!(permits.held(), 2);
+    // A third waits for a permit, in turn, and takes the one given back.
+    let (tx, rx) = mpsc::channel();
+    let waiting = permits.clone();
+    let third = thread::spawn(move || {
+        let stop = AtomicBool::new(false);
+        let permit = waiting.acquire(&stop);
+        let _ = tx.send(());
+        drop(permit);
+    });
+    assert!(rx.recv_timeout(Duration::from_millis(200)).is_err(), "no third permit");
+    drop(first);
+    assert!(rx.recv_timeout(Duration::from_secs(10)).is_ok());
+    third.join().unwrap();
+    assert_eq!(permits.held_max(), 2);
+    // A stop while waiting returns at once with none, and takes no turn from another.
+    let other = permits.acquire(&go).unwrap();
+    let stop = AtomicBool::new(true);
+    assert!(permits.acquire(&stop).is_none());
+    drop((second, other));
+    assert_eq!(permits.held(), 0);
+    assert!(permits.acquire(&go).is_some());
 }

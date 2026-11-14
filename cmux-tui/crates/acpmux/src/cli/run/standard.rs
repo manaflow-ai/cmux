@@ -760,6 +760,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
+            // Clap already validated the explicit class. Keep it separate from inferred defaults.
+            let relay_class = class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
             prompt_id.class = class;
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
@@ -841,8 +843,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             });
             // The Claude Code subagent this shell runs for (the Bash hook's mark), a label only.
             let relay_sub = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
-            let relay_from =
-                crate::cli::send_relay::RelaySender::new(relay_from, relay_sub.as_ref());
+            let relay_from = crate::cli::send_relay::RelayMetadata::new(
+                relay_from,
+                relay_sub.as_ref(),
+                relay_class,
+            );
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once

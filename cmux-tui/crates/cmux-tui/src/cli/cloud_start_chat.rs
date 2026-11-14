@@ -609,7 +609,7 @@ impl SelfRunner {
     }
 
     /// Runs `exe` instead of this binary (a test's stand-in `cmux`).
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn running(mut self, exe: std::path::PathBuf) -> Self {
         self.exe = Some(exe);
         self
