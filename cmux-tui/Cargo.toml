@@ -377,7 +377,12 @@ portable-pty = "0.9"
 crossterm = "0.29"
 crossbeam-channel = "0.5"
 ratatui = "0.30"
-unicode-width = "0.2"
+# ratatui-core 0.1 adds one cell for each halfwidth katakana sound mark
+# (U+FF9E, U+FF9F) because unicode-width gave them 0; unicode-width 0.2.3
+# gives them 1 itself, so with 0.2.3 each mark takes 2 cells in every layout
+# and table. Lift this bound together with a ratatui-core that drops its
+# own adjustment.
+unicode-width = ">=0.2.2, <0.2.3"
 unicode-segmentation = "1"
 unicode-normalization = "0.1"
 base64 = "0.22"
