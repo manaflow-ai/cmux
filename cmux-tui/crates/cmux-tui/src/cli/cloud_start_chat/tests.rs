@@ -2868,7 +2868,7 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             (Some(Err(json!({"code": "policy_refused"}))), None),
             (None, None),
         ] {
-            let mut fake = Fake::new(vec![ok(unread.clone())]);
+            let mut fake = Fake::new(unloaded_lists(unread.clone()));
             fake.stream = stream;
             let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
                 panic!("{path}: {:?}", fake.ran)
@@ -2882,7 +2882,7 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
                     || message.contains("Run this command again")
             );
             assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
-            assert_eq!(fake.ran.len(), 1, "{path}: nothing started or made: {:?}", fake.ran);
+            assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
 }
