@@ -39,6 +39,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let sessions: AgentSessionDirectory
     /// Opens and closes tabs on the workspace's Mac (nil: nothing to open them on).
     @ObservationIgnored let creator: WorkspaceCreator?
+    /// The grid's own timers sleep on this (tests advance a test clock).
+    @ObservationIgnored let clock: any Clock<Duration>
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
@@ -64,8 +66,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared) {
+                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.store = store
+        self.clock = clock
         self.native = native
         self.streamed = streamed
         self.creator = creator
@@ -676,7 +680,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             while !Task.isCancelled {
                 guard self != nil else { return }
                 await self?.prefetchProgramsOnce(creator)
-                try? await Task.sleep(for: WorkspaceTabsSource.programPrefetchInterval)
+                guard let clock = self?.clock else { return }
+                try? await clock.sleep(for: WorkspaceTabsSource.programPrefetchInterval)
             }
         }
     }
@@ -1044,6 +1049,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// While the grid rests, stale agent cards catch up once per interval.
     static let cardFollowInterval: Duration = .seconds(1)
     @ObservationIgnored private var followTask: Task<Void, Never>?
+    /// Times the cards woke to catch up (tests: an idle grid wakes for nothing).
+    @ObservationIgnored private(set) var followWakeups = 0
 
     /// Stale cards catch up one per frame (each re-renders its card), so a
     /// grid that comes to rest with many stale cards never stalls a frame.
@@ -1060,8 +1067,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         followTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 // A UI refresh cadence for still cards, not synchronization.
-                try? await ContinuousClock().sleep(for: WorkspaceTabsSource.cardFollowInterval)
+                guard let clock = self?.clock else { return }
+                try? await clock.sleep(for: WorkspaceTabsSource.cardFollowInterval)
                 guard let self, !Task.isCancelled, self.cardsFollowChats else { return }
+                self.followWakeups += 1
                 self.catchUpStepper.start()
                 if let id = self.heldTranscriptTab { self.surfaces[id]?.refreshHeldTranscript() }
             }
@@ -1169,6 +1178,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         return nil
     }
+
+    /// The app went to the background (false) or came back (true): `WorkspaceScreen`'s
+    /// scene phase. The grid's view stays "visible" while the app is in the background.
+    public func sceneActiveChanged(_ active: Bool) {}
 
     public func overviewScrollingChanged(_ scrolling: Bool) {
         setCardsFollow(scrolling: scrolling)

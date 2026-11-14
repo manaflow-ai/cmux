@@ -155,6 +155,13 @@ public struct TerminalCardLiveRefresh: Sendable {
         isScrolling = scrolling
     }
 
+    /// The app is in the foreground (false: the scene went to the
+    /// background, while the grid's view still counts as visible).
+    public private(set) var isAppActive = true
+    public mutating func setAppActive(_ active: Bool, now: Double) {
+        isAppActive = active
+    }
+
     /// The refreshes due now, in `tabs` order.
     public mutating func due(_ tabs: [Tab], now: Double) -> [Action] {
         guard isVisible, !isScrolling else { return [] }
