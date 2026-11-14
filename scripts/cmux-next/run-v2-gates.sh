@@ -64,6 +64,7 @@ run_group acpmux-book book_gates
 # acpmux-client (release)
 client_gates() {
   run_client v2_pr06_client_chat
+  run_client v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-client client_gates
 
