@@ -944,6 +944,12 @@ struct ContentView: View {
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
     @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
+    private var remoteHostOriginColor: RemoteHostOriginColor {
+        RemoteHostOriginColor(
+            enabled: remoteTmuxOriginColorsEnabled,
+            registry: AppDelegate.shared?.remoteTmuxController.hostColorRegistry
+        )
+    }
     @AppStorage("notificationPaneFlashThemeColor") private var paneFlashThemeColor = false
     /// Resolved cmux accent, seeded from the app delegate's observer and
     /// updated from its change notification. This view is the window root,
@@ -5770,7 +5776,9 @@ struct ContentView: View {
         }
         let workspaceOrder = commandPaletteWorkspaceOrder
         let windowContexts = commandPaletteSwitcherWindowContexts()
-        let mirrorDestinations = RemoteHostOriginColor.mirrorDestinations(enabled: remoteTmuxOriginColorsEnabled)
+        let originColor = remoteHostOriginColor
+        let mirrorDestinations = originColor.enabled
+            ? AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() : nil
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
@@ -5799,8 +5807,8 @@ struct ContentView: View {
                                 )
                             }
                             : [],
-                        tintColorHex: RemoteHostOriginColor.switcherTintHex(
-                            for: workspace, mirrorDestinations: mirrorDestinations, enabled: remoteTmuxOriginColorsEnabled)
+                        tintColorHex: originColor.switcherTintHex(
+                            for: workspace, mirrorDestinations: mirrorDestinations)
                     )
                 }
             )
@@ -6007,7 +6015,9 @@ struct ContentView: View {
         }
         entries.reserveCapacity(estimatedCount)
         var nextRank = 0
-        let mirrorDestinations = RemoteHostOriginColor.mirrorDestinations(enabled: remoteTmuxOriginColorsEnabled)
+        let originColor = remoteHostOriginColor
+        let mirrorDestinations = originColor.enabled
+            ? AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() : nil
 
         for context in windowContexts {
             let workspaces = commandPaletteOrderedSwitcherWorkspaces(for: context)
@@ -6031,8 +6041,7 @@ struct ContentView: View {
                     detail: .workspace
                 ).keywords
                 let workspaceId = workspace.id
-                let tintColorHex = RemoteHostOriginColor.switcherTintHex(
-                    for: workspace, mirrorDestinations: mirrorDestinations, enabled: remoteTmuxOriginColorsEnabled)
+                let tintColorHex = originColor.switcherTintHex(for: workspace, mirrorDestinations: mirrorDestinations)
                 entries.append(
                     CommandPaletteCommand(
                         id: workspaceCommandId,
@@ -13344,12 +13353,10 @@ struct VerticalTabsSidebar: View, Equatable {
 
     /// Per-host origin color (beta), resolved here, above the row boundary, to a plain value.
     private func originColorHex(for workspace: Workspace, mirrorDestinations: [UUID: String]?) -> String? {
-        RemoteHostOriginColor.colorHex(
-            for: workspace,
-            mirrorDestinations: mirrorDestinations,
+        RemoteHostOriginColor(
             enabled: remoteTmuxOriginColorsEnabled,
             registry: AppDelegate.shared?.remoteTmuxController.hostColorRegistry
-        )
+        ).colorHex(for: workspace, mirrorDestinations: mirrorDestinations)
     }
 
     /// Hosts to name after colliding workspace titles (beta), over the whole workspace list because

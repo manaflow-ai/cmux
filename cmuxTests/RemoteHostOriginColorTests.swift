@@ -38,22 +38,23 @@ import Testing
         let workspace = remoteWorkspace(destination: "dev@example.com")
         let hostColor = try #require(registry.colorHex(for: "dev@example.com"))
 
-        #expect(RemoteHostOriginColor.colorHex(
-            for: workspace, mirrorDestinations: nil, enabled: true, registry: registry) == hostColor)
-        #expect(RemoteHostOriginColor.colorHex(
-            for: workspace, mirrorDestinations: nil, enabled: false, registry: registry) == nil)
+        #expect(RemoteHostOriginColor(enabled: true, registry: registry)
+            .colorHex(for: workspace, mirrorDestinations: nil) == hostColor)
+        #expect(RemoteHostOriginColor(enabled: false, registry: registry)
+            .colorHex(for: workspace, mirrorDestinations: nil) == nil)
     }
 
     @Test func aLocalWorkspaceHasNoHostColor() {
         let registry = RemoteHostColorRegistry()
-        #expect(RemoteHostOriginColor.colorHex(
-            for: Workspace(), mirrorDestinations: nil, enabled: true, registry: registry) == nil)
+        #expect(RemoteHostOriginColor(enabled: true, registry: registry)
+            .colorHex(for: Workspace(), mirrorDestinations: nil) == nil)
     }
 
     @Test func aManualColorWinsOnlyOnARemoteWorkspace() {
-        #expect(RemoteHostOriginColor.switcherTintHex(customColor: nil, hostColorHex: "#B1A2FA") == "#B1A2FA")
-        #expect(RemoteHostOriginColor.switcherTintHex(customColor: "#C0392B", hostColorHex: "#B1A2FA") == "#C0392B")
-        #expect(RemoteHostOriginColor.switcherTintHex(customColor: "#C0392B", hostColorHex: nil) == nil,
+        let originColor = RemoteHostOriginColor(enabled: true, registry: RemoteHostColorRegistry())
+        #expect(originColor.switcherTintHex(customColor: nil, hostColorHex: "#B1A2FA") == "#B1A2FA")
+        #expect(originColor.switcherTintHex(customColor: "#C0392B", hostColorHex: "#B1A2FA") == "#C0392B")
+        #expect(originColor.switcherTintHex(customColor: "#C0392B", hostColorHex: nil) == nil,
                 "a local workspace's manual color is not a server color, so the switcher leaves it unshaded")
     }
 }
