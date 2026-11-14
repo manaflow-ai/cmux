@@ -455,18 +455,30 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
   await idle(page);
   // The index has answered (or its delay passed) and the rail has settled.
   await page.waitForTimeout(600);
-  // Two older pages, each read once the transcript reaches its top.
+  // Two older pages, each landing once the transcript reaches its top. The client reads pages ahead of the
+  // reader (direct.ts readOlderAhead, #42298), so the second page lands from what it already read, with no new
+  // daemon read: a page has landed when the transcript grew above the view by more than a screen.
+  const height = () =>
+    page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      return node ? { scroll: node.scrollHeight, view: node.clientHeight } : { scroll: 0, view: 0 };
+    });
   for (let pages = 0; pages < 2; pages += 1) {
-    const before = eventReads();
+    const reads = eventReads();
+    const before = await height();
     await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll");
       if (!node) return;
       node.scrollTop = 0;
       node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
     });
+    const landed = async () => eventReads() > reads || (await height()).scroll > before.scroll + before.view;
     const deadline = Date.now() + 15_000;
-    while (eventReads() === before && Date.now() < deadline) await page.waitForTimeout(50);
-    if (eventReads() === before) throw new Error("No older page was read");
+    while (!(await landed()) && Date.now() < deadline) await page.waitForTimeout(50);
+    if (!(await landed()))
+      throw new Error(
+        `No older page landed (page ${pages + 1}, ${eventReads()} events reads, height ${before.scroll})`,
+      );
     await idle(page);
   }
   await page.waitForTimeout(300);
