@@ -266,7 +266,7 @@ impl Mux {
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
-        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+        let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
@@ -278,6 +278,18 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        // One agent's hooks run one after another, but an event the hook
+        // could not queue goes on its own connection with its own daemon
+        // thread, so the journal can take it out of order. The hook's start
+        // time orders what the agent did; the journal sequence orders transport.
+        let stamp = crate::agent_hooks::HookOrderStamp::of(&ingress.payload);
+        if crate::agent_hooks::hook_event_is_reordered(
+            &ingress.kind,
+            &stamp,
+            HookFence::last_order(previous_fence.as_ref(), &agent_session_id),
+        ) {
+            return Ok(());
+        }
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
@@ -312,7 +324,7 @@ impl Mux {
             agent_session_id.clone(),
             sequence,
             state == AgentState::Done,
-            observed_at_ms,
+            &stamp,
         );
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
@@ -328,6 +340,7 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
             ended_at_ms: next_fence.ended_at_ms,
+            order: next_fence.order.clone(),
         };
         self.report_agent_with_sequence_lock(
             surface,
@@ -976,13 +989,17 @@ impl Mux {
             fence.session_id.clone(),
             sequence,
             true,
-            Some(observed_at_ms),
+            &crate::agent_hooks::HookOrderStamp {
+                observed_at_ms: Some(observed_at_ms),
+                ..Default::default()
+            },
         );
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id: ended.session_id.clone(),
             applied_sequence: ended.sequence,
             ended: true,
             ended_at_ms: ended.ended_at_ms,
+            order: ended.order.clone(),
         };
         if let Err(error) = self.report_agent_with_sequence_lock(
             surface,

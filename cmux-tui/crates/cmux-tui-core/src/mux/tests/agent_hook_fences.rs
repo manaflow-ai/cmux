@@ -640,3 +640,397 @@ fn w5r_kept_harness_session_ids_survive_a_daemon_restart() {
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// One hook event of session `order-1`, its hook started at `observed_at_ms`,
+/// appended through the real ingress (projector and roster fold).
+fn append_ordered_hook(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    event: &str,
+    observed_at_ms: u64,
+) {
+    append_hook(mux, terminal_id, event, Some(observed_at_ms));
+}
+
+/// One hook event of session `order-1`, stamped with when its hook started
+/// when `observed_at_ms` is set (an older hook helper sends no stamp).
+fn append_hook(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    event: &str,
+    observed_at_ms: Option<u64>,
+) {
+    let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        event,
+        Some(terminal_id.as_str()),
+        serde_json::json!({"session_id": "order-1"}),
+    )
+    .unwrap();
+    if let Some(observed_at_ms) = observed_at_ms {
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
+    let key = format!("hook-order-{}", crate::workspace_registry::new_uuid_v4());
+    mux.append_journal_ingress(&ingress, "test", &key).unwrap();
+}
+
+/// The agent's state in both readers: the roster (`list_agents`: sidebar,
+/// tab badges, attention jump) and the public agent rows (the hook
+/// projector). They must agree; `None` means the terminal has no agent row.
+fn assert_hook_order_state(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    terminal_id: &TerminalPublicId,
+    expected: Option<AgentState>,
+) {
+    let roster = settled(mux).list_agents(Some(surface), None).first().map(|record| record.state);
+    assert_eq!(roster, expected, "roster");
+    let rows = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(terminal_id), None)
+        .unwrap();
+    assert_eq!(
+        rows.first().map(|row| row.state.clone()),
+        expected.map(|state| state.as_str().to_string()),
+        "agent rows: {rows:?}"
+    );
+}
+
+#[test]
+fn hook_order_events_journaled_out_of_send_order_keep_the_last_sent_state() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    // The unqueued hook path (no private queue directory, non-Unix) sends
+    // each event on its own connection: the journal can take the prompt
+    // after the Stop.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("UserPromptSubmit", 2_000, 2_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Idle));
+    // The next prompt the hooks send still applies.
+    append_clocked(&mux, &terminal_id, &[("UserPromptSubmit", 4_000, 4_000)]);
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
+}
+
+#[test]
+fn hook_order_a_dialog_is_never_skipped() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("PermissionRequest", 2_000, 2_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Blocked));
+}
+
+#[test]
+fn hook_order_a_session_end_is_never_skipped() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[("SessionStart", 1_000, 1_000), ("UserPromptSubmit", 3_000, 3_000)],
+    );
+    // Journaled after a later-started event, but the session ended: the row goes.
+    append_clocked(&mux, &terminal_id, &[("SessionEnd", 2_000, 2_000)]);
+    assert_hook_order_state(&mux, surface.id, &terminal_id, None);
+}
+
+#[test]
+fn hook_order_an_unstamped_event_after_stamped_ones_applies() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // An older hook helper sends no start time: journal order decides.
+    append_hook(&mux, &terminal_id, "UserPromptSubmit", None);
+    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
+}
+
+/// One hook event of session `order-1`, stamped as the hook stamps it: the
+/// monotonic clock of its machine (`boot_id`, `monotonic_ns`) and the wall
+/// clock (`observed_at_ms`); appended through the real ingress.
+fn append_clocked_hook(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    event: &str,
+    boot_id: &str,
+    monotonic_ms: u64,
+    observed_at_ms: u64,
+) {
+    let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        event,
+        Some(terminal_id.as_str()),
+        serde_json::json!({"session_id": "order-1"}),
+    )
+    .unwrap();
+    crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    ingress.payload["normalized"]["boot_id"] = serde_json::json!(boot_id);
+    ingress.payload["normalized"]["monotonic_ns"] =
+        serde_json::json!((monotonic_ms * 1_000_000).to_string());
+    let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+    mux.append_journal_ingress(&ingress, "test", &key).unwrap();
+}
+
+fn append_clocked(mux: &Arc<Mux>, terminal_id: &TerminalPublicId, events: &[(&str, u64, u64)]) {
+    for (event, monotonic_ms, observed_at_ms) in events {
+        append_clocked_hook(mux, terminal_id, event, "boot-a", *monotonic_ms, *observed_at_ms);
+    }
+}
+
+fn hook_seq_mux(name: &str) -> (Arc<Mux>, SurfaceId, TerminalPublicId, std::path::PathBuf) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-seq-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("hook-seq", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    (mux, surface.id, terminal_id, root)
+}
+
+#[test]
+fn hook_seq_a_late_tool_failure_does_not_override_a_newer_state() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("late-error");
+    // A tool failed (PostToolUseFailure, an error event), then the turn
+    // ended; the journal took the failure last.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("PostToolUseFailure", 2_000, 2_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_the_monotonic_clock_orders_past_a_wall_clock_step() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("clock-step");
+    // In send order, but the wall clock stepped back 3 s before the Stop.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 100_000),
+            ("UserPromptSubmit", 2_000, 100_000),
+            ("Stop", 3_000, 97_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_a_reorder_longer_than_five_seconds_is_still_skipped() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("long-reorder");
+    // The prompt's hook stalled 18 s; the journal took it after the Stop.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 20_000, 20_000),
+            ("UserPromptSubmit", 2_000, 2_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Whether the agent rows' fence for `terminal_id`, as `mux` holds it, skips
+/// a `UserPromptSubmit` of session `order-1` stamped at `monotonic_ms` /
+/// `observed_at_ms` (boot `boot-a`) as journaled out of send order.
+fn hook_seq_fence_skips(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    monotonic_ms: u64,
+    observed_at_ms: u64,
+) -> bool {
+    let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(terminal_id.as_str()),
+        serde_json::json!({"session_id": "order-1"}),
+    )
+    .unwrap();
+    crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    ingress.payload["normalized"]["boot_id"] = serde_json::json!("boot-a");
+    ingress.payload["normalized"]["monotonic_ns"] =
+        serde_json::json!((monotonic_ms * 1_000_000).to_string());
+    let fences = mux.agent_hook_fences.lock().unwrap();
+    let fence = fences.get(terminal_id);
+    crate::agent_hooks::hook_event_is_reordered(
+        &ingress.kind,
+        &crate::agent_hooks::HookOrderStamp::of(&ingress.payload),
+        crate::journal_reducers::HookFence::last_order(fence, "order-1"),
+    )
+}
+
+#[test]
+fn hook_seq_the_order_survives_a_session_restart() {
+    let (mux, _surface, terminal_id, root) = hook_seq_mux("restart");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    mux.shutdown();
+    drop(mux);
+    let reopened = open_persistent_test_mux("hook-seq", &root);
+    // The prompt the hooks sent before the Stop arrives after the restart.
+    // The test terminal is not live after the reopen, so the agent rows hold
+    // the event until it is; the fence they restored must skip it.
+    assert!(
+        hook_seq_fence_skips(&reopened, &terminal_id, 2_000, 2_000),
+        "the agent rows' restored fence lost the session's order"
+    );
+    // The roster folds the journal, so it keeps the order too.
+    append_clocked(&reopened, &terminal_id, &[("UserPromptSubmit", 2_000, 2_000)]);
+    let entries = settled(&reopened).agent_roster.lock().unwrap().roster.entries.clone();
+    assert_eq!(
+        entries.get(terminal_id.as_str()).map(|entry| entry.agent_state()),
+        Some(AgentState::Idle),
+        "roster"
+    );
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_a_resume_after_a_reboot_starts_a_new_order() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("reboot");
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[("SessionStart", 50_000, 1_000), ("Stop", 90_000, 41_000)],
+    );
+    // `claude --resume` after a reboot keeps the session id; the new boot's
+    // monotonic clock starts again near zero, and here the wall clock is also
+    // 0.5 s behind (it was set back at the boot). Both clocks are smaller; the
+    // new boot id still applies the event.
+    append_clocked_hook(&mux, &terminal_id, "UserPromptSubmit", "boot-b", 2_000, 40_500);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_equal_monotonic_stamps_apply_in_arrival_order() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("tie");
+    // Two hooks read the same monotonic value: neither is a reorder, so the
+    // journal order decides and the later one sets the state.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("UserPromptSubmit", 3_000, 3_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    append_clocked(&mux, &terminal_id, &[("Stop", 3_000, 3_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_an_event_with_no_boot_id_applies_in_arrival_order() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("no-boot-id");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // An older hook helper stamps only the wall clock (no boot id). Its event
+    // applies in journal order, even with an earlier wall clock.
+    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // Two events of the older helper: journal order too.
+    append_ordered_hook(&mux, &terminal_id, "Stop", 1_500);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_a_late_event_after_a_restart_goes_through_the_real_ingest() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("restart-ingest");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // A restart reloads the agent rows' fences from the store: replace the
+    // fences in memory with exactly what a start restores, and keep the
+    // terminal live so the late event reaches the agent rows.
+    let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+    let restored = mux
+        .with_state(|state| {
+            crate::mux::public_projections::restore_public_projections(state, projections)
+        })
+        .unwrap();
+    *mux.agent_hook_fences.lock().unwrap() = restored.agent_hook_fences;
+    // The prompt the hooks sent before the Stop arrives after the restart,
+    // through the real ingest (journal, agent rows, roster).
+    append_clocked(&mux, &terminal_id, &[("UserPromptSubmit", 2_000, 2_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_an_unstamped_event_keeps_the_order_of_stamped_ones() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("unstamped-between");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // An event with no stamp applies in journal order.
+    append_hook(&mux, &terminal_id, "UserPromptSubmit", None);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // A stamped event sent before the Stop still comes late: the unstamped
+    // event did not reset the session's order.
+    append_clocked(&mux, &terminal_id, &[("Stop", 2_000, 2_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_a_too_long_boot_id_is_dropped() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("long-boot-id");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // A remote hook sends a boot id longer than any real one (Linux and
+    // macOS send a 36-character UUID). It is dropped: the event has no
+    // monotonic stamp and applies in journal order.
+    let long_boot_id = "b".repeat(4_096);
+    append_clocked_hook(&mux, &terminal_id, "UserPromptSubmit", &long_boot_id, 2_000, 4_000);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // The session's order is still boot `boot-a` at 3 s: a Stop sent before
+    // the first Stop is late. Had the long id been kept as a new boot, it
+    // would apply.
+    append_clocked(&mux, &terminal_id, &[("Stop", 2_500, 2_500)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

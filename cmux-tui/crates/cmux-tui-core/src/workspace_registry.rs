@@ -3023,6 +3023,11 @@ impl WorkspaceRegistry {
             migrate_resource_agent_hook_state_add_ended_at(&tx)?;
             tx.commit()?;
         }
+        if !resource_agent_hook_state_has_hook_order_column(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_agent_hook_state_add_hook_order(&tx)?;
+            tx.commit()?;
+        }
         timings.lap("registry.migrations.columns");
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
@@ -4346,6 +4351,32 @@ fn resource_agent_hook_state_has_ended_at_column(connection: &Connection) -> any
         }
     }
     Ok(false)
+}
+
+fn resource_agent_hook_state_has_hook_order_column(
+    connection: &Connection,
+) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(resource_agent_hook_state)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == "hook_order" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Add the hook fence's latest hook stamp to registries created before the
+/// column existed. Existing fences have none (NULL): they order by journal
+/// sequence until the session's next stamped hook event.
+fn migrate_resource_agent_hook_state_add_hook_order(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE resource_agent_hook_state ADD COLUMN hook_order TEXT
+           CHECK(hook_order IS NULL OR json_valid(hook_order));",
+    )?;
+    Ok(())
 }
 
 /// Add the hook fence's incarnation boundary to registries created before

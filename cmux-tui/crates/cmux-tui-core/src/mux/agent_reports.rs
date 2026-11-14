@@ -213,13 +213,19 @@ impl Mux {
             {
                 DirectHookTransition::Continue => {}
                 DirectHookTransition::Restart(agent_session_id) => {
-                    let restarted =
-                        HookFence::next(Some(fence), agent_session_id, fence.sequence, false, None);
+                    let restarted = HookFence::next(
+                        Some(fence),
+                        agent_session_id,
+                        fence.sequence,
+                        false,
+                        &crate::agent_hooks::HookOrderStamp::default(),
+                    );
                     direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
                         agent_session_id: restarted.session_id,
                         applied_sequence: restarted.sequence,
                         ended: false,
                         ended_at_ms: restarted.ended_at_ms,
+                        order: restarted.order.clone(),
                     });
                 }
             }
@@ -398,6 +404,7 @@ impl Mux {
                     sequence: direct_state.applied_sequence,
                     ended: false,
                     ended_at_ms: direct_state.ended_at_ms,
+                    order: direct_state.order.clone(),
                 },
             );
         }

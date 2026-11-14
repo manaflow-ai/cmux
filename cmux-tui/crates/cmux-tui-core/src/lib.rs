@@ -159,7 +159,7 @@ pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_MESSAGE_CHARS, LIVE_PROMPT_CHARS,
     agent_hook_event_starts_session, agent_hook_event_starts_turn, agent_hook_journal_ingress,
     agent_hook_live_fields, agent_hook_live_prompt, agent_hook_live_reply,
-    stamp_agent_hook_observed_now,
+    stamp_agent_hook_observed_at, stamp_agent_hook_observed_now,
 };
 pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
