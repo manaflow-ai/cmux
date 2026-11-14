@@ -53,7 +53,7 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta, rep
     let at = crate::store::now_ms();
     let mut queued = vec![];
     for path in paths {
-        let Some(abs) = canonical_path(&path, Some(&m.cwd)) else { continue };
+        let Some(abs) = session.canon_paths.canonical(&path, &m.cwd) else { continue };
         let (repo, path) = tf::key_of(&abs);
         if edited {
             queued.push((repo.clone(), path.clone()));

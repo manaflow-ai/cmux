@@ -200,3 +200,33 @@ fn a_fifo_is_refused_without_waiting() {
     assert_eq!(unchanged, Ok(true), "a FIFO is left as it came, and at once");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The image a finished read logs is the file its path names now, not the one it named when the
+/// chat first spoke of it: the chat's path cache (`path_canon::CanonCache`) keeps a path's first
+/// answer, and a link the agent retargets between two views must not log the old file's bytes.
+#[cfg(unix)]
+#[test]
+fn a_view_through_a_retargeted_link_logs_the_file_it_names_now() {
+    use base64::Engine as _;
+    let dir = scratch("retarget");
+    let store = cmux_unix_socket::short_test_dir("acpmux-ri");
+    let first = [PNG, b"first"].concat();
+    let second = [PNG, b"second"].concat();
+    std::fs::write(dir.join("a.png"), &first).unwrap();
+    std::fs::write(dir.join("b.png"), &second).unwrap();
+    std::os::unix::fs::symlink(dir.join("a.png"), dir.join("shot.png")).unwrap();
+    let hub = hub_at(store.path());
+    let session = session_in(&hub, &dir);
+    let view = |hub: &Hub| {
+        let (rec, _) =
+            hub.append_logged(&session, "in", "tool_call_update", codex_view("shot.png"), None);
+        let image = images(&rec.msg).pop().expect("an image");
+        let data = image["data"].as_str().unwrap().to_owned();
+        base64::engine::general_purpose::STANDARD.decode(data).unwrap()
+    };
+    assert_eq!(view(&hub), first);
+    std::fs::remove_file(dir.join("shot.png")).unwrap();
+    std::os::unix::fs::symlink(dir.join("b.png"), dir.join("shot.png")).unwrap();
+    assert_eq!(view(&hub), second, "the link's new target");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -121,6 +121,11 @@
       "bench": "ChatsWindowMainThreadTests (a 20-row window over a 3,000-chat index that stays in acpmux: one changed chat is one row in the message and the window's keys on main) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
       "owner": "Performance Lead"
     },
+    "acpmux-tool-paths": {
+      "what": "each path a streamed tool_call or tool_call_update names (hub/tool_paths.rs, touched.rs): the chat's CanonCache answers from memory; only a path the chat names for the first time is read from the disk (path_canon::canonical_path)",
+      "bench": "cmux-tui-rust-check.sh test streamed_updates_naming_the_same_files_resolve_each_once (TOOL-PATHS lines: resolutions and append time per 200 updates at path depth 1 and 40)",
+      "owner": "PL-acpmux (acpmux audit finding 12)"
+    },
     "acpmux-wait-wake": {
       "what": "one acpmux hub record seen by an open _acpmux/wait: the session filter and the streamed-chunk skip; a chunk never evaluates the wait's rows",
       "bench": "cmux-tui-rust-check.sh test a_streamed_token_does_not_evaluate_an_open_wait (WAIT-STREAM line: evaluations per 500 tokens), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client) on the fleet",
