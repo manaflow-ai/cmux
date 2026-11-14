@@ -29,11 +29,6 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
         XCTAssertFalse(app.descendants(matching: .any)["home.note.problem"].exists, "no card over the kept rows")
         attach(app, "1-home-offline-kept-rows")
-        try openMacMenu(app, saying: "Offline · last known")
-        attach(app, "1b-home-offline-mac-menu")
-        app.buttons["home.mac.retry"].tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
-
         // Non-blocking: the kept rows still open.
         row.tap()
         XCTAssertTrue(app.buttons["home.compose"].waitForNonExistence(timeout: 10), "a kept row opens\n\(app.debugDescription)")
@@ -44,6 +39,14 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         XCTAssertFalse(app.buttons["home.conversation.retry"].exists, "no full-screen error")
         XCTAssertTrue(app.textViews.firstMatch.exists || app.textFields.firstMatch.exists, "the composer shows\n\(app.debugDescription)")
         attach(app, "2-row-opened-conversation")
+
+        // Back on Home: the Mac button says it, with Retry; the rows stay after it.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
+        try openMacMenu(app, saying: "Offline · last known")
+        attach(app, "1b-home-offline-mac-menu")
+        app.buttons["home.mac.retry"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
     }
 
     @MainActor

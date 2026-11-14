@@ -59,6 +59,7 @@ import Testing
         #expect(kept.unavailableTitle == nil)
     }
 
+    // `session()` holds no messages, so the bar's line is the nothing-kept one.
     @Test func theKeptConversationSaysItIsNotLiveAndOffersTryAgain() async {
         let loader = MacConversationLoader()
         let open = session()
@@ -68,14 +69,14 @@ import Testing
 
         #expect(loader.isStale)
         #expect(open.unavailableTitle == MacConversationLoader.staleTitle)
-        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReason, retrying: false))
+        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReasonNothingKept, retrying: false))
         #expect(open.canRetryConnecting)
         open.retryConnecting()
         #expect(tries == 1)
-        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReason, retrying: true))
+        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReasonNothingKept, retrying: true))
         // The try failed again: Try Again is offered again, the conversation still shows.
         await loader.load({ throw Offline() }, tryAgain: { tries += 1 })
-        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReason, retrying: false))
+        #expect(open.barItem == .unavailable(reason: MacConversationLoader.staleReasonNothingKept, retrying: false))
         #expect(loader.session === open)
     }
 
