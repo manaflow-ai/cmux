@@ -29,10 +29,12 @@ IOS_PATHS = (
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
-IOS_SCHEDULES = (
-    "7,27,47 * * * *",
-    "37 5,17 * * *",
-)
+# The retired 20-minute cmux INTERNAL poll. It is no longer scheduled (cmux
+# INTERNAL belongs to cmux-next), but the decide script keeps its branch, so
+# the shared queue and history tests below still drive it.
+INTERNAL_CRON = "7,27,47 * * * *"
+DEMO_CRON = "37 5,17 * * *"
+IOS_SCHEDULES = (DEMO_CRON,)
 def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
@@ -190,9 +192,9 @@ def run_decision_scenario(
     decision_script = literal_block(decision_job, "script", indent=10)
     effective_variant = input_variant
     if event_name == "schedule":
-        if schedule == IOS_SCHEDULES[0]:
+        if schedule == INTERNAL_CRON:
             effective_variant = "internal"
-        elif schedule == IOS_SCHEDULES[1]:
+        elif schedule == DEMO_CRON:
             effective_variant = "demo"
     try:
         produced_artifact_name = resolved_metadata_artifact(
@@ -644,27 +646,46 @@ def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
     )
 
 
-def test_internal_schedule_polls_every_twenty_minutes() -> None:
-    internal_minutes = tuple(
-        int(minute)
-        for minute in IOS_SCHEDULES[0].split()[0].split(",")
+def internal_refusal_step() -> str:
+    decision_job = mapping_block(workflow_text(), "decide", indent=2)
+    steps = decision_job[decision_job.index("    steps:\n") :]
+    return steps.split("\n      - name: ")[1]
+
+
+def test_classic_no_longer_uploads_to_cmux_internal() -> None:
+    schedule = mapping_block(trigger_block(workflow_text()), "schedule", indent=2)
+    assert INTERNAL_CRON not in sequence_mapping_values(schedule, "cron", indent=4)
+    step = internal_refusal_step()
+    assert step.startswith("Refuse classic uploads to cmux INTERNAL")
+    assert (
+        "if: github.event_name == 'workflow_dispatch' && (inputs.variant || 'internal') == 'internal'"
+        in step
     )
 
-    assert internal_minutes == (7, 27, 47)
-    assert tuple(
-        later - earlier
-        for earlier, later in zip(
-            internal_minutes,
-            internal_minutes[1:] + (internal_minutes[0] + 60,),
+
+def test_internal_refusal_step_fails_and_points_at_cmux_classic() -> None:
+    import os
+    import tempfile
+
+    script = literal_block(internal_refusal_step(), "run", indent=8)
+    with tempfile.TemporaryDirectory() as directory:
+        summary = Path(directory) / "summary"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary)},
+            capture_output=True,
+            text=True,
         )
-    ) == (20, 20, 20)
+    assert result.returncode == 1
+    assert "ios-appstore-upload.yml" in result.stdout
+    assert "cmux CLASSIC" in result.stdout
 
 
 def test_schedule_decision_executes_ios_path_filter() -> None:
     ios_changes = [
         run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            schedule=INTERNAL_CRON,
             prior_sha="base-sha",
             head_sha="head-sha",
             changed_files=(
@@ -677,7 +698,7 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
     ]
     non_ios_change = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("docs/cli-contract.md",),
@@ -713,7 +734,7 @@ def test_phone_push_dependency_change_schedules_ios_upload() -> None:
     # Despite its macOS directory, ios/cmuxPackage directly imports this package.
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePush.swift",),
@@ -724,7 +745,7 @@ def test_phone_push_dependency_change_schedules_ios_upload() -> None:
 def test_truncated_schedule_comparison_fails_open() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=tuple(f"docs/generated-{index}.md" for index in range(300)),
@@ -740,7 +761,7 @@ def test_truncated_schedule_comparison_fails_open() -> None:
 def test_schedule_comparison_failure_fails_open() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         compare_api_failure=True,
@@ -759,7 +780,7 @@ def test_schedule_comparison_failure_fails_open() -> None:
 def test_unchanged_scheduled_head_skips_without_comparing() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="head-sha",
         head_sha="head-sha",
         compare_api_failure=True,
@@ -777,7 +798,7 @@ def test_unchanged_scheduled_head_skips_without_comparing() -> None:
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_CRON,
         input_variant="",
     )
     produced_artifact = first_run["producedArtifactName"]
@@ -791,7 +812,7 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
 
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_CRON,
         input_variant="",
         prior_sha="demo-base-sha",
         prior_artifact=produced_artifact,
@@ -808,7 +829,7 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
 def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         input_variant="",
     )
     produced_artifact = first_run["producedArtifactName"]
@@ -822,7 +843,7 @@ def test_schedule_decision_routes_internal_cron_to_internal_history() -> None:
 
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         input_variant="",
         prior_sha="internal-base-sha",
         prior_artifact=produced_artifact,
@@ -854,7 +875,7 @@ def test_decision_rejects_unknown_schedule_and_dispatch_variant() -> None:
 def test_demo_history_skips_newer_internal_artifact() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_CRON,
         input_variant="",
         prior_uploads=(
             ("newer-internal-sha", "ios-testflight-build-metadata"),
@@ -881,7 +902,7 @@ def test_demo_history_skips_newer_internal_artifact() -> None:
 def test_history_lookup_ignores_long_idle_workflow_run_history() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_upload_pages=((),) * 22
         + ((("base-sha", "ios-testflight-build-metadata"),),),
         completed_prior_run_count=2_200,
@@ -913,7 +934,7 @@ def test_history_lookup_paginates_artifacts_and_selects_newest() -> None:
     )
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_upload_pages=(
             older_uploads,
             (("newest-sha", "ios-testflight-build-metadata"),),
@@ -941,7 +962,7 @@ def test_history_lookup_paginates_artifacts_and_selects_newest() -> None:
 def test_scheduled_run_skips_when_upload_history_is_unavailable() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         artifact_api_failure=True,
     )
 
@@ -996,7 +1017,7 @@ def test_manual_override_artifact_is_excluded_from_canonical_history() -> None:
 
     scheduled_run = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="override-sha",
         prior_artifact=produced_artifact,
         changed_files=("docs/cli-contract.md",),
@@ -1106,7 +1127,7 @@ def test_run_queues_behind_an_earlier_queued_run_and_starts_it() -> None:
 def test_internal_poll_starts_the_oldest_queued_run() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1121,7 +1142,7 @@ def test_internal_poll_starts_the_oldest_queued_run() -> None:
 def test_queue_waits_while_a_queued_run_is_re_running() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1136,7 +1157,7 @@ def test_queue_waits_while_a_queued_run_is_re_running() -> None:
 def test_queue_drops_markers_of_runs_that_already_uploaded_or_were_cancelled() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1154,7 +1175,7 @@ def test_queue_drops_markers_of_runs_that_already_uploaded_or_were_cancelled() -
 def test_queue_drops_a_defunct_re_run_instead_of_blocking_forever() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1168,7 +1189,7 @@ def test_queue_drops_a_defunct_re_run_instead_of_blocking_forever() -> None:
 def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started() -> None:
     refused = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1179,7 +1200,7 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
 
     raced = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -1193,7 +1214,7 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
     for status in (409, 422, 502):
         transient = run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            schedule=INTERNAL_CRON,
             prior_sha="base-sha",
             head_sha="head-sha",
             changed_files=("ios/cmux/App.swift",),
@@ -1230,7 +1251,7 @@ def test_queued_run_builds_when_its_turn_comes() -> None:
 def test_queued_demo_run_that_no_longer_builds_releases_its_place() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_CRON,
         prior_sha="head-sha",
         prior_artifact="ios-testflight-build-metadata-demo",
         head_sha="head-sha",
@@ -1248,7 +1269,7 @@ def test_queued_demo_run_that_no_longer_builds_releases_its_place() -> None:
 def test_ordering_ignores_later_active_runs() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_uploads=(
             ("newer-active-sha", "ios-testflight-build-metadata"),
             ("base-sha", "ios-testflight-build-metadata"),
@@ -1276,7 +1297,7 @@ def test_ordering_ignores_later_active_runs() -> None:
 def test_ordering_skips_defunct_queued_prior_run() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         changed_files=("ios/cmux/App.swift",),
         zombie_prior_run=True,
@@ -1312,7 +1333,7 @@ def test_internal_poll_skips_instead_of_queueing_behind_an_upload() -> None:
     for prior_event in ("schedule", "workflow_dispatch"):
         result = run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            schedule=INTERNAL_CRON,
             prior_sha="base-sha",
             prior_event=prior_event,
             head_sha="head-sha",
@@ -1338,7 +1359,7 @@ def test_internal_poll_skips_when_ordering_cannot_be_checked() -> None:
     for failed_api in ("runs", "jobs"):
         result = run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            schedule=INTERNAL_CRON,
             prior_sha="base-sha",
             head_sha="head-sha",
             changed_files=("ios/cmux/App.swift",),
@@ -1363,7 +1384,7 @@ def test_demo_schedule_queues_behind_an_earlier_upload() -> None:
     # and exits instead of sleeping.
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
+        schedule=DEMO_CRON,
         prior_sha="base-sha",
         prior_artifact="ios-testflight-build-metadata-demo",
         head_sha="head-sha",
@@ -1379,7 +1400,7 @@ def test_demo_schedule_queues_on_ordering_api_errors() -> None:
     for failed_api in ("runs", "jobs"):
         result = run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[1],
+            schedule=DEMO_CRON,
             prior_sha="base-sha",
             prior_artifact="ios-testflight-build-metadata-demo",
             head_sha="head-sha",
@@ -1401,7 +1422,7 @@ def test_internal_poll_skips_inputs_that_already_failed_to_upload() -> None:
     ):
         result = run_decision_scenario(
             event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            schedule=INTERNAL_CRON,
             prior_sha="base-sha",
             prior_run_ids=(40,),
             head_sha=head_sha,
@@ -1426,7 +1447,7 @@ def test_internal_poll_skips_inputs_that_already_failed_to_upload() -> None:
 def test_internal_poll_retries_failed_inputs_after_an_ios_change() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        schedule=INTERNAL_CRON,
         prior_sha="base-sha",
         prior_run_ids=(40,),
         head_sha="head-sha",
@@ -1446,14 +1467,14 @@ def test_failed_upload_skip_ignores_other_failures() -> None:
     # Only a failed upload job marks the inputs bad. A failed decide job, a
     # failure older than the last upload, and a manual or DEMO run all build.
     cases = (
-        dict(failed_id=60, conclusion="skipped", schedule=IOS_SCHEDULES[0]),
-        dict(failed_id=30, conclusion="failure", schedule=IOS_SCHEDULES[0]),
-        dict(failed_id=60, conclusion="failure", schedule=IOS_SCHEDULES[1]),
+        dict(failed_id=60, conclusion="skipped", schedule=INTERNAL_CRON),
+        dict(failed_id=30, conclusion="failure", schedule=INTERNAL_CRON),
+        dict(failed_id=60, conclusion="failure", schedule=DEMO_CRON),
     )
     for case in cases:
         prior_artifact = (
             "ios-testflight-build-metadata-demo"
-            if case["schedule"] == IOS_SCHEDULES[1]
+            if case["schedule"] == DEMO_CRON
             else "ios-testflight-build-metadata"
         )
         result = run_decision_scenario(

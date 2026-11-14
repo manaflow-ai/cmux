@@ -1,15 +1,15 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
-  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
-  # iOS-relevant commits are pending or the oldest is
-  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
-  # Manual dispatch remains available for intentional rebuilds.
+  # The classic app no longer uploads to cmux INTERNAL (dev.cmux.app.internal):
+  # that record belongs to cmux-next (fed by its rc/cnx-ios-builder INTERNAL
+  # builder), and the classic app's only TestFlight home is cmux CLASSIC
+  # (ios-appstore-upload.yml). The 20-minute INTERNAL poll ("7,27,47 * * * *")
+  # is gone, and a manual internal dispatch fails in the decide job's first
+  # step. The decide script keeps its internal branch and batching step only
+  # because guard tests pin the shared queue and history logic through them;
+  # neither can run without that schedule or dispatch.
   schedule:
-    # Check current main for a cmux INTERNAL upload every 20 minutes.
-    - cron: "7,27,47 * * * *"
     # Twice-daily (every 12 hours) cmux DEMO upload of current main.
     - cron: "37 5,17 * * *"
   workflow_dispatch:
@@ -29,9 +29,11 @@ on:
         type: boolean
       variant:
         description: >-
-          Upload variant. internal (default) ships dev.cmux.app.internal /
-          "cmux INTERNAL"; demo ships dev.cmux.app.demo / "cmux DEMO" with the
-          DEMO-badged app icon and assigns to the cmux DEMO TestFlight group.
+          Upload variant. internal (default) is retired and fails: cmux
+          INTERNAL belongs to cmux-next, and the classic app ships to cmux
+          CLASSIC through ios-appstore-upload.yml. demo ships dev.cmux.app.demo
+          / "cmux DEMO" with the DEMO-badged app icon and assigns to the cmux
+          DEMO TestFlight group.
         required: false
         default: internal
         type: choice
@@ -79,6 +81,17 @@ jobs:
       variant: ${{ steps.decide.outputs.variant }}
       deferred: ${{ steps.decide.outputs.deferred }}
     steps:
+      # cmux INTERNAL (dev.cmux.app.internal) belongs to cmux-next. Refuse a
+      # manual internal dispatch, including the marketing_version_override and
+      # prepare_only forms, before anything is queued or built.
+      - name: Refuse classic uploads to cmux INTERNAL
+        if: github.event_name == 'workflow_dispatch' && (inputs.variant || 'internal') == 'internal'
+        run: |
+          MESSAGE='The internal variant is retired: cmux INTERNAL (dev.cmux.app.internal) now ships cmux-next from its rc/cnx-ios-builder INTERNAL builder, and the classic app ships only to cmux CLASSIC (dev.cmux.app.classic). Dispatch .github/workflows/ios-appstore-upload.yml ("iOS TestFlight (cmux CLASSIC)") instead, or choose variant demo here.'
+          echo "::error::$MESSAGE"
+          echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       - name: Check out the upload queue
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
