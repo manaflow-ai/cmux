@@ -280,10 +280,22 @@ PY
     local said=${reported:-no answer: $(cd "$effective" && "$CODEX" ${verify[@]+"${verify[@]}"} mcp get cmux --json 2>&1 >/dev/null | grep -v '^$' | tail -1 | cut -c1-90)}
     check "codex shim [$name]: Codex reports the layer ($said); the shim turns cmux off by that answer" $rc
   }
+  no_turn_off() { # NAME FOLDER SHIM_ARGS...: the shim adds cmux_terminal, turns nothing off, says nothing
+    local name=$1 at=$2; shift 2
+    rm -f "$D/codex-args"
+    (cd "$at" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper "$@" >/dev/null 2>"$D/shim.err")
+    grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && ! grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args" \
+      && ! grep -qi 'codex' "$D/shim.err"
+    check "codex shim [$name]: cmux_terminal added, nothing turned off, nothing said" $?
+  }
   sub=$P/sub
+  # An untrusted project with its own config: Codex loads it only after the
+  # trust prompt, unseen by the probe; a cmux entry there would merge with the
+  # off switch and replace a server of the person's own. The shim skips.
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
   user_plain
-  shim_case "untrusted project" "$sub" no --
+  no_turn_off "untrusted project with its own config" "$sub"
+  no_turn_off "exec --trust" "$sub" exec --trust "fix the bug"
   printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
   shim_case "trusted project" "$sub" yes --
   shim_case "-C into the trusted project" "$D/work" yes -- -C "$sub"
@@ -310,13 +322,6 @@ PY
   # Launches Codex's answer does not describe: the shim turns nothing off.
   # Turning the entry off there could fail Codex: --worktree starts in a new
   # untrusted worktree where a project-only cmux entry is not loaded.
-  no_turn_off() { # NAME FOLDER SHIM_ARGS...: the shim adds cmux_terminal, turns nothing off
-    local name=$1 at=$2; shift 2
-    rm -f "$D/codex-args"
-    (cd "$at" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper "$@" >/dev/null 2>&1)
-    grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && ! grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args"
-    check "codex shim [$name]: cmux_terminal added, nothing turned off" $?
-  }
   rm -f "$CODEX_HOME/work.config.toml"
   # A project-only cmux entry: in the trusted repo Codex reports it; the
   # --worktree session would not load it.
@@ -332,6 +337,12 @@ PY
   no_turn_off "fork --last" "$sub" fork --last
   no_turn_off "exec hi --worktree" "$sub" exec hi --worktree
   no_turn_off "exec hi --ignore-user-config" "$sub" exec hi --ignore-user-config
+  no_turn_off "one-word prompt" "$sub" hi
+  # A command that starts no session (0.169's queue): nothing injected, nothing said.
+  rm -f "$D/codex-args"
+  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper queue >/dev/null 2>"$D/shim.err")
+  ! grep -q 'mcp_servers' "$D/codex-args" && ! grep -qi 'codex' "$D/shim.err"
+  check "codex shim [queue]: a command that starts no session gets no cmux server and no line" $?
   # The switch the shim sends where Codex reports the entry carries its
   # transport: from a folder where that entry is not loaded it is still valid.
   rm -f "$D/codex-args"

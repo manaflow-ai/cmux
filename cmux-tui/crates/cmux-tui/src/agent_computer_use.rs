@@ -39,23 +39,23 @@
 //!   launch (`enabled=false`) when it is another cmux's server and on, so the
 //!   agent never gets two cmux servers. A server of the person's own that is
 //!   only named `cmux` stays on, and so does an entry Codex could not report.
-//!   Nothing is turned off when Codex has no answer, or when its answer does
-//!   not describe the launch (a new `--worktree`, a resumed or forked
-//!   session, a remote app server, no user config: codex_mcp_entry.rs
-//!   `probe_matches_launch`): there `enabled=false` could name an entry the
-//!   session never loads, which fails Codex with "invalid transport".
-//!   In those cases, and when Codex loads an untrusted project's `cmux` entry
-//!   only after its trust prompt, the person's cmux entry can start beside
-//!   this build's server: a second cmux server for that session. (`codex mcp
-//!   get` runs before the launch, without the trust prompt, so it never sees
-//!   such a project's entries. A project server of the person's own named
-//!   `cmux` then starts after the person trusts the project, as it would
-//!   without cmux; cmux never turns a server of the person's own off, and its
-//!   own server never shares that name.) Both are
-//!   cmux's own, and each reaches the app its own CLI and environment name
-//!   (the person's entry has no terminal socket, so its tools act for the
-//!   app that entry's CLI belongs to). Nothing here arbitrates Computer Use
-//!   between the two.
+//!   Codex is asked only for a launch its answer describes, and nothing is
+//!   turned off otherwise: a launch that is no new session in the launch
+//!   folder (`--worktree`, `resume`, `fork`, `--remote`,
+//!   `--ignore-user-config`, `--trust`, a subcommand: codex_mcp_entry.rs
+//!   `probe_matches_launch`), or a folder of an untrusted project that has a
+//!   `.codex/config.toml` (`untrusted_project_config`). `codex mcp get` runs
+//!   without Codex's trust prompt, so it never sees such a project's config;
+//!   after the person trusts the project, a `cmux` entry there would merge
+//!   field by field with the off switch (another cmux's command and args,
+//!   off) and replace a server of the person's own named `cmux` for that
+//!   session. Skipping keeps that server as it is. Those skips are quiet; a
+//!   line is said only when Codex was asked and gave no answer.
+//!   Where nothing is turned off, another cmux's `cmux` entry can start
+//!   beside this build's server: a second cmux server for that session.
+//!   Each reaches the app its own CLI and environment name (the person's
+//!   entry has no terminal socket, so its tools act for the app that entry's
+//!   CLI belongs to). Nothing here arbitrates Computer Use between the two.
 //!   "Always allow" on a tool of `cmux_terminal` is not written to any
 //!   config: Codex 0.160.1 persists an MCP tool approval only for a server a
 //!   user (`config.toml`, profile) or project layer configures

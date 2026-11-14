@@ -146,27 +146,24 @@ fn mcp_settings(
     if !choice.injects() {
         return Vec::new();
     }
-    let messages = &crate::localization::catalog().agent_wrapper;
-    // A resumed or forked session, a new worktree, a remote server, a
-    // subcommand: Codex's answer here is not the launch's, so Codex is not
-    // asked, nothing is turned off, and the person is told.
-    let existing = if crate::codex_mcp_entry::probe_matches_launch(launch.args) {
-        let config = crate::codex_mcp_entry::config_args(launch.args);
+    // Codex is asked only for a launch its answer describes: a new session
+    // (codex_mcp_entry.rs `probe_matches_launch`) in a folder whose project
+    // config Codex already loads (`untrusted_project_config`: an untrusted
+    // project's config loads only after the trust prompt, unseen by the
+    // probe). Any other launch turns nothing off, quietly. A line is said
+    // only when Codex was asked and could not answer.
+    let config = crate::codex_mcp_entry::config_args(launch.args);
+    let folder =
+        config.cd.as_ref().map_or_else(|| launch.cwd.to_path_buf(), |cd| launch.cwd.join(cd));
+    let probed = crate::codex_mcp_entry::probe_matches_launch(launch.args)
+        && !crate::codex_mcp_entry::untrusted_project_config(&folder, getenv);
+    let existing = if probed {
         let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
-        match &existing {
-            CodexEntry::Unknown => warn(messages.codex_mcp_unknown),
-            // An entry with a url runs no cmux CLI, so it is never turned off.
-            CodexEntry::Found(entry)
-                if entry["transport"]["type"].as_str() != Some("stdio")
-                    && entry["enabled"].as_bool() == Some(true) =>
-            {
-                warn(messages.codex_mcp_kept);
-            }
-            _ => {}
+        if existing == CodexEntry::Unknown {
+            warn(crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
         }
         existing
     } else {
-        warn(messages.codex_mcp_kept);
         CodexEntry::Unknown
     };
     crate::agent_mcp_choice::codex_settings(
@@ -319,26 +316,35 @@ mod launch_classification {
     const INFORMATIONAL: &[&str] = &["--help", "-h", "--version", "-V"];
     const MANAGEMENT: &[&str] = &[
         "a",
+        "agents",
         "apply",
         "app",
         "app-server",
         "archive",
         "cloud",
+        "cloud-tasks",
         "completion",
         "debug",
         "delete",
         "doctor",
         "exec-server",
+        "execpolicy",
         "features",
         "help",
         "login",
         "logout",
         "mcp",
         "mcp-server",
+        "migrate-nfs-db",
+        "migrate-rollouts",
         "plugin",
+        "queue",
         "remote-control",
+        "responses-api-proxy",
         "review",
         "sandbox",
+        "stdio-to-uds",
+        "tcp-tunnel",
         "unarchive",
         "update",
     ];
@@ -521,10 +527,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let (home, project) = (root.join("codex"), root.join("proj"));
-        std::fs::create_dir_all(project.join(".git")).unwrap();
-        std::fs::create_dir_all(project.join(".codex")).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(project.join(".codex/config.toml"), "").unwrap();
+        fs::create_dir_all(project.join(".git")).unwrap();
+        fs::create_dir_all(project.join(".codex")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(project.join(".codex/config.toml"), "").unwrap();
         let asked = RefCell::new(0);
         let resolve = |_: &Path, _: &OsStr, _: &Path, _: &ConfigArgs| {
             *asked.borrow_mut() += 1;
@@ -558,7 +564,7 @@ mod tests {
         assert!(said.is_empty(), "{said:?}");
         assert!(!settings.iter().any(|s| s.to_string_lossy().contains("enabled=false")));
         // Trusted: asked, and another cmux's entry is turned off.
-        std::fs::write(
+        fs::write(
             home.join("config.toml"),
             format!("[projects.\"{}\"]\ntrust_level = \"trusted\"\n", project.display()),
         )

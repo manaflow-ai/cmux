@@ -161,9 +161,11 @@ const VALUE_OPTIONS: [&str; 26] = [
 
 /// Options after which the session's folder or config is not the one `mcp
 /// get` sees from the launch folder: a new worktree (`--worktree`, untrusted,
-/// no project layer), a remote app server, or no user config.
-const DIFFERENT_LAUNCH: [&str; 4] =
-    ["--worktree", "--remote", "--remote-auth-token-env", "--ignore-user-config"];
+/// no project layer), a remote app server, no user config, or a project
+/// trusted for this launch (`--trust`: its project config loads, which the
+/// probe of an untrusted folder does not see).
+const DIFFERENT_LAUNCH: [&str; 5] =
+    ["--worktree", "--remote", "--remote-auth-token-env", "--ignore-user-config", "--trust"];
 
 /// Whether this launch's session runs where, and with the config, that
 /// `codex mcp get` in the launch folder sees: only an allowlist of new
@@ -215,6 +217,63 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
 fn could_be_subcommand(word: &str) -> bool {
     word.chars().next().is_some_and(|c| c.is_ascii_lowercase())
         && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Whether `folder` is in a project whose config Codex would load only after
+/// its trust prompt, unseen by `codex mcp get`: a `.codex/config.toml` from
+/// the project root (the nearest folder with `.git` above `folder`, else
+/// `folder`) down to `folder`, while neither `folder` nor a folder above it
+/// is trusted in the user config (`[projects."<path>"] trust_level =
+/// "trusted"` in `$CODEX_HOME/config.toml`, `~/.codex` by default), nor, for
+/// a git worktree, its main repository.
+///
+/// Used only to skip the turn-off, never to act on: a trust this misses
+/// (one kept in a profile file) only skips it.
+/// After the prompt, such a project's `cmux` entry would merge field by field
+/// with the shim's off switch (another cmux's command and args, off) and so
+/// replace a server of the person's own for that session.
+pub(crate) fn untrusted_project_config(
+    folder: &Path,
+    getenv: &dyn Fn(&str) -> Option<OsString>,
+) -> bool {
+    let folder = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
+    let root = folder.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(&folder);
+    let chain: Vec<&Path> = folder.ancestors().take_while(|dir| dir.starts_with(root)).collect();
+    if !chain.iter().any(|dir| dir.join(".codex").join("config.toml").is_file()) {
+        return false;
+    }
+    let dir = |key: &str| getenv(key).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let user = dir("CODEX_HOME")
+        .or_else(|| dir("HOME").map(|home| home.join(".codex")))
+        .and_then(|home| std::fs::read_to_string(home.join("config.toml")).ok())
+        .and_then(|text| text.parse::<toml::Table>().ok());
+    let Some(projects) =
+        user.as_ref().and_then(|config| config.get("projects")).and_then(toml::Value::as_table)
+    else {
+        return true;
+    };
+    let trusted = |path: &Path| {
+        path.to_str()
+            .and_then(|key| projects.get(key))
+            .and_then(|project| project.get("trust_level"))
+            .and_then(toml::Value::as_str)
+            == Some("trusted")
+    };
+    !folder.ancestors().chain(main_repository(root).as_deref()).any(trusted)
+}
+
+/// The main repository of the git worktree at `root` (its `.git` is a file
+/// `gitdir: <main>/.git/worktrees/<name>`), or `None`.
+fn main_repository(root: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(root.join(".git")).ok()?;
+    let gitdir = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
+    let gitdir = if gitdir.is_absolute() { gitdir } else { root.join(gitdir) };
+    let gitdir = gitdir.canonicalize().unwrap_or(gitdir);
+    let worktrees = gitdir.parent()?;
+    (worktrees.file_name()? == "worktrees").then_some(())?;
+    let dot_git = worktrees.parent()?;
+    (dot_git.file_name()? == ".git").then_some(())?;
+    dot_git.parent().map(Path::to_path_buf)
 }
 
 /// Asks the Codex at `codex` for its `cmux` entry: `codex <config args> mcp
@@ -378,6 +437,8 @@ mod tests {
             &["--remote", "ws://h:1"],
             &["--remote=ws://h:1", "hi"],
             &["exec", "--ignore-user-config", "hi"],
+            &["exec", "--trust", "fix the bug"],
+            &["fix the bug", "--trust"],
             // A skip flag after the prompt.
             &["exec", "hi", "--worktree"],
             &["exec", "hi", "--ignore-user-config"],
@@ -398,6 +459,63 @@ mod tests {
         ] {
             assert!(!probe_matches_launch(&os(args)), "{args:?}");
         }
+    }
+
+    /// The turn-off is skipped where a project config would load only after
+    /// Codex's trust prompt; a trusted folder (the root, the folder or one
+    /// above it) or a project with no config is probed.
+    #[test]
+    fn an_untrusted_projects_config_skips_the_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (home, project) = (root.join("codex"), root.join("w/proj"));
+        let sub = project.join("sub");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        let getenv = |key: &str| (key == "CODEX_HOME").then(|| home.clone().into_os_string());
+        let trust = |path: &Path| {
+            std::fs::write(
+                home.join("config.toml"),
+                format!("[projects.\"{}\"]\ntrust_level = \"trusted\"\n", path.display()),
+            )
+            .unwrap();
+        };
+        assert!(!untrusted_project_config(&sub, &getenv), "no project config: probed");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "").unwrap();
+        assert!(untrusted_project_config(&sub, &getenv), "untrusted, no user config");
+        trust(&root.join("elsewhere"));
+        assert!(untrusted_project_config(&sub, &getenv), "another folder trusted");
+        trust(&project);
+        assert!(!untrusted_project_config(&sub, &getenv), "the root trusted");
+        trust(&sub);
+        assert!(!untrusted_project_config(&sub, &getenv), "the folder trusted");
+        // A layer in the launch folder of an untrusted repo, none at its root.
+        std::fs::remove_file(project.join(".codex/config.toml")).unwrap();
+        std::fs::create_dir_all(sub.join(".codex")).unwrap();
+        std::fs::write(sub.join(".codex/config.toml"), "").unwrap();
+        trust(&root.join("elsewhere"));
+        assert!(untrusted_project_config(&sub, &getenv));
+        // A config above the project root is no layer.
+        std::fs::remove_dir_all(sub.join(".codex")).unwrap();
+        std::fs::create_dir_all(root.join("w/.codex")).unwrap();
+        std::fs::write(root.join("w/.codex/config.toml"), "").unwrap();
+        assert!(!untrusted_project_config(&sub, &getenv));
+        // A worktree of a trusted main repository.
+        let worktree = root.join("wt");
+        std::fs::create_dir_all(project.join(".git/worktrees/wt")).unwrap();
+        std::fs::create_dir_all(worktree.join(".codex")).unwrap();
+        std::fs::write(worktree.join(".codex/config.toml"), "").unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", project.join(".git/worktrees/wt").display()),
+        )
+        .unwrap();
+        trust(&root.join("elsewhere"));
+        assert!(untrusted_project_config(&worktree, &getenv), "main repository untrusted");
+        trust(&project);
+        assert!(!untrusted_project_config(&worktree, &getenv), "main repository trusted");
     }
 
     /// A fake `codex` at `dir/codex` running `body`; it records its arguments
