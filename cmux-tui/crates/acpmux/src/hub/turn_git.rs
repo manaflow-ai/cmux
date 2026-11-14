@@ -15,6 +15,8 @@ use serde_json::{Map, Value, json};
 use std::time::Duration;
 
 /// The longest a turn's settlement waits on the git read.
+// A slower read leaves the git fields out and skips that turn's worktree update.
+// timeout: the git fields only decorate the turn result; a slow read never fails the turn
 const GIT_READ_LIMIT: Duration = Duration::from_secs(2);
 
 /// The `turn_result` fields for the session folder's git state now:
