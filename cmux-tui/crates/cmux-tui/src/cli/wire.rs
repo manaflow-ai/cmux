@@ -95,13 +95,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
                 return 3;
             }
             // Only this socket was tried; nothing falls back to another one.
-            let error = json!({
-                "code": "socket.unreachable",
-                "message": connect_failure(&socket, &error),
-                "details": {"socket": socket.display().to_string()},
-                "retryable": false,
-            });
-            return print_local_error(&error, global.output, 3);
+            return report_connect_failure(&socket, &error, global.output);
         }
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
@@ -690,6 +684,10 @@ fn run_response(
                         Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    // The agent status words come from terminal_talk, which is unix
+                    // only; elsewhere the program's own records stay as they are.
+                    #[cfg(unix)]
+                    let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -841,10 +839,14 @@ pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
+    // A read timeout may come in the middle of a line: the bytes read
+    // before it stay here and the next read finishes the line.
+    let mut bytes = Vec::new();
     loop {
-        let mut bytes = Vec::new();
-        match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Ok(None),
+        let limit = (RESPONSE_LIMIT + 2).saturating_sub(bytes.len()) as u64;
+        match reader.by_ref().take(limit).read_until(b'\n', &mut bytes) {
+            Ok(0) if bytes.is_empty() => return Ok(None),
+            Ok(0) => return Err("transport closed with a partial JSON line".into()),
             Ok(_) => {}
             Err(error)
                 if allow_timeout
@@ -887,7 +889,14 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    wait_timeout::mark(plan, &mut result);
+    #[cfg(unix)]
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus
+    {
+        result = program_status_view::human_records(result);
+    }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
         && let Some(text) = result.get("text").and_then(Value::as_str)
@@ -928,12 +937,15 @@ fn print_screen_text(text: &str) -> i32 {
     }
 }
 
-/// A printed result that exits 1: a `terminal <id> screen wait` timeout
-/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
+/// A printed result that does not exit 0: a `screen wait` or `process wait`
+/// whose time ran out exits 124 (wire/wait_timeout.rs), an `agent message
+/// unsend` whose outcome is `failed` exits 1.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
     use cmux_tui_core::resource::ResourceOperation as Op;
+    if let Some(code) = wait_timeout::exit_code(plan, result) {
+        return code;
+    }
     i32::from(match &plan.operation {
-        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
         WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
         _ => false,
     })
@@ -970,8 +982,29 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 .collect(),
         )),
         Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        // A screen's `layout` is its whole split tree as JSON: one cell of it
+        // made every row wider than the terminal (W5-P). `--json` keeps it,
+        // and `screen <s> layout export` prints it.
+        Some(rows) if is_screen_list(plan) => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.remove("layout");
+                    }
+                    row
+                })
+                .collect(),
+        )),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_screen_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ScreenList)
+    )
 }
 
 fn is_closed_list(plan: &RequestPlan) -> bool {
@@ -1103,10 +1136,32 @@ fn envelope_error_code(message: &str) -> &'static str {
     }
 }
 
+/// The session socket did not take the connection: `socket.unreachable`
+/// in the one error shape (the `--json` envelope, or the message alone),
+/// exit 3. Every command that dials the session reports it this way.
+pub(super) fn report_connect_failure(socket: &Path, error: &io::Error, output: OutputMode) -> i32 {
+    let error = json!({
+        "code": "socket.unreachable",
+        "message": connect_failure(socket, error),
+        "details": {"socket": socket.display().to_string()},
+        "retryable": false,
+    });
+    print_local_error(&error, output, 3)
+}
+
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
+    // A VM command's error says `vm:ID` and `cmux vm ls`, never the app's words (vm_words.rs).
+    let respelled;
+    let error = if super::vm_words::active() {
+        respelled = super::vm_words::respell_value(error);
+        &respelled
+    } else {
+        error
+    };
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
-            let _ = serde_json::to_writer(io::stderr().lock(), error);
+            let error = json_error_envelope(error);
+            let _ = serde_json::to_writer(io::stderr().lock(), &error);
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
@@ -1114,6 +1169,25 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
         }
     }
     exit_code
+}
+
+/// The one `--json` error shape (docs/cli-conventions in cmuxterm-hq):
+/// `{"code", "message", "details", "retryable"}`, every key present. The
+/// human form prefixes its message with `cmux: ` for a person's terminal;
+/// that prefix is not part of a JSON message, so a caller that built the
+/// message for both forms does not leak it into the envelope.
+pub(super) fn json_error_envelope(error: &Value) -> Value {
+    let mut error = error.clone();
+    if let Some(object) = error.as_object_mut() {
+        if let Some(Value::String(message)) = object.get_mut("message")
+            && let Some(rest) = message.strip_prefix("cmux: ")
+        {
+            *message = rest.to_owned();
+        }
+        object.entry("details").or_insert_with(|| json!({}));
+        object.entry("retryable").or_insert(Value::Bool(false));
+    }
+    error
 }
 
 /// Render an operation error for human-readable stderr. The message and any
@@ -1153,6 +1227,9 @@ fn human_error_lines(error: &Value) -> String {
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
+    if super::vm_words::active() {
+        return print_success(&super::vm_words::respell_value(value), output);
+    }
     print_success(value, output)
 }
 
@@ -1197,9 +1274,12 @@ mod human;
 mod list_filter;
 mod list_order;
 mod notify_desktop;
+#[cfg(unix)]
+mod program_status_view;
 mod retry;
 mod sanitize;
 mod socket;
+pub(super) mod wait_timeout;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};

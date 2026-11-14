@@ -23,10 +23,20 @@ exact pushed HEAD. --full also downloads the separate userland agent-plugin arti
 --filter builds the macOS target on a Linux runner, which stages the plugin inside the
 cmux-tui artifact (when it built) instead.
 
+One open run per commit, mode and filter: when a cmux-tui run for the same
+commit, mode and test filter is still open (queued, in progress, waiting), the
+script does not dispatch a second one. It prints that run's id and URL and
+exits with status 4; wait on that run with glaeda-gh wait run instead.
+
 The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
 --cancel-on-timeout also cancels the hosted run when the wait ends (exit 1).
+
+A run state that cannot be read is not "still running": after
+CMUX_TUI_HOSTED_UNREADABLE_READS (default 3) failed reads in a row the script
+stops waiting, prints the read's error and the run URL, and exits with status
+5. The run is not cancelled.
 EOF
 }
 
@@ -78,6 +88,13 @@ timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
 rescue_window_seconds="${CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS:-300}"
 # The shortest time between two waiter rounds.
 round_seconds="${CMUX_TUI_HOSTED_ROUND_SECONDS:-30}"
+# How many state reads in a row may fail before the wait ends as unreadable
+# (exit 5). A state that cannot be read is never "still running".
+unreadable_reads_limit="${CMUX_TUI_HOSTED_UNREADABLE_READS:-3}"
+if [[ ! "$unreadable_reads_limit" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_UNREADABLE_READS must be a positive integer" >&2
+  exit 2
+fi
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
@@ -239,7 +256,45 @@ trap 'exit_on_signal 129' HUP
 trap interrupt_hosted_run INT
 trap 'exit_on_signal 143' TERM
 
-request_id="${commit:0:12}-$(date +%s)-$$"
+# The run API does not return a run's inputs, so the run-name (title) carries
+# the filter: request_id is <sha12>-f<hash8>-<epoch>-<pid>, where hash8 is the
+# first 8 hex digits of the filter's git blob hash (the empty filter in full
+# mode). validate-inputs accepts [A-Za-z0-9._-]; the lookup below reads the token.
+filter_hash="$(printf '%s' "$test_filter" | git hash-object --stdin)"
+filter_hash="${filter_hash:0:8}"
+request_id="${commit:0:12}-f${filter_hash}-$(date +%s)-$$"
+
+# One open run per commit, mode and filter (2026-11-09: about 37 cmux-tui runs
+# queued for the shared Mac pool, often several for one commit). A run of this
+# commit whose title has this mode and this filter's token, and that is not
+# completed, is the run to wait on: do not dispatch a second one. The run is
+# not attached to here: it belongs to the caller that dispatched it, and this
+# script cancels its own run on Ctrl-C and --cancel-on-timeout. A failed lookup
+# only warns, so a run-list outage cannot block verification.
+open_run_lookup="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$commit" \
+  --event workflow_dispatch --limit 50 --json databaseId,status,displayTitle,url \
+  --jq '.[] | [.databaseId, .status, .displayTitle, .url] | @tsv' 2>"$temp_dir/open-run.err")" || {
+  printf 'warning: could not look for an open cmux-tui run of this commit, dispatching anyway: %s\n' \
+    "$(cat "$temp_dir/open-run.err")" >&2
+  open_run_lookup=""
+}
+while IFS=$'\t' read -r open_id open_status open_title open_url; do
+  [[ -n "$open_id" && "$open_status" != "completed" ]] || continue
+  [[ "$open_title" == "cmux-tui $mode "*" @ $commit" ]] || continue
+  open_request="${open_title#"cmux-tui $mode "}"
+  open_request="${open_request%" @ $commit"}"
+  # Full mode has no filter, so any open full run of the commit counts. A
+  # focused run counts only with this filter's token (a run dispatched before
+  # the token existed has an unknown filter and does not count).
+  if [[ "$mode" == "focused" && "$open_request" != *"-f${filter_hash}-"* ]]; then
+    continue
+  fi
+  echo "error: cmux-tui run $open_id ($open_status) already verifies $commit in $mode mode${test_filter:+ with filter $test_filter}; not dispatching a second run" >&2
+  echo "Run: $open_url" >&2
+  echo "Wait on it: glaeda-gh wait run $REPO/$open_id" >&2
+  echo "When it is done: gh run view --repo $REPO $open_id --log-failed, or gh run download --repo $REPO $open_id" >&2
+  exit 4
+done <<< "$open_run_lookup"
 
 echo "Dispatching $mode verification for $commit"
 # return_run_details makes the dispatch answer with the run it created, so
@@ -316,20 +371,39 @@ fi
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 cancel_on_interrupt=true
 
-# Re-read the run before accepting it so a branch/ref race cannot make us
-# watch a run for a different revision. The dispatch named this run, so its
-# title (run-name, with request_id) is not checked: GitHub renders it a moment
-# after the dispatch, and a run read sooner is titled only "cmux-tui".
-run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event \
-  --jq '[.headSha, .headBranch, .event] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
-if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" ]]; then
-  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
-  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+# Read the run before accepting it so a branch/ref race cannot make us accept
+# a run of a different revision. The dispatch named this run, so its title
+# (run-name, with request_id) is not checked: GitHub renders it a moment after
+# the dispatch, and a run read sooner is titled only "cmux-tui".
+#
+# GitHub can answer 404 or 500 for a few seconds after it creates a run (run
+# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so a
+# failed read is not a failure and is not retried here: the script names the
+# run, gives the wait to glaeda-gh wait run (the single poller), and checks the
+# revision again before it accepts the result or an artifact.
+run_identity_confirmed=false
+check_run_identity() {
+  local identity
+  identity="$(gh run view --repo "$REPO" "$run_id" \
+    --json headSha,headBranch,event \
+    --jq '[.headSha, .headBranch, .event] | @tsv' 2>"$temp_dir/identity.err")" || return 2
+  IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$identity"
+  if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+        "$run_event" != "workflow_dispatch" ]]; then
+    echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
+    printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+    printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+    return 1
+  fi
+  run_identity_confirmed=true
+}
+identity_status=0
+check_run_identity || identity_status=$?
+if [[ $identity_status -eq 1 ]]; then
   exit 1
+elif [[ $identity_status -eq 2 ]]; then
+  printf 'note: GitHub created run %s but could not show it yet (%s); waiting on it, its revision is checked before the result counts\n' \
+    "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" >&2
 fi
 
 echo "Run: $run_url"
@@ -396,17 +470,39 @@ exec 3<> "$watch_result_fifo"
     exec 5>&-
     rm -f "$done_fifo"
   }
+  # Reads the run's status, conclusion and attempt. A gh that has no
+  # `attempt` field refuses the whole read (cmuxterm-hq#10604: every read
+  # failed, and the script waited out its 2-hour deadline after the run had
+  # passed), so that answer is read again without it, attempt "?". A read
+  # that fails or answers no known status sets run_status to "unreadable",
+  # never to a state that means "not done yet".
   read_run_state() {
     : > "$run_state_file"
     run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
-      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
-    run_status="unknown"
-    run_conclusion="unknown"
+      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file" 2> "$run_state_err"
+    if [[ "$child_status" -ne 0 ]] && grep -q 'Unknown JSON field: "attempt"' "$run_state_err"; then
+      : > "$run_state_file"
+      run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion \
+        --jq '"\(.status)|\(.conclusion)|?"' > "$run_state_file" 2> "$run_state_err"
+    fi
+    run_status="unreadable"
+    run_conclusion=""
     run_attempt="?"
     if [[ "$child_status" -eq 0 ]]; then
       # "|", not a tab: IFS whitespace would merge the empty conclusion of a
       # queued run into one separator.
-      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
+      local status="" conclusion="" attempt=""
+      IFS='|' read -r status conclusion attempt < "$run_state_file" || true
+      case "$status" in
+        queued|in_progress|completed|waiting|requested|pending)
+          run_status="$status"
+          run_conclusion="$conclusion"
+          run_attempt="${attempt:-?}"
+          ;;
+        *) printf 'gh answered no known run status: %s\n' "$(head -c 200 "$run_state_file")" > "$run_state_err" ;;
+      esac
+    elif [[ ! -s "$run_state_err" ]]; then
+      echo "gh run view exited $child_status" > "$run_state_err"
     fi
   }
 
@@ -422,6 +518,8 @@ exec 3<> "$watch_result_fifo"
   deadline=$((SECONDS + timeout_seconds))
   waiter_log="$temp_dir/waiter.log"
   run_state_file="$temp_dir/run-state"
+  run_state_err="$temp_dir/run-state.err"
+  unreadable_reads=0
   have_glaeda=false
   command -v glaeda-gh >/dev/null 2>&1 && have_glaeda=true
   use_glaeda=$have_glaeda
@@ -447,6 +545,15 @@ exec 3<> "$watch_result_fifo"
     waiter_status=$child_status
     waited=$((SECONDS - round_start))
     read_run_state
+    if [[ "$run_status" == "unreadable" ]]; then
+      unreadable_reads=$((unreadable_reads + 1))
+      echo "warning: could not read the run's state (${unreadable_reads} of ${unreadable_reads_limit} in a row): $(tr '\n' ' ' < "$run_state_err" | head -c 300)" >&2
+      if (( unreadable_reads >= unreadable_reads_limit )); then
+        break
+      fi
+    else
+      unreadable_reads=0
+    fi
 
     # A run that ended other than in success may be re-run by the CI rescue:
     # cancelled (the run waited for a busy owned pool) or failed (a runner
@@ -494,7 +601,9 @@ exec 3<> "$watch_result_fifo"
     fi
   done
   # The deadline came while a re-run may still follow: that is not a result.
-  if [[ -n "$ended_since" ]]; then
+  if [[ "$run_status" == "unreadable" ]]; then
+    run_conclusion="$(tr '\n\t' '  ' < "$run_state_err" | head -c 300)"
+  elif [[ -n "$ended_since" ]]; then
     run_status="ended-awaiting-rerun"
   fi
   set -e
@@ -511,6 +620,15 @@ if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion <
   watch_owner_pid=""
   [[ "$run_status" == "completed" ]] && run_finished=true
 fi
+# The run's state could not be read: that is not "still running". Say so and
+# leave the run alone.
+if [[ "$run_status" == "unreadable" ]]; then
+  cancel_on_interrupt=false
+  stop_owned_process watch_owner_pid
+  echo "error: could not read hosted run $run_id's state ${unreadable_reads_limit} times in a row (${run_conclusion}); not cancelled: $run_url" >&2
+  echo "Read it with: glaeda-gh status run $REPO/$run_id --jobs (or wait on it: glaeda-gh wait run $REPO/$run_id)" >&2
+  exit 5
+fi
 # The deadline came with the run not done. The macOS queue can be longer than
 # the wait, so by default the run keeps going and the caller waits on it; it is
 # not cancelled.
@@ -524,11 +642,25 @@ if [[ "$run_finished" != true ]]; then
   fi
   echo "Hosted verification is still running (run ${run_status:-still running}) after the wait of ${timeout_seconds}s: $run_url" >&2
   echo "still running, wait with glaeda-gh wait run $REPO/$run_id" >&2
-  echo "Do not run this script again for this commit: that starts a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
+  echo "Running this script again for this commit and filter while the run is open exits 4 without a second run. When it is done: gh run view --repo $REPO $run_id --log-failed, or gh run download --repo $REPO $run_id" >&2
   exit 3
 fi
 cancel_on_interrupt=false
 exec 3>&-
+
+# The first read of the run failed: check its revision now, before its result
+# or an artifact counts.
+if [[ "$run_identity_confirmed" != true ]]; then
+  identity_status=0
+  check_run_identity || identity_status=$?
+  if [[ $identity_status -eq 2 ]]; then
+    printf 'error: could not read run %s to confirm its revision (%s); its result is not accepted: %s\n' \
+      "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" "$run_url" >&2
+    exit 1
+  elif [[ $identity_status -ne 0 ]]; then
+    exit 1
+  fi
+fi
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2

@@ -321,6 +321,55 @@ function readVegaLibrary(): string {
     .join("\n;\n");
 }
 
+const SKIPPED_ENTRY = "\0cmux-gallery/skipped-entry";
+const REGISTRY = path.join(webviewsRoot, "src/gallery/registry.ts");
+
+/** The entry files a build of only `ids` compiles, or undefined for every entry: an id with no file builds
+ * nothing for it (a state the base lacks), and an entry that embeds the mock app (`mock-app.html`, which
+ * loads other entries by id) needs them all. */
+export function entrySubsetFiles(ids: string[], root = path.join(webviewsRoot, "src")): Set<string> | undefined {
+  const index = readEntryIndex(root);
+  const files = new Set<string>();
+  for (const id of ids) {
+    const file = index[id];
+    if (!file) continue;
+    const absolute = path.join(webviewsRoot, file);
+    if (fs.readFileSync(absolute, "utf8").includes("mock-app.html")) return undefined;
+    files.add(absolute);
+  }
+  return files;
+}
+
+/** `CMUX_GALLERY_ENTRIES=a,b bun run gallery:build` compiles only those entries' files: every other entry the
+ * registry's glob names loads as an empty module, so nothing it imports is built. gallery health's base replay
+ * renders a shard's few red states, and the whole gallery (3,224 modules) took ~80 s of each judged shard
+ * (2026-11-11). A file another module imports (states.tsx imports CloudStartView.gallery) is still built for that
+ * importer: only the registry's own imports are swapped. Unset, empty or naming a mock-app entry: everything. */
+export function galleryEntrySubset(entries = process.env.CMUX_GALLERY_ENTRIES): Plugin {
+  const ids = (entries ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const keep = ids.length ? entrySubsetFiles(ids) : undefined;
+  return {
+    name: "cmux-gallery-entry-subset",
+    apply: "build",
+    enforce: "pre",
+    buildStart() {
+      if (keep) this.info(`gallery entry subset: ${keep.size} of the entry files (${ids.join(",")})`);
+    },
+    async resolveId(source, importer, options) {
+      if (!keep || !importer || importer.split("?")[0] !== REGISTRY || !/\.gallery\.tsx?$/.test(source)) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved || keep.has(resolved.id.split("?")[0])) return resolved;
+      return `${SKIPPED_ENTRY}?${encodeURIComponent(resolved.id)}`;
+    },
+    load(id) {
+      return id.startsWith(SKIPPED_ENTRY) ? "export default undefined;" : null;
+    },
+  };
+}
+
 export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
@@ -388,21 +437,34 @@ export function galleryModules(): Plugin {
       });
     },
     handleHotUpdate({ file, server, modules }) {
+      const source = /\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`);
+      // Only a page that loaded the combined sheet (the gallery's pane) needs the sheet list. The
+      // agent pane and the app's live pages import each sheet themselves, so a save there must not
+      // wait on it: deriving the list runs bundle.mjs over dev.tsx, about 600 ms, and the first
+      // stylesheet save ran it synchronously, inside Vite's update (hot-reload-proof.mjs: 676 ms to
+      // shown, against 49 ms for the next save of the same sheet). With no combined sheet loaded the
+      // list is dropped instead, so its next load derives it from the files as they are then.
+      const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+      if (!combined) {
+        if (source) {
+          paneSheets = undefined;
+          if (rederiving) rederiveAgain = true;
+        }
+        return undefined;
+      }
       // A saved source may add or drop a stylesheet import: the list is derived again after this
       // update, and the combined sheet reloads when it changed. A save of a pane stylesheet updates
       // the combined sheet in place.
-      if (/\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`)) {
+      if (source) {
         rederivePaneSheets(() => {
-          const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
-          if (!combined) return;
-          server.moduleGraph.invalidateModule(combined);
+          const loaded = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+          if (!loaded) return;
+          server.moduleGraph.invalidateModule(loaded);
           server.ws.send({ type: "full-reload" });
         });
         return undefined;
       }
       if (!agentPaneStylesheets().includes(file)) return undefined;
-      const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
-      if (!combined) return undefined;
       server.moduleGraph.invalidateModule(combined);
       return [...modules, combined];
     },

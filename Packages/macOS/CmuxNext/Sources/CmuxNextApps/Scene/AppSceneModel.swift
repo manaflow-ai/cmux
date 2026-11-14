@@ -14,7 +14,7 @@ extension AppSceneInteraction {
     public func reload() {}
 }
 
-/// The observable mirror of one mounted contribution, for `AppSceneView`.
+/// The observable mirror of one mounted contribution, for `AppSceneHostingView`.
 /// Written only by the supervisor's scene stream for the mount (`apps-scene`);
 /// hover and press stay in the views.
 @MainActor
@@ -32,6 +32,9 @@ public final class AppSceneModel {
 
     public private(set) var scene = AppScene()
     public var status: Status = .loading
+    /// Why the app's last saved script did not load while this view kept drawing the script before
+    /// it (`apps-reload-failed`); nil once a scene of a script that loaded replaces it.
+    public var reloadFailure: String?
     /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
     /// scene changed since it last drew, without comparing scenes.
     @ObservationIgnored public private(set) var revision = 0
@@ -60,6 +63,8 @@ public final class AppSceneModel {
     public func reset() {
         scene = AppScene()
         status = .loading
+        // A new scene comes from a script that loaded: the refused save is behind it.
+        reloadFailure = nil
         revision &+= 1
     }
 

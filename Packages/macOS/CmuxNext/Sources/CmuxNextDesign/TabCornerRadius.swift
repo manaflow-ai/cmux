@@ -25,10 +25,20 @@ extension Metrics {
 
     /// The corner radius of a titled window on macOS `macOSMajor`, as AppKit draws it: 16 pt from
     /// macOS 26 on (measured on 27: titled, full-size content and every toolbar style alike),
-    /// 10 pt on macOS 11 through 15. Lawrence 2026-11-07: "we are not concentric with macos window
+    /// 10 pt on macOS 11 through 15 (measured on 15.7.4). Lawrence 2026-11-07: "we are not concentric with macos window
     /// ... make it all concentric with macos windows by default".
     public static func standardWindowCornerRadius(macOSMajor: Int) -> CGFloat {
         macOSMajor >= 26 ? 16 : 10
+    }
+
+    /// The corner radius AppKit draws for a titled window that reports `reported` (`_cornerRadius`,
+    /// nil when it reports none) on macOS `macOSMajor`. From macOS 26 the reported value is the drawn
+    /// one (16 pt, more under a toolbar). Before it, AppKit reports 12 pt but draws a 10 pt corner
+    /// (measured from the window's pixels on macOS 15.7.4, 2026-11-08), so the drawn
+    /// ``standardWindowCornerRadius(macOSMajor:)`` wins there.
+    public static func drawnWindowCornerRadius(reported: CGFloat?, macOSMajor: Int) -> CGFloat {
+        guard macOSMajor >= 26, let reported else { return standardWindowCornerRadius(macOSMajor: macOSMajor) }
+        return reported
     }
 
     /// The radius of the rounded card whose top-leading corner a top-row pane's tab strip sits
@@ -48,14 +58,24 @@ extension Metrics {
     /// pixel grid.
     public static var tabStripCardInset: CGFloat { PaneChromeMetrics.current.tabGap(scale: 2) }
 
-    /// Corner radius of every tab pill, the strip's + and a tab's hover card: concentric with
-    /// the rounded card the strip sits in (``tabStripCardRadius``, else the one outer
-    /// ``cornerRadius`` where the strip's corner is square or outlined), that radius less
-    /// ``tabStripCardInset`` (``ConcentricCorners``), at most half the tab's height. The
-    /// defaults (8 pt outer, the omnibar's, 2 pt gap) make a 6 pt tab. The sidebar's workspace
-    /// rows read this radius too, so a row is as round as a tab.
+    /// Corner radius of every tab pill, the strip's + and a tab's hover card: Chrome's tab radius
+    /// on the tab's height (``chromeRowCornerRadius(height:)``; Lawrence 2026-11-11, "same roundness
+    /// as chrome"), whose card rounds from it (``chromeRowConcentricCardRadius(windowCornerRadius:)``),
+    /// so the pill stays concentric with it; the flush corner's strip sits on the frame, above its card.
+    /// With a radius the person set, Floating Panes (``usesChromeRowCorner`` false) or a card that does
+    /// not round from the tabs (no gutter), concentric with the rounded card the strip sits in
+    /// (``tabStripCardRadius``, else the one outer ``cornerRadius`` where the strip's corner is square
+    /// or outlined): that radius less ``tabStripCardInset`` (``ConcentricCorners``). At most half the
+    /// tab's height. The sidebar's workspace rows and the omnibar read this radius too, so a row and
+    /// the bar are as round as a tab.
     public static var tabCornerRadius: CGFloat {
         let corners = Metrics.corners
+        // Chrome's ratio at every density, whether or not the card rounds from the tabs (Lucas 2026-11-13: the same
+        // roundness, in proportion, at every density; a large density's card capped at the window's radius made the
+        // tabs and rows fall back to the card's nested corner, flatter than the ratio).
+        if usesChromeRowCorner {
+            return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeRowCornerRadius(height: tabHeight))
+        }
         let outer = tabStripCardRadius ?? corners.outer
         return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),
                               radius: corners.nested(in: outer, inset: tabStripCardInset))

@@ -1,6 +1,6 @@
 [package]
 name = "cmux-rd-host"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -34,6 +34,18 @@ openh264 = { version = "0.9", default-features = false, features = ["source"], o
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
+
+[target.'cfg(windows)'.dependencies]
+# The Windows host uses the stable user32/gdi32 capture path and SendInput.  The
+# DirectX and Media Foundation feature groups are kept here for the phase-3
+# backend seams; the first Windows runner uses GDI readback plus OpenH264 while
+# hardware MFT selection is probed at runtime.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
 
 
 [build-dependencies]

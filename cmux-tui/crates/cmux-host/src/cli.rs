@@ -27,7 +27,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | update status|check|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -314,6 +314,12 @@ fn logs_verb(args: &[String]) -> u8 {
 #[cfg(target_os = "linux")]
 fn run_agent(mut cfg: Config) -> u8 {
     use crate::agent::{ActionLog, Agent};
+    // A machine an image made takes the channel's build first, within a bound, so
+    // its first Cloud report (ready) and its session host come from that build: before
+    // anything starts. After a flip this execs the unit's command and never returns.
+    if !crate::updater::first_ready::run(&cfg.paths) {
+        return code(1);
+    }
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
     let install = install_layout(cfg.server_mode);

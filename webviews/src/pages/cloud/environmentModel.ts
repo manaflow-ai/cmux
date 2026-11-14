@@ -28,8 +28,11 @@ export type EnvironmentSecret = { name: string; updated_at: string; hosts?: stri
  *  secret without hosts everywhere else). Only `value` may be left out, which keeps an existing secret's
  *  sealed value and changes where it goes. */
 export type SecretWrite = { name: string; value?: string; hosts?: string[]; header?: SecretHeader };
+/** A variable row being edited. `id` is the editor's own key for the row (`rowId`), so per-row state stays with
+ *  its row when a row above is removed; it never goes to the platform (`environmentPatch` leaves it out). */
+export type VariableDraft = EnvironmentVariable & { id?: string };
 /** A secret row being edited. `hosts` is the field's text as typed; `header` absent means the default. */
-export type SecretDraft = EnvironmentVariable & { hosts?: string; header?: SecretHeader };
+export type SecretDraft = VariableDraft & { hosts?: string; header?: SecretHeader };
 export type EnvironmentPatch = Partial<Pick<CloudEnvironment, "name" | "setup_script" | "env_vars" | "network">> & {
   set_secrets?: SecretWrite[];
   remove_secrets?: string[];
@@ -48,7 +51,7 @@ export type EnvironmentOpen = {
 export type EnvironmentDraft = {
   name: string;
   script: string | null;
-  variables: EnvironmentVariable[];
+  variables: VariableDraft[];
   secrets: SecretDraft[];
   network: CloudEnvironment["network"];
 };
@@ -154,13 +157,28 @@ export function droppedRoutes(patch: EnvironmentPatch, reply: CloudEnvironment):
     .map((entry) => entry.name);
 }
 
+let rows = 0;
+/** A new row's id: unique in this page, client-side only. */
+export const rowId = () => `row-${++rows}`;
+/** Gives every row an id. A row without one takes the id of the row at its place in `previous` (an edit that
+ *  restates the list keeps each row's state), or a new one. */
+export function withRowIds<Row extends { id?: string }>(next: Row[], previous: readonly { id?: string }[] = []): Row[] {
+  const taken = new Set(next.map((row) => row.id).filter(Boolean));
+  return next.map((row, at) => {
+    if (row.id) return row;
+    const kept = previous[at]?.id;
+    return { ...row, id: kept && !taken.has(kept) ? kept : rowId() };
+  });
+}
+
 export function environmentDraft(environment: CloudEnvironment): EnvironmentDraft {
   return {
     name: environment.name,
     script: environment.setup_script,
-    variables: environment.env_vars.map((row) => ({ ...row })),
+    variables: environment.env_vars.map(({ name, value }) => ({ id: rowId(), name, value })),
     // Only names and delivery targets: a value is never read from the server, even one sent by mistake.
     secrets: environment.secrets.map(({ name, hosts, header }) => ({
+      id: rowId(),
       name,
       value: "",
       ...(hosts?.length ? { hosts: hosts.join(", ") } : {}),
@@ -199,7 +217,9 @@ export function environmentPatch(original: CloudEnvironment, draft: EnvironmentD
   const patch: EnvironmentPatch = {};
   if (!original.is_default && draft.name.trim() !== original.name) patch.name = draft.name.trim();
   if (draft.script !== original.setup_script) patch.setup_script = draft.script;
-  if (JSON.stringify(draft.variables) !== JSON.stringify(original.env_vars)) patch.env_vars = draft.variables;
+  // Rows' ids are the editor's own: never compared, never sent.
+  const variables = draft.variables.map(({ name, value }) => ({ name, value }));
+  if (JSON.stringify(variables) !== JSON.stringify(original.env_vars)) patch.env_vars = variables;
   const network = {
     ...draft.network,
     domains: [...new Set(draft.network.domains.map((domain) => domain.trim()).filter(Boolean))],

@@ -2,8 +2,8 @@
 //! terminal), for the Chief and scripts:
 //!
 //! - `cmux terminal list --agents`: the terminals that run an agent, with
-//!   harness, status (blocked, done, working, idle, unknown; `state` keeps
-//!   the older busy, idle, waiting-for-input, ended), age, workspace and
+//!   harness, status (blocked, done, working, idle, unknown; `state` is a
+//!   deprecated alias with the same word, `ended` for an ended session), age, workspace and
 //!   title (roster.rs), plus the agent's name, tab, pane and last reply
 //!   (roster_names.rs).
 //! - `cmux terminal <t> send --text <msg> [--wait idle|prompt|none]
@@ -262,7 +262,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     "cmux: the terminal was still busy after {}; the output so far is above",
                     humantime(request.timeout)
                 );
-            } else if receipt["state"] == "waiting-for-input" {
+            } else if receipt["state"] == roster::AgentState::Blocked.as_str() {
                 eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
             } else if receipt.get("matched") == Some(&Value::Bool(false)) {
                 eprintln!("cmux: the command finished without output that matches --pattern");

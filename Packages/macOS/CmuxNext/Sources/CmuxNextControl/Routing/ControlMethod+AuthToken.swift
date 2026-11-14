@@ -23,14 +23,17 @@ public struct AuthTokenGrant: Sendable, Equatable {
 
 /// Why the mint gave no token: `code` is the socket error's code (`not_signed_in`, `no_team`,
 /// `invalid_params`, `forbidden`, `managed`, `client_too_old`, `unavailable`, `bad_reply`) and `detail`
-/// the owner's refusal code or the minimum app version.
+/// the owner's refusal code or the minimum app version. `team` is the backend team the mint was for, when known:
+/// with no `--team` it is the app's own team, which the refusal names (never "-").
 public struct AuthTokenRefusal: Error, Sendable, Equatable {
     public var code: String
     public var detail: String?
+    public var team: String?
 
-    public init(code: String, detail: String? = nil) {
+    public init(code: String, detail: String? = nil, team: String? = nil) {
         self.code = code
         self.detail = detail
+        self.team = team
     }
 }
 
@@ -88,7 +91,8 @@ extension ControlMethod {
         return .object(fields)
     }
 
-    /// A refusal as this socket's error, with its message in the person's language.
+    /// A refusal as this socket's error, with its message in the person's language. It names the team the mint
+    /// was for: the refusal's own, else the asked `team`.
     static func authTokenError(_ refusal: AuthTokenRefusal, team: String?) -> ControlError {
         let detail: JSONValue? = refusal.detail.map { ["detail": .string($0)] }
         let message: String = switch refusal.code {
@@ -99,7 +103,7 @@ extension ControlMethod {
         case "invalid_params":
             ControlStrings.text("control.authToken.invalidTeam", "--team takes a cmux team id: team_ and 20 hex digits.")
         case "forbidden":
-            ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", team ?? "-")
+            ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", refusal.team ?? team ?? "-")
         case "client_too_old":
             ControlStrings.text("control.authToken.clientTooOld", "This team needs a newer cmux. Install the newest cmux, then run cmux auth token again.")
         case "managed":

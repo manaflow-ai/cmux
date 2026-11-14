@@ -112,6 +112,35 @@ fn refused(reason: &str, message: impl Into<String>) -> RpcError {
     RpcError::invalid_params(message.into()).with_data(json!({"reason": reason}))
 }
 
+/// The plan approvals a build call is answering now, by `session:permission`: a second call for
+/// the same approval is refused while the first starts its builds, so two clicks (or two
+/// devices) never start two sets of worktrees.
+static CLAIMS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A build call's hold on one plan approval ([`claim`]), released when dropped.
+#[derive(Debug)]
+pub struct PlanClaim(String);
+
+impl Drop for PlanClaim {
+    fn drop(&mut self) {
+        CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+    }
+}
+
+/// Holds plan approval `permission_id` of `session_id` for one build call, or refuses
+/// (`plan_build.in_progress`) while another call holds it.
+pub fn claim(session_id: &str, permission_id: &str) -> Result<PlanClaim, RpcError> {
+    let key = format!("{session_id}:{permission_id}");
+    if !CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone()) {
+        return Err(refused(
+            "plan_build.in_progress",
+            "another call is answering this plan build right now",
+        ));
+    }
+    Ok(PlanClaim(key))
+}
+
 /// The plan an ask approves, as the card reads it (webviews `direct.ts` `permissionPlan`): one
 /// acpmux attached (`_meta.acpmux.plan.markdown`), else for Claude Code's ExitPlanMode or a
 /// `switch_mode` ask its input's `plan`, else its text content. None for any other ask.
@@ -238,22 +267,38 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
 }
 
 /// The status a build shows: working while its harness runs a turn or waits on an answer, and
-/// before its first turn ended (its first prompt may wait for a run slot of the parent).
+/// before its first turn ended (its first prompt may wait for a run slot of the parent). Once idle,
+/// its last turn's own status (`last_turn.status`): done only for a completed turn, stopped
+/// ("closed") for a cancelled one, else failed.
 pub(crate) fn build_status(
     status: SessionStatus,
-    turn_ended: bool,
+    last_turn: Option<&str>,
     waits_for_slot: bool,
 ) -> &'static str {
     match status {
         SessionStatus::Running | SessionStatus::Waiting => "working",
         SessionStatus::Disconnected => "failed",
         SessionStatus::Closed => "closed",
-        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot || !turn_ended => "working",
-        SessionStatus::Idle | SessionStatus::Ready => "done",
+        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot => "working",
+        SessionStatus::Idle | SessionStatus::Ready => match last_turn {
+            None => "working",
+            Some("completed") => "done",
+            Some("cancelled") => "closed",
+            Some(_) => "failed",
+        },
     }
 }
 
 impl Hub {
+    /// Stops the plan's own turn `turn_id` once its approval was answered for a build elsewhere:
+    /// a harness may take the rejected plan as a tool denial and plan on, or ask again. Only
+    /// that turn: a later one the person started runs.
+    pub async fn stop_plan_turn(self: &Arc<Self>, session: &Arc<Session>, turn_id: Option<&str>) {
+        if let Some(turn_id) = turn_id {
+            self.cancel_turn(session, turn_id).await;
+        }
+    }
+
     /// The plan of `session`'s pending ask `permission_id`, with the ask itself.
     pub(crate) fn pending_plan(
         &self,
@@ -372,7 +417,11 @@ impl Hub {
                 let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
                 Arc::make_mut(&mut meta.plan_builds).push(record);
             }
-            self.save_meta(parent);
+            // Durable before the card's `started` record is appended, so a card that survives a
+            // restart always finds its builds for compare and keep.
+            if let Err(e) = self.save_meta_answered(parent) {
+                tracing::warn!(session = %parent.id, "plan build record not saved: {}", e.message);
+            }
         }
         (started, failed)
     }
@@ -405,7 +454,11 @@ impl Hub {
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
-                "status": build_status(m.status, m.last_turn.is_some(), self.waits_for_slot(&m)),
+                "status": build_status(
+                    m.status,
+                    m.last_turn.as_ref().map(|t| t.get("status").and_then(Value::as_str).unwrap_or("")),
+                    self.waits_for_slot(&m),
+                ),
                 "archived": archived,
                 "branch": branch,
                 "base": base,

@@ -410,6 +410,43 @@ export const mockSessions: MockSession[] = [
     ],
   },
   {
+    // The person corrected the agent three times before moving on, and acpmux offered the prompt
+    // coach: the page asks the mock for the rewrite, and its card lands under the last turn
+    // (conversation/PromptCoachCard.tsx).
+    sessionId: "mock-session-coach",
+    title: "Add a dark mode toggle",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9600,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done: the toggle is in Settings > Appearance and follows the system until set.",
+    history: (at) => [
+      { ago: at + 240_000, mux: "user_message", msg: { text: "Add a dark mode toggle." } },
+      { ago: at + 240_000, mux: "turn_started" },
+      { ago: at + 230_000, update: text("Added a toggle to the header.") },
+      { ago: at + 230_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 200_000, mux: "user_message", msg: { text: "No, put it in Settings > Appearance, not the header." } },
+      { ago: at + 200_000, mux: "turn_started" },
+      { ago: at + 190_000, update: text("Moved it to Settings > Appearance.") },
+      { ago: at + 190_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 160_000, mux: "user_message", msg: { text: "It should follow the system until someone sets it." } },
+      { ago: at + 160_000, mux: "turn_started" },
+      { ago: at + 150_000, update: text("It now follows the system until set.") },
+      { ago: at + 150_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 120_000, mux: "user_message", msg: { text: "And use the existing theme tokens, no new colours." } },
+      { ago: at + 120_000, mux: "turn_started" },
+      {
+        ago: at + 20_000,
+        update: text("Done: the toggle is in Settings > Appearance and follows the system until set."),
+      },
+      { ago: at + 20_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 19_000, mux: "coach_offer", msg: { coachId: "mock-coach-1", corrections: 3 } },
+    ],
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",
@@ -1069,6 +1106,23 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
     configOptions: [...sessionOptions(session.harness === "codex"), ...(extraOptions ?? [])],
+  };
+}
+
+/// Listed session `index` of a large list (bench/update-one.bench.ts): an idle finished chat with a
+/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at every
+/// size from 100 (the first hundred hold them), so the lists the home draws stay the same as it grows.
+export function listedSession(index: number, now: number): Record<string, unknown> {
+  const waiting = index < 100 && index % 20 === 7;
+  return {
+    ...newSessionSummary(`listed-${index}`, `~/code/listed-${index % 40}`, now - (index + 10) * 60_000),
+    title: `Listed chat ${index}`,
+    status: waiting ? "waiting" : "idle",
+    indicator: waiting ? "input" : "done",
+    inputSince: waiting ? now - index * 1000 : null,
+    unread: index % 10 === 3,
+    turnCount: 1 + (index % 7),
+    usageStats: { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now },
   };
 }
 

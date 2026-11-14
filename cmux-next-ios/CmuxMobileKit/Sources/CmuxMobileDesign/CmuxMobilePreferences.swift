@@ -10,6 +10,9 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
+        /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
+        /// terminal's Jump to bottom row above the composer.
+        public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
         /// Settings → Transport → Ultra Mode on Cellular; read at each dial (`FFIMacLinkDialer`).
         public static let ultraOnCellular = "cmuxMobile.settings.ultraOnCellular"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
@@ -27,6 +30,7 @@ public enum CmuxMobilePreferences {
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
+    public static let defaultTerminalJumpToBottom = true
     public static let defaultDismissKeyboardAfterSend = true
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
@@ -45,6 +49,12 @@ public enum CmuxMobilePreferences {
         defaults.object(forKey: Key.keyClicks) as? Bool ?? defaultKeyClicks
     }
 
+    public static func terminalJumpToBottom(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalJumpToBottom) == nil
+            ? defaultTerminalJumpToBottom : defaults.bool(forKey: Key.terminalJumpToBottom)
+    }
+
     /// Typed characters show at once over a slow link, underlined until the
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
@@ -55,10 +65,19 @@ public enum CmuxMobilePreferences {
         defaults.object(forKey: Key.dismissKeyboardAfterSend) as? Bool ?? defaultDismissKeyboardAfterSend
     }
 
-    /// Whether a message sent while the agent is still working steers it
-    /// (acpmux `_meta.acpmux.steer`) rather than queueing after the turn.
+    /// Whether prompt queueing is off: Queue (send after this turn) steers the running turn too
+    /// (acpmux `_meta.acpmux.steer`), as the Mac's ⌘Return does then ([`steersMidTurn`]).
     public static func steersFollowUps(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.string(forKey: Key.followUp) == steerFollowUp
+    }
+
+    /// Whether a message sent while the agent works steers it, as the Mac's composer decides:
+    /// Send and Return steer the turn (Leo, 2026-11-05: "WHY THE F*** ARE MY MESSAGES BEING
+    /// QUEUED INSTEAD OF STEERING"); only Queue (send after this turn), the Mac's ⌘Return, waits
+    /// for the turn, and with queueing off it steers too. An agent that cannot steer still runs
+    /// it after the turn.
+    public static func steersMidTurn(queue: Bool, _ defaults: UserDefaults = .standard) -> Bool {
+        !queue || steersFollowUps(defaults)
     }
 
     /// The Mac's Toggle Prompt Queueing, from a chat: queueing on (a message sent mid-turn waits

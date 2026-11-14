@@ -5,8 +5,8 @@ import WebKit
 /// The WebKit view of every first-party page (DESKTOP-FEEL, R139): the host half of the shared
 /// desktop layer (the web half is webviews/src/pages/shared/desktop.ts). A page is app chrome:
 /// - no pinch or smart magnification (the UI scale comes from the app);
-/// - the native context menu offers only Copy, and only on a selection (a page that draws its own
-///   menu cancels `contextmenu`, so WebKit shows none);
+/// - the native context menu offers only Copy, on a selection, and Copy Link, on a link (a page that
+///   draws its own menu cancels `contextmenu`, so WebKit shows none);
 /// - Select All acts only inside the focused field, never over the whole page.
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
@@ -17,8 +17,9 @@ final class PageWKWebView: WKWebView {
     /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
     /// read per click, so a pooled view rebound to another page answers for that page.
     var pageAcceptsFirstMouse: (() -> Bool)?
-    /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
-    static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
+    /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection) and
+    /// Copy Link (only on a link; Leo, 2026-11-09: "feel like this should have a copy link button").
+    static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy", PageSelectionMenu.copyLinkItem]
 
     /// Selects the text of the focused field; does nothing when no field has focus.
     static let selectAllScript = """
@@ -59,7 +60,8 @@ final class PageWKWebView: WKWebView {
         }
     }
 
-    /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
+    /// When a real key or mouse event last reached this view (`systemUptime`), or a menu choice, a drop or,
+    /// with VoiceOver running, a VoiceOver press (``noteAccessibilityPress(at:)``): a page call shortly
     /// after it is backed by the person's gesture (``hasRecentUserGesture(within:)``). Page script
     /// cannot set it.
     private(set) var lastUserEventUptime: TimeInterval?
@@ -82,6 +84,21 @@ final class PageWKWebView: WKWebView {
     /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
     func noteNativeMenuSelection(at uptime: TimeInterval) {
         noteUserActivation(at: uptime)
+    }
+
+    /// Whether VoiceOver runs now (read per press; tests stand in for it).
+    var isVoiceOverRunning: @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }
+
+    /// A trusted click reached the page with no key or mouse event behind it that this view saw: a VoiceOver
+    /// press (AXPress), which WebKit's web process turns into a user-agent click (``PageAccessibilityPress``).
+    /// It backs the page call it leads to, with a mouse event's expiry, only while VoiceOver runs: page
+    /// script cannot make a trusted click, and the press script's handler is out of its reach.
+    /// Returns whether it counted.
+    @discardableResult
+    func noteAccessibilityPress(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard isVoiceOverRunning() else { return false }
+        noteUserActivation(at: uptime)
+        return true
     }
 
     /// Drops the recorded activation and the opened menu: the view now shows another document
@@ -128,10 +145,28 @@ final class PageWKWebView: WKWebView {
     /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
     var onBecameFirstResponder: (() -> Void)?
 
+    /// A page in a strip of chrome that never takes the keys (the bookmarks bar): a click acts in
+    /// the page while the browser page or the omnibar keeps the focus, as a native button's would.
+    var refusesKeyFocus = false
+
     override func becomeFirstResponder() -> Bool {
+        // AppKit asks before a click moves the focus here; a refusal keeps the focus where it was.
+        if refusesKeyFocus { return false }
         let became = super.becomeFirstResponder()
         if became { onBecameFirstResponder?() }
         return became
+    }
+
+    /// A page inside a native scroll view that never scrolls itself (a sidebar chat history block): a wheel or trackpad
+    /// scroll over it goes to that scroll view in the same event, momentum and phases intact, as over a native row.
+    var passesScrollWheel = false
+
+    override func scrollWheel(with event: NSEvent) {
+        if passesScrollWheel, let scrollView = enclosingScrollView {
+            scrollView.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
@@ -140,6 +175,10 @@ final class PageWKWebView: WKWebView {
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
+    /// A middle click is the person's too (the bookmarks bar opens a link in a background tab on it).
+    override func otherMouseDown(with event: NSEvent) { noteUserEvent(event); super.otherMouseDown(with: event) }
+    /// The bar opens on the release: a press held past the gesture window still opens.
+    override func otherMouseUp(with event: NSEvent) { noteUserEvent(event); super.otherMouseUp(with: event) }
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
@@ -174,7 +213,7 @@ final class PageWKWebView: WKWebView {
         super.didCloseMenu(menu, with: event)
     }
 
-    /// Removes every item but Copy (and the separators around removed items).
+    /// Removes every item but Copy and Copy Link (and the separators around removed items).
     static func keepDesktopItems(in menu: NSMenu) {
         for item in menu.items.reversed() where !keptMenuItems.contains(item.identifier?.rawValue ?? "") {
             menu.removeItem(item)
@@ -254,6 +293,10 @@ final class PageWKWebView: WKWebView {
     var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        // A drop is the person's own act (page script cannot make an `NSDraggingInfo`), and the drag
+        // that led to it ran in AppKit's loop, past the page's mouse events: it backs the page call it
+        // causes (a link dropped on the bookmarks bar, a row dragged longer than the gesture window).
+        noteUserActivation(at: ProcessInfo.processInfo.systemUptime)
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {

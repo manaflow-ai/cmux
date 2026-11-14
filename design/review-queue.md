@@ -28,7 +28,7 @@ moves through them and answers this Mac's approvals and pull requests without op
   shortcut on each, and its detail. A question shows "Answer in its chat": its card there asks the
   whole question. Other rows keep that slot reserved at height 0, so moving the cursor moves
   nothing else.
-- Pull request rows show Accept and Request changes. Each sends its verdict at once; acpmux records no comment, so the row asks for none, and what should change is said in the chat.
+- Pull request rows show Accept and Request changes. Request changes opens a comment box in the row.
 - Under the list: the key hints, the machines that did not answer the read, and Export audit.
 - There are no borders: the selected row is one tonal step up.
 
@@ -89,7 +89,7 @@ also covers 300 asks, an unreached machine, loading, empty and older.
 - The relay allowlist lists these methods, with the params shown:
   - `_acpmux/review_queue`: `localOnly`, `limit`
   - `_acpmux/audit`: `since`, `until`, `sessionId`, `limit`, `cursor`
-  - `_acpmux/review_verdict`: `prUrl`, `sessionId`, `verdict` (acpmux ignores a `comment`, so the page sends none)
+  - `_acpmux/review_verdict`: `prUrl`, `sessionId`, `verdict`, `comment`
 
   `_acpmux/review_verdict` requires a gesture, and it follows the source rule (`source_scoped`):
   for a chat outside the pane's scope it takes the click's scope credit, so a click spent attaching

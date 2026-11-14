@@ -170,14 +170,33 @@ async fn pull_requests_wait_for_a_verdict_while_their_turn_is_not_running() {
     // The old pull request left the index; the running one stays for later.
     assert_eq!(hub.review_index.sizes().1, 2);
     assert!(
-        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, true).is_err()
+        hub.record_review_verdict(&idle, "https://github.com/o/r/pull/99", true, None, true)
+            .is_err()
     );
-    let entry = hub.record_review_verdict(&idle, url, false, true).unwrap();
+    let entry = hub.record_review_verdict(&idle, url, false, None, true).unwrap();
     assert_eq!(entry["decision"], json!({"kind": "changes"}));
     assert!(hub.review_queue_local(now).0.is_empty());
     let all = hub.audit.all().unwrap();
     assert_eq!((all[0]["kind"].clone(), all[0]["prUrl"].clone()), (json!("review"), json!(url)));
     assert_eq!(all[0]["answeredBy"], json!({"person": true, "via": "app"}));
+}
+
+/// Request changes keeps its comment in the audit entry, secrets masked, so the trail says what
+/// was asked for; the chat gets it as a prompt (`server/review_queue.rs`).
+#[tokio::test]
+async fn a_changes_verdict_keeps_its_comment_masked() {
+    let hub = hub();
+    let now = now_ms();
+    let url = "https://github.com/o/r/pull/7";
+    let s = hub.insert_test_session(meta("a", "idle", &[url], now - 60_000));
+    let token = "ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k";
+    let comment = format!("Add a test for the empty case.\nAnd drop {token} from the fixture.");
+    let entry = hub.record_review_verdict(&s, url, false, Some(&comment), true).unwrap();
+    assert_eq!(entry["decision"]["kind"], "changes");
+    let kept = entry["decision"]["comment"].as_str().unwrap();
+    assert!(kept.starts_with("Add a test for the empty case.\nAnd drop "), "{kept}");
+    assert!(!kept.contains("aZ3kQ9"), "{kept}");
+    assert_eq!(hub.audit.all().unwrap()[0]["decision"], entry["decision"]);
 }
 
 #[tokio::test]
@@ -188,7 +207,7 @@ async fn a_verdict_leaves_the_same_pull_request_of_another_session_queued() {
     let a = hub.insert_test_session(meta("a", "idle", &[url], now - 60_000));
     hub.insert_test_session(meta("b", "idle", &[url], now - 60_000));
     assert_eq!(hub.review_queue_local(now).0.len(), 2);
-    hub.record_review_verdict(&a, url, true, true).unwrap();
+    hub.record_review_verdict(&a, url, true, None, true).unwrap();
     let (items, _) = hub.review_queue_local(now);
     let sessions: Vec<_> = items.iter().map(|i| i["sessionId"].clone()).collect();
     assert_eq!(sessions, vec![json!("b")]);
@@ -275,6 +294,45 @@ async fn a_dismissal_and_an_automatic_allow_are_recorded_as_such() {
         all.iter().map(|e| (e["permissionId"].clone(), e["decision"]["kind"].clone())).collect();
     assert_eq!(got, vec![(json!("p1"), json!("cancel")), (json!("p3"), json!("allow"))]);
     assert_eq!(all[1]["answeredBy"], json!({"person": false, "via": "mode"}));
+}
+
+/// A group deny answers each member with its single-use reject option; a member with none
+/// (a question) is dismissed. That dismissal is the caller's, as a one-ask dismissal is, so the
+/// trail logs it as a cancel instead of dropping it as a withdrawal.
+#[tokio::test]
+async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
+    let hub = hub();
+    let s = hub.insert_test_session(meta("s1", "ready", &[], 2));
+    let no_reject = json!({"toolCall": {"toolCallId": "t2", "kind": "execute", "title": "Run pwd"},
+                           "options": [{"optionId": "ok", "name": "Allow", "kind": "allow_once"}]});
+    let mut replies =
+        vec![ask(&hub, &s, "p1", tool_request("Run ls")), ask(&hub, &s, "p2", no_reject.clone())];
+    let (group, revision) = {
+        let mut state = s.permissions.lock().unwrap();
+        let now = std::time::Instant::now();
+        let (group, _) = state.register("p1", &tool_request("Run ls"), None, 0, now).unwrap();
+        let (same, _) = state.register("p2", &no_reject, None, 0, now).unwrap();
+        assert_eq!(group, same);
+        let revision = state.open_group(&group).unwrap();
+        (group, revision)
+    };
+    let params =
+        json!({"groupId": group, "decisionKey": "k1", "decision": "deny", "revision": revision});
+    hub.respond_permission_group(&s, params, Control::Local, true).await.unwrap();
+    // The asking tasks log what each reply said.
+    for (id, rx) in [("p1", replies.remove(0)), ("p2", replies.remove(0))] {
+        let outcome = rx.await.unwrap();
+        hub.append(
+            &s,
+            "mux",
+            "permission_decision",
+            json!({"permissionId": id, "outcome": outcome}),
+        );
+    }
+    let all = hub.audit.all().unwrap();
+    let got: Vec<_> =
+        all.iter().map(|e| (e["permissionId"].clone(), e["decision"]["kind"].clone())).collect();
+    assert_eq!(got, vec![(json!("p1"), json!("deny")), (json!("p2"), json!("cancel"))]);
 }
 
 #[tokio::test]
@@ -376,4 +434,113 @@ async fn queued_prompts_and_age_order_the_queue() {
     let (later, _) = hub.review_queue_local(now_ms() + 3_600_000);
     let pa = later.iter().find(|i| i["id"] == "acpmux:pa").unwrap();
     assert!(pa["score"].as_f64().unwrap() >= 2.0 * f64::from(super::review_queue::BASE_ASK) - 1.0);
+}
+
+/// One shell call of `session` that runs `script` and prints `output`, through the hub the way a
+/// harness reports it: started, then completed with its output.
+fn run_shell(hub: &Hub, session: &Session, id: &str, script: &str, output: &str) {
+    for update in [
+        json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+               "status": "in_progress", "rawInput": {"command": script}}),
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed",
+               "content": [{"type": "content", "content": {"type": "text", "text": output}}]}),
+    ] {
+        hub.on_update(session, Some(&json!({"sessionId": session.id, "update": update})), false);
+    }
+}
+
+/// Leo, 2026-11-12, on a Waiting on you page full of pull requests: "We should not have this
+/// many all go to you." A fleet's agents open and land their own pull requests; one a session
+/// merged or closed (its own, or another session's) waits on no one, and stays gone once the
+/// sessions are read back from their metas.
+#[tokio::test]
+async fn a_merged_or_closed_pull_request_waits_on_no_one() {
+    let hub = hub();
+    let now = now_ms();
+    const LANES: usize = 300;
+    let url = |n: usize| format!("https://github.com/o/r/pull/{n}");
+    let mut lanes = vec![];
+    for n in 0..LANES {
+        let id = format!("lane-{n}");
+        lanes.push(hub.insert_test_session(meta(&id, "idle", &[&url(n)], now - 60_000)));
+    }
+    let coordinator = hub.insert_test_session(meta("coord", "idle", &[], now - 60_000));
+    assert_eq!(hub.review_queue_local(now).0.len(), LANES);
+    // Each lane lands its own the way its tools print it; the coordinator lands or closes the rest.
+    for (n, lane) in lanes.iter().enumerate().take(LANES - 3) {
+        let (script, printed) = match n % 3 {
+            // Off a terminal gh prints nothing when it merges; the number names the one with it.
+            0 => (
+                format!("gh pr merge {n} --squash --match-head-commit abc 2>&1 | tail -3"),
+                String::new(),
+            ),
+            1 => (
+                format!("cd /src && gh pr merge {n} --squash"),
+                format!("merged o/r#{n} at 0123456789ab (head fedcba9876)"),
+            ),
+            _ => (
+                format!("gh pr close {n} -c done"),
+                format!("✓ Closed pull request o/r#{n} (lane {n})"),
+            ),
+        };
+        run_shell(&hub, lane, &format!("t{n}"), &script, &printed);
+    }
+    run_shell(
+        &hub,
+        &coordinator,
+        "c1",
+        &format!("gh pr merge {}; gh pr merge {}", LANES - 3, LANES - 2),
+        &format!(
+            "! Pull request o/r#{} was already merged\n✓ Merged pull request o/r#{} (x)",
+            LANES - 3,
+            LANES - 2
+        ),
+    );
+    // Neither --auto (not merged yet) nor a mention outside gh pr merge settles anything.
+    let last = LANES - 1;
+    run_shell(
+        &hub,
+        &coordinator,
+        "c2",
+        &format!("gh pr merge {last} --auto"),
+        &format!(
+            "✓ Pull request o/r#{last} will be automatically merged via squash when all requirements are met"
+        ),
+    );
+    run_shell(
+        &hub,
+        &coordinator,
+        "c3",
+        "cat merges.log",
+        &format!("✓ Closed pull request o/r#{last} (x)"),
+    );
+    let (items, _) = hub.review_queue_local(now);
+    let urls: Vec<_> = items.iter().map(|i| i["prUrl"].clone()).collect();
+    assert_eq!(urls, vec![json!(url(last))]);
+    // The index no longer visits the settled ones.
+    assert_eq!(hub.review_index.sizes().1, 1);
+    assert_eq!(
+        coordinator.meta.lock().unwrap().closed_pull_requests,
+        vec![url(LANES - 3), url(LANES - 2)]
+    );
+
+    // Read back from the metas, coordinator first or last, they stay gone.
+    for coordinator_first in [true, false] {
+        let again = self::hub();
+        let metas: Vec<SessionMeta> =
+            lanes.iter().map(|s| s.meta.lock().unwrap().clone()).collect();
+        let coord = coordinator.meta.lock().unwrap().clone();
+        if coordinator_first {
+            again.insert_test_session(coord.clone());
+        }
+        for m in metas {
+            again.insert_test_session(m);
+        }
+        if !coordinator_first {
+            again.insert_test_session(coord);
+        }
+        let urls: Vec<_> =
+            again.review_queue_local(now).0.iter().map(|i| i["prUrl"].clone()).collect();
+        assert_eq!(urls, vec![json!(url(last))], "coordinator first: {coordinator_first}");
+    }
 }

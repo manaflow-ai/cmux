@@ -4,6 +4,7 @@
 // reason and code (direct.ts copies acpmux's `data.reason` and `data.code` onto the error and the
 // prompt's delivery), never from its words; the words and the code stay for Details.
 import { translate } from "./i18n";
+import { PrefixFlatCache } from "./conversation/prefixFlatMap";
 import { DATE } from "./conversation/turns";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow } from "./model";
@@ -11,7 +12,7 @@ import { errorMessage } from "./transportErrors";
 import { peerLinkFailure, peerLinkLine } from "./hostLine";
 
 /// The causes the failure card names in its own words, with their own way out.
-export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "other";
+export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "host-away" | "other";
 
 type CauseFields = { code?: unknown; reason?: unknown } | null | undefined;
 
@@ -27,6 +28,10 @@ export function sendCause(fields: CauseFields): SendCause {
   if (reason === "message.too_large") return "too-large";
   // A request the pane's host would not take is the pane's bug, not something the person did.
   if (text(fields?.code) === "transport.intent_invalid") return "pane";
+  // acpmux was still starting or reconnecting when the send's wait for it ran out
+  // (sendWhenReady.ts): a plain sentence and Retry, never the transport's words or restart advice.
+  const code = text(fields?.code);
+  if (code === "native.not_connected" || code === "native.timed_out") return "host-away";
   return "other";
 }
 
@@ -71,6 +76,11 @@ export function failedSendText(
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
     case "too-large":
       return tooLargeText(attachments);
+    case "host-away":
+      // A kept prompt that waited for the agent service is quiet: "Not sent" and its Retry, never
+      // that the service is slow or that the message is kept (Leo, 2026-11-12: "STOP F---ING
+      // SHOWING THESE F---ING MESSAGES"). The host line already says when the service is away.
+      return translate("prompt.failure.hostAway");
     default:
       break;
   }
@@ -90,6 +100,18 @@ export function failedSendText(
   });
 }
 
+/// The line a send that went back to the composer says in the transcript, or nothing. A send that
+/// waited for the agent service and gave up (`host-away`: acpmux restarting, the app's connection
+/// going) says nothing there: its words are back in the composer, the pane's own host line says
+/// the service is away, and acpmux may well have the prompt already (its journal sends a lost one
+/// again under the same id), so "Not sent yet" was wrong as often as right (Leo, 2026-11-12:
+/// "STOP FUCKING SHOWING THESE FUCKING MESSAGES"). A failed row keeps its sentence and Retry.
+export function heldSendNotice(error: unknown, attachments: readonly ComposerAttachment[] = []): string | undefined {
+  const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
+  if (sendCause(fields) === "host-away") return undefined;
+  return failedSendText(error, false, attachments);
+}
+
 /// acpmux words a refusal `<code>: <words>`: the words without the code the error already names.
 function withoutCode(message: string, code: string | undefined): string {
   if (!code || !message.startsWith(`${code}:`)) return message;
@@ -100,6 +122,14 @@ function withoutCode(message: string, code: string | undefined): string {
 export type FailedRun = { rowIds: readonly string[] };
 
 const failedPrompt = (row: AcpmuxRow) => row.kind === "user" && row.failed === true && !row.received && !row.incoming;
+type Failure = { id: string; key: string; joins: boolean };
+const NO_FAILURE: readonly Failure[] = [];
+const failedReads = new PrefixFlatCache<AcpmuxRow, Failure>((row, index, rows) => {
+  if (!failedPrompt(row)) return NO_FAILURE;
+  let before = index - 1;
+  while (before >= 0 && rows[before]!.kind === DATE) before -= 1;
+  return [{ id: row.id, key: runKey(row), joins: before >= 0 && failedPrompt(rows[before]!) }];
+});
 
 /// What makes two failures the same: acpmux's reason and the code, else the refuser's own words.
 function runKey(row: AcpmuxRow): string {
@@ -117,16 +147,13 @@ export function failedRuns(
 ): ReadonlyMap<string, FailedRun> {
   const runs = new Map<string, FailedRun>();
   let run: { key: string; rowIds: string[] } | undefined;
-  for (const row of rows) {
-    if (row.kind === DATE) continue;
-    if (!failedPrompt(row)) {
-      run = undefined;
-      continue;
-    }
-    const key = runKey(row);
-    if (run?.key !== key) run = { key, rowIds: [] };
-    run.rowIds.push(row.id);
-    runs.set(row.id, run);
+  // Only the failed prompts, from a pass that reads only the rows a snapshot changed
+  // (conversation/prefixFlatMap.ts); each says whether it follows another with only date lines between.
+  for (const failure of failedReads.read(rows).items) {
+    if (!failure.joins) run = undefined;
+    if (run?.key !== failure.key) run = { key: failure.key, rowIds: [] };
+    run.rowIds.push(failure.id);
+    runs.set(failure.id, run);
   }
   if (previous && previous.size === runs.size) {
     let same = true;

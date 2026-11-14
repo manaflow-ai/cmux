@@ -29,10 +29,14 @@ pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
-    /// `terminal <t> screen read` without `--details`: human output is the
-    /// screen's `text` alone, as it shows; `--json` keeps the whole record.
+    /// `terminal <t> screen read` and `terminal <t> copy` without
+    /// `--details`: human output is the result's `text` alone, as it shows;
+    /// `--json` keeps the whole record.
     ScreenText,
     AgentRoster(AgentRosterView),
+    /// `agent report`: the reported record says `ended` where the daemon
+    /// says `done` (a session that ended), as every CLI agent list does.
+    AgentReport,
 }
 
 /// How `agent list` orders and trims its rows.
@@ -69,6 +73,15 @@ impl ResponseView {
             // wire/agent_roster.rs shapes the roster once it has the
             // terminals' titles and folders.
             Self::Full | Self::AgentRoster(_) | Self::ScreenText => result,
+            Self::AgentReport => {
+                let mut result = result;
+                if let Some(state) = result.pointer_mut("/value/state")
+                    && *state == "done"
+                {
+                    *state = Value::from("ended");
+                }
+                result
+            }
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -149,11 +162,22 @@ impl super::CommandPlan {
         }
     }
 
-    /// `terminal <t> screen read`: human output prints the screen text only.
+    /// `terminal <t> screen read` and `copy`: human output prints the text only.
     pub(super) fn screen_text(self) -> Self {
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `agent report`: the reported record with the CLI's `ended` word.
+    pub(super) fn agent_report(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentReport;
                 Self::Protocol(plan)
             }
             other => other,

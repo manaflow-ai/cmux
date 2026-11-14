@@ -789,6 +789,11 @@ struct ClientReady {
 /// `recovering`: the link outlives a failed first connect, and says on stderr why each first
 /// dial failed (an owner that still reads only stderr learns the reason without waiting for an
 /// exit that no longer comes).
+/// The stderr line a recovering link writes once its `PATH.admin` socket is bound. The app
+/// matches it as `SSHMachineLink.socketReadyLine` (CmuxNextRemote/SSH/SSHMachineLink.swift);
+/// `tests/remote_connect_link_socket_ready.rs` checks the binary prints it before any dial reports.
+pub(crate) const LINK_SOCKET_READY_LINE: &str = "remote connect: link socket ready";
+
 async fn run_client(
     options: ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
@@ -801,6 +806,11 @@ async fn run_client(
             None => default_client_socket(&options.state_dir, options.session)?,
         };
         let sidecars = link_sidecars::PendingSidecars::start(&local_socket).await;
+        if recovering && sidecars.answers() {
+            // The owner forwards a person's wait as soon as the link's socket answers, before
+            // any dial reports (a stalled first dial says nothing on stderr).
+            eprintln!("{LINK_SOCKET_READY_LINE}");
+        }
         let (connection, route) = dial_first_connection(
             &options,
             shutdown.clone(),
@@ -934,37 +944,6 @@ async fn dial_first_connection(
         result = dial => result.map_err(|error| error.error),
         _ = wait_for_shutdown(&mut shutdown) => {
             Err(anyhow!("remote client startup was cancelled"))
-        }
-    }
-}
-
-/// The route runner's caller: one round over its route list, and what to
-/// do after a round in which every route failed. The Cloud carrier dial
-/// (`carrier::client`) runs on it; `remote connect` runs its rounds in
-/// `LinkCell::dial`. Both pick routes with [`select_initial_route`].
-#[async_trait]
-pub(crate) trait RouteRounds<T: Send, E: Send = anyhow::Error>: Send {
-    /// One round: each candidate in order until one connects
-    /// ([`select_initial_route`]).
-    async fn round(&mut self) -> Result<T, InitialRouteSelectionError<E>>;
-
-    /// After a failed round: wait this long and run another (zero runs it
-    /// at once), or stop with this error.
-    fn after_failed_round(&mut self, error: InitialRouteSelectionError<E>) -> Result<Duration, E>;
-}
-
-/// Rounds until one connects or the caller stops.
-pub(crate) async fn run_route_rounds<T: Send, E: RouteFailure>(
-    rounds: &mut impl RouteRounds<T, E>,
-) -> Result<T, E> {
-    loop {
-        let error = match rounds.round().await {
-            Ok(connected) => return Ok(connected),
-            Err(error) => error,
-        };
-        let wait = rounds.after_failed_round(error)?;
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
         }
     }
 }
@@ -1311,13 +1290,23 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
 
 /// What ssh prints when it reached the host and was refused: a failed authentication or a host
 /// key it will not accept. ssh exits 255 for these as for an unreachable host, but no redial can
-/// fix them, so a link that outlives a failed first connect must not redial them.
+/// fix them, so a link that outlives a failed first connect must not redial them. Matched without
+/// regard to case. The app names the same lines as an authentication or host key failure
+/// (`SSHFailure.hostKeyNeedles` and `authNeedles`), so every one of those is here too.
 const SSH_PERMANENT_REFUSALS: &[&str] = &[
+    // Authentication: ssh's own last word once every method failed. Per-key lines
+    // (`sign_and_send_pubkey: ...`, `no mutual signature algorithm`) are left out: ssh goes on to
+    // the next key, so a later transport failure after one is still worth redialing.
     "Permission denied",
-    "Host key verification failed",
     "Too many authentication failures",
     "No more authentication methods",
-    "REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "Authentication failed",
+    // Host keys: only the lines that end the connection. Warnings (`Permanently added the ...
+    // host key for IP address ...`, the `REMOTE HOST IDENTIFICATION HAS CHANGED` banner, `host
+    // key is known for ...`) can precede a connection that goes on, so no bare prefix matches.
+    "Host key verification failed",
+    "has changed and you have requested strict checking",
+    "No matching host key type",
 ];
 
 fn ssh_refused_permanently(error: &BootstrapError) -> bool {
@@ -1325,7 +1314,8 @@ fn ssh_refused_permanently(error: &BootstrapError) -> bool {
     else {
         return false;
     };
-    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(refusal))
+    let stderr = stderr.to_lowercase();
+    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(&refusal.to_lowercase()))
 }
 
 /// Returns when the owner asks the runtime to stop or a termination signal
@@ -1414,7 +1404,7 @@ pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     ) -> Result<T, ProviderError>;
 }
 
-pub(crate) async fn select_reconnect_route<T: Send>(
+async fn select_reconnect_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
     session: SessionId,
@@ -1543,28 +1533,42 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let count = self.options.routes.len();
-        if count == 0 {
-            return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-        }
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        let start = self.next.fetch_add(1, Ordering::Relaxed) % count;
-        let (index, group) = select_reconnect_route(
+        next_reconnect_route(
+            &self.next,
             &self.options.routes,
-            start,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
         )
-        .await?;
-        self.next.store(index.saturating_add(1), Ordering::Relaxed);
-        Ok(group)
+        .await
     }
+}
+
+/// The next route of an established link after its current one failed:
+/// from `next` (one past the route that last connected) round the list,
+/// and `next` moves past the route that connects. `remote connect` and the
+/// Cloud carrier (`carrier::source`) both rotate this way.
+pub(crate) async fn next_reconnect_route<T: Send>(
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<T, ProviderError> {
+    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
+    };
+    let (index, group) =
+        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
+    next.store(index.saturating_add(1), Ordering::Relaxed);
+    Ok(group)
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {
@@ -1707,7 +1711,9 @@ fn daemon_runtime_socket_paths_in(
 ) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
-    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    // The name from before NEXT's folder move, so a daemon from before it keeps its sockets' names.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(state);
+    let digest = format!("{:x}", Sha256::digest(identity.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };

@@ -12,26 +12,10 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsColors.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/PermissionBadges.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneAppearance.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneBundleImage.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneColors.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneDecorations.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneMenus.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneNodeView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkPageColors.swift
@@ -50,7 +34,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverflowButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/CmuxOverlayModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SignInButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/ThemedSpinner+SwiftUI.swift
@@ -60,22 +43,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThinScrollers+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/ThemedHelpModifier.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedAppearance.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedAnswerControls.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedApproveControls.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedButtonStyle.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedChoiceControls.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedEmptyState.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGitHubActions.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGlyph.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedIconLabel.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxHeader.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxRow.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedListView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift
@@ -98,9 +65,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/EnvironmentValues+Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconCanvas.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/View+Icon.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerTextField.swift
@@ -110,6 +74,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettin
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableControls.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsPane.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelView.swift  # Debug panel built from SwiftUI helpers in 6 allowlisted files (2 Debug settings controls, SettingsStyle, 3 shared ones); no Swift code opens it yet
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/ScrollEdgeFadeModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/SettingsStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift
@@ -117,7 +83,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetView.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstFrameColorsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedPlainFieldsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsPageTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsSignInTests.swift

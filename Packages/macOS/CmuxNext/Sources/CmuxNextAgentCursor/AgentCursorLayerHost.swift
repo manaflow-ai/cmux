@@ -82,7 +82,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             // The cmux-cua path, played short (user, 2026-10-20: "quick:
             // short, snappy motion"), through the Motion gate: at once under
             // Reduce Motion or with animations off.
-            let played = Motion.cursor.agentCursorGlideDuration(plan.duration) ?? 0
+            let played = Motion.cursor.agentCursorGlideDuration(plan.duration, in: Motion.window(showing: hostLayer)) ?? 0
             cursor.lastGlideDuration = played
             if played > 0 {
                 let position = plan.positionAnimation()
@@ -118,6 +118,20 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             }
             cursor.showsIndicator = true
             cursor.armIdleHide(after: Self.idleHideDelay)
+        case let .reposition(session, point, indicates):
+            let cursor = cursor(for: session)
+            for layer in cursor.headings { layer.removeAnimation(forKey: "agentCursor.heading") }
+            for layer in cursor.roots {
+                layer.removeAnimation(forKey: "agentCursor.glide")
+                layer.position = point
+                layer.isHidden = false
+            }
+            if !indicates { cursor.layOutTag(tip: point) }
+            cursor.showsIndicator = indicates
+            // The wait from the agent's last action goes on; only a cursor with none arms one.
+            if cursor.root.animation(forKey: AgentCursorLayer.idleHideKey) == nil {
+                cursor.armIdleHide(after: Self.idleHideDelay)
+            }
         case let .hide(session):
             for layer in cursors[session]?.roots ?? [] { layer.isHidden = true }
         case let .setPaused(session, paused):
@@ -128,7 +142,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             for layer in cursors.removeValue(forKey: session)?.roots ?? [] { layer.removeFromSuperlayer() }
         }
         switch command {
-        case .place, .glide, .indicate, .hide, .remove: onTagsChange?()
+        case .place, .glide, .indicate, .reposition, .hide, .remove: onTagsChange?()
         case .pulse, .caption, .setPaused, .confine: break
         }
     }

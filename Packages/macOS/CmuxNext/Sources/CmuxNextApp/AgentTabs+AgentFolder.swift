@@ -13,11 +13,9 @@ extension AgentTabStore {
         model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: provisional, machine: machine) } ?? [] }
         model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: provisional, machine: machine) } }
         model.transport.workspaceID = { [weak self] in self.flatMap { $0.localWorkspaceKey(of: provisional, machine: machine) } }
-        // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
-        model.gitWritesHere = { [weak self] in
-            guard let self else { return false }
-            return self.gitLinkScoped?(self.resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional)))?.isLocal == true
-        }
+        // Stage and Commit (cx-tcwj) run git on this Mac, never in a Cloud or SSH chat's same-named folder here; that chat's New Worktree runs on its machine's link.
+        let link: @MainActor () -> AgentPaneGitLink? = { [weak self] in self.flatMap { $0.gitLinkScoped?($0.resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional))) } }
+        (model.gitWritesHere, model.gitWritesOnChatMachine) = ({ link()?.isLocal == true }, { link()?.isLocal == false })
         model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: provisional, machine: machine), let resource = workspace.resourceID else { return nil }
             guard var answer = await daemonForTabScoped(resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional)))?.agentStart(proposed, workspace: resource) else { return nil }

@@ -102,6 +102,14 @@ fn unmapped(ip: IpAddr) -> IpAddr {
 /// The medium a path to `remote` rides, from this machine's `networks`: the
 /// interface with the longest prefix containing `remote` decides; no
 /// on-link interface means the path is routed.
+///
+/// When several interfaces share that longest prefix (Wi-Fi and Ethernet on
+/// one subnet, or a VPN that claims the LAN's range), the answer must not
+/// depend on the order getifaddrs lists them in, and the table alone cannot
+/// say which one the kernel routes through. The slowest of them wins: the
+/// medium only orders paths, so understating one costs at most the RTT
+/// ordering that ranks same-medium paths, while overstating one could put a
+/// VPN path ahead of a real LAN path.
 pub fn medium_of(remote: IpAddr, networks: &[LocalNetwork]) -> Medium {
     let remote = unmapped(remote);
     if remote.is_loopback() {
@@ -110,11 +118,20 @@ pub fn medium_of(remote: IpAddr, networks: &[LocalNetwork]) -> Medium {
     if is_overlay(remote) {
         return Medium::Routed;
     }
-    networks
+    let Some(longest) = networks
         .iter()
         .filter(|network| network.contains(remote))
-        .max_by_key(|network| network.prefix)
-        .map_or(Medium::Routed, |network| interface_medium(&network.interface))
+        .map(|network| network.prefix)
+        .max()
+    else {
+        return Medium::Routed;
+    };
+    networks
+        .iter()
+        .filter(|network| network.prefix == longest && network.contains(remote))
+        .map(|network| interface_medium(&network.interface))
+        .max()
+        .unwrap_or(Medium::Routed)
 }
 
 /// This machine's up interface addresses and prefixes (getifaddrs).
@@ -234,6 +251,30 @@ mod tests {
     fn a_private_address_behind_a_vpn_interface_is_routed() {
         let networks = vec![net("utun3", "10.8.0.2", 24)];
         assert_eq!(medium_of("10.8.0.9".parse().unwrap(), &networks), Medium::Routed);
+    }
+
+    #[test]
+    fn a_tie_on_the_longest_prefix_takes_the_slowest_medium_in_any_order() {
+        // A VPN that claims the office /22 next to en0, and a Thunderbolt
+        // bridge that shares a subnet with Wi-Fi: getifaddrs order must not
+        // decide, and the faster claim is never trusted on a tie.
+        let vpn = [net("en0", "172.20.22.22", 22), net("utun3", "172.20.22.200", 22)];
+        let bridged = [net("bridge0", "192.168.2.1", 24), net("en1", "192.168.2.7", 24)];
+        for (table, remote, want) in
+            [(&vpn, "172.20.22.26", Medium::Routed), (&bridged, "192.168.2.9", Medium::Lan)]
+        {
+            let mut reversed = table.to_vec();
+            reversed.reverse();
+            let remote = remote.parse().unwrap();
+            assert_eq!(medium_of(remote, table), want);
+            assert_eq!(medium_of(remote, &reversed), want, "order-independent");
+        }
+        // Two addresses of one class still read as that class.
+        let wired_and_wifi = [net("en0", "172.20.22.22", 22), net("en1", "172.20.22.23", 22)];
+        assert_eq!(medium_of("172.20.22.26".parse().unwrap(), &wired_and_wifi), Medium::Lan);
+        // A longer prefix still beats the tie rule.
+        let narrower = [net("utun3", "10.0.0.2", 8), net("bridge0", "10.254.2.1", 30)];
+        assert_eq!(medium_of("10.254.2.2".parse().unwrap(), &narrower), Medium::Link);
     }
 
     #[test]

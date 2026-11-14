@@ -19,15 +19,13 @@ import WebKit
 /// The composition root (`AppServices.overlayProcess`) makes the app's one instance and hands it to each
 /// overlay page's owner, which passes it to ``PageWebView`` (`overlayProcess:`). A page made without one
 /// keeps its own store and its own process: tests, every other page, and the browser chrome's popups
-/// (`BrowserChromeWebHost`: Page Info and the cookie import card, made only when opened).
+/// (`BrowserChromeWebHost`: Page Info's windows and the cookie import card, made only when opened).
 @MainActor
 public final class PageOverlayProcess {
     /// The most overlay pages one process serves: what one crash of that process takes down.
     let pagesPerProcess: Int
-    /// The store every overlay page uses (a process is shared only within one store). Made when the first overlay
-    /// page is: `.nonPersistent()` costs 30-40 ms of the main thread, and the app makes this object while it builds
-    /// its first window (AppServices), long before the first idle moment builds any overlay page.
-    private(set) lazy var dataStore: WKWebsiteDataStore = .nonPersistent()
+    /// The store every overlay page uses (a process is shared only within one store).
+    let dataStore: WKWebsiteDataStore = .nonPersistent()
     /// The first page of the current group; its process serves the next pages.
     private weak var anchor: WKWebView?
     private var members = 0

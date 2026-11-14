@@ -6,6 +6,7 @@ import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toggle } from "@base-ui/react/toggle";
 import { cx } from "./cx";
 import { tooltipGroup, useHoverIntent } from "./hoverIntent";
+import { focusRingShown } from "./focusModality";
 
 // A toolbar button's hint is an AnchoredCard (Base UI Tooltip) that loads on first use, so the
 // page's open path carries no Floating UI; the button itself never remounts, so focus stays put.
@@ -88,9 +89,7 @@ export function ToolbarButton({
         onPointerDown={tooltip ? hint.dismiss : undefined}
         // The hint shows for keyboard focus only (a click focuses without a ring, and without one).
         onFocus={
-          tooltip
-            ? (event) => event.currentTarget.matches(":focus-visible") && hint.show(event.currentTarget, 0)
-            : undefined
+          tooltip ? (event) => focusRingShown(event.currentTarget) && hint.show(event.currentTarget, 0) : undefined
         }
         onBlur={tooltip ? hint.hide : undefined}
         onKeyDown={tooltip ? (event) => event.key === "Escape" && hint.anchor && hint.dismiss() : undefined}

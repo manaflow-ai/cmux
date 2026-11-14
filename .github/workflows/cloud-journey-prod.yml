@@ -16,8 +16,10 @@ name: Cloud journey (production, hourly)
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
-# in headers and request bodies and scrubs them from its output.
+# model the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
+# environment's staging pair and the same Claude token; production names stay intact.
+# They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
+# from its output.
 #
 # The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
 # the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
@@ -33,6 +35,14 @@ on:
         type: choice
         options: [stub, real]
         default: stub
+      preclaim:
+        description: "Staging only: measure the shipped spare-ready preclaim login path"
+        type: boolean
+        default: false
+      claims:
+        description: "Preclaim burst size (1-20)"
+        type: string
+        default: "10"
 
 permissions:
   contents: read
@@ -45,14 +55,16 @@ jobs:
   journey:
     # Only main's own definition gets the production account: the schedule, or a dispatch of main. A dispatch of
     # another branch would run that branch's copy of this file with the environment's secrets.
-    if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+    if: github.repository_owner == 'manaflow-ai' && !inputs.preclaim && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
     strategy:
       fail-fast: false
       matrix:
         model: [stub, real]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     permissions:
       contents: read
       issues: write
@@ -127,3 +139,70 @@ jobs:
           else
             gh issue create --title "$title" --body "$body"
           fi
+
+  # A staging-only measurement of the shipped Rust warm/ready path. It is deliberately separate from the production
+  # matrix and runs in cmux-next-vm-image-dev, the staging environment whose CMUX_DOGFOOD_STACK_* pair cloud-chat-proof
+  # and machine-vault-e2e already sign in with; CLAUDE_CODE_OAUTH_TOKEN reaches it the same way it reaches
+  # machine-vault-e2e. cmux-next-cloud-journey shadows that pair with the production account, which staging refuses
+  # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
+  preclaim:
+    if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          submodules: recursive
+      - name: Install Linux cmux-tui build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+      - name: Build the shipped Linux cmux-tui
+        id: build-cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x target/debug/cmux-tui
+          echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Staging preclaim login burst
+        env:
+          CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-preclaim"
+          bun scripts/cmux-next/cloud-journey.ts --backend staging --model real --cmux "${{ steps.build-cmux-tui.outputs.path }}" \
+            --preclaim --claims '${{ inputs.claims }}' --out "$out"
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload staging preclaim evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloud-preclaim-${{ github.run_id }}
+          path: ${{ runner.temp }}/cloud-preclaim
+          if-no-files-found: ignore
+          retention-days: 3

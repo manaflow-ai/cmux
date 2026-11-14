@@ -47,7 +47,9 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
+        // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
+        // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -56,7 +58,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
         // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
         // `cancelToken`, it stops the fork that token names while it is still being made.
-        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
+        // `ifIdle`: Move to Terminal stops the chat only while no turn, prompt or tool call is open
+        // (direct.ts `releaseToTerminal`, acpmux hub/stop_if_idle.rs); it only narrows a stop.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
@@ -83,11 +87,14 @@ nonisolated extension AcpmuxPaneMethods {
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
         "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
+        // New project (direct.ts newProject): the folder's name only, never a path or a root.
+        "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
-        "_acpmux/models": (["refresh"], []),
+        // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
+        "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
@@ -122,19 +129,30 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         // No `value` declines the card.
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
+        "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
+        "_acpmux/cold_archive": (["sessionId", "archived"], []),
+        "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
+        "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
         "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        // The fork's boundary (`throughSeq`, or `live` for a working chat) and `/side`'s prompt.
+        "_acpmux/side_chat": (["sessionId", "throughSeq", "live", "prompt"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline", "targetHarness"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
         "_acpmux/audit": (["since", "until", "sessionId", "limit", "cursor"], []),
@@ -162,7 +180,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
-        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
+        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),
         // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
         // never canonicalized against this Mac's filesystem (the owning daemon checks it).
         "acp.trust.get": (["cwd", "sessionId", "peer"], []),

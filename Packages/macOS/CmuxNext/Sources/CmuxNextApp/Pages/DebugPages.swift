@@ -23,19 +23,25 @@ import Foundation
 // - `connected` (`value` bool): the owner link state on the page's connection stream;
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
-// - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector
+//   (`click`, `drag`, `press`: an error when the input did not happen, so a capture step fails);
 // - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
 //   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
 //   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
 //   so a capture step fails instead of shooting the fold;
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
-// - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
+// - `query` (`selector`): each matching element's data-* attributes, classes, text, and its `role` and
+//   accessible `label` when it has them, in document order (PageDebugQuery);
 // - `wait` (`selector`, `timeout_ms`, max 90000): one rendered selector match, observed without polling;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
-//   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
+//   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab);
+// - `open` (`route`?): a hidden live page of `page` when none is live, so the other actions have one to
+//   read: `cmux.cloud`, or `cmux.feed` on `route` (default `#/needs-you`, the one route the app opens;
+//   the app shows the Feed only in Chief Home's Needs you, opt-in and only while something waits, so a
+//   fresh run has none). Answers the page's identity with `made` (false: a live one was already there).
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
@@ -60,8 +66,11 @@ enum DebugPages {
            let services, let cloud = PageFactory(services: services).cloudWebPage() {
             made.append(cloud)
         }
+        if params["action"]?.stringValue == "open" {
+            return open(id, route: params["route"]?.stringValue, services: services)
+        }
         if params["action"]?.stringValue == "list" {
-            return ["pages": .array(PageRegistry.pages(id: id, probing: true).map { .object(identity($0)) })]
+            return ["pages": .array(PageRegistry.pages(id: id, probing: true).map { .object($0.debugIdentity) })]
         }
         let instance = params["instance"]?.intValue.map { UInt64(max($0, 0)) }
         guard let page = PageRegistry.probeTarget(id: id, parked: params["parked"]?.boolValue == true,
@@ -70,24 +79,7 @@ enum DebugPages {
         }
         switch params["action"]?.stringValue ?? "state" {
         case "state":
-            var state = await page.debugState()
-            if case .object(var members) = state {
-                members.merge(identity(page)) { _, new in new }
-                members["subscriptions"] = .number(Double(page.router.subscriptionCount))
-                members["in_flight"] = .array(page.router.inFlightCalls())
-                // The first frame of this document (preflights wait on it with a deadline).
-                members["painted"] = .bool(page.hasPainted)
-                members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null
-                // Why a page may not paint: no window, a hidden view, or a window macOS reports
-                // as occluded (WebKit stops rendering updates for an occluded window).
-                members["in_window"] = .bool(page.window != nil)
-                members["view_hidden"] = .bool(page.isHiddenOrHasHiddenAncestor)
-                members["window_visible"] = .bool(page.window?.isVisible ?? false)
-                members["window_occluded"] = .bool(!(page.window?.occlusionState.contains(.visible) ?? false))
-                members["frame"] = .string("\(Int(page.frame.width))x\(Int(page.frame.height))")
-                state = .object(members)
-            }
-            return state
+            return await page.debugFullState()
         case "snapshot":
             let path = params["path"]?.stringValue ?? "/tmp/cmux-page-\(page.pageID).png"
             let written = await page.debugSnapshot(to: URL(fileURLWithPath: path))
@@ -101,18 +93,17 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
-                                                           contextMenu: params["context_menu"]?.boolValue == true))]
+            return await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true, contextMenu: params["context_menu"]?.boolValue == true) ? ["clicked": .bool(true)] : ["error": .string("no element matches \(selector)")]
         case "drag":
             let numbers = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
-            let dragged = await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]),
-                                               steps: params["steps"]?.intValue ?? 16)
-            return ["dragged": .bool(dragged)]
+            return await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]), steps: params["steps"]?.intValue ?? 16)
+                ? ["dragged": .bool(true)] : ["error": "the drag did not reach the page: it shows in WebKit, or DevTools refused an event"]
         case "press":
             let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
-            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true))]
+            return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
+        case "paste": return await page.debugPaste()
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
@@ -150,19 +141,24 @@ enum DebugPages {
         }
     }
 
-    /// Which live view a probe read.
+    /// The page ids `open` can make hidden.
+    @MainActor static let openable = [PageDescriptor.cloud.id, PageDescriptor.feed.id]
+
+    /// `open`: the live page of `id`, else a hidden one made through the app's own factory.
     @MainActor
-    private static func identity(_ page: PageWebView) -> [String: JSONValue] {
-        var members: [String: JSONValue] = [
-            "page": .string(page.pageID),
-            "instance": .number(Double(PageRegistry.instance(of: page))),
-            "parked": .bool(page.isParkedSpare),
-            "window_number": page.window.map { .number(Double($0.windowNumber)) } ?? .null,
-        ]
-        if let claim = page.lastClaim {
-            members["claim"] = ["path": .string(claim.path.rawValue), "ms": .number(claim.milliseconds)]
+    static func open(_ id: String?, route: String?, services: AppServices?) -> JSONValue {
+        guard let id, openable.contains(id) else {
+            return ["error": .string("open makes only \(openable.joined(separator: ", ")) pages")]
         }
-        return members
+        if let live = PageRegistry.probeTarget(id: id) {
+            return .object(live.debugIdentity.merging(["made": false]) { _, new in new })
+        }
+        guard let services else { return ["error": "no app services"] }
+        let factory = PageFactory(services: services)
+        let made = id == PageDescriptor.feed.id ? factory.feedWebPage(route: route ?? "#/needs-you") : factory.cloudWebPage()
+        guard let made else { return ["error": .string("no \(id) page: its resources are missing")] }
+        Self.made.append(made)
+        return .object(made.debugIdentity.merging(["made": true]) { _, new in new })
     }
 }
 #endif

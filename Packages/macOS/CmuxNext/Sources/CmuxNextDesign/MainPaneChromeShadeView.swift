@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The shade over the chrome around the curved main pane: the window minus
 /// the pane's rounded rect, filled with black at a low alpha. It sits on
@@ -14,7 +15,19 @@ public final class MainPaneChromeShadeView: NSView {
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
+    /// The flush corner paints the top wedges above the content, so the shade below leaves both corners clear.
+    private var squareTopCorners = false
+    /// The selected folder tabs of the top row (``update(card:radius:alpha:squareTopCorners:folders:)``).
+    private var folders: [CGPath] = []
+    /// The tab row's divider (``update(card:radius:alpha:squareTopCorners:folders:dividers:)``): its segments, each a
+    /// line of no height.
+    private var dividers: [CGRect] = []
+    /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
+    private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
+    /// Repaints the divider on a live change to `chrome.dividerStrength` (Debug Settings), as the update and the
+    /// appearance do.
+    private var dividerStrengthWatch: Task<Void, Never>?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
@@ -32,6 +45,16 @@ public final class MainPaneChromeShadeView: NSView {
         wantsLayer = true
         shade.fillRule = .evenOdd
         layer?.addSublayer(shade)
+        dividerLayer.fillRule = .evenOdd
+        layer?.addSublayer(dividerLayer)
+        dividerStrengthWatch = Task { [weak self] in
+            for await _ in ObservationStream({ ChromeTunables.dividerStrength.value }) { self?.rebuild() }
+        }
+    }
+
+    // The watch is Sendable and cancels from any thread (`GlassModeWatch`'s deinit).
+    nonisolated deinit {
+        dividerStrengthWatch?.cancel()
     }
 
     @available(*, unavailable)
@@ -48,12 +71,53 @@ public final class MainPaneChromeShadeView: NSView {
 
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds || Metrics.floatingPanes else { return }
+    /// `squareTopCorners`: the top corners are shaded by `CornerFlushChrome`, not this layer.
+    /// `folders`: the selected folder tabs of the top row, in this view's coordinates (`CornerFlushChrome`).
+    /// The shade leaves them out as it leaves out the card, so each folder tab shows the window's backdrop
+    /// exactly as the content it opens does (``Palette/folderTabFill``).
+    /// `dividers`: the tab row's bottom edge as lines of no height (`CornerFlushChrome.dividerLine`, less the panes
+    /// whose toolbar meets their tabs), or none. It draws a hairline there in `Palette.separator` at
+    /// ``Metrics/tabRowDividerStrength`` (nothing at the full title area contrast), less the folder tabs, so the line
+    /// runs under the unselected tabs only.
+    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopCorners: Bool = false, folders: [CGPath] = [],
+                       dividers: [CGRect] = []) {
+        guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopCorners != self.squareTopCorners
+            || folders != self.folders || dividers != self.dividers || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
+        self.squareTopCorners = squareTopCorners
+        self.folders = folders
+        self.dividers = dividers
         rebuild()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        rebuild()
+    }
+
+    /// The divider's line: `Metrics.dividerThickness` above each of `dividers` (maxY is the top, so it sits in the tab row),
+    /// less the folder tabs; nil when there is no divider or the title area contrast leaves it no strength.
+    private func rebuildDivider() {
+        dividerLayer.frame = bounds
+        let strength = Metrics.tabRowDividerStrength
+        let segments = dividers.filter { !$0.isNull && $0.width > 0 }
+        guard !segments.isEmpty, strength > 0 else {
+            dividerLayer.path = nil
+            return
+        }
+        // The split panes' and the sidebar's line weight (`Metrics.dividerThickness`), so the three dividers match.
+        let weight = Metrics.lineWidth(Metrics.dividerThickness)
+        let rects = CGMutablePath()
+        for segment in segments { rects.addRect(CGRect(x: segment.minX, y: segment.minY, width: segment.width, height: weight)) }
+        var line: CGPath = rects
+        for folder in folders { line = line.subtracting(folder) }
+        dividerLayer.path = line
+        // In the window's theme scope, as the split lines and the tab separators read it: a workspace-specific theme's
+        // divider, not the app theme's (#41989 F1).
+        let ink = performWithTheme { Palette.chromeDivider }
+        dividerLayer.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 
     private func rebuild() {
@@ -61,6 +125,7 @@ public final class MainPaneChromeShadeView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         shade.frame = bounds
+        rebuildDivider()
         guard alpha > 0, !card.isEmpty else {
             shade.path = nil
             return
@@ -78,6 +143,16 @@ public final class MainPaneChromeShadeView: NSView {
             let corner = min(radius, card.width / 2, card.height / 2)
             let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
+        } else if squareTopCorners || !folders.isEmpty {
+            let corner = min(radius, card.width / 2, card.height / 2)
+            var hole = CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil)
+            if squareTopCorners {
+                hole = hole.union(CGPath(rect: CGRect(x: card.minX, y: card.maxY - corner, width: corner, height: corner), transform: nil))
+                    .union(CGPath(rect: CGRect(x: card.maxX - corner, y: card.maxY - corner, width: corner, height: corner), transform: nil))
+            }
+            // One union per selected folder: a strip per top-row pane, so a handful at most.
+            for folder in folders { hole = hole.union(folder) }
+            shade.path = CGPath(rect: bounds, transform: nil).subtracting(hole)
         } else {
             let path = CGMutablePath()
             path.addRect(bounds)

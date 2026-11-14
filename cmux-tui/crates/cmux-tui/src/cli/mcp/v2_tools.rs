@@ -79,6 +79,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("settings.edit", SETTINGS_REASON),
     ("keybindings.get", KEYBINDINGS_REASON),
     ("keybindings.set", KEYBINDINGS_REASON),
     ("keybindings.remove", KEYBINDINGS_REASON),
@@ -183,9 +184,14 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("classic_import.plan", CLASSIC_IMPORT_REASON),
+    ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("browser_import.read", BROWSER_IMPORT_REASON),
+    ("cloud.machine.chat_access", CLOUD_API_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
+    ("cloud.machine.share_chat", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
@@ -195,6 +201,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
     ("cloud.owner.handoffs", CLOUD_API_REASON),
     ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
+    ("cloud.owner.turn_rewind", CLOUD_API_REASON),
+    ("cloud.owner.turns", CLOUD_API_REASON),
     ("cloud.previews.create_link", CLOUD_API_REASON),
     ("cloud.previews.refresh", CLOUD_API_REASON),
     ("cloud.previews.revoke_link", CLOUD_API_REASON),
@@ -292,6 +301,10 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
+     the plan and records what it made; agents never import.";
+const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
+     bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
@@ -523,7 +536,9 @@ impl V2Tool {
         }
         if self.waits() {
             text.push_str(&format!(
-                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}. \
+                 An answer whose time ran out (no match, or a process still running) has \
+                 timed_out true and waited_ms."
             ));
         }
         if self.paginated {

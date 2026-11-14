@@ -56,6 +56,12 @@ impl Hub {
         // ACP receives its immutable server list without Claude's off switch.
         let source_tools =
             if claude { source_tools.without_off(&profile.env) } else { source_tools };
+        // A skill row follows the plugin the session launched with (`fit_skills`, after the
+        // off switch), not the server rows' list.
+        let skill_prefix = format!("skill:{}:", crate::agent_tools::PLUGIN_NAME);
+        cmux.retain(|row| {
+            row.id.strip_prefix(skill_prefix.as_str()).is_none_or(|n| source_tools.lists_skill(n))
+        });
         let sources = source_tools.context_parts(claude);
         let preset = if !remote && claude {
             let argv = profile.argv.clone();

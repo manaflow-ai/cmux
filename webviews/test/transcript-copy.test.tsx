@@ -1,6 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 // VirtualTranscript reaches into browser layout and the Pierre web components while rendering. Keep
 // this focused test's DOM harness local so it can exercise the real transcript without restoring the
@@ -138,7 +140,8 @@ const conversation: AcpmuxRow[] = [
 ];
 const expectedCopy = "first prompt\n\nsecond reply\n\nRun tests\nok";
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -255,7 +258,7 @@ test("keyboard copy of a running command holds the output it took without the pa
         new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c", ctrlKey: true }),
       );
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await until(() => copied.length > 0);
     expect(copied).toEqual(["Run bun test\npass 1\npass 2"]);
   } finally {
     liveToolOutput.settle(liveToolOutput.redraw());

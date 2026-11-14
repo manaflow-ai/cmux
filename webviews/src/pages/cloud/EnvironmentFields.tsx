@@ -8,6 +8,7 @@ import {
   secretNeedsValue,
   secretRoutesSupported,
   hostsValid,
+  rowId,
   secretHosts,
   type EnvironmentDraft,
   type EnvironmentSecret,
@@ -86,8 +87,10 @@ export function EnvironmentValues({
   const { t } = strings;
   const rows: SecretDraft[] = secrets ? draft.secrets : draft.variables;
   const set = (next: SecretDraft[]) => store.edit(secrets ? { secrets: next } : { variables: next });
-  const edit = (index: number, patch: Partial<SecretDraft>) =>
-    set(rows.map((row, at) => (at === index ? { ...row, ...patch } : row)));
+  // Rows go by their id, never their place: removing one above leaves every other row's state (its open header)
+  // with it.
+  const edit = (id: string | undefined, patch: Partial<SecretDraft>) =>
+    set(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   const original = store.getSnapshot().original;
   const existing = original?.secrets ?? [];
   // Delivery only where the service keeps it; otherwise a host-only secret would be saved as a plain variable.
@@ -99,14 +102,14 @@ export function EnvironmentValues({
       {rows.map((row, index) => {
         const stored = secrets ? existing.find((item) => item.name === row.name) : undefined;
         const value = (
-          <div className="env-value-row" key={index}>
+          <div className="env-value-row" key={row.id ?? index}>
             <input
               aria-label={t(secrets ? L.envSecretName : L.envVariableName)}
               autoComplete="off"
               spellCheck={false}
               value={row.name}
               readOnly={stored !== undefined}
-              onChange={(event) => edit(index, { name: event.target.value })}
+              onChange={(event) => edit(row.id, { name: event.target.value })}
             />
             <input
               aria-label={t(secrets ? L.envSecretValue : L.envValue)}
@@ -115,13 +118,13 @@ export function EnvironmentValues({
               spellCheck={false}
               value={row.value}
               aria-invalid={(routes && (!headerText(row.value) || secretNeedsValue(row, stored))) || undefined}
-              onChange={(event) => edit(index, { value: event.target.value })}
+              onChange={(event) => edit(row.id, { value: event.target.value })}
             />
             <button
               type="button"
               className="env-icon"
               aria-label={`${t(L.envRemove)} ${row.name}`}
-              onClick={() => set(rows.filter((_, at) => at !== index))}
+              onClick={() => set(rows.filter((item) => item.id !== row.id))}
             >
               ×
             </button>
@@ -129,13 +132,17 @@ export function EnvironmentValues({
         );
         if (!routes) return value;
         return (
-          <div className="env-secret" key={index}>
+          <div className="env-secret" key={row.id ?? index}>
             {value}
-            <SecretDelivery row={row} stored={stored} strings={strings} onChange={(patch) => edit(index, patch)} />
+            <SecretDelivery row={row} stored={stored} strings={strings} onChange={(patch) => edit(row.id, patch)} />
           </div>
         );
       })}
-      <button type="button" className="env-button env-add" onClick={() => set([...rows, { name: "", value: "" }])}>
+      <button
+        type="button"
+        className="env-button env-add"
+        onClick={() => set([...rows, { id: rowId(), name: "", value: "" }])}
+      >
         {t(L.envAdd)}
       </button>
     </div>

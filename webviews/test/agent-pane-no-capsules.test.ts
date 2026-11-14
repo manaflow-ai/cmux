@@ -1,6 +1,6 @@
 // The agent pane's controls are small-radius rects, not capsule pills (POLISH.md: "No capsule
 // pills. Use small-radius rects. Circles must be truly round."). Reads the shipped page's one
-// <style> and fails on a rule whose corner radius reaches half its height on a box that is not
+// sheet (pane.css) and fails on a rule whose corner radius reaches half its height on a box that is not
 // square, including a 999px radius on a box without explicit square dimensions. Tracks and bars that are capsules by nature are
 // listed below with why.
 //
@@ -80,8 +80,10 @@ function boxes(css: string) {
     const declared = (property: string) =>
       [...body!.matchAll(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;!]+)`, "g"))].at(-1)?.[1]?.trim();
     const radius = declared("border-radius");
-    const height = declared("height");
-    const width = declared("width");
+    // A box sized in logical properties (block-size and inline-size, as the theme slots' marks
+    // are, slots/thinkingIndicator/thinkingIndicator.css) is as square as one sized in physical ones.
+    const height = declared("height") ?? declared("block-size");
+    const width = declared("width") ?? declared("inline-size");
     if (!radius && !height && !width) continue;
     for (const selector of selectors!.split(/,(?![^(]*\))/).map((part) =>
       part
@@ -130,6 +132,16 @@ describe("capsule detection", () => {
       ".control { width: var(--ds-control-wide); height: var(--ds-control-primary); border-radius: 999px; }",
       true,
     ],
+    [
+      "a circle sized in logical properties",
+      ".control { inline-size: 0.375em; block-size: 0.375em; border-radius: 999px; }",
+      false,
+    ],
+    [
+      "a pill sized in logical properties",
+      ".control { inline-size: 2em; block-size: 1em; border-radius: 999px; }",
+      true,
+    ],
     ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
     ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
     ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],
@@ -145,8 +157,7 @@ describe("capsule detection", () => {
 
 describe.skipIf(!built)("agent pane page", () => {
   test("rounds its controls as small-radius rects, not capsules", () => {
-    const html = fs.readFileSync(page, "utf8");
-    const css = html.slice(html.indexOf("<style>") + "<style>".length, html.indexOf("</style>"));
+    const css = fs.readFileSync(path.join(path.dirname(page), "pane.css"), "utf8");
     expect(capsules(css)).toEqual([]);
   });
 });

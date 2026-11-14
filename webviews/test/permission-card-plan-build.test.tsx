@@ -15,6 +15,7 @@ import {
   planBuildTarget,
   type PlanBuildElsewhere,
 } from "../src/agent-session/acpmux/permissions/planBuild";
+import { teardownDom } from "./support/domTeardown";
 
 const plan: AcpmuxPermission = {
   permissionId: "p1",
@@ -111,11 +112,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the chevron's menu offers the three builds, and a pick builds once", async () => {
@@ -148,5 +146,43 @@ test("the chevron's menu offers the three builds, and a pick builds once", async
   });
   expect(built).toEqual(["compare"]);
   expect(answered).toEqual([]);
+  act(() => root.unmount());
+});
+
+test("a build refused before anything started says acpmux's reason on the card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PermissionCard
+        permission={plan}
+        harness="claude"
+        onAnswer={() => undefined}
+        onBuildPlan={async () => {
+          // As direct.ts rejects acpmux's refusal: its message (written for the agent) and
+          // `data.reason`, the first refused start's (server/plan_build.rs).
+          throw Object.assign(new Error("start_session refused: width limit reached. This session has 8 live"), {
+            reason: "subsessions.width_limit",
+          });
+        }}
+      />,
+    );
+  });
+  const chevron = host.querySelector<HTMLButtonElement>('button[data-menu="plan-build"]')!;
+  await act(async () => {
+    chevron.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  const worktree = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.dataset.value === "worktree",
+  )!;
+  await act(async () => {
+    worktree.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  const alert = host.querySelector('[role="alert"]');
+  // acpmux's reason, in the pane's words; its agent-facing text stays in the log.
+  expect(alert?.textContent).toBe(
+    "The plan was not built: This chat already runs as many sub-sessions as its limit allows. Wait for one to finish, or raise the limit in Settings.",
+  );
   act(() => root.unmount());
 });

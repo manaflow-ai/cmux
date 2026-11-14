@@ -9,8 +9,9 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
   plan (Linux)      reads the state (the newest `perf-cron-state` artifact), picks the work: the next part of
                     the measurement in flight, else the newest feat-cmux-next commit whose cmux-tui tree is
                     published (a fleet build needs it) when it is newer than the last measured one (commits
-                    in between are skipped), else one bisect step of an open regression. Skips while a
-                    nightly or dev build waits for a Mac on GitHub.
+                    in between are skipped), else one bisect step of an open regression. While a nightly
+                    or dev build waits for a Mac on GitHub, a Mac part runs only on cmux20-bench (it runs no
+                    CI job); a measurement pinned to another host waits, and gives that host up after 2 h.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
                     then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
@@ -166,10 +167,30 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
+    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
+    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
     {"name": "web-ui", "where": "linux", "kind": "webui", "needs": "web-ui"},
+    # The update-one bench (webviews/bench/update-one.bench.ts): one session's change at 100, 1,000 and 3,000 listed
+    # sessions, its cost and its growth. Its own part, so the suite's other benches keep their 30-minute cap.
+    {"name": "web-ui-scale", "where": "linux", "kind": "webui", "needs": "web-ui-scale"},
+    # The state-growth bench (webviews/bench/state-growth.bench.ts): what the pane's state layer keeps per operation
+    # that should keep nothing (sessions made and closed, chats reopened, reconnects mid-stream, a shell's output
+    # streaming), small and god side by side, after warm-up. Its own part (about 2 minutes).
+    {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
+    # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
+    # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
+    # six benches take about 13 minutes.
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -177,9 +198,15 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
-    (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"),
+    (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
+    (r"^webui\.state_growth\.", "web-ui-growth"),
+    (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
 ]
+# Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
+# here reads a higher p95 as worse.
+REPORT_ONLY_ROW_RE = re.compile(r"^terminal\.throughput\.")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -510,10 +537,22 @@ def rows_of_part(part, report, budgets_mod, budgets):
         if isinstance(stream.get("p95Ms"), (int, float)):
             values["diff.stream.p95"] = (stream["p95Ms"], "ms", 10.0)
         versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
+        load = report.get("load") if isinstance(report.get("load"), dict) else {}
         for name, (v, unit, floor) in values.items():
-            out[name] = {"p50": v, "p95": v, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
-            version = versions.get(name.split(".")[1])  # sidecar or stream
-            out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
+            # On a busy runner a row of a LOAD_SCALED_BENCHES bench is divided by its bench's contention; any other
+            # row only records it.
+            bench = name.split(".")[1]
+            factor = load.get(bench)
+            factor = factor if isinstance(factor, (int, float)) and factor > 1 else None
+            scaled = round(v / factor, 4) if factor and bench in LOAD_SCALED_BENCHES else v
+            out[name] = {"p50": scaled, "p95": scaled, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
+            if factor:
+                out[name]["load"] = factor
+                if scaled != v:
+                    out[name]["raw_p95"] = v
+            version = versions.get(bench)
+            out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
+                + 100 * DIFF_LOAD_VERSION
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
@@ -527,6 +566,39 @@ def rows_of_part(part, report, budgets_mod, budgets):
                                     "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                     "floor": floor,
                                     "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        if part.get("name") == "web-ui-god":
+            # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
+            ratios = god_ratio_rows(out)
+            out = {n: r for n, r in out.items() if part_for_row(n) == "web-ui-god"}
+            out.update(ratios)
+    return out
+
+
+def god_ratio_rows(rows):
+    """{webui.god_ratio.<twin>: row} for each god row with an ordinary twin in ROWS (pure): god p95 / twin p95, unit
+    x, budget GOD_RATIO_MAX. Rows of another unit, slopes and per-operation rows, and twins at or under their noise
+    floor get none."""
+    out = {}
+    for name, god in rows.items():
+        m = re.match(r"^webui\.([a-z0-9_]+)\.god\.(.+)$", name)
+        if not m:
+            continue
+        twin_name = f"webui.{m.group(1)}.{m.group(2)}"
+        twin = rows.get(twin_name)
+        unit = god.get("unit") or "ms"
+        if not twin or unit != (twin.get("unit") or "ms") or unit not in GOD_RATIO_UNITS or GOD_RATIO_SKIP_RE.search(name):
+            continue
+        small, big = twin.get("p95"), god.get("p95")
+        if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
+            continue
+        least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
+        if small <= max(twin.get("floor") or 0, least):
+            continue
+        ratio = round(big / small, 3)
+        version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
+        out[f"webui.god_ratio.{m.group(1)}.{m.group(2)}"] = {
+            "p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1, "measure_version": version,
+            "god_p95": big, "small_p95": small}
     return out
 
 
@@ -541,6 +613,23 @@ def report_is_incomplete(part, report):
     incomplete when a bench of web-ui-suite.ts failed (its `failed`, copied there by cmd_run_linux_part).
     """
     return part.get("kind") in ("budgets", "webui") and isinstance(report, dict) and bool(report.get("incomplete"))
+
+
+def incomplete_why(report, limit=3):
+    """What a report's `incomplete` says, short enough for the issue: its first entries, each on one line. A
+    budgets entry is {name: the manifest row's pattern, reason}; a workspace-scaling one names its probe and exit
+    code or what is missing; a web-ui one is a line already. Paths are left out."""
+    items = report.get("incomplete") if isinstance(report, dict) else None
+    items = items if isinstance(items, list) else [items] if items else []
+
+    def one(item):
+        if not isinstance(item, dict):
+            return str(item)
+        if "name" in item:
+            return f"{str(item['name']).replace(chr(92) + '.', '.')}: {item.get('reason') or 'incomplete'}"
+        return " ".join(f"{k} {v}" for k, v in item.items() if k != "report" and isinstance(v, (str, int, float)))
+    shown = [one(item)[:120] for item in items[:limit]]
+    return "; ".join(shown) + (f"; and {len(items) - limit} more" if len(items) > limit else "")
 
 
 def frame_sensitive(name, row):
@@ -658,12 +747,60 @@ def version_changed(rows, base_rows):
     return sorted(out)
 
 
+# A busy runner can't make a Linux row regress by accident (Leo, 2026-11-09: "we should be able to normalize based off
+# load. and for a lot of situations, load shouldn't even necessarily affect it by that much"). host_contention spins
+# this process for SPIN_S of wall time and reads the CPU time it got: 1 on a host with a free core, and wall / CPU
+# when every core is taken, which is how much longer any CPU-bound step takes than on that host idle. The part probes
+# before and after each bench (none of the bench's processes run then) and divides that bench's time rows by the
+# median (rows_of_part); the web-ui part's suite does the same per bench itself (webviews/bench/hostLoad.ts).
+# Only a row whose samples are long enough to share the spin's slowdown is scaled (LOAD_SCALED_BENCHES): the sidecar
+# reports the median of short 16 MiB reads, which mostly picks reads the scheduler left whole, so dividing it by the
+# spin's factor turned a busy run's 89 ms/GiB into 22 and made the next idle 74 a regression (#39309 F1). Its rows
+# keep the factor as load, unscaled.
+CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
+LOAD_SCALED_BENCHES = {"stream"}
+# How a diff row is normalized, as part of its measure_version (bench version + 100 x this): a change of it rebases the
+# bench's rows instead of comparing a scaled value with a raw one (#39353 F1: an old 22.3 scaled sidecar value made the
+# next raw 74 a regression). 1: #39309 scaled every diff row; 2: only LOAD_SCALED_BENCHES' rows.
+DIFF_LOAD_VERSION = 2
+
+
+def spin_ratio(spin_s=CONTENTION_SPIN_S):
+    """One spin's wall time / the CPU time this process got during it."""
+    cpu, start, sink = time.process_time(), time.perf_counter(), 0.0
+    while time.perf_counter() - start < spin_s:
+        sink += (sink + 1) ** 0.5
+    wall, used = time.perf_counter() - start, time.process_time() - cpu
+    return wall / used if used > 0 else CONTENTION_MAX
+
+
+def contention_factor(ratios):
+    """The factor to divide a time row by (pure): the median ratio, clamped to 1..CONTENTION_MAX, to 2 decimals."""
+    finite = sorted(r for r in ratios if isinstance(r, (int, float)) and r == r)
+    if not finite:
+        return 1.0
+    mid = len(finite) // 2
+    median = finite[mid] if len(finite) % 2 else (finite[mid - 1] + finite[mid]) / 2
+    return round(min(CONTENTION_MAX, max(1.0, median)), 2)
+
+
+def host_contention(spins=CONTENTION_SPINS):
+    return [spin_ratio() for _ in range(spins)]
+
+
 def linux_bench_runs(root, part="diff-viewer"):
     """A Linux part's benches in a checkout at root, {name: (argv, cwd, extra env)} (cmd_run_linux_part runs them;
     part_config names them with root ""). diff-viewer: scripts/benchmark-diff-viewer.sh's two benches without their
     budget env. web-ui: the shared web UI perf harness, which runs the web UI benches and prints one JSON report."""
     if part == "web-ui":
         return {"suite": (["bun", "bench/web-ui-suite.ts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scale":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "update-one"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-growth":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-god":
+        only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -705,7 +842,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
     skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
                | set(version_changed(rows, base_rows)))
-    rows = {n: r for n, r in rows.items() if n not in skipped}
+    rows = {n: r for n, r in rows.items() if n not in skipped and not REPORT_ONLY_ROW_RE.match(base_row(n))}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -952,7 +1089,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     bisect: {'sha', 'range': {good, bad}, 'rows': [row names]}: a measurable commit inside one group of regressed
     rows' culprit range (or None); the step measures only the parts of those rows.
     supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
-    back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
+    back the Mac parts of a measurement pinned to a host that runs CI jobs; any other goes to the bench host, and
+    the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
     (its scripts/measure/split-spring.sh is the reviewed one). mac_disabled: why no Mac part can run at all (no
     gateway runner label), or None: a tip measurement records its Mac parts as not run (so it is incomplete), and a
     bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
@@ -984,9 +1122,17 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
     fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
-    if github_busy and fleet:
+    # A nightly or dev build waiting for a Mac holds back only a part that could take a Mac from it. The bench host
+    # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
+    # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
+    # at every tick, and no Mac part ran while the bench host could have taken each one.
+    bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
+                      and not host_avoided(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+    if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
+        if cur.get("host"):
+            cur.setdefault("host_asked_since", iso(t))  # ...but it does count for give_up_host: then the bench host
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
     if fleet and cur.get("host"):
@@ -994,10 +1140,14 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
+    waits = ""
+    if github_busy and bench_only:
+        waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
+    elif github_busy and linux:
+        waits = f"; the Mac parts wait: {github_busy}"
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
-            "worker": (cur.get("host") or "") if fleet else "",
-            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})"
-                      + (f"; the Mac parts wait: {github_busy}" if github_busy and linux else "")}
+            "worker": (BENCH_WORKER if bench_only else cur.get("host") or "") if fleet else "",
+            "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
 
 
 def bisect_midpoint(commits, measurable, skip=()):
@@ -1461,7 +1611,17 @@ def supported_parts_at(sha):
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
-        elif need in ("perf-gate", "launch"):
+        elif need == "web-ui-scale":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-god":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
+        elif need == "web-ui-growth":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+        elif need == "terminal-throughput":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=terminal-throughput" in text
+        elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -1499,6 +1659,22 @@ LEGACY_MEASURE_VERSION = 2  # the version of every row stored before rows carrie
 DIFF_LEGACY_VERSION = 1
 # The web-ui part's runner; a commit without it does not run the part. Its rows are webui.<the bench's PERF_ROW name>.
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
+UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
+STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
+# The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
+# shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
+GOD_FIXTURE = "webviews/bench/godFixture.ts"
+GOD_BENCHES = ["chat-open", "chat-switch", "transcript-replay"]
+# Leo, 2026-11-10: a god session must open and run the same, or close to the same, as a small one. A god row more
+# than this many times its twin is over target. Only time, size and shift rows have a ratio: a count or a slope
+# (a growth per operation or per row) has its own target, and a twin under its noise floor says nothing.
+GOD_RATIO_MAX = 1.2
+GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
+# The smallest twin a ratio means anything against: a 2 ms long task on the small chat would make 84 ms on the god chat
+# 42x, and a ratio of noise flaps. A god row whose twin is under it is still judged by its own target.
+GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
+GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at rest
+GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$)")  # a rate per second (idle_ms_per_s) keeps its ratio
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
@@ -1621,6 +1797,35 @@ def fmt(v):
     return "n/a" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
 
+def unfinished_parts(entry, limit=8):
+    """The parts of a finished measurement that did not finish, each with its reason (finish_measurement's
+    failed_parts and failed_why), as one line of the issue; '' when every part finished."""
+    parts = [p for p in entry.get("failed_parts") or [] if isinstance(p, str)]
+    why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+    shown = [f"{p} (`{str(why[p]).replace('`', chr(39))}`)" if why.get(p) else p for p in parts[:limit]]
+    return "; ".join(shown) + (f"; and {len(parts) - limit} more" if len(parts) > limit else "")
+
+
+def incomplete_streak(state):
+    """The newest tip measurements in a row that ran and ended incomplete, oldest first (bisect steps and abandoned
+    ones between them are left out; a good, regressed or first one ends the streak). From 2026-11-11 to 11-13 every
+    tip measurement ended that way on the same five parts while the issue guessed a busy fleet."""
+    streak = []
+    for entry in reversed([e for e in state.get("history") or [] if isinstance(e, dict)]):
+        if entry.get("kind") != "tip" or entry.get("status") == "abandoned":
+            continue
+        if entry.get("status") != "incomplete":
+            break
+        streak.append(entry)
+    return streak[::-1]
+
+
+def streak_parts(streak):
+    """The parts that did not finish in every measurement of the streak."""
+    sets = [set(p for p in e.get("failed_parts") or [] if isinstance(p, str)) for e in streak]
+    return sorted(set.intersection(*sets)) if sets else []
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -1706,12 +1911,28 @@ def issue_body(state, repo, now):
                   for x in rebases]
     tried = state.get("last_tried") or {}
     if tried.get("sha") and tried.get("sha") != last.get("sha"):
-        lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) measured no row, "
-                      "or not every regressed row; it is not the last measurement."]
+        if "failed_parts" not in tried:  # stored before last_tried carried them: the history entry has the parts
+            tried = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict)
+                          and e.get("sha") == tried["sha"] and e.get("kind") == "tip" and e.get("failed_parts")), tried)
+        unfinished = unfinished_parts(tried)
+        lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) "
+                      + (f"is not the last measurement: {len(tried['failed_parts'])} part(s) did not finish: {unfinished}."
+                         if unfinished else "measured no row, or not every regressed row; it is not the last measurement.")]
     if stale_hours(state, now) > STALE_HOURS:
+        streak = incomplete_streak(state)
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
-                      "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
-                      "build, the regressed rows' parts kept failing, or the tick failed."]
+                      + (f"the last {len(streak)} tip measurement(s) each ran and ended incomplete"
+                         + (f", every one without {', '.join(streak_parts(streak))}" if streak_parts(streak) else "")
+                         + " (a part that does not finish keeps a measurement from counting)."
+                         if streak else
+                         "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
+                         "build, the regressed rows' parts kept failing, or the tick failed.")]
+    cur_parts = (state.get("current") or {}).get("parts") if isinstance(state.get("current"), dict) else None
+    failed = [(p, e["why"]) for p, e in sorted((cur_parts or {}).items())
+              if isinstance(e, dict) and e.get("state") == "failed" and e.get("why")]
+    if failed:
+        lines += ["", "Failed parts of the measurement in flight: "
+                  + "; ".join(f"{p}: `{why.replace('`', chr(39))}`" for p, why in failed[:8]) + "."]
     hosts = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
     def host_line(h):
         info, last = host_info(state, h), host_last_seen(state, h)
@@ -2065,6 +2286,11 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     good = state.get("last_good")
     state["current"] = None
     entry = {"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url, "failed_parts": failed}
+    # Why each of them did not finish (its own reason, else its state): the issue names it (unfinished_parts).
+    failed_why = {n: str(cur["parts"][n].get("why") or cur["parts"][n].get("reason") or cur["parts"][n].get("state"))[:300]
+                  for n in failed}
+    if failed_why:
+        entry["failed_why"] = failed_why
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -2084,7 +2310,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     if cur["kind"] == "bisect":
         entry["status"], entry["note"] = bisect_step(state, cur, judged, regs)
         return "narrowed" if entry["status"] in ("good", "bad") else "skipped"
-    state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url}
+    state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url,
+                           **({"failed_parts": failed, "failed_why": failed_why} if failed else {})}
     if not part_rows:
         entry["status"] = "empty"
         return "empty"
@@ -2709,14 +2936,18 @@ def cmd_run_linux_part(o):
     part = getattr(o, "part", "diff-viewer")
     runs = linux_bench_runs(ROOT, part)
     report, tail, ok = {}, [], True
+    load = {}
     for name, (argv, cwd, extra) in runs.items():
+        before = host_contention() if part != "web-ui" else []
         try:
             proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
             value, code, stderr = last_json_object(proc.stdout), proc.returncode, proc.stderr or ""
         except subprocess.TimeoutExpired:
             value, code, stderr = None, "timeout (1800 s)", ""
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
-        if part == "web-ui":
+        if before:
+            load[name] = contention_factor(before + host_contention())
+        if PART_BY_NAME[part]["kind"] == "webui":
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
@@ -2728,11 +2959,12 @@ def cmd_run_linux_part(o):
             ok = False
         else:
             report[name] = value
-    if part == "web-ui":
+    if PART_BY_NAME[part]["kind"] == "webui":
         for line in webui_summary(report):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
+        report["load"] = load
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
               "worker": o.runner_class}
@@ -2835,6 +3067,12 @@ def record_part(cur, part, result, run_url, t=None):
                   "seconds": result.get("seconds")})
     if result.get("timed_out"):
         entry["timed_out"] = True
+    if entry["state"] == "failed":
+        # The issue names why. From 2026-10-23 to 11-10 every Mac part exited 0 and then failed on a refused artifact
+        # read, and only the report job's log said so; the issue guessed a busy fleet.
+        why = next((str(line).strip() for line in reversed(result.get("tail") or []) if str(line).strip()), "")
+        if why:
+            entry["why"] = why[:200]
     if result["state"] == "yielded":
         entry["yields"] = entry.get("yields", 0) + 1
         if entry["yields"] >= MAX_YIELDS:
@@ -3005,6 +3243,7 @@ def report(o):
                 # last/last_good records just as it does for a failed part.
                 cur["parts"][name]["state"] = "incomplete"
                 cur["parts"][name]["incomplete"] = report.get("incomplete")
+                cur["parts"][name]["why"] = incomplete_why(report)
                 if not is_linux_part(name):
                     # The host did run, but this is not a completed fleet part
                     # for next_now(): do not immediately chain another tick

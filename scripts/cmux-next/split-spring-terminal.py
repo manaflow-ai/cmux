@@ -52,10 +52,20 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
+# (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
+if "--suite=memory-agents" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=terminal-throughput`: one large output burst through a NEXT terminal and through standalone Ghostty, MB/s
+# each and their ratio (scripts/cmux-next/terminal-throughput-bench.py; the perf cron's throughput part).
+if "--suite=terminal-throughput" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
@@ -89,6 +99,12 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=hover-instant`: a sidebar row's hover card, pointer arrival to card, at 10 and 200 workspaces
+# (scripts/cmux-next/hover-instant-bench.py; the sidebar-hover-instant goal).
+if "--suite=hover-instant" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hover-instant-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=hover-instant"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).

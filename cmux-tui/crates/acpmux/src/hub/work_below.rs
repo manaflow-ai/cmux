@@ -65,7 +65,7 @@ impl Hub {
             // so its summary already says so. Every new turn drops the note.
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && !self.shown(session)
+                && !self.attended(session)
                 && {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     !std::mem::replace(&mut meta.unread, true)
@@ -87,12 +87,16 @@ impl Hub {
     /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
     /// it started still runs, it turns unread when that work ends (`refresh_work_below`). The
     /// mark is held, so the work cannot end between the check and the note.
+    /// Each such turn counts for the sidebar now (`unread_turns`), dot or not: several turns that
+    /// end while the work runs are several turns.
     pub(super) fn mark_unread_unless_work_below(&self, session: &Session) {
         let mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
         let works = *mark != 0;
         session.unread_after_work.store(works, Ordering::SeqCst);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        Self::count_unread_turn(&mut meta);
         if !works {
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread = true;
+            meta.unread = true;
         }
     }
 
@@ -106,6 +110,8 @@ impl Hub {
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
+        self.subagents_lost(session);
         self.refresh_work_below(session);
         // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
         self.subagent_notices_sweep(session);

@@ -218,6 +218,8 @@ const bgProvenance = (end: BgEnd) => ({
 /// A row as direct.ts keeps it: a notice's row text, else the prompt's.
 function received(raw: string, meta: Record<string, unknown>, minutes: number) {
   const incoming = incomingPrompt(raw, { client: "acpmux#bg", _meta: { provenance: meta } });
+  // A prompt that draws nothing keeps its empty row, as direct.ts keeps it.
+  if (incoming?.kind === "hidden") return user("", minutes, { incoming, untyped: true, resend: raw });
   if (incoming?.kind !== "message") return user(raw, minutes);
   const { message } = incoming;
   return user(message.notice ? noticeRowText(message.notice, message.text) : message.text, minutes, {
@@ -266,6 +268,133 @@ function background() {
   );
 }
 
+/// A task end whose subagent ended before it, so it came to the lead (hub/bg_notify.rs
+/// `bg_end_to_chat`, `orphan_display`). Leo, 2026-11-12, on one drawn as a card with a Details block
+/// of the agent's text: "hm? what happened here". `before` drops acpmux's `forSubagent`, as the pane
+/// drew such an end until now.
+const ORPHAN_SUB = { id: "aeac1f9a765e65d82", type: "general-purpose" };
+const ORPHAN_LINE =
+  "This task end is for your general-purpose subagent aeac1f9a, which started the task and has ended, so it comes to you.";
+const ORPHAN_QUIET: BgEnd = {
+  task: "bg-2361c6b2eafd",
+  command: "cd /tmp; gh pr checks 9675 --watch > /tmp/ci.txt 2>&1",
+  exit: 0,
+  output: "",
+};
+const ORPHAN_OUTPUT: BgEnd = {
+  task: "bg-51f0",
+  command: "gh pr checks 41580 --watch",
+  exit: 0,
+  output: "merged at 4f1c2a9\nchecks: 41 green",
+};
+const ORPHAN_FAILED: BgEnd = { task: "bg-77aa", command: "cmux-ci test --committed", exit: 2, output: "" };
+
+function orphanText(end: BgEnd): string {
+  const tag = end.exit === 0 ? "" : " · WARN";
+  const body = end.output
+    ? `Last ${end.output.split("\n").length} lines of its output:\n${end.output}\n(bg_output reads all of it.)`
+    : "It wrote no output.";
+  return `[notice from acpmux${tag}] ${bgTitle(end)}\nTask ${end.task}: ${end.command}\n${body}\n${ORPHAN_LINE}`;
+}
+const orphanProvenance = (end: BgEnd, orphan: boolean) => ({
+  ...bgProvenance(end),
+  ...(orphan && {
+    forSubagent: ORPHAN_SUB,
+    display: end.exit === 0 && !end.output ? "none" : "line",
+  }),
+});
+
+/// Three orphan ends: one that went well with no output, one with output, one that failed with none.
+function orphans(orphan: boolean) {
+  const turn = (text: string, at: number) => [
+    assistant(text, at),
+    summary(at - 0.1, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+  ];
+  return chat(
+    [
+      ...opening,
+      received(orphanText(ORPHAN_QUIET), orphanProvenance(ORPHAN_QUIET, orphan), 25),
+      ...turn("No change.", 24.8),
+      received(orphanText(ORPHAN_OUTPUT), orphanProvenance(ORPHAN_OUTPUT, orphan), 20),
+      ...turn("#41580 landed.", 19.8),
+      received(orphanText(ORPHAN_FAILED), orphanProvenance(ORPHAN_FAILED, orphan), 15),
+      ...turn("The committed tests failed; rerunning on another runner.", 14.8),
+    ],
+    { title: "coordinator", sessions },
+  );
+}
+
+/// What names a notice's chip (Leo, 2026-11-12, on a chip reading cmux: "should this really be
+/// labelled as \"cmux\"?"): a task end with a description of its own reads that description, one
+/// without reads "Background task", a notice of cmux's own with no source has no chip, a tool's
+/// notice keeps its tool's name. The review's end lists its follow-ups and prints each again as
+/// `router-review: follow-up:`; opened, each shows once.
+const REVIEW: BgEnd = {
+  task: "bg-41780",
+  command: "router-review 41780",
+  exit: 0,
+  output: [
+    "Follow-ups:",
+    "- The chip test misses the digest path",
+    "- The gallery lacks a narrow variant",
+    "router-review: follow-up: The chip test misses the digest path",
+    "router-review: follow-up: The gallery lacks a narrow variant",
+    "router-review: SHIP at 091fe98",
+  ].join("\n"),
+};
+function chips() {
+  const turn = (text: string, at: number) => [
+    assistant(text, at),
+    summary(at - 0.1, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+  ];
+  const own = "Session restarted";
+  return chat(
+    [
+      ...opening,
+      received(bgText(REVIEW), { ...bgProvenance(REVIEW), bgTaskDescription: "Review #41780" }, 25),
+      ...turn("The review says SHIP with two follow-ups.", 24.8),
+      received(bgText(FAILED), bgProvenance(FAILED), 20),
+      ...turn("One bg_notify test fails; reading it.", 19.8),
+      received(
+        `[notice from acpmux] ${own}`,
+        {
+          kind: "notice",
+          from: "fromAgent",
+          fromName: "acpmux",
+          to: SESSION_ID,
+          notice: { sender: "acpmux", severity: "info", title: own },
+        },
+        15,
+      ),
+      ...turn("Picking up where it left off.", 14.8),
+      notice(WARN, 10),
+      assistant("I'll check the two offline minis.", 9.8),
+      summary(9.7, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+    ],
+    { title: "coordinator", sessions },
+  );
+}
+
+/// Opens the review's end.
+const openReview: Play = async (ctx) => {
+  const lines = () => [...ctx.document.querySelectorAll(".cv-received.cv-notice .cv-disclosure__toggle")];
+  await ctx.waitFor(() => lines().length >= 2 || null, { capMs: 10_000 });
+  const line = lines().find((el) => el.textContent?.includes("router-review")) as HTMLElement | undefined;
+  if (line && line.getAttribute("aria-expanded") !== "true") line.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"), { capMs: 10_000 });
+};
+
+/// Opens the end that wrote output, and its Details where it has them.
+const openOrphan: Play = async (ctx) => {
+  const lines = () => [...ctx.document.querySelectorAll(".cv-received.cv-notice .cv-disclosure__toggle")];
+  await ctx.waitFor(() => lines().length >= 2 || null, { capMs: 10_000 });
+  const line = lines().find((el) => el.textContent?.includes("41580")) as HTMLElement | undefined;
+  if (line && line.getAttribute("aria-expanded") !== "true") line.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"), { capMs: 10_000 });
+  const details = ctx.document.querySelector(".cv-received__details, .cv-received__more") as HTMLElement | null;
+  if (details && details.getAttribute("aria-expanded") !== "true") details.click();
+};
+
 /// Opens the two ends that went in together.
 const openDigest: Play = async (ctx) => {
   const lines = () => [...ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle")];
@@ -299,6 +428,11 @@ const variants: Record<string, AgentPaneVariant> = {
   single: {
     note: "Selected default (look mark): a LANDED, a WARN and a FIRE, each its own line: the severity's mark in the icon column (red disc, quiet ring, amber triangle), the sender and its machine, the title.",
     snapshot: single(),
+  },
+  "single-hover": {
+    note: "A notice's line under the pointer: its title lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
+    snapshot: single(),
+    play: async (ctx) => ctx.hover({ selector: ".cv-disclosure__toggle:not(.is-chevron) .cv-notice__lead" }),
   },
   "single-open": {
     note: "The FIRE opened: its body as Markdown, then its links named as chips name them; no [notice from …] head, no Links: line.",
@@ -339,8 +473,40 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: before(),
   },
   background: {
-    note: "Background command ends (acpmux hub/bg_notify.rs): exit 0 with remote:/warning: output reads info; exit 101 warns; a long wt new and a multi-line command keep (exit N) on the line; two that went in together read as one notice +1, never acpmux · acpmux.",
+    note: "Background command ends (acpmux hub/bg_notify.rs): exit 0 with remote:/warning: output reads info; exit 101 warns; a long wt new and a multi-line command keep (exit N) on the line; two that went in together read as one notice +1; each chip reads 'Background task', never acpmux or cmux.",
     snapshot: background(),
+  },
+  "orphan-before": {
+    note: "Before: three task ends whose subagent had ended, as the pane drew them: each a line, the one that went well with no output included.",
+    snapshot: orphans(false),
+  },
+  "orphan-before-open": {
+    note: 'Before, opened: the body ends with acpmux\'s sentence to the model, and Details repeats the whole text the agent read (Leo, 2026-11-12: "hm? what happened here").',
+    snapshot: orphans(false),
+    play: openOrphan,
+  },
+  orphan: {
+    note: "After: the end that went well and wrote nothing draws no row (the agent still reads it); the one with output and the failed one are one quiet line each.",
+    snapshot: orphans(true),
+  },
+  "orphan-open": {
+    note: "After, opened: only the command's output, no sentence to the model, no Details.",
+    snapshot: orphans(true),
+    play: openOrphan,
+  },
+  chips: {
+    note: 'Chips name what a notice is, never cmux: a task with a description of its own reads it ("Review #41780"), one without reads "Background task", a notice of cmux\'s own with no source has none, a tool\'s page keeps its tool\'s name.',
+    snapshot: chips(),
+  },
+  "chips-open": {
+    note: 'The review\'s end opened: its last lines once (each follow-up once, not again as router-review: follow-up:), no "Last N lines of its output:".',
+    snapshot: chips(),
+    play: openReview,
+  },
+  "chips-hover": {
+    note: "The described task's line under the pointer: its title lights, the chip stays the task's own words.",
+    snapshot: chips(),
+    play: async (ctx) => ctx.hover({ selector: ".cv-received.cv-notice .cv-notice__lead" }),
   },
   "background-digest-open": {
     note: "The two ends that went in together, opened: each under its own title, no [notice from …] head.",

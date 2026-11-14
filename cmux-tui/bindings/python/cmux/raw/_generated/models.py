@@ -725,6 +725,7 @@ class ConversationTabRecord:
 class ConversationTabSplit:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
     direction: str
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     split_id: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -1199,6 +1200,11 @@ class MoveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1208,9 +1214,12 @@ class NewRowResult:
     pane: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
     tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1248,8 +1257,11 @@ class PaneSurfaceResult:
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     replayed: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1423,6 +1435,11 @@ class ResolveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1473,6 +1490,11 @@ class RunResult:
     lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1537,6 +1559,35 @@ class SendExpectAgent:
 
 
 @dataclass(frozen=True)
+class ServerStatsCommandConnections:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommandConnections'
+    accepted: int
+    kind: str
+    refused: int
+
+
+@dataclass(frozen=True)
+class ServerStatsCommandRow:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommandRow'
+    count: int
+    hist: List[int]
+    kind: str
+    max_ns: int
+    name: str
+    total_ns: int
+
+
+@dataclass(frozen=True)
+class ServerStatsCommands:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsCommands'
+    connections: List[ServerStatsCommandConnections]
+    hist_bounds_ns: List[int]
+    name_limit: int
+    names: int
+    rows: List[ServerStatsCommandRow]
+
+
+@dataclass(frozen=True)
 class ServerStatsConnections:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
     accepted: int
@@ -1544,6 +1595,83 @@ class ServerStatsConnections:
     limit: int
     peak: int
     refused: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDisk:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDisk'
+    error: Union[str, None]
+    files: List[ServerStatsDiskFile]
+    files_truncated: bool
+    files_unlisted: int
+    freelist_pages: int
+    journal: Union[ServerStatsDiskJournal, None]
+    page_count: int
+    page_size: int
+    registry_bytes: int
+    segments: Union[ServerStatsDiskSegments, None]
+    shm_bytes: int
+    wal_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskFile:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskFile'
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    files: int
+    name: str
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskJournal:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskJournal'
+    estimated_live_bytes: int
+    first_sequence: int
+    head_sequence: int
+    kinds: List[ServerStatsDiskJournalKind]
+    live_rows: int
+    sample_bytes: int
+    sample_rows: int
+    sample_span_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskJournalKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskJournalKind'
+    budget_bytes_per_day: int
+    bytes_per_day: Union[int, None]
+    kind: str
+    over_budget: bool
+    sample_bytes: int
+    sample_rows: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegmentCodec:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegmentCodec'
+    codec: str
+    compressed_bytes: int
+    records: int
+    segments: int
+    uncompressed_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegmentKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegmentKind'
+    kind: str
+    segments: int
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskSegments:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskSegments'
+    by_codec: List[ServerStatsDiskSegmentCodec]
+    compressed_bytes: int
+    kinds: List[ServerStatsDiskSegmentKind]
+    records: int
+    segments: int
+    uncompressed_bytes: int
 
 
 @dataclass(frozen=True)
@@ -1563,6 +1691,31 @@ class ServerStatsHookQueue:
     queued_events: int
     reset_dropped_events: int
     undeliverable_events: int
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalFollower:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollower'
+    client: int
+    connected_ms: int
+    keeps_hook_rows: bool
+    keeps_report_rows: bool
+    kinds: List[str]
+    left_ms: Union[int, None]
+    max_sensitivity: Union[str, None]
+    remote: bool
+    stream_id: str
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalFollowers:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalFollowers'
+    followers: List[ServerStatsJournalFollower]
+    grace_ms: int
+    hook_rows_kept: bool
+    journal_hook_keeps_rows: Union[bool, None]
+    keep_all_ms: int
+    report_rows_kept: bool
 
 
 @dataclass(frozen=True)
@@ -1683,7 +1836,10 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    commands: Union[ServerStatsCommands, MissingType] = field(default=MISSING)
+    disk: Union[ServerStatsDisk, MissingType] = field(default=MISSING)
     hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
+    journal_followers: Union[ServerStatsJournalFollowers, MissingType] = field(default=MISSING)
     locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
@@ -1697,6 +1853,8 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    registry_wal_file_bytes: Union[int, MissingType] = field(default=MISSING)
+    registry_wal_file_high_water_bytes: Union[int, MissingType] = field(default=MISSING)
     registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
     wal_commits: Union[int, MissingType] = field(default=MISSING)
     wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
@@ -1742,6 +1900,13 @@ class SetTerminalKeepResult:
     terminal_id: str
     keep: bool
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetTerminalTailPinResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalTailPinResult'
+    pinned: bool
+    terminal: str
 
 
 @dataclass(frozen=True)
@@ -1865,7 +2030,12 @@ class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1889,6 +2059,8 @@ class Tab:
     terminal_host_fallback: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+    title_activity: Union[str, None, MissingType] = field(default=MISSING)
+    title_text: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2128,7 +2300,11 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2272,6 +2448,22 @@ class Workspace:
 
 
 @dataclass(frozen=True)
+class WorkspaceFirstTabBrowser:
+    __cmux_schema_path__: ClassVar[str] = 'types/WorkspaceFirstTab/variants/browser'
+    engine: str
+    kind: Literal['browser']
+    url: str
+    activate: Union[bool, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class WorkspaceMutationResult:
     __cmux_schema_path__: ClassVar[str] = 'types/WorkspaceMutationResult'
     workspace: Id
@@ -2283,6 +2475,7 @@ class WorkspaceMutationResult:
     workspace_revision: int
     changed: Union[bool, MissingType] = field(default=MISSING)
     closed_ids: Union[List[str], MissingType] = field(default=MISSING)
+    first_tab: Union[JsonValue, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2475,6 +2668,18 @@ class BrowserWheelGuardedRequest:
     frame_seq: int
     x_px: float
     y_px: float
+
+
+@dataclass(frozen=True)
+class CancelCreatingInputRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-creating-input/request'
+    terminal_id: str
+
+
+@dataclass(frozen=True)
+class CancelCreatingInputResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-creating-input/result'
+    cancelled: bool
 
 
 @dataclass(frozen=True)
@@ -3406,10 +3611,12 @@ class CreateTerminalRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    create_workspace: Union[bool, MissingType] = field(default=MISSING)
     detached: Union[bool, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    workspace_name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3421,6 +3628,7 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    first_tab: Union[WorkspaceFirstTab, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4070,6 +4278,7 @@ class NewFrontendBrowserTabRequest:
     engine: str
     url: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
     split: Union[ConversationTabSplit, None, MissingType] = field(default=MISSING)
     activate: Union[bool, MissingType] = field(default=MISSING)
     after: Union[Id, None, MissingType] = field(default=MISSING)
@@ -4692,6 +4901,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetDividerVisibleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-divider-visible/request'
+    split: Id
+    visible: bool
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetFrontendBrowserHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
     surface: Id
@@ -4835,6 +5052,14 @@ class SetTerminalKeepRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalTailPinRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-tail-pin/request'
+    pinned: bool
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetViewportPaneWidthRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
     pane: Id
@@ -4862,6 +5087,29 @@ class SetWorkspaceMetadataRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     pinned: Union[bool, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ShellReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-read/request'
+    run: str
+    after: Union[int, MissingType] = field(default=MISSING)
+    wait_ms: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ShellRunRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-run/request'
+    command: str
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    run: Union[str, None, MissingType] = field(default=MISSING)
+    scope: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ShellStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-stop/request'
+    run: str
 
 
 @dataclass(frozen=True)
@@ -4898,6 +5146,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     before: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
@@ -5598,6 +5847,23 @@ class EmptyEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class FeedReportsChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/feed-reports-changed/payload'
+    event: Literal['feed-reports-changed']
+    revision: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class FeedViewChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/feed-view-changed/payload'
+    changed: List[str]
+    event: Literal['feed-view-changed']
+    revision: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class FrameEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/frame/payload'
     surface: Id
@@ -6075,6 +6341,8 @@ class TitleChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/title-changed/payload'
     surface: Id
     event: Literal['title-changed']
+    activity: Union[str, None, MissingType] = field(default=MISSING)
+    text: Union[str, MissingType] = field(default=MISSING)
     title: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -6217,8 +6485,9 @@ Pane = Union[LivePane, DeadPane]
 PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
+WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6385,9 +6654,21 @@ __all__ = [
     'SelectionPane',
     'SelectionScreen',
     'SendExpectAgent',
+    'ServerStatsCommandConnections',
+    'ServerStatsCommandRow',
+    'ServerStatsCommands',
     'ServerStatsConnections',
+    'ServerStatsDisk',
+    'ServerStatsDiskFile',
+    'ServerStatsDiskJournal',
+    'ServerStatsDiskJournalKind',
+    'ServerStatsDiskSegmentCodec',
+    'ServerStatsDiskSegmentKind',
+    'ServerStatsDiskSegments',
     'ServerStatsHistogram',
     'ServerStatsHookQueue',
+    'ServerStatsJournalFollower',
+    'ServerStatsJournalFollowers',
     'ServerStatsJournalWriter',
     'ServerStatsLockDetail',
     'ServerStatsLockHolder',
@@ -6405,6 +6686,7 @@ __all__ = [
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
+    'SetTerminalTailPinResult',
     'ShownProgramStatus',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
@@ -6459,6 +6741,7 @@ __all__ = [
     'VtStateResult',
     'WaitForResult',
     'Workspace',
+    'WorkspaceFirstTabBrowser',
     'WorkspaceMutationResult',
     'ZoomPaneResult',
     'AckTabNotificationsRequest',
@@ -6482,6 +6765,8 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'CancelCreatingInputRequest',
+    'CancelCreatingInputResult',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ChiefWorkRequest',
@@ -6745,6 +7030,7 @@ __all__ = [
     'SetClientSizingRequest',
     'SetColumnDockRequest',
     'SetDefaultColorsRequest',
+    'SetDividerVisibleRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetHostSizePolicyRequest',
     'SetLayoutSizesRequest',
@@ -6763,9 +7049,13 @@ __all__ = [
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',
     'SetTerminalKeepRequest',
+    'SetTerminalTailPinRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'SetWorkspaceMetadataRequest',
+    'ShellReadRequest',
+    'ShellRunRequest',
+    'ShellStopRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
     'SnapshotRequestRequest',
@@ -6845,6 +7135,8 @@ __all__ = [
     'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',
+    'FeedReportsChangedEvent',
+    'FeedViewChangedEvent',
     'FrameEvent',
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
@@ -6913,4 +7205,5 @@ __all__ = [
     'PaneRef',
     'TabRef',
     'TerminalExitOutcome',
+    'WorkspaceFirstTab',
 ]
