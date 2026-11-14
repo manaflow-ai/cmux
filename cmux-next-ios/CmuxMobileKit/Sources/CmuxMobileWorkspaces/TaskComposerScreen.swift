@@ -179,12 +179,14 @@ struct TaskComposerScreen: View {
                 attachMenu
                 // One row that fits a phone (live run 16: a separate model pill ran under Start and
                 // pushed Open in off screen): the agents pill names the agent and its model and
-                // takes what room is left; Open in is an icon pill.
+                // takes what room is left; Open in is an icon pill. The spacer only gets what the
+                // pill doesn't need (captures 2026-11-14: "Claude C… +2" beside empty room).
                 HStack(spacing: 8) {
                     agentsPill
-                        .layoutPriority(-1)
                     launchPill
+                        .fixedSize()
                     Spacer(minLength: 0)
+                        .layoutPriority(-1)
                 }
                 .padding(.horizontal, 6)
                 startButton
