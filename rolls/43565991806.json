@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43565991806",
+  "recorded_at": "2026-11-14T06:34:10Z",
+  "reason": "cmux-tui 2b03d8859aa3 changes the image's cmux-tui (pinned eb34c95e3bfa)",
+  "dry_run": false,
+  "cmux_tui": "2b03d8859aa3500896076b5427894bef04104db8",
+  "fixes": [
+    {
+      "sha": "49a2d18926b560f046af69a3c1258b3b1d67a555",
+      "mergedAt": "2026-11-13T23:58:27-06:00",
+      "subject": "fix(app-health): \"Session service isn't responding\" shows only while the service is really out"
+    },
+    {
+      "sha": "990ccfdbf422a3b4dd1c63395e388fa2b42e5d18",
+      "mergedAt": "2026-11-13T23:58:26-06:00",
+      "subject": "test(app-health): a session service that answers is never left \"isn't responding\" (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:34:10Z",
+    "snapshot_id": "sh-74ad698afe8442bf9bf855e4c3473d4d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43565991806): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8d656e9737ff1ab57ca3c46e397796f78dc73e99",
+    "image": "cloud-native-auto-2b03d885-43565991806-1",
+    "revision": "ci-43565991806-1",
+    "at": "2026-11-14T06:34:10Z"
+  },
+  "rolled_back": false
+}
