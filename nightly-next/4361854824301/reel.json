@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4361854824301",
+  "notes": "notes/4361854824301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42996,
+      "title": "cmux-next: export CmuxNextRemoteView as a library product",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43134,
+      "title": "cmux-tui: a git branch switch moves tree_revision, so an old known never answers unchanged",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43108,
+      "title": "measure: perf-idle-ab.sh, base and head idle in one step, each thread's wakeups by name (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43154,
+      "title": "tests: broker allowlist copy gains baseRef (merge_hold's required-checks read)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43054,
+      "title": "cmux-next-ios: going back into a workspace opens the tab you left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43103,
+      "title": "ci(cmux-next): Blacksmith macOS is off unless vars.CMUX_BLACKSMITH_MACOS is on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43147,
+      "title": "cmux-next-ios-sim: profile records the host with the Time Profiler instrument, and fails loudly",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43044,
+      "title": "cmux-next-ios: a terminal tab keeps its scroll place across the warm set and reattach",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43140,
+      "title": "cmux-codecs: VP9 encodes from a wall-clock capture time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43137,
+      "title": "scripts/measure: agent chat typing A/B in one bench step",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
