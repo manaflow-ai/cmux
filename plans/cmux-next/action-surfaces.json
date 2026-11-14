@@ -30341,7 +30341,13 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "`",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "palette.toggleTerminalChat",
       "main_menu" : null,
       "mcp" : "guiOnly",
