@@ -583,7 +583,7 @@ fn a_page_of_turns_holds_the_settled_group_rows_and_not_the_open_one() {
         let frame = client
             .until(&mut Vec::new(), |frame| (frame.kind == FrameKind::Page).then(|| frame.clone()))
             .await;
-        let result: crate::wire::ChatPageResult = frame.decode_json().unwrap();
+        let result: ChatPageResult = frame.decode_json().unwrap();
         let rows: Vec<Value> = result.rows.iter().map(row_value).collect();
         assert_eq!(rows.len(), 12, "{rows:?}");
         assert!(rows.iter().all(|row| row["kind"] == "group"), "{rows:?}");
@@ -602,7 +602,7 @@ fn a_page_of_turns_holds_the_settled_group_rows_and_not_the_open_one() {
             .iter()
             .rev()
             .take(2)
-            .map(|row| row.get().len() + acpmux_book::log::RECORD_OVERHEAD)
+            .map(|row| row.get().len() + log::RECORD_OVERHEAD)
             .sum();
         let pages = [(json!({"before": u64::MAX, "maxBytes": two}), &ids[10..], true)];
         // Over 256 KB is clamped to 256 KB, as any chat page: answered, not refused.
@@ -616,7 +616,7 @@ fn a_page_of_turns_holds_the_settled_group_rows_and_not_the_open_one() {
                     (frame.kind == FrameKind::Page).then(|| frame.clone())
                 })
                 .await;
-            let got: crate::wire::ChatPageResult = frame.decode_json().unwrap();
+            let got: ChatPageResult = frame.decode_json().unwrap();
             let got_ids: Vec<u64> =
                 got.rows.iter().map(|row| row_value(row)["id"].as_u64().unwrap()).collect();
             assert_eq!(got_ids, expected);
