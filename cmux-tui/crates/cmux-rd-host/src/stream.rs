@@ -253,9 +253,7 @@ impl MediaSession {
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
             }
-            if let Some(rtt_us) = carrier.take_path_rtt_us() {
-                self.engine.update_frames_in_flight_from_rtt(Some(rtt_us));
-            }
+            self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {
                     Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
@@ -277,7 +275,7 @@ impl MediaSession {
             // Socket/proxy carriers do not expose a link path event. Once a
             // cumulative frame acknowledgement arrives, use its measured RTT
             // to size the BDP-equivalent send window just like the secure link.
-            self.engine.update_frames_in_flight_from_rtt(None);
+            self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             // Damage from the desktop.
             damage.clear();
             if let Err(e) = self.drain_settled(&mut damage) {

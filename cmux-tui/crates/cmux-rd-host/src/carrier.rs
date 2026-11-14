@@ -29,8 +29,9 @@ pub trait Carrier {
     fn fds(&self) -> Vec<RawFd>;
     /// Takes everything waiting, without blocking. `Err` ends the session with its reason.
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String>;
-    /// Returns the latest measured path RTT, if this carrier observed one.
-    fn take_path_rtt_us(&mut self) -> Option<u64> {
+    /// The current media route's measured RTT. Reads do not consume it;
+    /// None means the current route needs frame-ACK based sizing.
+    fn path_rtt_us(&self) -> Option<u64> {
         None
     }
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
@@ -120,7 +121,7 @@ pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
     pub paths: Vec<cmux_rd_link::EndpointEvent>,
-    /// The current path's round trip, until the engine reads it.
+    /// The current path's round trip, retained between path events.
     pub rtt_us: Option<u64>,
 }
 
@@ -147,10 +148,8 @@ impl Carrier for LinkCarrier {
                     return Err("viewer closed the link".into());
                 }
                 NetEvent::Failed(reason) => return Err(format!("link failed: {reason}")),
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
-                    if rtt_us.is_some() {
-                        self.rtt_us = rtt_us;
-                    }
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { route, rtt_us, .. }) => {
+                    self.rtt_us = route.and(rtt_us);
                     self.paths.push(path);
                 }
                 _ => {}
@@ -159,8 +158,8 @@ impl Carrier for LinkCarrier {
         Ok(())
     }
 
-    fn take_path_rtt_us(&mut self) -> Option<u64> {
-        self.rtt_us.take()
+    fn path_rtt_us(&self) -> Option<u64> {
+        self.rtt_us
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {

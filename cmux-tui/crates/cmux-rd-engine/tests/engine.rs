@@ -175,7 +175,7 @@ fn carrier_rtt_survives_later_acks_and_updates_existing_and_new_streams() {
     );
     e.update_frames_in_flight_from_rtt(Some(10_000));
     e.update_frames_in_flight_from_rtt(Some(50_000));
-    e.update_frames_in_flight_from_rtt(None);
+    e.update_frames_in_flight_from_rtt(Some(50_000));
     assert_eq!(e.ack_rtt_us(), Some(10_000), "older fallback is still present");
     e.add_stream(3, 200, 100).expect("new popup inherits the window");
     let damage = Rect { x: 0, y: 0, width: 8, height: 8 };
@@ -186,11 +186,34 @@ fn carrier_rtt_survives_later_acks_and_updates_existing_and_new_streams() {
                 .expect("five frames fit the measured path despite the old ACK");
             send(&mut e, &req, i == 1, 1_000, i * 20_000);
         }
-        e.update_frames_in_flight_from_rtt(None);
+        e.update_frames_in_flight_from_rtt(Some(50_000));
     }
     for stream in [0, 3] {
         assert!(e.damage(stream, damage, 120_000).is_none(), "window stays bounded");
     }
+}
+
+#[test]
+fn socket_fallback_replaces_the_old_link_window_with_ack_rtt() {
+    let mut e = engine();
+    e.update_frames_in_flight_from_rtt(Some(10_000));
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        50_000,
+    );
+    // The carrier's current route is a socket: it no longer has a link RTT.
+    e.update_frames_in_flight_from_rtt(None);
+    for i in 1..=5 {
+        let now = 50_000 + i * 20_000;
+        let req = e
+            .damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, now)
+            .expect("socket ACK RTT opens five slots despite the former short link");
+        send(&mut e, &req, false, 1_000, now);
+    }
+    assert!(e.damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, 170_000).is_none());
 }
 
 #[test]

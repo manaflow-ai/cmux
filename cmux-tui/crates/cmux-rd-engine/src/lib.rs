@@ -335,8 +335,6 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
-    /// A carrier's measured RTT takes precedence over the frame-ack fallback.
-    path_rtt_us: Option<u64>,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -361,7 +359,6 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
-            path_rtt_us: None,
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -393,11 +390,10 @@ impl MediaEngine {
     }
 
     /// Adapts the host's send window to its carrier RTT, or recent frame ACKs
-    /// while the carrier has no RTT measurement. A path event remains authoritative
-    /// on subsequent wakes, when the carrier has no new event to consume.
+    /// while the carrier has no RTT measurement. The caller supplies its current
+    /// route's measurement each time, or None after falling back to a socket.
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
-        self.path_rtt_us = path_rtt_us.or(self.path_rtt_us);
-        if let Some(rtt_us) = self.path_rtt_us.or_else(|| self.ack_rtt_us()) {
+        if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
             self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
         }
     }
