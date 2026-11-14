@@ -7,7 +7,9 @@ public struct BillingAnalyticsEvent: Sendable, Equatable, Hashable {
     /// The PostHog event name.
     public let name: String
 
-    /// The plans screen appeared.
+    /// The plans screen or the paywall appeared. Properties: `entry_point`,
+    /// and on the paywall `paywall_experiment`, `paywall_variant`,
+    /// `paywall_layout`, `paywall_config_source`.
     public static let paywallViewed = BillingAnalyticsEvent(name: "ios_paywall_viewed")
     /// StoreKit returned at least one product the server sells to this
     /// bundle. Properties: `product_ids` (comma-separated), `storefront`,
@@ -42,4 +44,21 @@ public struct BillingAnalyticsEvent: Sendable, Equatable, Hashable {
     public static let restoreStarted = BillingAnalyticsEvent(name: "ios_restore_started")
     /// Restore Purchases finished, successfully or not.
     public static let restoreCompleted = BillingAnalyticsEvent(name: "ios_restore_completed")
+    /// The paywall's purchase button was tapped. Properties: `plan_id`,
+    /// `billing_period`, `paywall_experiment`, `paywall_variant`,
+    /// `entry_point`, `paywall_layout`, `paywall_config_source`.
+    public static let paywallCTATapped = BillingAnalyticsEvent(name: "ios_paywall_cta_tapped")
+    /// The paywall closed. Properties: `seconds_visible`, `reached_purchase`,
+    /// `paywall_experiment`, `paywall_variant`, `entry_point`,
+    /// `paywall_layout`, `paywall_config_source`.
+    public static let paywallDismissed = BillingAnalyticsEvent(name: "ios_paywall_dismissed")
+    /// An upgrade card or banner appeared, once per screen appearance.
+    /// Properties: `entry_point`.
+    public static let upgradeEntryViewed = BillingAnalyticsEvent(name: "ios_upgrade_entry_viewed")
+    /// The paywall showed a free trial offer. Properties: `paywall_variant`,
+    /// `paywall_experiment`, `entry_point`, `plan_id`, `billing_period`.
+    public static let trialOfferShown = BillingAnalyticsEvent(name: "ios_trial_offer_shown")
+    /// The device proof a trial needs failed, so no trial was shown.
+    /// Properties: `reason`.
+    public static let trialAttestFailed = BillingAnalyticsEvent(name: "ios_trial_attest_failed")
 }

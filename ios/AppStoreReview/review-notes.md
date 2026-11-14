@@ -53,7 +53,8 @@ Payments:
 
 - The iOS app sells the cmux Go, Pro, and Max monthly subscriptions through
   StoreKit in-app purchase only (subscription group "cmux Plans"). Open
-  Settings > Account > Plan, or Cloud > Upgrade, to see the plans screen with
+  the Upgrade card at the top of Settings (or Settings > Plan), or the
+  upgrade banner in the Cloud tab, to see the plans screen with
   Restore Purchases, Manage Subscription, the auto-renewal terms, and links to
   the Terms of Service and Privacy Policy.
 - The app does not expose Stripe, Stack checkout, external purchase links, or
