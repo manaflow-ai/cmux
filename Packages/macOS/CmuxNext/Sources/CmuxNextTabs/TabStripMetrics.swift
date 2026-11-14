@@ -68,6 +68,19 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// edge, `ConcentricCorners`), at most half the fill's shorter side. A rounded rect,
     /// not Chrome's circle; the default 16 pt close button in a 24 pt, 8 pt pill is
     /// Helium's 4 pt (`TabCloseButton` `kCornerRadius`).
+    /// The x's hover and pressed fill corner.
+    public var closeCornerRadius: CGFloat {
+        let pill = CGRect(x: 0, y: 0, width: 4 * tabHeight, height: tabHeight)
+        let side = closeButtonSize
+        return nestedCornerRadius(CGRect(x: 0, y: (tabHeight - side) / 2, width: side, height: side), in: pill)
+    }
+
+    /// The side of the x's ink box.
+    public var closeGlyphInk: CGFloat { closeGlyphSize }
+
+    /// Where a click or hover counts as on the x drawn at `drawn`.
+    public func closeHitRect(_ drawn: CGRect) -> CGRect { drawn.insetBy(dx: -2, dy: -2) }
+
     public func nestedCornerRadius(_ rect: CGRect, in pill: CGRect) -> CGFloat {
         let corners = Metrics.corners
         let inset = max(0, min(rect.minY - pill.minY, pill.maxY - rect.maxY))
