@@ -123,8 +123,9 @@ struct ChatComposer: View {
             if trimmed == draft.text.trimmingCharacters(in: .whitespacesAndNewlines) { text = "" }
             attachments.removeAll { own in draft.attachments.contains { $0.id == own.id } }
         }
-        // A prompt that never reached the agent comes back to the composer.
-        .onChange(of: store.returnedDraft) { _, draft in
+        // A prompt that never reached the agent comes back to the composer, also when it came
+        // back before the chat opened (New Task's task that never left the phone).
+        .onChange(of: store.returnedDraft, initial: true) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
             // Typed meanwhile: the returned text goes before it, never lost.
