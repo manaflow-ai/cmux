@@ -3,7 +3,7 @@ public import CmuxNextSettings
 import Foundation
 
 /// The page's JSON (CmuxNextSettings), not the daemon's.
-private typealias PageJSON = CmuxNextSettings.JSONValue
+typealias PageJSON = CmuxNextSettings.JSONValue
 
 /// The host side of an extension's web pane (`render: web`): the one door from the page to cmux.
 ///
@@ -33,7 +33,7 @@ public final class AppWebPaneProvider: PageProvider {
         self.call = call
     }
 
-    public func call(_ op: String, params: PageJSON, context: PageCallContext) async throws -> PageJSON {
+    public func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix(prefix), op.count > prefix.count else { throw PageError.unknownOp(op) }
         nextID += 1
         let message: PageJSON = ["id": .string(String(nextID)), "op": .string(String(op.dropFirst(prefix.count))), "params": params]
