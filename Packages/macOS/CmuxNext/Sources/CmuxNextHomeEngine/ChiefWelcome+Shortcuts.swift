@@ -33,7 +33,7 @@ extension ChiefWelcome {
     /// ends with a one-click link that turns it on (agent-shortcut-found).
     static let anyAppAction: ActionID = "palette.startAgentFromAnyApp"
     /// The link that turns Start Agent from Any App on (``DeepLink/settingsAction(for:linkScheme:)``).
-    public static let anyAppLink = "cmux://settings" + DeepLink.startAgentFromAnyAppPath
+    public nonisolated static let anyAppLink = "cmux://settings" + DeepLink.startAgentFromAnyAppPath
 
     /// The welcome with `registry`'s current shortcuts; unbound actions are left out. `anyAppOn`:
     /// whether Start Agent from Any App's system-wide key is on now (no link to turn it on).
