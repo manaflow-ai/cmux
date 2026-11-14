@@ -1,10 +1,8 @@
 import AppKit
-import CmuxNextActions
+package import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextSettings
 import Observation
 import os
-import CmuxNextFocusUI
 
 /// Registers every catalog action marked `isGlobalHotKey` as a system-wide
 /// hot key with its effective shortcut, so it runs while another app is
@@ -16,13 +14,16 @@ import CmuxNextFocusUI
 /// (off by default, coordinator decision 2026-10-06: a system-wide key is
 /// taken from every other app only when the user asks for it), and Start
 /// Agent from Any App only while `app.startAgentGlobalHotKey` is on
-/// (cx-hkat); turning a setting off releases its key.
+/// (cx-hkat), and Capture Screenshot to Chat only while
+/// `app.captureScreenshotGlobalHotKey` is on; turning a setting off releases
+/// its key. Each gate's default is off, as each setting's is; the App's
+/// `GlobalHotKeyService.app(_:)` reads the live settings.
 @Observable
-final class GlobalHotKeyService {
+package final class GlobalHotKeyService {
     /// Actions whose key is not registered: another app holds it, or
     /// another global action already holds or (listed earlier) takes the
     /// same key. Retried on the next change; Settings marks their rows.
-    private(set) var conflicts: Set<ActionID> = []
+    package private(set) var conflicts: Set<ActionID> = []
     @ObservationIgnored private let registry: ActionRegistry
     @ObservationIgnored private let registrar: any GlobalHotKeyRegistrar
     @ObservationIgnored private let layout: @MainActor () -> KeyCodeLayout
@@ -30,6 +31,8 @@ final class GlobalHotKeyService {
     @ObservationIgnored private let showHideEnabled: @MainActor () -> Bool
     /// `app.startAgentGlobalHotKey`, read the same way.
     @ObservationIgnored private let startAgentEnabled: @MainActor () -> Bool
+    /// `app.captureScreenshotGlobalHotKey`, read the same way.
+    @ObservationIgnored private let captureEnabled: @MainActor () -> Bool
     @ObservationIgnored private var registered: [ActionID: Registration] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -41,24 +44,28 @@ final class GlobalHotKeyService {
         var number: UInt32
     }
 
-    init(
+    package init(
         registry: ActionRegistry,
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
         layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current,
-        showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyDefault },
-        startAgentEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.startAgentGlobalHotKeyDefault }
+        showHideEnabled: @escaping @MainActor () -> Bool = { false },
+        startAgentEnabled: @escaping @MainActor () -> Bool = { false },
+        captureEnabled: @escaping @MainActor () -> Bool = { false }
     ) {
         self.registry = registry
         self.registrar = registrar
         self.layout = layout
         self.showHideEnabled = showHideEnabled
         self.startAgentEnabled = startAgentEnabled
+        self.captureEnabled = captureEnabled
     }
 
     /// The action `app.globalHotKey` gates.
-    static let gatedAction: ActionID = "showHideAllWindows"
+    package static let gatedAction: ActionID = "showHideAllWindows"
     /// The action `app.startAgentGlobalHotKey` gates.
-    static let startAgentAction: ActionID = "palette.startAgentFromAnyApp"
+    package static let startAgentAction: ActionID = "palette.startAgentFromAnyApp"
+    /// The action `app.captureScreenshotGlobalHotKey` gates. Off, its key still works inside cmux.
+    package static let captureAction: ActionID = "palette.captureScreenshotToChat"
 
     /// The global hot keys that may register now: the catalog's, without
     /// each gated action whose setting is off.
@@ -66,24 +73,26 @@ final class GlobalHotKeyService {
         var keys = registry.globalHotKeys()
         if !showHideEnabled() { keys[Self.gatedAction] = nil }
         if !startAgentEnabled() { keys[Self.startAgentAction] = nil }
+        if !captureEnabled() { keys[Self.captureAction] = nil }
         return keys
     }
 
     /// Registers now, then follows shortcut and layout changes.
-    func start() {
+    package func start() {
         guard tasks.isEmpty else { return }
         registrar.onPress = { [weak self] number in self?.press(number) }
         apply()
         let registry = registry
         let showHideEnabled = showHideEnabled
         let startAgentEnabled = startAgentEnabled
+        let captureEnabled = captureEnabled
         tasks.append(Task { [weak self] in
             // Suspension reads the whole focus context, so skip the changes
             // that move neither the keys nor the suspension.
-            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool)?
+            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool, capture: Bool)?
             for await next in ObservationStream({
                 (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
-                 startAgent: startAgentEnabled())
+                 startAgent: startAgentEnabled(), capture: captureEnabled())
             }) {
                 if let last, last == next { continue }
                 last = next
@@ -93,7 +102,7 @@ final class GlobalHotKeyService {
         layoutObserver = KeyboardLayoutObserver { [weak self] in self?.apply() }
     }
 
-    func stop() {
+    package func stop() {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         layoutObserver = nil
@@ -104,7 +113,7 @@ final class GlobalHotKeyService {
     /// Brings the registered hot keys in line with the catalog. While a
     /// shortcut recorder is open every key is released and `conflicts`
     /// keeps its last value; closing it registers them again.
-    func apply() {
+    package func apply() {
         if registry.globalHotKeysSuspended {
             for registration in registered.values { registrar.unregister(number: registration.number) }
             registered.removeAll()

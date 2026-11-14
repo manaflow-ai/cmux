@@ -454,7 +454,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root)
             + MachineColorsSetting().parse(root).1
-        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
+        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root)
+            + Self.captureScreenshotGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabPosition.parseButton(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace

@@ -60,6 +60,9 @@ extension CmuxConfigSnapshot {
     /// `app.startAgentGlobalHotKey`: Off when unset or invalid.
     public nonisolated static let startAgentGlobalHotKeyPath = ["app", "startAgentGlobalHotKey"]
     public nonisolated static let startAgentGlobalHotKeyDefault = false
+    /// `app.captureScreenshotGlobalHotKey`: Off when unset or invalid.
+    public nonisolated static let captureScreenshotGlobalHotKeyPath = ["app", "captureScreenshotGlobalHotKey"]
+    public nonisolated static let captureScreenshotGlobalHotKeyDefault = false
     /// `app.hideDockIconWithoutWindows`: On when unset or invalid.
     public nonisolated static let hideDockIconWithoutWindowsPath = ["app", "hideDockIconWithoutWindows"]
     public nonisolated static let hideDockIconWithoutWindowsDefault = true
@@ -348,6 +351,16 @@ extension GeneralSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.captureScreenshotGlobalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.captureScreenshotGlobalHotKey", "Capture Screenshot to Chat from Any App"),
+                help: SettingsText.keyed("settings.app.captureScreenshotGlobalHotKey.help", "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.captureScreenshotGlobalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "screenshot", "capture", "screen", "region", "image", "agent", "chat", "system-wide"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
