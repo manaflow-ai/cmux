@@ -24,11 +24,12 @@
 //! - Each other walk (the delta of a mutation, the launch snapshot, the cloud replica) gets the
 //!   cached value and sends its stale directories to the refresh.
 //!
-//! The refresh is one worker thread for a session. It starts when a walk finds a stale value
-//! and ends when its queue is empty. A directory is in the queue at most one time
-//! (`refreshing`), and only a directory that a walk asked for gets there, so requests that
-//! come inside one refresh start no second one. The worker reads the file system with no lock
-//! held; it takes the state lock only to find the tabs of a directory whose value changed.
+//! The refresh is one worker thread for a session. It starts when a walk or a request with
+//! `known` finds a stale value and ends when its queue is empty. A directory is in the queue at
+//! most one time (`refreshing`), so requests that come inside one refresh start no second one.
+//! It gets there from a walk that asked for it, or from a request with `known` (below). The
+//! worker reads the file system with no lock held; it takes the state lock only for a directory
+//! whose value changed: one time to find its tabs and 2 short times for each `tab-changed`.
 //!
 //! A worker that panics ends the refresh ([`RefreshEnd`]); the next reply starts a new one.
 //!
