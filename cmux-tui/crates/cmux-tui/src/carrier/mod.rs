@@ -125,6 +125,7 @@ mod answer;
 mod client;
 mod contract;
 pub(crate) mod drill;
+pub(crate) mod drill_dial;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
@@ -570,6 +571,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             progress: progress.clone(),
             ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
             ssh_refusal: ssh::SshRefusal::default(),
+            drill: false,
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The

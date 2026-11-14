@@ -83,9 +83,9 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
-    /// `remote.ultraMode`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.
-    public nonisolated static let ultraModePath = ["remote", "ultraMode"]
-    public nonisolated static let ultraModeDefault = false
+    /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
+    public nonisolated static let ultraPath = ["remote", "ultra"]
+    public nonisolated static let ultraDefault: UltraConnectionMode = .auto
 }
 
 extension DeviceHubSettings {
@@ -355,34 +355,19 @@ extension MachineSettingsSchema {
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
             ),
             SettingDescriptor(
-                RemoteSettings.ultraModePath,
+                RemoteSettings.ultraPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.remote.ultraMode", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultraMode.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.ultraModeDefault),
-                keywords: ["ultra", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
-            ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var deviceHub: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
-        return [
-            SettingDescriptor(
-                DeviceHubSettings.urlPath,
-                section: .development,
-                group: group,
-                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
-                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
-                kind: .url,
-                default: .string(DeviceHubSettings.urlDefault),
-                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
+                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."),
+                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .choice([
+                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
+                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
+                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
+                ]),
+                default: .string(RemoteSettings.ultraDefault.rawValue),
+                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
         ]
     }

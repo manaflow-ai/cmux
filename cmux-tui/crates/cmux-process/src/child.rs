@@ -208,6 +208,43 @@ impl Child {
         Ok(Output { status, stdout, stderr })
     }
 
+    /// Wait at most `limit` for the child to exit, without reaping it: `true` once it exited (it stays a zombie,
+    /// so its pid and the process group it leads stay its own until [`Self::wait`] reaps it), `false` while it
+    /// runs. A caller that signals the child's group after its exit does so here, before the reap, so the signal
+    /// can never reach a process that took a reused id. Elsewhere than macOS and Linux this waits as
+    /// [`Self::wait_timeout`], which reaps.
+    pub fn exited_within(&mut self, limit: Duration) -> io::Result<bool> {
+        #[cfg(all(not(target_vendor = "apple"), not(target_os = "linux")))]
+        {
+            self.wait_timeout(limit).map(|status| status.is_some())
+        }
+        #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+        {
+            self.exited_unreaped_within(limit)
+        }
+    }
+
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    fn exited_unreaped_within(&mut self, limit: Duration) -> io::Result<bool> {
+        drop(self.stdin.take());
+        match &mut self.inner {
+            #[cfg(target_vendor = "apple")]
+            Inner::Pid { pid, status } => {
+                if status.is_some() {
+                    return Ok(true);
+                }
+                exit_event_within(*pid, limit)?;
+                exited_unreaped(*pid)
+            }
+            #[cfg(target_os = "linux")]
+            Inner::Std(child) => {
+                let pid = child.id();
+                exit_event_within(pid, limit)?;
+                exited_unreaped(libc::pid_t::try_from(pid).map_err(io::Error::other)?)
+            }
+        }
+    }
+
     /// Wait at most `limit` for the child to end: its status, or `None` when
     /// it still runs. The wait is an event (macOS: kqueue `EVFILT_PROC`
     /// `NOTE_EXIT`; Linux: a pidfd), not a poll; `limit` only bounds it.
@@ -329,6 +366,26 @@ fn waitpid(pid: libc::pid_t, flags: libc::c_int) -> io::Result<Option<ExitStatus
         }
         if reaped == 0 {
             return Ok(None);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+/// Whether child `pid` exited, leaving it unreaped (`waitid` with `WNOWAIT`).
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+fn exited_unreaped(pid: libc::pid_t) -> io::Result<bool> {
+    let id = libc::id_t::try_from(pid).map_err(io::Error::other)?;
+    loop {
+        // SAFETY: a zeroed siginfo_t is valid output storage.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let options = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+        // SAFETY: waitid writes one siginfo_t for a child of this process; WNOWAIT leaves it unreaped.
+        if unsafe { libc::waitid(libc::P_PID, id, &mut info, options) } == 0 {
+            // SAFETY: waitid filled `info` (WNOHANG with nothing to report leaves si_pid 0).
+            return Ok(unsafe { info.si_pid() } != 0);
         }
         let error = io::Error::last_os_error();
         if error.kind() != io::ErrorKind::Interrupted {

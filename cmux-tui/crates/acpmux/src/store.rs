@@ -31,6 +31,10 @@ pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
     folder_to_replace,
 };
+mod log_bytes;
+pub use log_bytes::{
+    LogChunk, LogFilter, LogMark, LogMarks, STAMP as LOG_STAMP, line_seq as log_line_seq,
+};
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
@@ -1088,6 +1092,69 @@ pub trait Store: Send + Sync {
     fn flush_session(&self, _id: &str) -> Result<()> {
         self.flush()
     }
+    /// v2's raw source (`hub/v1_source.rs`, `store/log_bytes.rs`): chat `id`'s lines from seq
+    /// `from` that `filter` keeps, whole and as written, at most one chunk of them (or one line
+    /// when a line is larger), into `out`, read under count `stamp` with `marks`. A store that
+    /// holds parsed records writes each as its line.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        _stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        use acpmux_core::chat::source::CHUNK_BYTES;
+        out.clear();
+        marks.clear();
+        let mut chunk = LogChunk { next: from, at_end: true, read: 0 };
+        let mut failed = None;
+        self.scan(id, from.saturating_sub(1), &mut |record| {
+            if record.seq < from {
+                return true;
+            }
+            if record.seq > filter.through {
+                return false;
+            }
+            if filter.kinds.is_some_and(|kinds| !kinds.contains(&record.kind.as_str())) {
+                return true;
+            }
+            let line = match serde_json::to_vec(&record) {
+                Ok(line) => line,
+                Err(e) => {
+                    failed = Some(e);
+                    return false;
+                }
+            };
+            if !out.is_empty() && out.len() + line.len() + 1 > CHUNK_BYTES {
+                chunk.at_end = false;
+                return false;
+            }
+            out.extend_from_slice(&line);
+            out.push(b'\n');
+            chunk.next = record.seq.saturating_add(1);
+            true
+        })?;
+        if let Some(e) = failed {
+            return Err(e.into());
+        }
+        chunk.read = out.len() as u64;
+        Ok(chunk)
+    }
+    /// Chat `id`'s count of changes to lines already written (`store/log_bytes.rs`): 0 for a
+    /// store whose lines never change.
+    fn log_stamp(&self, _id: &str) -> Result<u64> {
+        Ok(0)
+    }
+    /// Adds `by` to chat `id`'s count: its lines read differently from now.
+    fn bump_log_stamp(&self, _id: &str, _by: u64) -> Result<()> {
+        Ok(())
+    }
+    /// Chat `id`'s log durable through `seq`: v2's book is never ahead of its raw.
+    fn sync_log_through(&self, id: &str, _seq: u64) -> Result<()> {
+        self.flush_session(id)
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -1206,6 +1273,47 @@ pub trait Store: Send + Sync {
         self.scan_strict(id, 0, &mut |rec| {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
+    }
+    /// `scan_kinds` of the records past `after` only: a log load that begins at a restore point
+    /// (`hub/restore_point.rs`). A file store reads from the segment that holds `after + 1`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds(id, kinds, visit);
+        }
+        self.scan(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds_after`, strict as `scan_kinds_strict` is.
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds_strict(id, kinds, visit);
+        }
+        self.scan_strict(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// The restore point `id`'s last log load saved (`hub/restore_point.rs`), as saved. None in a
+    /// store that keeps none.
+    fn restore_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s restore point, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
     }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
@@ -1437,6 +1545,9 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 // ----------------------------------------------------------------- local
 
+/// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
+const RESTORE_POINT: &str = "restore-point.json";
+
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
@@ -1469,6 +1580,9 @@ struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
+    /// Each chat's count of changes to lines already written, once read (`store/log_bytes.rs`):
+    /// read and bumped only under this lock.
+    stamps: HashMap<String, u64>,
 }
 
 /// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
@@ -2067,6 +2181,26 @@ impl Store for LocalStore {
         self.append_line(id, line.as_bytes())
     }
 
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        self.read_log_bytes(id, from, filter, stamp, marks, out)
+    }
+
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        self.read_stamp(id)
+    }
+
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.bump_stamp(id, by)
+    }
+
     fn writes_history(&self) -> bool {
         true
     }
@@ -2184,6 +2318,43 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
+    /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
+    /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(RESTORE_POINT)).ok()
+    }
+
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // A chat whose folder went away (a delete) gets no file of its own again. Read in the
+        // held home, never by path (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
     fn text_entries(

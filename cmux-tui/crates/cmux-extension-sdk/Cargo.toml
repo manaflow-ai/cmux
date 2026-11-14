@@ -1,0 +1,18 @@
+[package]
+name = "cmux-extension-sdk"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Build cmux extensions from Rust: the app API's versions, event streams and live sources, a typed manifest builder, and the validator cmux itself runs"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-app-manifest.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true

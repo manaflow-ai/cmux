@@ -157,3 +157,18 @@ test("the retried attach still needing GitHub goes back to Check again, not to a
   await click(card, translate("cloudRepository.connect"));
   expect(card.textContent).toContain(translate("cloudRepository.notConnectedYet"));
 });
+
+test("no access: Install opens GitHub with no wait, and Try again adds the same repository here once access is granted", async () => {
+  const again = { action: "cloud.repo.add", args: { session: "s", repo: "acme/demo" } };
+  const { calls, request } = host({ "cloud.repo.add": [{ state: "done", repo: "acme/demo" }] });
+  const card = await render({ code: "repo.no_access", org: "acme", installUrl: url, retry: again }, request);
+  await click(card, translate("cloudRepository.installOn", { target: "acme" }));
+  expect(opened).toEqual([url]);
+  // GitHub is connected already: nothing to wait on, and nothing runs before the person comes back.
+  expect(calls).toEqual([]);
+  await click(card, translate("cloudRepository.tryAgain"));
+  expect(calls).toEqual([{ method: "cloud.repo.add", params: again.args }]);
+  expect(card.querySelector(".cv-repo-recovery__chip")?.textContent).toBe(
+    translate("cloudRepository.attachedRepo", { repo: "acme/demo" }),
+  );
+});

@@ -247,13 +247,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The column kind decides (`pinned-dock-v1`), never the tab's title or page.
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
-        // Read the preview setting in the pane's observed structure, so every
-        // mounted pane swaps away from a disabled page without a daemon event.
-        let previews = services.settings?.snapshot.previewFeatures == true
-        let tabs = pane.tabs.filter {
-            !hidden.contains($0.id) && (previews || !InternalPageTabStore.isPreviewPage($0.page)
-                && $0.appTab?.app != "cmux/app-store")
-        }
+        let tabs = pane.tabs.filter { !hidden.contains($0.id) }
         // The Home Chief pane (a pinned dock) shows no tab bar while it holds only Home (Lawrence
         // 2026-10-23: "home chief should have no tabbar"); a tab dragged in brings it back while it
         // is there (plans/cmux-next/home-chief-pane.md H1).

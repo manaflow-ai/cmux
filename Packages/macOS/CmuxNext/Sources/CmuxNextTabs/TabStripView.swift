@@ -110,6 +110,16 @@ public final class TabStripView: NSView {
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
     /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
     var inCardToneDrawn: InCardToneKey?
+    /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
+    /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
+    /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
+    public var meetsToolbar = false {
+        didSet {
+            guard meetsToolbar != oldValue else { return }
+            reportedCornerFlush = false // the next report reaches the chrome, which redraws the divider
+            reportCornerLead()
+        }
+    }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -168,7 +178,7 @@ public final class TabStripView: NSView {
     /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
     /// room the tabs could use.
     public internal(set) var isCrowded = false
-    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    /// ``isCrowded`` changed; the pane's trailing controls (``PaneToolbarView/strip``) follow it.
     public var onCrowdedChange: ((Bool) -> Void)?
     /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
     var laidOutOneTab: Bool?
@@ -530,6 +540,9 @@ public final class TabStripView: NSView {
     /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
     /// the pointer or a new-tab menu is open. It keeps its slot (alpha, not hidden), so nothing moves as it shows.
     func updateChooserReveal() {
+        // A ⌄ in the strip's reveal fades with the + (`tabs.chevronOnHover` off, `tabs.plusButton` hover): its alpha is
+        // the reveal's, so setting it here would show it at rest beside a hidden +.
+        guard HoverReveal.owner(of: newTabMenuButton) == nil else { return }
         let reveal = Self.revealsChooser(onHoverOnly: TabTunables.chevronOnHover.value,
                                          plusHovered: newTabButton.isHovered, chooserHovered: newTabMenuButton.isHovered,
                                          menuOpen: newTabButton.isMenuOpen || newTabMenuButton.isHighlighted,
