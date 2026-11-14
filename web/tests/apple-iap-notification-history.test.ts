@@ -224,6 +224,23 @@ describe("backfill", () => {
     expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime() - 2 * HOUR);
   });
 
+  test("a ledger duplicate on the stalled page does not count as verified: past the cap it keeps stalling", async () => {
+    caughtUp();
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
+    const known = missedRenewal("00000000-0000-4000-a000-0000000000aa");
+    expect(await receiveAppleNotification(known, f.deps())).toBe("processed");
+    f.serverApi = historyApi([{ signedPayloads: [known, missedRenewal("00000000-0000-4000-a000-0000000000bb")] }]);
+    const outage = {
+      ...f.deps().verifier,
+      verifyNotification: async () => { throw new AppleVerificationError("retryable"); },
+    };
+    for (let run = 0; run <= history.APPLE_HISTORY_MAX_RETRYABLE_RUNS; run += 1) {
+      await history.backfillAppleNotifications(f.deps({ verifier: outage }));
+    }
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.retryableRuns).toBe(history.APPLE_HISTORY_MAX_RETRYABLE_RUNS + 1);
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime() - 2 * HOUR);
+  });
+
   test("a notification already in the ledger is left to the retry job and its backoff", async () => {
     caughtUp();
     await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
