@@ -28,6 +28,8 @@ export type AgentEvent =
   | { kind: "assistant"; text: string } // full assistant message (non-streaming providers)
   | { kind: "thinking"; text: string } // streaming reasoning text
   | { kind: "tool-start"; toolId: string; name: string; detail?: string }
+  /** A replaceable snapshot of a running tool's title, input, or output. */
+  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; out?: string }
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
