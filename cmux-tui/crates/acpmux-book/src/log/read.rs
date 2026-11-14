@@ -802,17 +802,22 @@ impl Log {
         Ok(result)
     }
 
-    /// Measures the bytes a resume starts from, without reading a record. Cursors in the
-    /// same sparse block share an upper bound; a span across three segments is always over.
+    /// Measures the bytes a resume reads, from the record after `cursor` to the end, without
+    /// reading a record's text: the records between `seq.idx`'s entry and the cursor cost a
+    /// header read each ([`Log::since_start`]). A span across three segments is always over.
     /// At most one closed segment's metadata is read. The actor uses a 1 MiB cap.
-    pub fn resume_size(&self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
+    pub fn resume_size(&mut self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if cursor >= self.last_seq {
             return Ok(ResumeSize::Within(0));
         }
-        let (seg, offset) = self.resume_start(cursor)?;
+        // A header that is not the next record's: the resume reads up to it and stops, so
+        // its size is not known here; over sends the window that names the damage.
+        let Some((seg, offset)) = self.since_start(cursor)? else {
+            return Ok(ResumeSize::Over);
+        };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),
             Some(1) => {
@@ -844,10 +849,48 @@ impl Log {
         }
     }
 
+    /// Where the record after `cursor` starts: from `seq.idx`'s entry at or before the cursor,
+    /// one read of a header (40 bytes) a record, at most 255, so neither a resume nor its
+    /// measure reads or counts the records before its cursor, whatever their size. `None`
+    /// when a header on the way is not the next record's or the log ends first.
+    fn since_start(&mut self, cursor: u64) -> Result<Option<(u32, u64)>, Error> {
+        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
+        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut head = [0u8; HEADER_LEN];
+        while expected <= cursor {
+            let read = match self.read_segment(seg, offset, &mut head) {
+                Ok(read) => read,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+            if read == 0 {
+                // The end of a segment: the next record starts the next one.
+                if seg >= self.tail.seg {
+                    return Ok(None);
+                }
+                seg = seg.saturating_add(1);
+                offset = super::SEGMENT_HEADER_LEN;
+                continue;
+            }
+            let Some(header) = head.get(..read).and_then(Header::parse) else {
+                return Ok(None);
+            };
+            if header.seq != expected {
+                return Ok(None);
+            }
+            expected = expected.saturating_add(1);
+            offset = offset.saturating_add(header.record_len() as u64);
+        }
+        Ok(Some((seg, offset)))
+    }
+
     /// The records after `cursor`, in change order: at most `max_bytes` of record bytes
     /// ([`MAX_FRAME_BYTES`] at most), always at least one when one exists. Starts at the
-    /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
-    /// records before it), never the book. A cursor at or past the last seq gets nothing.
+    /// record after the cursor ([`Log::since_start`]), so it reads what was missed, never the
+    /// book. A cursor at or past the last seq gets nothing.
     /// Bytes alone bound a resume: it has no row count cap ([`MAX_ROWS`] bounds windows and
     /// pages only).
     pub fn since(&mut self, cursor: u64, max_bytes: usize) -> Result<Since, Error> {
@@ -863,10 +906,12 @@ impl Log {
         if cursor >= self.last_seq {
             return Ok(since);
         }
-        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
-        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let Some((mut seg, mut offset)) = self.since_start(cursor)? else {
+            since.stopped_on_refusal = true;
+            return Ok(since);
+        };
         let mut left = Self::bound(max_bytes, MAX_FRAME_BYTES) as u64;
-        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut expected = cursor.saturating_add(1);
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
             let read = match self.read_segment(seg, offset, &mut chunk) {
