@@ -56,6 +56,14 @@ final class TerminalFlickerTrace: NSObject {
 
     private let sample: () -> Sample?
     private var link: CADisplayLink?
+    /// The page as Core Animation last committed it (read after the run
+    /// loop's commit): the frame a display refresh shows. Read on the
+    /// display link itself, the page's own display links (output, present)
+    /// may have changed it in the same refresh, uncommitted, and a held
+    /// frame let go together with the new grid read as one frame without
+    /// either.
+    private var committed: Sample?
+    private var observer: CFRunLoopObserver?
     private let handle: FileHandle?
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
@@ -88,11 +96,19 @@ final class TerminalFlickerTrace: NSObject {
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
+        // After Core Animation's commit observer (order 2_000_000).
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.committed = self?.sample() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        self.observer = observer
     }
 
     func stop() {
         link?.invalidate()
         link = nil
+        if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        observer = nil
     }
 
     private func count(_ key: String) { counts[key, default: 0] += 1 }
@@ -100,7 +116,7 @@ final class TerminalFlickerTrace: NSObject {
     @objc private func tick(_ link: CADisplayLink) {
         guard let host, let window = host.window else { return }
         if probe.window !== window { window.addSubview(probe) }
-        guard let now = sample() else { return }
+        guard let now = committed ?? sample() else { return }
         let t = link.timestamp - start
         let duration = max(1.0 / 120, link.targetTimestamp - link.timestamp)
         let interval = lastTimestamp > 0 ? link.timestamp - lastTimestamp : 0
