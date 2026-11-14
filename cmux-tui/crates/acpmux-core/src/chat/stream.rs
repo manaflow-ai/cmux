@@ -278,6 +278,12 @@ pub(super) fn end(state: &mut ActorState, conn: u64, sid: &str) {
     state.subs.list.retain(|sub| !(sub.conn == conn && sub.sid == sid));
 }
 
+/// Forgets subscribers their connection let go of, whose `end` never came (a full mailbox
+/// refused it, or the connection closed): none holds the actor past its idle exit.
+pub(super) fn prune(state: &mut ActorState) {
+    state.subs.list.retain(|sub| sub.sink.control(&sub.sid).is_some());
+}
+
 /// One step for each subscriber with one to take, and the held text when its time came.
 pub(super) fn step(state: &mut ActorState) -> Result<(), ChatError> {
     if state.subs.flush_at.is_some_and(|at| at <= Instant::now()) {

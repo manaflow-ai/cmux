@@ -621,13 +621,13 @@ fn a_page_or_blob_for_a_chat_with_no_actor_is_answered_at_once() {
             .send(json!({"method": "page", "params": {"sid": "s", "stream": "chat:chat",
                 "before": 5, "edition": 1}}))
             .await;
-        assert_eq!(client.error().await["code"], "failed");
+        assert_eq!(client.error().await["code"], "not_open");
         client
             .send(json!({"method": "blob", "params": {"id": "b", "stream": "chat:chat",
                 "edition": 1, "rowId": 1, "len": 1}}))
             .await;
         let error = client.error().await;
-        assert_eq!(error["code"], "failed");
+        assert_eq!(error["code"], "not_open");
         assert_eq!(error["id"], "b");
     });
 }
@@ -891,4 +891,47 @@ fn held_text_is_cut_only_where_each_piece_decodes_on_its_own() {
         }
         assert_eq!(decoded, "ab\"cé🙂é🙂x", "max {max}");
     }
+}
+
+/// A sink whose connection holds its subscription, or let it go.
+struct Held(bool);
+
+impl OfferSink for Held {
+    fn offer(&self, _sid: &str, _frame: Frame, _cursor: Cursor) -> Offer {
+        Offer::Taken
+    }
+    fn fail(&self, _sid: &str) {}
+    fn dropped(&self, _sid: &str) {}
+    fn control(&self, _sid: &str) -> Option<Arc<conn::SubscriptionControl>> {
+        self.0.then(Arc::default)
+    }
+    fn metrics(&self) -> Arc<ConnectionMetrics> {
+        Arc::default()
+    }
+}
+
+/// An `end` the mailbox refused leaves a subscriber its connection no longer holds; the idle
+/// check forgets it, so it does not keep the actor alive.
+#[test]
+fn a_subscriber_its_connection_let_go_is_forgotten_at_the_idle_check() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let config = chat.config.lock().unwrap().clone();
+    let mut state = crate::chat::open_state(config).unwrap();
+    for (sid, held) in [("gone", false), ("kept", true), ("stopped", false)] {
+        state.subs.list.push(Subscriber {
+            conn: 1,
+            sid: sid.to_owned(),
+            sink: Arc::new(Held(held)),
+            person: person_id(None),
+            edition: state.edition,
+            phase: if sid == "stopped" { Phase::Stopped } else { Phase::Live },
+            taken: 0,
+        });
+    }
+    prune(&mut state);
+    let left: Vec<&str> = state.subs.list.iter().map(|sub| sub.sid.as_str()).collect();
+    assert_eq!(left, ["kept"]);
+    state.subs.list.clear();
+    prune(&mut state);
+    assert!(state.subs.is_empty());
 }

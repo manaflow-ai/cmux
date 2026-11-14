@@ -1144,6 +1144,7 @@ fn run_once(
             }
             Wait::Read => {}
             Wait::Idle => {
+                stream::prune(state);
                 if state.translate.open_rows().next().is_none()
                     && state.subs.is_empty()
                     && state.translate.queue_len() == 0

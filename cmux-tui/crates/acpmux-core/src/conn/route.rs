@@ -19,8 +19,8 @@ pub struct RouteSource {
     resolve: Resolve,
     /// This connection, as the actors know its subscriptions.
     conn: u64,
-    /// The chat each of this connection's chat subscriptions is of.
-    chats: Mutex<HashMap<String, String>>,
+    /// The chat each of this connection's chat subscriptions is of, and its sink.
+    chats: Mutex<HashMap<String, (String, Arc<dyn OfferSink>)>>,
 }
 
 impl RouteSource {
@@ -28,7 +28,7 @@ impl RouteSource {
         Self { list, registry, resolve, conn, chats: Mutex::new(HashMap::new()) }
     }
 
-    fn chat_of(&self, sid: &str) -> Option<String> {
+    fn chat_of(&self, sid: &str) -> Option<(String, Arc<dyn OfferSink>)> {
         self.chats.lock().ok()?.get(sid).cloned()
     }
 }
@@ -77,20 +77,26 @@ impl Source for RouteSource {
             person: person_id(person),
         };
         handle
-            .subscribe(chat, Ticket::new(sub.sid.clone(), sink))
+            .subscribe(chat, Ticket::new(sub.sid.clone(), sink.clone()))
             .map_err(|error| refused(&error))?;
         if let Ok(mut chats) = self.chats.lock() {
-            chats.insert(sub.sid.clone(), id.to_owned());
+            chats.insert(sub.sid.clone(), (id.to_owned(), sink));
         }
         Ok(())
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {
         match self.chat_of(sid) {
-            Some(id) => {
+            Some((id, sink)) => {
                 // An actor that is gone said `dropped` when it went: the client resumes.
-                if let Some(handle) = self.registry.get(&id) {
-                    let _ = handle.resume(self.conn, sid, cursor.0);
+                let Some(handle) = self.registry.get(&id) else { return };
+                // Refused (a full mailbox): the subscription ends as `dropped`, so the client
+                // resumes from its cursor instead of waiting on a resume that never comes.
+                if handle.resume(self.conn, sid, cursor.0).is_err() {
+                    if let Ok(mut chats) = self.chats.lock() {
+                        chats.remove(sid);
+                    }
+                    sink.dropped(sid);
                 }
             }
             None => self.list.resume(sid, cursor),
@@ -110,7 +116,7 @@ impl Source for RouteSource {
             return self.list.later(request, person, reply);
         };
         let Some(handle) = self.registry.get(id) else {
-            reply.error("failed", "the chat is not open: subscribe to it first");
+            reply.error("not_open", "the chat is not open: subscribe to it first");
             return None;
         };
         let person = person_id(person);
@@ -124,7 +130,7 @@ impl Source for RouteSource {
     fn end(&self, sid: &str) {
         let chat = self.chats.lock().ok().and_then(|mut chats| chats.remove(sid));
         match chat {
-            Some(id) => {
+            Some((id, _)) => {
                 if let Some(handle) = self.registry.get(&id) {
                     let _ = handle.end(self.conn, sid);
                 }
