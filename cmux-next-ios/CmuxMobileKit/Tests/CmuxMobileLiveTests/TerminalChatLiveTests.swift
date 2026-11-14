@@ -1,4 +1,5 @@
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
