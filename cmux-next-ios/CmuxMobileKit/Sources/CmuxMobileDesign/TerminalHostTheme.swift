@@ -96,7 +96,10 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
 }
 
 #if os(iOS)
+import OSLog
 public import UIKit
+
+private let themeLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal-theme")
 
 extension CmuxMobileTerminalTheme {
     /// The background as an opaque color (the surface, its backing and its card).
@@ -140,6 +143,7 @@ public final class CmuxMobileTerminalThemes {
     public func apply(_ appearance: CmuxMobileMacAppearance, macID: String) {
         guard let theme = CmuxMobileTerminalTheme(appearance: appearance), byMac[macID] != theme else { return }
         byMac[macID] = theme
+        themeLog.info("terminal theme of \(macID, privacy: .private(mask: .hash)): \(theme.lines.count) lines, background \(theme.background, privacy: .public), from \(appearance.terminal == nil ? "chrome colors" : "terminal lines", privacy: .public)")
         NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: [Self.macIDKey: macID])
     }
 }

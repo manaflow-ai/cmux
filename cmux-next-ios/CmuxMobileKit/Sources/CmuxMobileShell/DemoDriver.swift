@@ -691,6 +691,8 @@ struct DemoDriver {
             + #"printf "\e[31mred \e[32mgreen \e[33myellow \e[34mblue \e[35mmagenta \e[36mcyan \e[1;37mbold\e[0m \e[2mfaint\e[0m\n""#
         model.send()
         await pause(2.5)
+        let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
+        step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
     }
 
