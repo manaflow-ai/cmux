@@ -10,9 +10,11 @@ import Testing
 /// spilled turns to disk (`ChatTranscriptList.spillIfResting`): an agent that kept working
 /// while the person was elsewhere grew its store without a bound, and `MemoryPressure` never
 /// reached it.
-@MainActor
-@Suite(.serialized) struct AgentChatOffScreenMemoryTests {
-    final class Source: AgentSessionSource {
+///
+/// In `AgentChatSpillTests` (serialized), not a suite of its own: 5,000 turns written to disk
+/// alongside `memoryStaysFlatWithTheWindow` skewed that test's live heap bytes.
+extension AgentChatSpillTests {
+    final class OffScreenSource: AgentSessionSource {
         let summary: AgentSessionSummary
         init(summary: AgentSessionSummary) { self.summary = summary }
         func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
@@ -40,7 +42,7 @@ import Testing
     /// warning brings it down to the warning's floor. Every turn reads back, in order.
     @Test func anOffScreenChatKeepsTheWindowAndAWarningReachesIt() async {
         let directory = AgentSessionDirectory()
-        directory.makeSource = { Source(summary: $0) }
+        directory.makeSource = { OffScreenSource(summary: $0) }
         let stores = (0..<50).map { directory.store(for: Self.summary($0)) }
         let chat = stores[7]
         let folder = FileManager.default.temporaryDirectory.appending(path: "agentspill-offscreen-\(UUID().uuidString)")
