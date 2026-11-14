@@ -750,6 +750,34 @@ fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A client that follows a terminal appends each window's text, as the
+/// cursor contract invites: the joined text must keep the stream's lines.
+/// A window that ended on a line feed lost it to the formatter's trim, so the
+/// next window's first line ran into its last (`2` + `3` read `23`; Cloud
+/// chaos run 43578005170 read 249 of 300 lines this way).
+#[cfg(unix)]
+#[test]
+fn output_read_windows_joined_keep_every_line_break() {
+    const TERMINAL: &str = "0000000000004000800000000000005f";
+    const INCARNATION: &str = "1000000000004000800000000000005f";
+    let mux = test_mux();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    let mut joined = String::new();
+    let mut offset = None;
+    // Lines whole, a line cut mid-way, a blank line, and a style reset after
+    // the line feed, each its own window.
+    for window in [&b"1\r\n2\r\n"[..], b"3\r\n4", b"5\r\n\r\n", b"6\r\n\x1b[0m", b"7\r\n"] {
+        mux.output_store.append(&terminal, &Arc::from(INCARNATION), window, None);
+        let read = mux.terminal_output_read(&terminal, offset, 1 << 20).unwrap();
+        joined.push_str(read["text"].as_str().unwrap());
+        offset = Some(read["next_offset"].as_str().unwrap().parse().unwrap());
+    }
+    assert_eq!(joined, "1\n2\n3\n45\n\n6\n7\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn keep_policy_exit_latches_the_receipt_but_retains_tab_and_screen_surface() {
@@ -840,4 +868,62 @@ fn failed_exit_detach_retry_does_not_keep_mux_alive() {
         assert!(Instant::now() < deadline, "detach retry retained the mux after its owner left");
         std::thread::sleep(Duration::from_millis(1));
     }
+}
+
+/// A host loss reads its host's breadcrumbs, prints a line and appends to the
+/// loss log before its exit commits. That file and stderr I/O must not run
+/// under the daemon-wide surface options lock, which every terminal create,
+/// host close and reap takes: after a mass host loss (sleep, wake) every exit
+/// would serialize its I/O there, and a full stderr pipe would stop them all.
+#[cfg(unix)]
+#[test]
+fn host_loss_log_runs_without_the_surface_options_lock() {
+    const TERMINAL: &str = "00000000000040008000000000000031";
+    const INCARNATION: &str = "10000000000040008000000000000031";
+    let mux = test_mux();
+    let workspace = mux
+        .create_empty_workspace(
+            Some("host-loss-log-lock".into()),
+            Some("018f6e21-7b70-7e70-8000-000000001031".into()),
+            None,
+        )
+        .unwrap();
+    mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let host_root = std::env::temp_dir()
+        .join(format!("cmux-host-loss-log-lock-{}", crate::workspace_registry::new_uuid_v4()));
+    let sessions = host_root.join("session");
+    std::fs::create_dir_all(&sessions).unwrap();
+    mux.surface_options.lock().unwrap().terminal_host_root = Some(sessions);
+    let options_free_while_logging = Arc::new(Mutex::new(None));
+    crate::terminal_loss_log::log_hook::set(
+        TERMINAL,
+        Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let options_free_while_logging = options_free_while_logging.clone();
+            move || {
+                let mux = mux.upgrade().unwrap();
+                let free = std::thread::scope(|scope| {
+                    scope.spawn(|| mux.surface_options.try_lock().is_ok()).join().unwrap()
+                });
+                *options_free_while_logging.lock().unwrap() = Some(free);
+            }
+        })),
+    );
+
+    let committed = mux.persist_terminal_exit(
+        TERMINAL,
+        Some(INCARNATION),
+        &TerminalEnd::HostLost(TerminalExit::unknown("host-lock-test")),
+    );
+
+    crate::terminal_loss_log::log_hook::set(TERMINAL, None);
+    assert!(committed.unwrap(), "the host loss did not commit the exit");
+    assert_eq!(
+        *options_free_while_logging.lock().unwrap(),
+        Some(true),
+        "the host loss log ran while its thread held the surface options lock"
+    );
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(host_root);
 }

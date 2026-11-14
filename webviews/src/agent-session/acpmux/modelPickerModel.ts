@@ -2,6 +2,10 @@ import { knownMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { type ModelPickerProps } from "./modelPickerLayout";
 
+/// acpmux's own Claude Code backend (claude_stdio): its every chat offers Ultracode on a model that
+/// runs Extra High (claude_stdio/mod.rs `ULTRACODE_OPTION`), so a pick can land it before a chat runs.
+export const CLAUDE_STDIO_KIND = "claude-stdio";
+
 export type HarnessChoice = {
   id: string;
   ids: string[];
@@ -22,6 +26,9 @@ export type HarnessChoice = {
   }[];
   unavailable?: string;
   acpmuxHarness?: string;
+  /** The catalog's launcher kind (`_acpmux/models` `kind`): acpmux's own Claude Code backend is
+   * CLAUDE_STDIO_KIND. */
+  kind?: string;
   pickable: boolean;
   /** A catalog harness this machine does not have: its tab lists, its models cannot start. */
   notInstalled?: boolean;
@@ -55,6 +62,7 @@ export function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessCh
       },
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
+      ...(entry.kind ? { kind: entry.kind } : {}),
       pickable: entry.pickable !== false,
       folder: entry.folder,
       mark: knownMark(entry.icon, entry.family, entry.id),
@@ -91,6 +99,7 @@ export function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessCh
         },
         unavailable: entry.unavailable,
         acpmuxHarness: entry.id,
+        ...(entry.kind ? { kind: entry.kind } : {}),
         pickable: true,
         ...(entry.notInstalled ? { notInstalled: true } : {}),
         ...(entry.top ? { top: entry.top } : {}),

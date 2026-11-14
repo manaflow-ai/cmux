@@ -234,7 +234,7 @@ fn tombstone_row(
 
 /// Moves each live row after `removed` (already tombstoned) one position down, with two
 /// statements whatever the number of rows: [`write_changed_rows`] runs two for each row, which
-/// was most of the ledger part of a close before many workspaces.
+/// was most of the ledger part of a close that has many workspaces after the closed one.
 ///
 /// The rows end as [`write_changed_rows`] leaves them: the new position and this commit's
 /// revision; every other column of such a row is equal already ([`one_removed_row`]), and the

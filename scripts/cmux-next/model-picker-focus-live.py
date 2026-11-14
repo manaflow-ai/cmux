@@ -10,6 +10,7 @@ page's focused element (chat_state.focus) after the menu opens. On exit the tag'
 
 Usage: model-picker-focus-live.py --job <cmux-ci job id> --tag <the build's tag>"""
 import argparse, glob, json, os, plistlib, re, socket, subprocess, sys, time
+import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
@@ -43,7 +44,7 @@ from tag_teardown import TagTeardown  # noqa: E402
 TAG = opts.tag
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/mpf-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="mpf-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 
 
 def rpc(method, params=None, timeout=60):

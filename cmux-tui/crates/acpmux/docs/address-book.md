@@ -41,12 +41,24 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   no client may set or remove that tag (`tag.reserved`); editing tags never changes it.
 - Claude Code's own names (`ListAgents`) are auto titles, not identities. Register makes the
   acpmux name the identity; the title can stay as it is.
+- A Claude Code agent acpmux starts takes no part in Claude Code's own cross-session messaging
+  (`src/hub/native_messaging.rs`): it gets `CLAUDE_CODE_HARBOR_KITE=0`, so it has no `ListAgents`
+  and no inbox socket, lists no session and is listed by none. Its peer list is `acpmux ls`, one
+  daemon's sessions. Bench round 6 (Claude Code 2.1.322): with that messaging on, an acpmux agent
+  sent to another with `SendMessage`, the receiver (another permission class) held it silently,
+  and `ListAgents` listed a session of another acpmux daemon. acpmux's PreToolUse gate refuses a
+  `SendMessage` to an acpmux session or a cross-session address, with the `acpmux send` command
+  that delivers it. A message Claude Code still holds (a profile that turned the messaging back
+  on, or a Claude Code that ignores the switch) is in `heldMessages` and `acpmux pending`, in
+  memory only (a daemon restart forgets it). The switch is undocumented in Claude Code; the
+  model probe (`src/live_models/mod.rs`) sets it too. If Claude Code renames it, the gate's
+  refusal and `pending` still work; only the cross-daemon peer list comes back.
 
 ## How a message reaches each kind of session
 
 | Harness | Send (tools it gets) | Receive | Mid-turn | Idle notice (`watch_add`) | Sender it reads | Gaps |
 | --- | --- | --- | --- | --- | --- | --- |
-| Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`) | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
+| Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`); its own `SendMessage` to a session is refused with the `acpmux send` command | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
 | Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
 | Codex, started by acpmux (in-process bridge) | `acpmux` MCP server in ACP `mcpServers` | ACP `session/prompt` | yes (`turn/steer`) | yes | the same line | none known |
 | Codex through the outside `codex-acp` | same | same | no: after the turn | yes | the same line | no steering |

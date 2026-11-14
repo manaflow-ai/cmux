@@ -6,7 +6,13 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -36,7 +42,7 @@ class PreflightTrustTests(unittest.TestCase):
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Trust fixture")
         self.git("config", "user.email", "fixture@example.invalid")
-        self.git("init", "--quiet", "--bare", str(self.remote))
+        git_fixture_env.init_repo(self.remote, "--bare", cwd=self.repo, env=self.env)
         self.git("remote", "add", "origin", str(self.remote))
         # Copy installed behavior, including the vulnerable hook when running
         # this regression against the before-fix source tree. Everything the
@@ -62,6 +68,7 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/webviews_bun_version.py",
             "scripts/verify-push.py",
         ):
             source, target = SOURCE / relative, self.repo / relative

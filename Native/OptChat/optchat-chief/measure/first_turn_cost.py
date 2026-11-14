@@ -195,6 +195,9 @@ def count(out, url, limit, timeout=120):
                 "anthropic-version": hdrs.get("anthropic-version", "2023-06-01")}
         if hdrs.get("anthropic-beta"):
             send["anthropic-beta"] = hdrs["anthropic-beta"]
+        # The recorded request is Claude Code's; SR2 admits only its user agent.
+        if hdrs.get("user-agent"):
+            send["user-agent"] = hdrs["user-agent"]
         r = urllib.request.Request(url.rstrip("/") + "/v1/messages/count_tokens", data=json.dumps(payload).encode(),
                                    headers=send, method="POST")
         source = "count_tokens"
@@ -246,6 +249,39 @@ def count(out, url, limit, timeout=120):
     return 0
 
 
+# The user agent of the Claude Code the harness runs (SR2 admits only Claude Code).
+PROBE_USER_AGENT = "claude-cli/2.1.300 (external, cli)"
+
+
+def probe(url, timeout=60, model="claude-haiku-5-5"):
+    """One tiny Claude Code shaped request: 0 when the route answers it, 3 on a
+    5xx (a ready check can answer 200 while every request gets "502 upstream
+    request failed"), 1 when it cannot be reached or answers anything else."""
+    body = {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "Reply with only ok."}]}
+    r = urllib.request.Request(url.rstrip("/") + "/v1/messages", data=json.dumps(body).encode(), method="POST",
+                               headers={"content-type": "application/json", "anthropic-version": "2023-06-01",
+                                        "x-api-key": "placeholder-the-router-signs", "user-agent": PROBE_USER_AGENT})
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            resp.read()
+        print(f"FIRST-TURN-COST-ROUTE {url} answered a {model} request")
+        return 0
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read()[:200].decode("utf-8", "replace")
+        except OSError:
+            detail = ""
+        if e.code >= 500:
+            print(f"FIRST-TURN-COST the route {url} answered {e.code} to a {model} request ({detail.strip()}). "
+                  "Stop: the route is down.", file=sys.stderr)
+            return 3
+        print(f"FIRST-TURN-COST the route {url} refused a {model} request ({e.code}: {detail.strip()})", file=sys.stderr)
+        return 1
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        print(f"FIRST-TURN-COST the route {url} is not reachable: {e!r}", file=sys.stderr)
+        return 1
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -256,9 +292,14 @@ def main():
     c.add_argument("--url", required=True)
     c.add_argument("--limit", type=int, default=50000)
     c.add_argument("--timeout", type=float, default=120, help="seconds per count_tokens call (short when the route is down)")
+    r = sub.add_parser("probe", help="send one tiny Claude Code shaped request; exit 3 on a 5xx")
+    r.add_argument("--url", required=True)
+    r.add_argument("--timeout", type=float, default=60)
     a = ap.parse_args()
     if a.cmd == "proxy":
         proxy(a.dir)
+    elif a.cmd == "probe":
+        sys.exit(probe(a.url, a.timeout))
     else:
         sys.exit(count(a.dir, a.url, a.limit, a.timeout))
 

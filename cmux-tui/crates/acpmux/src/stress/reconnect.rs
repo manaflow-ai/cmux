@@ -76,8 +76,9 @@ async fn a_day_down_runs_the_whole_reconnect_ladder_in_milliseconds() {
     // At the cap a gap is 30 to 60 s, so a day holds 1,440 to 2,880 of them.
     assert!((1_440..=2_880).contains(&laddered), "{laddered} attempts in the first day");
     assert!((1..=2).contains(&parked), "{parked} parked attempts in the 2 h after the day");
-    // The gaps are ticked time and replay exactly; the wall clock under them also moves with
-    // the real milliseconds the run takes, so it is not compared.
+    // The gaps are ticked time and replay exactly: the followed wall clock is ticked time too
+    // (`test_clock::followed_now_ms`), so the day is reached on the same attempt in each run,
+    // however long the run takes on a loaded host.
     let schedule = |gaps: &[(Duration, Duration)]| gaps.iter().map(|g| g.0).collect::<Vec<_>>();
     let replay = ladder(7, outage).await;
     assert_eq!(schedule(&gaps), schedule(&replay), "a seed replays its schedule exactly");

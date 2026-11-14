@@ -212,7 +212,7 @@ jobs:
           # The head's runner, bisect and probe for every probe, whatever commit is checked out. The copy keeps the
           # scripts/ layout one level up, so web_subareas.py finds ../cmux-next/web-bundle-key.py as in the repo.
           mkdir -p "$WEB_BISECT_RUNNER" "$WEB_BISECT_RUNNER/../cmux-next"
-          cp scripts/ci/run-webviews-tests.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
+          cp scripts/ci/run-webviews-tests.sh scripts/ci/timeout.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/webviews_test_history.py scripts/ci/web_subareas.py scripts/ci/web_coalesce.py \
             scripts/ci/web-bisect-probe.sh scripts/ci/ensure-system-chrome.sh \
             scripts/ci/pin-browser-test-font.sh "$WEB_BISECT_RUNNER/"

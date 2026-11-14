@@ -11,7 +11,7 @@ import Testing
 /// consistent, match chrome's behavior".
 ///
 /// Cmd-W closes a pinned tab as it closes any tab, as Chrome's does: there is no kept pinned tab.
-/// The close then selects by the one close rule (`FocusAfterClose.tab`): the tab before, only the
+/// The close then selects by the one close-selection rule (/work/wt/handoff/tasks/close-selection-rule.md R1; it was the tab before): the next tab, only the
 /// first tab the tab after. Before, Cmd-W on a pinned tab could keep it and select the NEXT tab
 /// (`tabs.cmdWClosesPinnedTabs` off); a config that still has that key closes the pinned tab too.
 /// Each case runs the app's own action (or the CLI's close) against a same-tree cmux-tui daemon.
@@ -75,31 +75,35 @@ struct PinnedTabCmdWClosesTests {
         services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
     }
 
-    /// Cmd-W on pinned P1 closes it and selects pinned P0 (the tab before); Cmd-W on P0 (now the
-    /// first tab) closes it and selects P2 (the tab after). The old opt-out key changes nothing.
-    @Test func cmdWClosesAPinnedTabAndSelectsTheTabBefore() async throws {
+    /// Cmd-W on pinned P1 closes it and selects pinned P2 (the next tab: the one close-selection
+    /// rule, /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4, "Pinned items follow the same
+    /// rule"; it was the tab before); Cmd-W on P2 closes it and selects the first unpinned tab U3.
+    /// The old opt-out key changes nothing.
+    @Test func cmdWClosesAPinnedTabAndSelectsTheNextTab() async throws {
         try await PinnedPageTests.withApp { services, connection in
             try await Self.installOldOptOut(services)
             let (pane, ids, _) = try await Self.pane(services, connection) // P0 P1 P2 | U3 U4 U5
             try await Self.select(ids[1], in: pane)
             #expect(Self.cmdW(services))
-            try await Self.expect(pane, services, closed: ids[1], selects: ids[0], "Cmd-W on pinned P1")
+            try await Self.expect(pane, services, closed: ids[1], selects: ids[2], "Cmd-W on pinned P1")
             #expect(Self.cmdW(services))
-            try await Self.expect(pane, services, closed: ids[0], selects: ids[2], "Cmd-W on pinned P0, the first tab")
-            #expect(pane.stripModel.orderedTabs.map(\.id.rawValue) == Array(ids[2...]))
+            try await Self.expect(pane, services, closed: ids[2], selects: ids[3], "Cmd-W on pinned P2, the last pinned tab")
+            #expect(pane.stripModel.orderedTabs.map(\.id.rawValue) == [ids[0]] + Array(ids[3...]))
         }
     }
 
-    /// The CLI's close of a selected pinned tab selects the tab before it too (P2: pinned P1), and
-    /// Cmd-W on the last pinned tab selects the pinned tab before it, not the first unpinned tab.
-    @Test func theCLICloseAndTheLastPinnedTabSelectTheTabBefore() async throws {
+    /// The CLI's close of a selected pinned tab selects the next tab too (P1: pinned P2), and Cmd-W
+    /// on the last tab of the strip selects the tab before it (close-selection-rule.md R1 rank 4;
+    /// it was the tab before in each case).
+    @Test func theCLICloseSelectsTheNextTabAndTheLastTabTheTabBefore() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, surface) = try await Self.pane(services, connection) // P0 P1 P2 | U3 U4 U5
-            try await Self.select(ids[2], in: pane)
-            try await connection.closeTab(try #require(surface[ids[2]]))
-            try await Self.expect(pane, services, closed: ids[2], selects: ids[1], "the CLI's close of pinned P2")
+            try await Self.select(ids[1], in: pane)
+            try await connection.closeTab(try #require(surface[ids[1]]))
+            try await Self.expect(pane, services, closed: ids[1], selects: ids[2], "the CLI's close of pinned P1")
+            try await Self.select(ids[5], in: pane)
             #expect(Self.cmdW(services))
-            try await Self.expect(pane, services, closed: ids[1], selects: ids[0], "Cmd-W on the last pinned tab P1")
+            try await Self.expect(pane, services, closed: ids[5], selects: ids[4], "Cmd-W on the last tab U5")
         }
     }
 }

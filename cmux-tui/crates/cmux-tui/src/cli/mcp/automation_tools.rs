@@ -36,8 +36,22 @@ const TOOLS: &[AutomationTool] = &[
     AutomationTool {
         name: "automation_create",
         verb: "create",
-        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual, or watch: a command whose every output line is an event, with debounce; webhook on Cloud only). if: a shell condition run before each run with the event on stdin (exit 0 runs it and its output joins the prompt, 1 skips it); cooldown and max_runs (per 24 h) bound how often it runs. Check it with automation_test before you say it works. target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
+        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one trigger. when: an event, the short form for \"when X happens, do Y\": agent-idle (an agent finishes its turn), agent-needs-input (an agent asks a question or a permission), pr-opened (you or an agent open a pull request; read from GitHub every 5 minutes, so up to 5 minutes late); automation_events lists them. Or a schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual, or watch: a command whose every output line is an event, with debounce; webhook on Cloud only). if: a shell condition run before each run with the event on stdin (exit 0 runs it and its output joins the prompt, 1 skips it); cooldown and max_runs (per 24 h) bound how often it runs. Check it with automation_test before you say it works. target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
         mutation: true,
+        destructive: false,
+    },
+    AutomationTool {
+        name: "automation_edit",
+        verb: "edit",
+        description: "Change an automation: any automation_create option (a new trigger such as when pr-opened replaces the old one; name renames it). Only the options given change.",
+        mutation: true,
+        destructive: false,
+    },
+    AutomationTool {
+        name: "automation_events",
+        verb: "events",
+        description: "List the events automation_create's when takes (agent-idle, agent-needs-input, pr-opened): each one's label, where it comes from and how late it can be, its default guardrails, and a sample event (the JSON line a run gets, and automation_test uses when given no event).",
+        mutation: false,
         destructive: false,
     },
     AutomationTool {
@@ -118,6 +132,7 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("in", "in", STRING),
     ("cron", "cron", STRING),
     ("manual", "manual", BOOL),
+    ("when", "when", STRING),
     ("watch", "watch", STRING),
     ("debounce", "debounce", STRING),
     ("webhook", "webhook", BOOL),
@@ -134,9 +149,38 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("editors", "editor", LIST),
 ];
 
+/// `edit` takes what `create` does (but a Cloud webhook), and `name` renames.
+const EDIT_OPTIONS: &[(&str, &str, u8)] = &[
+    ("name", "name", STRING),
+    ("prompt", "prompt", STRING),
+    ("command", "command", STRING),
+    ("hourly", "hourly", BOOL),
+    ("daily", "daily", STRING),
+    ("weekdays", "weekdays", STRING),
+    ("weekly", "weekly", STRING),
+    ("every", "every", STRING),
+    ("at", "at", STRING),
+    ("in", "in", STRING),
+    ("cron", "cron", STRING),
+    ("manual", "manual", BOOL),
+    ("when", "when", STRING),
+    ("watch", "watch", STRING),
+    ("debounce", "debounce", STRING),
+    ("tz", "tz", STRING),
+    ("folder", "folder", STRING),
+    ("model", "model", STRING),
+    ("timeout", "timeout", STRING),
+    ("catch_up", "catch-up", STRING),
+    ("paused", "paused", BOOL),
+    ("if", "if", STRING),
+    ("cooldown", "cooldown", STRING),
+    ("max_runs", "max-runs", COUNT),
+];
+
 fn options(verb: &str) -> &'static [(&'static str, &'static str, u8)] {
     match verb {
         "create" => CREATE_OPTIONS,
+        "edit" => EDIT_OPTIONS,
         "run" => &[("wait", "wait", BOOL), ("event", "event", STRING)],
         "test" => &[("event", "event", STRING)],
         "history" => &[("limit", "limit", INT), ("state", "state", STRING)],
@@ -149,7 +193,7 @@ fn options(verb: &str) -> &'static [(&'static str, &'static str, u8)] {
 /// The positional argument a verb takes, and whether it is required.
 fn positional(verb: &str) -> Option<(&'static str, bool)> {
     match verb {
-        "list" => None,
+        "list" | "events" => None,
         "create" => Some(("name", true)),
         "history" | "audit" => Some(("automation", false)),
         _ => Some(("automation", true)),
@@ -163,11 +207,13 @@ pub(super) fn descriptors() -> Vec<Value> {
 fn descriptor(tool: &AutomationTool) -> Value {
     let mut properties = Map::new();
     let target = if tool.verb == "audit" { "cloud" } else { "local" };
-    properties.insert(
-        "target".into(),
-        json!({"type": "string", "enum": ["local", "cloud"], "default": target,
+    if tool.verb != "events" {
+        properties.insert(
+            "target".into(),
+            json!({"type": "string", "enum": ["local", "cloud"], "default": target,
                "description": "local: this Mac's automations; cloud: cmux Cloud's."}),
-    );
+        );
+    }
     let mut required = Vec::new();
     if let Some((name, needed)) = positional(tool.verb) {
         let what = if name == "name" {
@@ -190,6 +236,14 @@ fn descriptor(tool: &AutomationTool) -> Value {
             _ => json!({"type": "string", "minLength": 1}),
         };
         properties.insert((*arg).into(), schema);
+    }
+    if properties.contains_key("when") {
+        let names: Vec<&str> = cmux_automations::EVENTS.iter().map(|e| e.name).collect();
+        properties.insert(
+            "when".into(),
+            json!({"type": "string", "enum": names,
+                   "description": "Run when this happens (automation_events describes each)."}),
+        );
     }
     if tool.verb == "teleport" {
         properties.insert(
@@ -398,6 +452,27 @@ mod tests {
             Some("--max-runs=0")
         );
         assert_eq!(w("automation_list", json!({})).unwrap(), (vec!["list".to_string()], None));
+        assert_eq!(w("automation_events", json!({})).unwrap(), (vec!["events".to_string()], None));
+        assert!(w("automation_events", json!({"automation": "x"})).is_err(), "it only lists");
+        assert_eq!(
+            w(
+                "automation_create",
+                json!({"name": "Review", "prompt": "Review it", "when": "pr-opened",
+                       "idempotency_key": "k-3"})
+            )
+            .unwrap()
+            .0,
+            ["create", "Review", "--prompt=Review it", "--when=pr-opened"]
+        );
+        assert_eq!(
+            w(
+                "automation_edit",
+                json!({"automation": "Review", "when": "agent-idle", "idempotency_key": "k-4"})
+            )
+            .unwrap()
+            .0,
+            ["edit", "Review", "--when=agent-idle"]
+        );
         assert_eq!(
             w("automation_runs", json!({"automation": "Brief", "limit": 5})).unwrap().0,
             ["history", "Brief", "--limit=5"]
@@ -412,7 +487,13 @@ mod tests {
         assert!(w("automation_get", json!({})).is_err(), "automation is required");
         let names: Vec<_> =
             descriptors().iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names.len(), 11);
+        assert_eq!(names.len(), 13);
+        let create = descriptors().into_iter().find(|d| d["name"] == "automation_create").unwrap();
+        assert_eq!(
+            create["inputSchema"]["properties"]["when"]["enum"],
+            json!(["agent-idle", "agent-needs-input", "pr-opened"])
+        );
+        assert!(create["description"].as_str().unwrap().contains("pr-opened"));
         assert!(names.iter().all(|n| n.starts_with("automation_")));
     }
 }

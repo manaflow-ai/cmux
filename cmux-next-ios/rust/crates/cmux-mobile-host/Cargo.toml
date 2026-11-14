@@ -19,6 +19,8 @@ cmux-rd-core.workspace = true
 # The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
 cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
+# Compressed acpmux messages on the phone link (src/link_deflate.rs).
+flate2.workspace = true
 futures-util.workspace = true
 libc = "0.2"
 reqwest.workspace = true

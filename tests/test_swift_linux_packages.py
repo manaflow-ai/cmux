@@ -77,7 +77,7 @@ def check_rows(failures: list[str]) -> None:
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
     for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
-                   "container: swift:", "ubuntu-2404"):
+                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "ubuntu-2404"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
     for path in ("Packages/**", "scripts/ci/swift-linux-packages.txt", "scripts/ci/package-test-lane.sh"):

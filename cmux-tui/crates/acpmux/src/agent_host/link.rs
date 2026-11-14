@@ -356,25 +356,32 @@ static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<S
 /// host, or at once when its lock can not be watched, which leaves its lines to their answer,
 /// receipt or `Exit` (fail closed).
 async fn watch_host_end(record: HostRecord) {
+    let gone = host_ended(&record).await;
+    WATCHED.lock_or_recover().remove(&record.incarnation);
+    if gone {
+        settle_receipts_of(&record.incarnation);
+    }
+}
+
+/// Resolves once host `record` is proven gone (true: no lock directory holds its live lock) or
+/// its lock can not be watched (false: a lock that can not be read proves nothing). No deadline
+/// and no poll: it waits on the host's live lock, which its death frees.
+pub async fn host_ended(record: &HostRecord) -> bool {
     let (sid, nonce) = (&record.session_id, &record.start_nonce);
-    let gone = loop {
-        let dirs = live_lock_dirs(&record);
+    loop {
+        let dirs = live_lock_dirs(record);
         let states: Vec<_> = dirs.iter().map(|d| (d, liveness(d, sid, nonce))).collect();
         if states.iter().any(|(_, l)| *l == Liveness::Unknown) {
-            break false;
+            return false;
         }
         // Gone once no directory holds it live; a move from the pool wakes the watch, which
         // looks again.
         let Some((dir, _)) = states.into_iter().find(|(_, l)| *l == Liveness::Live) else {
-            break true;
+            return true;
         };
         if !dead(dir, sid, nonce).await {
-            break false;
+            return false;
         }
-    };
-    WATCHED.lock_or_recover().remove(&record.incarnation);
-    if gone {
-        settle_receipts_of(&record.incarnation);
     }
 }
 
@@ -781,6 +788,25 @@ impl Link {
                 Err(timeout.into())
             }
         }
+    }
+
+    /// A query with no deadline: the receiver gets the host's answer, or an error once this link's
+    /// reader ends (it drops every query still open). For a caller that stops waiting at its own
+    /// budget but still takes the answer when it comes (`ChildAgent::host_kind`).
+    pub async fn query_answer(&self) -> Result<oneshot::Receiver<QueryReply>> {
+        let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.queries.lock_or_recover().insert(id, tx);
+        // A reader that already ended cleared the map before this insert and drops no more.
+        if self.is_closed() {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(anyhow!("agent host connection closed"));
+        }
+        if let Err(e) = self.send(ControllerFrame::Query { id }).await {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(e);
+        }
+        Ok(rx)
     }
 
     /// The last entry the host numbered before it answers a query sent now. The host handles this

@@ -22,6 +22,7 @@ import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/ses
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -84,6 +85,7 @@ afterEach(async () => {
   resetSessionInfoState();
   setHeaderState({ inspector: false });
   frames.clear();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

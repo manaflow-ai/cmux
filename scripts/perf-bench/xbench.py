@@ -76,6 +76,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 import budget  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 ROWS = [
     # id, label, unit, in the tweet's table
@@ -755,8 +764,8 @@ class Run:
             # LaunchServices refuses to start apps for a process outside a logged-in
             # console user's session (RBSRequestErrorDomain Code=5 "Launch failed"):
             # no row can be measured on this host.
-            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
-                  "here (needs a host with a logged-in console user)", flush=True)
+            safe_print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
+                       "here (needs a host with a logged-in console user)", flush=True)
             sys.exit(3)
         if not meta["machine"]["displays"].get("count"):
             log("WARNING: no active display: paint, switch and video rows may not be meaningful")

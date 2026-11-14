@@ -1974,7 +1974,8 @@ jobs:
         id: release-archs
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
-          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
+          # feat-cmux-next ships no Intel app: its pull requests compile the Release check arm64 only.
+          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || github.base_ref == 'feat-cmux-next' && 'arm64' || vars.CI_RELEASE_BUILD_ARCHS }}
         run: |
           set -euo pipefail
           archs="$(./scripts/ci/release-build-archs.sh "$REQUESTED_ARCHS")"

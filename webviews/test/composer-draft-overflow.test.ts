@@ -289,13 +289,21 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       const two = await read(page);
       contained(two, "second line");
       expect(two.text.split("\n").filter(Boolean)).toEqual(["first line", "second line"]);
-      expect(two.height).toBeGreaterThan(one.height + 4);
+      // A third line: Codex's look (the default since #42247) holds two lines' room at rest
+      // (composerLook.css --acpmux-codex-editor-min), so only a line past that grows the field.
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("third line");
+      const three = await read(page);
+      contained(three, "third line");
+      expect(three.text.split("\n").filter(Boolean)).toEqual(["first line", "second line", "third line"]);
+      expect(three.height).toBeGreaterThan(one.height + 4);
+      expect(three.height).toBeGreaterThan(two.height + 4);
       // Enter is the send key: it adds no line (composer-return-sends.test.tsx checks the send; the
       // gallery's chat takes no prompt, so the draft stays here).
       await page.keyboard.press("Enter");
       const sent = await read(page);
-      expect(sent.text.split("\n").filter(Boolean)).toEqual(["first line", "second line"]);
-      expect(Math.abs(sent.height - two.height)).toBeLessThanOrEqual(1);
+      expect(sent.text.split("\n").filter(Boolean)).toEqual(["first line", "second line", "third line"]);
+      expect(Math.abs(sent.height - three.height)).toBeLessThanOrEqual(1);
       await page.close();
     });
 

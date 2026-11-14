@@ -41,6 +41,7 @@ pub mod engine;
 pub mod fleet_wait;
 pub mod fold;
 pub mod github;
+pub mod goal;
 pub mod harness_gate;
 pub mod home_view;
 pub mod host;

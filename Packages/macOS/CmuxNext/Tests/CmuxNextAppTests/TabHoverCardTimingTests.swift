@@ -238,4 +238,36 @@ import CmuxNextWakeupsTestSupport
         try await Self.settle(until: { s.shows("c") })
         #expect(s.strip.hoverCard.resources.target == .tab("c"), "the shown card did not sample its tab")
     }
+
+    /// Answers every tab with one picture and counts the asks.
+    private final class Previews: TabPreviewProvider {
+        var asked = 0
+        let image: CGImage?
+        init() {
+            let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            image = context?.makeImage()
+        }
+        func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+            asked += 1
+            return image
+        }
+    }
+
+    /// A capture of the light theme showed a Markdown tab's card with the page's dark picture: the strip
+    /// kept each tab's picture until the tab closed. A theme change now asks the card on screen for its
+    /// picture again.
+    @Test func aThemeChangeAsksForTheCardsPictureAgain() async throws {
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let previews = Previews()
+        s.strip.hoverCard.previewProvider = previews
+        try await Self.open("a", s)
+        try await Self.settle(until: { previews.asked == 1 })
+        try #require(previews.asked == 1, "the card asked for no picture")
+        let dark = s.strip.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        s.strip.appearance = NSAppearance(named: dark ? .aqua : .darkAqua)
+        try await Self.settle(until: { previews.asked == 2 })
+        #expect(previews.asked == 2, "the card kept its picture from the other theme")
+    }
 }

@@ -20,7 +20,7 @@ function GallerySwitchNotice({ error, code, share }: Props) {
           share: {
             machine: "build-box",
             call: async () => {
-              if (share === "forbidden") throw new NativeError({ code: "vm_chat_share_forbidden" });
+              if (share === "forbidden") throw new NativeError({ code: "machine.creator_or_admin" });
               return { shared: true };
             },
           },

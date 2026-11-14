@@ -9,7 +9,7 @@ public import Foundation
 ///   "hostsToOpenInEmbeddedBrowser": ["*.example.com"],  // empty: every host opens in cmux
 ///   "urlsToAlwaysOpenExternally": ["re:^https://[^/]*\\.example\\.com/billing"],
 ///   "openSignInPagesInCmux": true,                      // false: sign-in pages follow the keys above
-///   "openPullRequestsInGitHubPage": true                // false: a chat's pull request link opens github.com
+///   "openPullRequestsInGitHubPage": false               // true: a chat's pull request link opens the cmux GitHub page
 /// }
 /// ```
 ///
@@ -27,8 +27,8 @@ public import Foundation
 /// device-code page (``SignInPage``) opens in a cmux browser tab even when the toggle is off or
 /// the host list misses its host; an external rule still sends it out.
 ///
-/// `browser.openPullRequestsInGitHubPage` (on by default, ``pullRequestsInGitHubPage``): a GitHub pull
-/// request link clicked in an agent chat opens the cmux GitHub page; off, its github.com page.
+/// `browser.openPullRequestsInGitHubPage` (off by default, ``pullRequestsInGitHubPage``): a GitHub pull
+/// request link clicked in an agent chat opens its github.com page in a cmux tab; on, the cmux GitHub page.
 public nonisolated struct LinkRouting: Sendable, Hashable {
     public var opensInCmuxBrowser: Bool
     public var embeddedHosts: [String]

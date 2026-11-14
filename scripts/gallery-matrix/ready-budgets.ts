@@ -12,7 +12,8 @@
 //
 //   bun ready-budgets.ts --from <downloaded gallery-health-* artifacts>
 //
-// lowers every row the run beat (and drops rows that fall to the default). It never raises a row;
+// lowers every row the run beat (and drops rows that fall to the default; a row already under the
+// default holds a fast state tighter than the default and stays). It never raises a row;
 // `--add` adds rows for states over the default that have none, a raise the PR diff shows.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -91,13 +92,17 @@ export function lowerable(times: Map<string, number>, budgets: Budgets): Timing[
     .sort((a, b) => a.state.localeCompare(b.state));
 }
 
-/** Budgets lowered to what the run measured; rows never rise, and a row at or under the default goes. */
+/**
+ * Budgets lowered to what the run measured; rows never rise. A row over the default that falls to it
+ * or under goes (the default holds the state). A row already under the default holds a fast state
+ * tighter than the default, so it stays and only goes further down: dropping it would raise it.
+ */
 export function lowered(budgets: Budgets, times: Map<string, number>, add = false): Budgets {
   const states: Record<string, number> = {};
   for (const [state, budget] of Object.entries(budgets.states)) {
     const ms = times.get(state);
     const next = ms === undefined ? budget : Math.min(budget, roundUp(ms));
-    if (next > budgets.default) states[state] = next;
+    if (next > budgets.default || budget < budgets.default) states[state] = next;
   }
   if (add)
     for (const [state, ms] of times) if (!(state in states) && roundUp(ms) > budgets.default) states[state] = roundUp(ms);

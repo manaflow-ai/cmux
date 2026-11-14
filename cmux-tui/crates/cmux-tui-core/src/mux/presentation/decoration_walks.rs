@@ -28,8 +28,10 @@ impl Mux {
         &self,
         state: &State,
     ) -> HashMap<SurfaceId, SurfaceNotification> {
-        let placement_notifications = self.placement_notifications.lock().unwrap();
-        let terminal_notifications = self.terminal_notifications.lock().unwrap();
+        let placement_notifications =
+            self.placement_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+        let terminal_notifications =
+            self.terminal_notifications.lock().unwrap_or_else(PoisonError::into_inner);
         #[cfg(test)]
         crate::walk_counters::decoration_walk_visited(
             state.surfaces.len() + state.resource_indexes.content_ids.len(),

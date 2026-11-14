@@ -441,3 +441,32 @@ fn network_forms_fail_closed() {
         ("wget -o wget.log -O - https://example.com", FileWrite, "wget -o"),
     ]);
 }
+
+/// Each cursor and index in the lexer and the sed, awk, git, env and shell
+/// readers moves past its last word or char here, so a step is never taken
+/// from the end of the input in a way that could wrap.
+#[test]
+fn ends_of_input_stay_in_bounds() {
+    check(&[
+        // The lexer: a trailing backslash, an empty `$(())`, a redirect with no target.
+        ("echo \\", FileRead, "echo"),
+        ("echo $(())", FileRead, "echo"),
+        ("echo hi 2>", Machine, "unparsed"),
+        // sed: `-e` with no value, a text command and a substitution that end in `\`.
+        ("sed -n -e", FileRead, "sed"),
+        ("sed 'a\\' input", FileRead, "sed"),
+        ("sed 's/x\\' input", Machine, "sed program"),
+        // awk: a flag with no value, a string and a regex that end in `\`.
+        ("awk -F", FileRead, "awk"),
+        ("awk '{print \"a\\\"}' input", Machine, "awk program"),
+        ("awk '/a\\' input", Machine, "awk program"),
+        // Option readers whose valued flag is the last word.
+        ("git -C", GitLocal, "git"),
+        ("git -c", Machine, "git -c"),
+        ("env -u", FileRead, "env"),
+        ("bash -o", Machine, "bash"),
+        ("bash -c", Machine, "bash"),
+        // The shortest host that ends in `.localhost`.
+        ("curl http://a.localhost/", Machine, "curl localhost"),
+    ]);
+}

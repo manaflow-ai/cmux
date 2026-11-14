@@ -14,10 +14,14 @@
 // the page clicks the call's line four times (TOGGLE_CLICKS: open, close, open, and a close 60 ms into
 // that open). support/toolToggleReport.ts measures each click's window.
 // Set CMUX_TOOL_TOGGLE_DUMP=prefix to keep the samples.
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the line it clicks is a
+// finished call of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Sample } from "./browser/send-stream-motion.harness";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
+import { LIVE_TURN_RUNS_QUERY } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { TOGGLE_CLICKS } from "../src/agent-session/acpmux/conversation/scriptedTurn";
@@ -59,7 +63,7 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
   async function samples(extra = "", wall = false): Promise<Sample[]> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const frames = await open120Hz(
-      `http://127.0.0.1:${port}${PAGE}?rows=1${wall ? "" : "&clock=frames"}${extra}`,
+      `http://127.0.0.1:${port}${PAGE}?rows=1${LIVE_TURN_RUNS_QUERY}${wall ? "" : "&clock=frames"}${extra}`,
       wall ? {} : { clock: "frames" },
     );
     try {

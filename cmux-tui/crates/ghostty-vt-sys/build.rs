@@ -27,6 +27,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
+    println!("cargo:rerun-if-env-changed=CMUX_ZIG_MIRROR_ONLY");
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.
     // Hosted build caches can otherwise restore bindings from an older
@@ -56,6 +57,21 @@ fn main() {
     if let Some(why) = why {
         println!("cargo:warning={why}");
     }
+    // No build fetches from a third-party host: every package this build
+    // fetches comes from our mirror first (scripts/ci/zig-packages.lock), and in
+    // CI Zig gets no route to anywhere else. codeberg.org's outage on
+    // 2026-11-11 failed every cold build here (translate_c's aro is
+    // git+https://codeberg.org/ziglang/arocc).
+    let mirror_only = build_support::mirror_only(
+        env::var("CMUX_ZIG_MIRROR_ONLY").ok().as_deref(),
+        env::var("CI").ok().as_deref(),
+    );
+    seed_zig_packages(
+        &zig,
+        &ghostty_dir,
+        &manifest_dir.join(build_support::ZIG_PACKAGE_LOCK),
+        mirror_only,
+    );
     let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();
@@ -108,10 +124,27 @@ fn main() {
     if let Some(cpu_arg) = build_support::zig_cpu_arg(&target, cpu.as_deref()) {
         command.arg(cpu_arg);
     }
+    if mirror_only {
+        for name in build_support::PROXY_VARS {
+            command.env(name, build_support::NO_ROUTE_PROXY);
+        }
+        // An inherited bypass list (`NO_PROXY=*`, or a host) would route around the proxy.
+        for name in build_support::NO_PROXY_VARS {
+            command.env_remove(name);
+        }
+    }
     let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
         panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
     });
     if !status.success() {
+        if mirror_only {
+            panic!(
+                "zig build of libghostty-vt failed with {status}. Zig could fetch only from our \
+                 mirror (CMUX_ZIG_MIRROR_ONLY, on in CI): a package it could not fetch is not in \
+                 scripts/ci/zig-packages.lock's `vt` set or its mirror; see \
+                 scripts/ci/zig_package_mirror.py"
+            );
+        }
         panic!("zig build of libghostty-vt failed with {status}");
     }
 
@@ -148,6 +181,60 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+/// Put the `vt` packages of our mirror into Zig's global cache as
+/// p/<hash>.tar.gz, which Zig reads before it fetches a URL and checks against
+/// the package hash (lib/compiler/Maker/Fetch.zig). A package already unpacked
+/// in the source's zig-pkg/ or archived in p/ is skipped. A download that fails
+/// is left to Zig: upstream outside CI, a named failure in mirror-only mode.
+fn seed_zig_packages(zig: &str, ghostty_dir: &Path, lock: &Path, mirror_only: bool) {
+    let Ok(text) = std::fs::read_to_string(lock) else {
+        if mirror_only {
+            println!(
+                "cargo:warning=no Zig package lock at {}; Zig fetches nothing",
+                lock.display()
+            );
+        }
+        return;
+    };
+    let packages = build_support::mirrored_packages(&text, "vt");
+    let cache =
+        Command::new(zig).arg("env").output().ok().and_then(|out| {
+            build_support::zig_env_global_cache(&String::from_utf8_lossy(&out.stdout))
+        });
+    let Some(cache) = cache else {
+        println!(
+            "cargo:warning=`{zig} env` named no global cache; the Zig package mirror is not used"
+        );
+        return;
+    };
+    let archives = cache.join("p");
+    if let Err(error) = std::fs::create_dir_all(&archives) {
+        println!("cargo:warning=cannot create {}: {error}", archives.display());
+        return;
+    }
+    for package in packages {
+        let archive = archives.join(format!("{}.tar.gz", package.hash));
+        if archive.exists() || ghostty_dir.join("zig-pkg").join(&package.hash).exists() {
+            continue;
+        }
+        // Under a name with no archive suffix until whole, so a cut-short
+        // download never takes the name Zig reads.
+        let part = archives.join(format!(".seed-{}-{}", package.hash, std::process::id()));
+        let fetched = Command::new("curl")
+            .args(["-fsSL", "--proto", "=https", "--retry", "3", "--retry-all-errors"])
+            .args(["--connect-timeout", "20", "--max-time", "300", "-o"])
+            .arg(&part)
+            .arg(&package.url)
+            .status()
+            .is_ok_and(|status| status.success());
+        if fetched && std::fs::rename(&part, &archive).is_ok() {
+            continue;
+        }
+        let _ = std::fs::remove_file(&part);
+        println!("cargo:warning=could not download {} from the Zig package mirror", package.url);
+    }
 }
 
 fn require_vt_source(dir: &Path) -> PathBuf {

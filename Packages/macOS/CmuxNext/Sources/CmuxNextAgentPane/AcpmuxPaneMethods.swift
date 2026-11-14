@@ -202,6 +202,26 @@ nonisolated enum AcpmuxPaneMethods {
         // that chat's agent signed in.
         "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
         "_acpmux/agent_login/cancel",
+        // Run on a bigger machine (conversation/RunElsewhere.tsx; acpmux server/run_elsewhere.rs) for
+        // a chat in the pane's scope. Plan reads what a run would send (the commit, the changed
+        // files, the connected machines); Start runs the chat's command again on a machine the person
+        // connected, so it needs the person's click (``gestureRules``). acpmux serves both only to a
+        // connection that proved the person key, never a remote device, a peer or the chat's agent,
+        // and Start goes only if the tree still has the digest the panel showed.
+        "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start",
+        // That run's output, and Stop (direct.ts bgOutput, bgStop): read one background task of a
+        // chat in the pane's scope, or stop it, as `_acpmux/process/tail` and `_acpmux/process/kill`
+        // do (acpmux server/bg_tasks.rs serves only the chat's own agent or the person). Stopping
+        // starts nothing, so no gesture.
+        "_acpmux/bg/output", "_acpmux/bg/stop",
+        // Compress Chat and Decompress Chat (direct.ts coldArchive; acpmux hub/cold_archive.rs): move
+        // a chat in the pane's scope's log to the cold archive or back, as `_acpmux/archive` hides
+        // it. Nothing runs and nothing is deleted, so no gesture.
+        "_acpmux/cold_archive",
+        // The prompt coach card's rewrite (direct.ts askCoaches; acpmux server/prompt_coach.rs): one
+        // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
+        // record. It sends the chat nothing and runs no turn, so no gesture.
+        "_acpmux/prompt_coach",
     ]
 
     /// Notifications (no `id`).
@@ -304,6 +324,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
+        "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
+        "_acpmux/cold_archive", "_acpmux/prompt_coach",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -432,6 +454,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,
+        // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
+        // another machine: only on the person's click or Return in its panel.
+        "_acpmux/run_elsewhere/start": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

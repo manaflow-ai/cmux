@@ -165,6 +165,7 @@ impl Mux {
         );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        let route_generations = state.surfaces.generations().clone();
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
@@ -214,6 +215,9 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            committed_snapshots: crate::resource_api::CommittedSnapshots::open(
+                registry.session_journal_database_path().as_deref(),
+            ),
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
@@ -222,6 +226,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
+            route_generations,
             state: signaled_mutex::StateMutex::new(state, lane_on),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -292,6 +297,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_before_commit: Mutex::new(None),
             #[cfg(test)]
+            browser_adopt_before_rollback: Mutex::new(None),
+            #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             state_commit_after_apply: Mutex::new(None),
@@ -299,6 +306,8 @@ impl Mux {
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            journal_stream_before_ring_switch: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -361,6 +370,8 @@ impl Mux {
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
             project_chats: Default::default(),
+            chat_index: Default::default(),
+            project_watch: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -376,6 +387,7 @@ impl Mux {
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),
+            tree_revision: tree_revision::TreeRevision::new(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -417,7 +429,7 @@ impl Mux {
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
-            startup_timings: Mutex::new(None),
+            startup_timings: Default::default(),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -441,6 +453,7 @@ impl Mux {
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
+            tree_reply_flight: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -508,6 +521,12 @@ impl Mux {
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_restart_handler(Some(Arc::new(move |restart| {
+            if let Some(mux) = weak_mux.upgrade() {
+                mux.record_journal_plugin_restart(restart);
+            }
+        })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
         timings.lap("mux.build");
@@ -564,13 +583,16 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
+        // After each restore step. It does not wait: the parts run after ready
+        // (startup_restore/restate_parts.rs).
+        mux.start_session_restate();
         mux.start_journal_maintenance()?;
         if let Err(error) = mux.start_output_cleanup() {
             eprintln!("cmux-tui: output cleanup: not started: {error:#}");
         }
         crate::state::project_watch::start(&mux);
         timings.lap("journal.maintenance_start");
-        *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
+        *mux.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         Ok(mux)
     }
 

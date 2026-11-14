@@ -396,6 +396,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    "apps-open-link",
     // The provider's change notice is the verified local app's, as its register and its result:
     // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
     "apps-provider-changed",
@@ -408,6 +409,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
+    // The app sends input by the id of a creating terminal only to its local daemon
+    // (`queuesCreatingInput`), so no owner link has such input to cancel: default deny
+    // (`native_terminal_cannot_cancel_creating_input`).
+    "cancel-creating-input",
     "client-hello",
     "close-screen",
     "close-screen-group",

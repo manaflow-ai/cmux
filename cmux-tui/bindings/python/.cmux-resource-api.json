@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c29174dc2d62cb93e213cadbc99affae30e58869994992bd8cbacd7f16c2e25b",
+  "catalog_sha256": "a8bb34e34ded7c4874ab371b7492255154dbbc60195d4466cb7e07373e05ea6c",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -94,6 +94,18 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
+    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -175,7 +187,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -337,6 +355,9 @@
     "diff.comments.save": {
       "class": "mutation"
     },
+    "diff.comments.send": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -374,6 +395,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {
@@ -721,6 +745,9 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
       "class": "read"
     },
@@ -965,6 +992,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

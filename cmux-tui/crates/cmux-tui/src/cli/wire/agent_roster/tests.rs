@@ -124,7 +124,9 @@ fn json_shape_has_agents_with_age_title_and_folder_and_counts() {
     ]);
     let result = shape(rows, &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
     let object = result.as_object().expect("the roster is an object");
-    assert_eq!(object.keys().collect::<Vec<_>>(), ["agents", "counts"]);
+    // `hidden_ended` (#39602): the ended agents of closed terminals the list leaves out.
+    assert_eq!(object.keys().collect::<Vec<_>>(), ["agents", "counts", "hidden_ended"]);
+    assert_eq!(result["hidden_ended"], 0);
     let agents = result["agents"].as_array().unwrap();
     // Every daemon field is kept as it was.
     assert_eq!(agents[0]["updated_at_ms"], (NOW - 90_000).to_string());
@@ -268,6 +270,7 @@ fn empty_roster_has_zero_counts() {
             "agents": [],
             "counts": {"blocked": 0, "done": 0, "working": 0, "idle": 0, "unknown": 0, "ended": 0,
                        "total": 0},
+            "hidden_ended": 0,
         })
     );
 }

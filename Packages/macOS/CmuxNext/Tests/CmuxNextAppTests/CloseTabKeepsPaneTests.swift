@@ -15,7 +15,7 @@ import Testing
 /// the focus back to the chat (#22990), so the next Cmd-W closed the chat.
 ///
 /// The rule: a closed tab's pane keeps the focus while it has tabs, on the neighbour the close
-/// selects (the tab before it, else the one after it). Only the close of a pane's last tab moves the focus
+/// selects (the next tab, the previous only when it was the last: close-selection-rule.md R1). Only the close of a pane's last tab moves the focus
 /// to another pane; a press aimed at the emptied pane (made before the frame showing the new
 /// focus, or a repeat of the held key) closes nothing there (``PaneCloseAim``). Runs the app's
 /// Close Tab against a same-tree cmux-tui daemon.
@@ -57,13 +57,14 @@ struct CloseTabKeepsPaneTests {
                                             report: { "the browser pane holds \(browserPane.orderedIDs.map(\.rawValue)), wanted \(ids)" })
             for surface in surfaces { services.linkOpener.returnFocus(of: surface, to: agentPane.layoutPaneID, in: content) }
 
-            // Start on the middle tab: the first close selects the tab before it, the second (the first tab) the one after it.
+            // Start on the middle tab: the first close selects the NEXT tab, the second (now the last tab) the one before it
+            // (the one close-selection rule, /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was the tab before).
             browserPane.select(TabID(ids[1]))
             PaneHandlers.focus(browserPane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === browserPane && browserPane.stripModel.selectedID?.rawValue == ids[1] })
 
             // Each close: the tab goes, the pane keeps the focus, its neighbour is selected.
-            for (closed, next) in [(ids[1], ids[0]), (ids[0], ids[2])] {
+            for (closed, next) in [(ids[1], ids[2]), (ids[2], ids[0])] {
                 #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
                 try await PinnedPageTests.until({ store.tab(id: closed) == nil && browserPane.stripModel.selectedID?.rawValue == next },
                                                 report: { "closing \(closed): " + Self.describe(content, next) })
@@ -73,7 +74,7 @@ struct CloseTabKeepsPaneTests {
 
             // The last tab: the pane closes with it, the focus goes back to the chat it was opened from.
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
-            try await PinnedPageTests.until({ store.tab(id: ids[2]) == nil && content.focusedPane === agentPane },
+            try await PinnedPageTests.until({ store.tab(id: ids[0]) == nil && content.focusedPane === agentPane },
                                             report: { "closing the last tab: " + Self.describe(content, chatID) })
         }
     }
@@ -237,15 +238,16 @@ struct CloseTabKeepsPaneTests {
         return pressedAt
     }
 
-    /// Pure: the neighbour a close selects (``FocusAfterClose/tab(selected:old:surviving:shown:)``):
-    /// the tab before, else the one after; nil once no tab is left.
-    @Test func aClosedTabsNeighbourIsTheTabBeforeElseTheTabAfter() {
+    /// Pure: the neighbour a close selects with no opener (the one close-selection rule,
+    /// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was the tab before): the next
+    /// tab, the previous only when it was the last; nil once no tab is left.
+    @Test func aClosedTabsNeighbourIsTheNextTabElseThePreviousTab() {
         func next(_ selected: String, _ old: [String]) -> String? {
             let surviving = old.filter { $0 != selected }
-            return FocusAfterClose.tab(selected: selected, old: old, surviving: surviving, shown: Set(surviving))
+            return CloseSelection<String>().successor(ofTab: selected, old: old, surviving: surviving, shown: Set(surviving))
         }
-        #expect(next("b", ["a", "b", "c"]) == "a")
-        #expect(next("a", ["a", "c"]) == "c")
+        #expect(next("b", ["a", "b", "c"]) == "c")
+        #expect(next("c", ["a", "c"]) == "a")
         #expect(next("a", ["a"]) == nil)
     }
 

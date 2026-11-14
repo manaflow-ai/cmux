@@ -3,7 +3,7 @@
 // questions and pull requests; code changes waiting on review stay the Review queue's job
 // (review/), which this page links to. Nothing here is a store of its own: an item leaves as soon
 // as acpmux stops reporting it, and an answer goes the way Needs you sends it (needsYou/).
-import type { NeedsYouAnswer, NeedsYouItem } from "../needsYou/model";
+import { questionAnswers, type NeedsYouAnswer, type NeedsYouItem } from "../needsYou/model";
 import { questionFromPermission, type AgentQuestion } from "../question/model";
 
 export const QUEUE_METHOD = "_acpmux/review_queue";
@@ -172,11 +172,15 @@ export function itemQuestion(item: QueueItem): AgentQuestion | undefined {
 /// show (`chat.asks.answer`). Never a lasting grant in their place: an `allow_always` or a
 /// `reject_always` is answered in the chat, where the person sees what it keeps deciding, so an
 /// item with neither once option shows none here and opens its chat. A pull request takes its
-/// verdict instead. A question is answered in its chat, where its card shows the whole question:
-/// no chat shows here for `chat.permission` to answer, and the host's one-click answer takes tool
-/// permissions only. An ask on another machine is answered there.
+/// verdict instead. A one-pick question takes its choices, which the host sends as its card would
+/// (homeInboxModel.ts `replyElsewhere`); a longer one is answered in its chat, where its card shows
+/// the whole question. An ask on another machine is answered there.
 export function queueAnswers(item: QueueItem): NeedsYouAnswer[] {
-  if (item.kind === "pr" || item.kind === "question" || item.host) return [];
+  if (item.kind === "pr" || item.host) return [];
+  if (item.kind === "question") {
+    const question = itemQuestion(item);
+    return question ? questionAnswers(question) : [];
+  }
   const allow = item.options.find((option) => option.kind === "allow_once");
   const deny = item.options.find((option) => option.kind === "reject_once");
   return [

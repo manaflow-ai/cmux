@@ -561,6 +561,8 @@ pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, 
         ("policy", "policy"),
         ("cwd", "cwd"),
         ("pendingPermissions", "pending_permissions"),
+        // Other sessions' messages its Claude Code holds (acpmux `hub/native_messaging.rs`).
+        ("heldMessages", "held_messages"),
         ("queued", "queued"),
     ] {
         if let Some(value) = info.get(from).filter(|value| !value.is_null()) {

@@ -40,6 +40,15 @@ import subprocess
 import sys
 import time
 import zlib
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 BSU = "\x1b[?2026h"  # begin synchronized update: the terminal shows the frame whole
 ESU = "\x1b[?2026l"
@@ -1316,7 +1325,7 @@ def cmd_serve(a):
 
     handler = functools.partial(Quiet, directory=a.dir)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", a.port), handler)
-    print(json.dumps({"url": "http://127.0.0.1:%d/%s" % (server.server_address[1], name)}), flush=True)
+    safe_print(json.dumps({"url": "http://127.0.0.1:%d/%s" % (server.server_address[1], name)}), flush=True)
     install_quit()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

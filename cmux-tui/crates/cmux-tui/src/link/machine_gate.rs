@@ -13,6 +13,21 @@
 //! machine the verb's own refusal says why), and neither is a daemon whose
 //! `identify` does not answer: the gate only names a cause, it never decides
 //! access, so anything it cannot read leaves the verb's own error.
+//!
+//! First contact ([`reach`]): a Cloud machine's link socket is `cmux carrier
+//! serve`, which accepts at once and opens the connection's stream on the
+//! machine's session only then (dialing the session first when none is
+//! held, resuming it after a drop). A verb's first `identify` right after a
+//! lease can wait seconds for that stream, find the socket not bound yet or
+//! being rebound, or be closed unanswered by a dial that failed while the
+//! machine was still registering. So the first contact waits for the link,
+//! up to [`LINK_READY_BUDGET`] in all: the same connection is read until the
+//! budget ends, and a socket that is missing, refuses, or closes before any
+//! byte of the answer is dialed again. Live red 5 (2026-11-10, `cmux chat
+//! --on vm:new --from-folder` a parent folder, vm_5700fc039d26ab0b5fc2): the
+//! copy's stream opened 7.7 s after its accept (after a session resume), past
+//! the 5 s one-try `identify`, and the start failed "the machine at …
+//! did not answer". [`identify`] stays the quick one-try probe for polls.
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
@@ -31,6 +46,15 @@ pub(super) const OUTDATED: &str = "machine_outdated";
 pub(super) const CAPABILITY_MISSING: &str = "machine_capability_missing";
 /// How long the whole `identify` may take, however the daemon trickles it.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(5);
+/// How long a verb's first contact ([`reach`]) waits for the link in all:
+/// past a carrier stream open after a session resume (7.7 s seen live), a
+/// first dial whose handshake timed out and redialed (about 21 s seen live
+/// on new machines), and a socket being rebound.
+pub(super) const LINK_READY_BUDGET: Duration = Duration::from_secs(60);
+/// The pause before dialing a missing, refusing or closing link again;
+/// doubled up to [`REDIAL_MAX`].
+const REDIAL_FIRST: Duration = Duration::from_millis(250);
+const REDIAL_MAX: Duration = Duration::from_secs(2);
 /// How long the whole answer to any other request may take.
 const REQUEST_BUDGET: Duration = Duration::from_secs(15);
 /// Most bytes of one answer line.
@@ -135,6 +159,64 @@ pub(crate) fn identify(socket: &Path) -> Option<Value> {
     call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET).ok()
 }
 
+/// Why a verb's first contact found no machine: what the last try saw, and
+/// how long it waited for the link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Unreached {
+    pub(crate) waited: Duration,
+    pub(crate) last: String,
+    /// The daemon answered and refused `identify`: it is up, nothing was waited for.
+    pub(crate) refused: bool,
+}
+
+impl std::fmt::Display for Unreached {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.refused {
+            return write!(f, "the machine refused identify: {}", self.last);
+        }
+        write!(
+            f,
+            "the machine did not answer for {} s ({}). It may still be starting, or its link \
+             dropped: send again in a minute; if it keeps failing, `cmux vm ls` shows its state",
+            self.waited.as_secs().max(1),
+            self.last
+        )
+    }
+}
+
+/// A verb's first contact with the daemon at `socket` (module docs): its
+/// `identify` answer once the link answers, waiting up to
+/// [`LINK_READY_BUDGET`]; or why none came. A daemon that refuses
+/// `identify` is not waited on: its refusal is the answer, as before.
+pub(crate) fn reach(socket: &Path) -> Result<Value, Unreached> {
+    reach_within(socket, LINK_READY_BUDGET)
+}
+
+pub(super) fn reach_within(socket: &Path, budget: Duration) -> Result<Value, Unreached> {
+    let started = Instant::now();
+    let deadline = started + budget;
+    let mut pause = REDIAL_FIRST;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let last = match attempt(socket, json!({"cmd": "identify"}), left) {
+            Ok(identity) => return Ok(identity),
+            Err(Try::Refused(why)) => {
+                return Err(Unreached { waited: started.elapsed(), last: why, refused: true });
+            }
+            Err(Try::Lost { why, redial: false }) => why,
+            Err(Try::Lost { why, redial: true }) => {
+                if Instant::now() + pause < deadline {
+                    std::thread::sleep(pause);
+                    pause = (pause * 2).min(REDIAL_MAX);
+                    continue;
+                }
+                why
+            }
+        };
+        return Err(Unreached { waited: started.elapsed(), last, refused: false });
+    }
+}
+
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
 /// `error_code: error`, or what went wrong reading it).
 pub(crate) fn call(socket: &Path, request: Value) -> Result<Value, String> {
@@ -163,21 +245,57 @@ impl std::fmt::Display for CallFailure {
     }
 }
 
-fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, CallFailure> {
-    let lost = |why: String| CallFailure::Lost(why);
+fn call_within(socket: &Path, request: Value, budget: Duration) -> Result<Value, CallFailure> {
+    attempt(socket, request, budget).map_err(|failure| match failure {
+        Try::Refused(why) => CallFailure::Refused(why),
+        Try::Lost { why, .. } => CallFailure::Lost(why),
+    })
+}
+
+/// How one try of a request ended without `data`.
+enum Try {
+    Refused(String),
+    /// `redial`: the link was not there yet or let the connection go before
+    /// any byte of the answer (missing or refusing socket, a close or reset
+    /// with nothing read), so dialing again may reach it. Not after a
+    /// timeout: that connection already had the whole budget.
+    Lost {
+        why: String,
+        redial: bool,
+    },
+}
+
+fn attempt(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, Try> {
+    let lost = |why: String| Try::Lost { why, redial: false };
+    if budget.is_zero() {
+        return Err(lost("no time was left to ask".into()));
+    }
     let deadline = Instant::now() + budget;
-    let stream = UnixStream::connect(socket).map_err(|e| lost(format!("cannot connect: {e}")))?;
+    let stream = UnixStream::connect(socket).map_err(|e| Try::Lost {
+        redial: matches!(
+            e.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+        ),
+        why: format!("cannot connect: {e}"),
+    })?;
     stream.set_write_timeout(Some(budget)).map_err(|e| lost(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     request.set("id", json!(1));
     let mut line = request.to_string();
     line.push('\n');
-    reader
-        .get_mut()
-        .write_all(line.as_bytes())
-        .map_err(|e| lost(format!("cannot send the request: {e}")))?;
-    for _ in 0..=MAX_OTHER_ANSWERS {
-        let line = read_line(&mut reader, deadline, budget).map_err(lost)?;
+    reader.get_mut().write_all(line.as_bytes()).map_err(|e| Try::Lost {
+        // A carrier whose dial failed closes the connection unanswered.
+        redial: matches!(
+            e.kind(),
+            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+        ),
+        why: format!("cannot send the request: {e}"),
+    })?;
+    for answered in 0..=MAX_OTHER_ANSWERS {
+        let line = read_line(&mut reader, deadline, budget).map_err(|failure| Try::Lost {
+            redial: answered == 0 && failure.unanswered,
+            why: failure.why,
+        })?;
         let answer: Value = serde_json::from_slice(&line).map_err(|e| lost(e.to_string()))?;
         if answer["id"] != json!(1) {
             continue;
@@ -186,12 +304,19 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
             return Ok(answer["data"].clone());
         }
         let code = answer["error_code"].as_str().unwrap_or("refused");
-        return Err(CallFailure::Refused(format!(
+        return Err(Try::Refused(format!(
             "{code}: {}",
             answer["error"].as_str().unwrap_or_default()
         )));
     }
     Err(lost("the daemon kept answering other requests".into()))
+}
+
+/// Why [`read_line`] read no line: `unanswered` when the connection ended
+/// (closed or reset) before any byte of it.
+struct ReadFailure {
+    why: String,
+    unanswered: bool,
 }
 
 /// One answer line, newline included; or why none came within `budget`
@@ -201,21 +326,22 @@ fn read_line(
     reader: &mut BufReader<UnixStream>,
     deadline: Instant,
     budget: Duration,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ReadFailure> {
     let mut line = Vec::new();
+    let failed = |why: String| ReadFailure { why, unanswered: false };
     let timed_out = |line: &[u8]| {
-        format!(
+        failed(format!(
             "the daemon did not answer within {} s ({} bytes of its answer arrived)",
             budget.as_secs(),
             line.len()
-        )
+        ))
     };
     loop {
         let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|l| !l.is_zero())
         else {
             return Err(timed_out(&line));
         };
-        reader.get_ref().set_read_timeout(Some(left)).map_err(|e| e.to_string())?;
+        reader.get_ref().set_read_timeout(Some(left)).map_err(|e| failed(e.to_string()))?;
         let available = match reader.fill_buf() {
             Ok(available) => available,
             Err(error)
@@ -227,17 +353,24 @@ fn read_line(
                 return Err(timed_out(&line));
             }
             Err(error) => {
-                return Err(format!(
-                    "the connection to the daemon failed after {} bytes of its answer: {error}",
-                    line.len()
-                ));
+                return Err(ReadFailure {
+                    unanswered: line.is_empty()
+                        && error.kind() == std::io::ErrorKind::ConnectionReset,
+                    why: format!(
+                        "the connection to the daemon failed after {} bytes of its answer: {error}",
+                        line.len()
+                    ),
+                });
             }
         };
         if available.is_empty() {
-            return Err(format!(
-                "the daemon closed the connection after {} bytes of its answer",
-                line.len()
-            ));
+            return Err(ReadFailure {
+                unanswered: line.is_empty(),
+                why: format!(
+                    "the daemon closed the connection after {} bytes of its answer",
+                    line.len()
+                ),
+            });
         }
         let (taken, done) = match available.iter().position(|byte| *byte == b'\n') {
             Some(end) => (end + 1, true),
@@ -246,16 +379,20 @@ fn read_line(
         line.extend_from_slice(&available[..taken]);
         reader.consume(taken);
         if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
-            return Err(format!(
+            return Err(failed(format!(
                 "the daemon's answer passed the {MAX_ANSWER_BYTES}-byte limit ({} bytes read)",
                 line.len()
-            ));
+            )));
         }
         if done {
             return Ok(line);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "machine_gate_reach_tests.rs"]
+mod reach_tests;
 
 #[cfg(test)]
 mod tests {

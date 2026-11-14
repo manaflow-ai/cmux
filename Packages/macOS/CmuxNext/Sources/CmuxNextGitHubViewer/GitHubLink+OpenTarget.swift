@@ -3,9 +3,10 @@ public import CmuxNextSettings
 import CmuxNextDesign
 
 /// Where a pull request link clicked in an agent chat opens (Leo, 2026-11-07: "you should be able
-/// to have an option to, like, default open in normal GitHub.com if you want, optionally"): the
-/// GitHub page while `browser.openPullRequestsInGitHubPage` is on (the default), its github.com page
-/// in a cmux tab when off. Session Info's View diff (a `/files` link) opens its diff either way.
+/// to have an option to, like, default open in normal GitHub.com if you want, optionally"): its
+/// github.com page in a cmux tab while `browser.openPullRequestsInGitHubPage` is off (the default since
+/// https://github.com/manaflow-ai/cmux/issues/40889), the GitHub page when on. Session Info's View diff
+/// (a `/files` link) opens its diff either way.
 public extension GitHubLink {
     /// The link the GitHub page opens for `url`, nil to leave it to its web page: the page is
     /// switched on (`native`, nil: Debug Settings `links.githubNativeViewer`), the cmux browser is on and

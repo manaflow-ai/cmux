@@ -26,9 +26,9 @@ final class HomeClientViewCache {
 
     private(set) var drafts: [ConversationID: String] = [:]
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
-    private(set) var uploadedDraftAttachments: [ConversationID: [String: String]] = [:]
-    private(set) var pendingWebSends: [ConversationID: [String: String]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
+    /// The Chief conversation Home showed last (``HomeCacheSnapshot/chief``).
+    private(set) var chief: ConversationID?
     private var pendingWrite: Task<Void, Never>?
     /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
     private var lastWrite: Task<Void, Never>?
@@ -66,32 +66,17 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
-    /// Keeps one entry of a web composer's per-conversation book (an unsent send by its key, a
-    /// staged part by its hash); nil or empty removes only that entry, never the others.
-    func setPendingWebSend(_ json: String?, key: String, for id: ConversationID) {
-        guard Self.set(&pendingWebSends, json, key: key, for: id) else { return }
-        scheduleWrite()
-    }
-
-    func setUploadedDraftAttachment(_ json: String?, hash: String, for id: ConversationID) {
-        guard Self.set(&uploadedDraftAttachments, json, key: hash, for: id) else { return }
-        scheduleWrite()
-    }
-
-    /// True when it changed the book.
-    private static func set(_ book: inout [ConversationID: [String: String]], _ json: String?, key: String, for id: ConversationID) -> Bool {
-        let value = json?.isEmpty == false ? json : nil
-        guard book[id]?[key] != value else { return false }
-        var entries = book[id] ?? [:]
-        entries[key] = value
-        book[id] = entries.isEmpty ? nil : entries
-        return true
-    }
-
     /// Where the reader is; nil when at the bottom.
     func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
         guard scrollAnchors[id] != anchor else { return }
         scrollAnchors[id] = anchor
+        scheduleWrite()
+    }
+
+    /// Keeps the Chief conversation Home shows; the same one is no change.
+    func setChief(_ id: ConversationID?) {
+        guard chief != id else { return }
+        chief = id
         scheduleWrite()
     }
 
@@ -102,9 +87,8 @@ final class HomeClientViewCache {
         defer { writesSuppressed = false }
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
-        uploadedDraftAttachments = snapshot.uploadedDraftAttachments ?? [:]
-        pendingWebSends = snapshot.pendingWebSends ?? [:]
         scrollAnchors = snapshot.scroll
+        chief = snapshot.chief
         body()
     }
 
@@ -175,9 +159,8 @@ final class HomeClientViewCache {
         var state = ownerState()
         state.drafts = drafts
         state.draftAttachments = draftAttachments
-        state.uploadedDraftAttachments = uploadedDraftAttachments
-        state.pendingWebSends = pendingWebSends
         state.scroll = scrollAnchors
+        state.chief = chief
         sequence &+= 1
         return (state, sequence)
     }

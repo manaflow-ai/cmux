@@ -24,6 +24,7 @@ import json
 import os
 import random
 import shlex
+import tempfile
 import subprocess
 import sys
 import time
@@ -63,7 +64,9 @@ class Guest:
         self.binary = ""
         self.env = "CMUX_NEXT_SOCKET_MODE=automation"
         self.socket = ""
-        self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
+        # The ControlMaster socket on this host: in a mkdtemp dir (short, under /tmp), never a guessable name
+        # another account could bind first and so answer this run's ssh.
+        self.ctl = os.path.join(tempfile.mkdtemp(prefix="fuzz-ssh-", dir="/tmp"), "ctl")
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
                      "-o", "LogLevel=ERROR", "-o", "ControlMaster=auto", "-o", f"ControlPath={self.ctl}",
                      "-o", "ControlPersist=600", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5",

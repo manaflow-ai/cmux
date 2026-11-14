@@ -110,7 +110,6 @@
     "CmuxNextMacScreen": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextFloating": {"layer": "ui"},
     "CmuxNextPopups": {"layer": "ui"},
-    "CmuxNextAgentQuestion": {"layer": "ui"},
     "CmuxNextAgentPermissions": {"layer": "ui"},
     "CmuxNextChiefViews": {"layer": "ui"},
     "CmuxNextGitHubViewer": {"layer": "ui"},

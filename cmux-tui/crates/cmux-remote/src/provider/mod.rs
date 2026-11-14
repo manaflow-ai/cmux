@@ -44,7 +44,8 @@ pub use iroh_config::{
 };
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
+    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{

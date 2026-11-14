@@ -131,19 +131,6 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
-    /// Where the overlay takes clicks (window coordinates), when that is less than its frame: a
-    /// transparent page that draws small things over the window (the toast stack) takes clicks only
-    /// on them, and the window under the rest stays usable. Nil: its whole visible frame.
-    public private(set) var hitRegions: [NSRect]?
-
-    /// Sets ``hitRegions`` (nil: the whole frame again).
-    public func update(hitRegions regions: [NSRect]?) {
-        guard regions != hitRegions else { return }
-        hitRegions = regions
-        host?.cachedRegions = nil
-        host?.updateMouseRouting()
-    }
-
     /// Moves the overlay and its blocked region (a tab dialog after a tab resize), and where it takes clicks.
     public func update(anchor: NSRect, modalRegion: NSRect?, mouseRect: NSRect?) {
         options.anchor = anchor

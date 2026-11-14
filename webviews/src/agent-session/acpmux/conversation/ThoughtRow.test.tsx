@@ -24,6 +24,7 @@ import {
 } from "./thoughtRowModel";
 import { foldMotion } from "./fold";
 import { ANCHORED_COLLAPSE_EVENT } from "./useAnchoredCollapse";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -88,6 +89,7 @@ afterEach(async () => {
   root = undefined;
   Object.assign(thoughtLayout, layout);
   Object.assign(foldMotion, motion);
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

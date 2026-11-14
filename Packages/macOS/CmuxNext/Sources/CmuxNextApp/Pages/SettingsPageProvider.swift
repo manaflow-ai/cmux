@@ -254,7 +254,7 @@ final class SettingsPageProvider: PageProvider {
                     guard !files.isEmpty else { break }
                     changed.formUnion(files)
                 } catch {
-                    throw PageError(code: "cmux.settings.theme.overrides_failed", message: error.localizedDescription)
+                    throw PageError.failed(error, code: "cmux.settings.theme.overrides_failed")
                 }
                 reloadGhosttyConfig()
             }

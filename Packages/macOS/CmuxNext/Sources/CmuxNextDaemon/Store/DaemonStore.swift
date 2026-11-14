@@ -196,6 +196,10 @@ public final class DaemonStore: StateResourceQueries {
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
     @ObservationIgnored var mirrorFingerprintTakenAt: ContinuousClock.Instant?
+    #if DEBUG
+    /// Open ``withMirrorCheckSuspended(_:)`` scopes (tests that time applies; debug builds only).
+    @ObservationIgnored var mirrorCheckSuspensions = 0
+    #endif
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
     /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next

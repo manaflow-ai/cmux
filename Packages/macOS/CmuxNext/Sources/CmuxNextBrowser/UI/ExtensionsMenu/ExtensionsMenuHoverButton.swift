@@ -144,7 +144,8 @@ final class ExtensionsMenuHoverButton: NSView {
     /// The highlight: hover, keyboard focus or a press, in the theme's gray; a selected button
     /// sits on the accent, a little stronger under the pointer.
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: style.highlightRadius, yRadius: style.highlightRadius)
+        // radius-allow: a menu row's highlight, concentric with the menu card (ExtensionsMenuStyle)
+        let path = NSBezierPath(roundedRect: bounds, xRadius: style.highlightRadius, yRadius: style.highlightRadius) // radius-allow: menu row
         performWithTheme {
             if isSelected, isEnabled {
                 Palette.accentFill.withAlphaComponent(isHighlighted ? style.pinnedHoverFillOpacity : style.pinnedFillOpacity).setFill()

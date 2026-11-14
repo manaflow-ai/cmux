@@ -68,7 +68,9 @@ class FakeApp:
 
     def action(self, action, *, focus=False, **args):
         self.calls.append((action, focus, args))
-        return self.replies.get(action, {})
+        reply = self.replies.get(action, {})
+        # A list answers each call in turn (the last answer repeats).
+        return (reply.pop(0) if len(reply) > 1 else reply[0]) if isinstance(reply, list) else reply
 
 
 def open_(first, empty=0.0, **extra):
@@ -224,35 +226,39 @@ class OpenTests(unittest.TestCase):
     def setUp(self):
         self.bench = load_bench()
 
-    def test_open_shows_the_workspace_it_created(self):
-        # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
+    def test_open_shows_the_workspace_by_the_key_it_named(self):
+        # By its own key: selectLast read the sidebar's order, which can lag the open on a loaded host,
         # and showed the previous workspace (a loaded fleet Mac: every open after the first).
         app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        key = reply["key"]
         self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
-                         [("agent.openSessionWorkspace", True, {"session": "s1"}),
-                          ("goToWorkspace", True, {"workspace": "ws_1"})])
+                         [("agent.openSessionWorkspace", True, {"wait": False, "session": "s1", "key": key}),
+                          ("goToWorkspace", True, {"workspace": key})])
         self.assertEqual(reply["created"], ["ws_1"])
-        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}})
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}, "show_tries": 1})
+        self.assertEqual(list(reply["wall"]), ["open_sent", "open_replied", "show_replied"])
 
-    def test_open_with_no_created_ref_falls_back_to_the_last_workspace(self):
-        app = FakeApp({"agent.openSessionWorkspace": {}, "workspace.selectLast": {}})
+    def test_the_show_asks_again_until_the_app_knows_the_workspace(self):
+        # The open answers once its handler ran; the app lists the workspace a moment later.
+        app = FakeApp({"goToWorkspace": [{"error": {"code": "not_found"}}, {"error": {"code": "not_found"}}, {}]})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
-        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply["shown"]["via"], "workspace.selectLast")
+        self.assertEqual([c[0] for c in app.calls],
+                         ["agent.openSessionWorkspace", "goToWorkspace", "goToWorkspace", "goToWorkspace"])
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}, "show_tries": 3})
 
-    def test_a_refused_switch_falls_back_and_says_so(self):
-        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]},
-                       "goToWorkspace": {"error": "No workspace ws_1."}})
+    def test_a_refused_show_is_asked_once_and_said(self):
+        app = FakeApp({"goToWorkspace": {"error": "focus refused"}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
-        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply["shown"]["refused"], {"error": "No workspace ws_1."})
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace"])
+        self.assertEqual(reply["shown"]["reply"], {"error": "focus refused"})
 
     def test_a_refused_open_shows_nothing(self):
         app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
         self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace"])
-        self.assertEqual(reply, {"error": "daemon offline"})
+        self.assertEqual(reply["error"], "daemon offline")
+        self.assertNotIn("shown", reply)
 
     def test_new_workspaces_go_last(self):
         # selectLast shows the open's workspace only when new ones go to the bottom (default: top).

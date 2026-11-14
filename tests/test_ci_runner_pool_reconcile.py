@@ -13,7 +13,9 @@ import tempfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runner_pool_reconcile as reconcile
+import workflow_jobs
 
 POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
 WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).resolve().parents[1]))
@@ -21,22 +23,53 @@ NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
 LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
-BACKEND_SECRET_JOBS = (
-    "vitess-development", "migrations-development", "preview", "deploy-staging",
-    "deploy-development", "promote-gates", "promote-production", "rollback-production",
-    "chief-off-production", "deploy-production", "preview-cleanup", "deploy-dashboard-staging",
-    "journey-preview", "journey-staging", "journey-production",
-)
+# backend.yml's credentialed jobs are read from the workflow by tests/workflow_jobs.py's YAML loader, not
+# kept by hand: the hand list (BACKEND_SECRET_JOBS) missed deploy-dashboard-staging when #36559 split it out of deploy-staging.
+# The anchors only stop a parser regression from emptying the derived set and the route check with it.
+BACKEND_SECRET_ANCHORS = {"deploy-staging", "deploy-production", "preview"}
+BACKEND_SECRETLESS_JOBS = {"test", "migrations-push-guard"}
+
+
+def backend_secret_jobs(workflow_text):
+    return {name for name, job in workflow_jobs.jobs(workflow_text).items() if workflow_jobs.holds_secret(job)}
+
+
+def secret_route_failures(workflow_text):
+    """Each credentialed job whose runs-on can leave the ephemeral Linux mirror, with the reason."""
+    failures = {}
+    for name, job in workflow_jobs.jobs(workflow_text).items():
+        if not workflow_jobs.holds_secret(job):
+            continue
+        # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None:
+            failures[name] = "runs-on has a matrix value nothing resolves"
+            continue
+        for route in cells or [""]:
+            failure = secret_route_failure(route)
+            if failure:
+                failures[name] = failure
+                break
+    return failures
+
+
+def secret_route_failure(route):
+    """Why one route of a credentialed job can leave the ephemeral Linux mirror, or None."""
+    match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
+    if "fromJSON(vars.RUNNER_POOLS)" not in route:
+        return "runs-on does not read RUNNER_POOLS"
+    if "github.event.pull_request.head.repo.full_name != github.repository" not in route:
+        return "runs-on has no fork guard"
+    if match is None:
+        return "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
+    if set(json.loads(match[1])) != LINUX_EPHEMERAL:
+        return f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
+    if not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
+        return "runs-on does not fall back to linux_8"
+    return None
 
 
 class SecretRouteBoundary(unittest.TestCase):
-    @staticmethod
-    def _job_block(text, job):
-        match = re.search(rf"\n  {re.escape(job)}:\n(?P<body>.*?)(?=\n  [A-Za-z0-9_-]+:\n|\Z)", text, re.S)
-        if match is None:
-            raise AssertionError(f"job {job!r} missing")
-        return match.group("body")
-
     def test_routing_keys_never_follow_the_secretless_pool(self):
         root = WORKFLOW_ROOT
         for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
@@ -55,32 +88,93 @@ class SecretRouteBoundary(unittest.TestCase):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         self.assertTrue(path.is_file(), f"backend workflow missing from trusted checkout: {path}")
         text = path.read_text()
-        jobs_text = text.split("\njobs:\n", 1)[1]
-        declared = re.findall(r"^  ([A-Za-z0-9_-]+):$", jobs_text, re.M)
-        credentialed = {job for job in declared
-                        if "secrets." in self._job_block("\n" + jobs_text, job)
-                        or re.search(r"^    environment:", self._job_block("\n" + jobs_text, job), re.M)}
-        self.assertEqual(credentialed, set(BACKEND_SECRET_JOBS))
-        for job in BACKEND_SECRET_JOBS:
-            with self.subTest(job=job):
-                block = self._job_block(text, job)
-                route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
-                self.assertIn("secrets.", block)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS)", route)
-                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
-                match = re.search(
-                    r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER",
-                    route,
-                )
-                self.assertIsNotNone(match)
-                self.assertEqual(set(json.loads(match[1])), LINUX_EPHEMERAL)
-                self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+        credentialed = backend_secret_jobs(text)
+        self.assertLessEqual(BACKEND_SECRET_ANCHORS, credentialed)
+        self.assertEqual(BACKEND_SECRETLESS_JOBS & credentialed, set())
+        self.assertEqual(secret_route_failures(text), {})
+
+    def test_a_new_secret_job_on_the_fleet_route_fails(self):
+        """The class #36559 hit: a job split out with secrets.VERCEL_TOKEN and nobody lists it."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
+        for name, body in (
+            ("deploy-dashboard-fixture", "    steps:\n      - run: vercel deploy --token \"${{ secrets.VERCEL_TOKEN }}\"\n"),
+            ("deploy-env-fixture", "    environment: cmux-next-staging\n    steps:\n      - run: true\n"),
+            ("deploy-inherit-fixture", "    uses: ./.github/workflows/deploy.yml\n    secrets: inherit\n"),
+            ("deploy-bracket-fixture", "    steps:\n      - run: sentry-cli upload\n        env:\n          SENTRY_AUTH_TOKEN: ${{ secrets['SENTRY_AUTH_TOKEN'] }}\n"),
+            ("deploy-double-bracket-fixture", "    steps:\n      - run: vercel deploy --token \"${{ secrets[\"VERCEL_TOKEN\"] }}\"\n"),
+            ("deploy-lowercase-fixture", "    steps:\n      - run: vercel deploy --token \"${{ Secrets.vercel_token }}\"\n"),
+            ("deploy-tojson-fixture", "    steps:\n      - run: echo \"$ALL\" | jq -r .VERCEL_TOKEN\n        env:\n          ALL: ${{ toJSON(secrets) }}\n"),
+        ):
+            with self.subTest(job=name):
+                fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: {fleet}\n{body}"
+                self.assertIn(name, backend_secret_jobs(fixture))
+                self.assertIn(name, secret_route_failures(fixture))
+                self.assertEqual(set(secret_route_failures(fixture)), {name})
+
+    def test_a_secret_reached_through_a_function_an_index_or_the_whole_context_is_checked(self):
+        """Codex review of #40784 at 96e5261c: holds_secret read `secrets.` with regexes, so `toJSON(secrets.*)`
+        (the object filter) held no secret, and `${{ }}` ended at the first `}}`, even one inside a string literal:
+        a format() that writes JSON braces hid the index or whole-context read after it. Each job below reads a
+        secret; each must be credentialed and its fleet route refused."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
+        for name, value in (
+            ("deploy-tojson-filter-fixture", "${{ toJSON(secrets.*) }}"),
+            ("deploy-format-tojson-fixture", "${{ format('{{\"all\":{0}}}', toJSON(secrets)) }}"),
+            ("deploy-format-index-fixture", "${{ format('{{\"token\":\"{0}\"}}', secrets['VERCEL_TOKEN']) }}"),
+            ("deploy-format-computed-index-fixture",
+             "${{ format('{{\"token\":\"{0}\"}}', secrets[format('{0}_TOKEN', 'VERCEL')]) }}"),
+            ("deploy-format-whole-fixture", "${{ format('{{{0}}}', secrets) }}"),
+            ("deploy-computed-index-fixture", "${{ secrets[format('{0}_TOKEN', 'VERCEL')] }}"),
+        ):
+            with self.subTest(job=name):
+                body = f"    steps:\n      - run: vercel deploy\n        env:\n          CREDENTIAL: {value}\n"
+                fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: {fleet}\n{body}"
+                self.assertIn(name, backend_secret_jobs(fixture))
+                self.assertEqual(set(secret_route_failures(fixture)), {name})
+
+    def test_secrets_only_as_a_word_in_a_string_or_another_context_s_property_holds_none(self):
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        for name, value in (
+            ("note-string-fixture", "${{ format('no secrets here {0}', github.sha) }}"),
+            ("note-property-fixture", "${{ needs.plan.outputs.secrets }}"),
+        ):
+            with self.subTest(job=name):
+                body = f"    steps:\n      - run: true\n        env:\n          NOTE: {value}\n"
+                fixture = text.rstrip("\n") + f"\n\n  {name}:\n    runs-on: ubuntu-24.04\n{body}"
+                self.assertNotIn(name, backend_secret_jobs(fixture))
+
+    def test_a_secret_job_whose_header_carries_a_comment_is_still_checked(self):
+        """`  deploy-x: # note` is a job header to GitHub. A header-line regex that misses it folds the
+        job into the one before, and its secret and its fleet route both escape the guard."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
+        name = "deploy-commented-fixture"
+        fixture = text.rstrip("\n") + (
+            f"\n\n  {name}: # split out of deploy-staging\n    runs-on: {fleet}\n"
+            "    steps:\n      - run: vercel deploy --token \"${{ secrets.VERCEL_TOKEN }}\"\n"
+        )
+        self.assertIn(name, backend_secret_jobs(fixture))
+        self.assertEqual(set(secret_route_failures(fixture)), {name})
+
+    def test_a_repeated_job_name_is_refused_not_hidden(self):
+        """PyYAML keeps the last of two equal keys; the loader refuses them, so a second job with a
+        taken name cannot hide the first from the guard."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        with self.assertRaisesRegex(ValueError, "repeated key 'deploy-staging'"):
+            backend_secret_jobs(text.rstrip("\n") + "\n\n  deploy-staging:\n    runs-on: ubuntu-24.04\n")
+
+    def test_a_merge_key_override_is_not_a_repeated_key(self):
+        text = (
+            "on: push\njobs:\n  base: &base\n    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n"
+            "  derived:\n    <<: *base\n    runs-on: ubuntu-latest\n"
+        )
+        self.assertEqual(workflow_jobs.runs_on(workflow_jobs.jobs(text)["derived"]), "ubuntu-latest")
 
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
-        text = path.read_text()
-        block = self._job_block(text, "migrations-push-guard")
-        route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+        route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
 
 

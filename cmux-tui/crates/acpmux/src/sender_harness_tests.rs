@@ -69,9 +69,10 @@ fn codex_is_read_from_its_thread() {
 #[test]
 fn a_codex_run_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t")];
-    let codex_nearer = || Chain { harness: Some(("codex".into(), 10)), app: None };
+    let codex_nearer = || Chain { harness: Some(("codex".into(), 10)), app: None, shipped: None };
     assert_eq!(detect(&env(&both), codex_nearer).unwrap()["harness"], "codex");
-    let claude_nearer = || Chain { harness: Some(("claude-code".into(), 10)), app: None };
+    let claude_nearer =
+        || Chain { harness: Some(("claude-code".into(), 10)), app: None, shipped: None };
     assert_eq!(detect(&env(&both), claude_nearer).unwrap()["harness"], "claude-code");
     assert_eq!(detect(&env(&both), Chain::default).unwrap()["harness"], "codex");
 }
@@ -119,15 +120,17 @@ fn linux_command_names_find_the_harness() {
 
 #[test]
 fn an_assistant_app_is_claimed_but_a_terminal_is_the_persons() {
-    let duet =
-        Chain { harness: None, app: Some(("Duet.app".into(), "/Applications/Duet.app".into())) };
+    let duet = Chain {
+        app: Some(("Duet.app".into(), "/Applications/Duet.app".into())),
+        ..Chain::default()
+    };
     assert_eq!(
         from_chain(&duet).unwrap(),
         json!({"harness": "Duet", "source": "process", "app": "Duet.app"})
     );
     for app in ["Terminal.app", "iTerm.app", "Ghostty.app", "cmux.app", "cmux DEV next.app"] {
         let terminal =
-            Chain { harness: None, app: Some((app.into(), format!("/Applications/{app}"))) };
+            Chain { app: Some((app.into(), format!("/Applications/{app}"))), ..Chain::default() };
         assert_eq!(from_chain(&terminal), None, "{app}");
     }
     assert_eq!(detect(&env(&[]), Chain::default), None, "the person's plain shell");
@@ -173,6 +176,7 @@ fn the_daemon_records_what_the_peer_pids_chain_shows_beside_the_claim() {
     let walked = Chain {
         harness: Some(("claude-code".into(), 30)),
         app: Some(("Claude.app".into(), "/Applications/Claude.app".into())),
+        shipped: None,
     };
     let signer = |path: &str| {
         (path == "/Applications/Claude.app")
@@ -320,7 +324,8 @@ fn the_shipped_cli_resolved_to_cmux_is_not_where_a_send_came_from() {
 fn an_mcp_send_from_codex_under_a_claude_shell_is_codex_by_its_chain_or_by_default() {
     let both = [("CLAUDECODE", "1"), ("CODEX_THREAD_ID", "t-1")];
     let client = json!({"name": "claude-ai"});
-    let under = |harness: &str| Chain { harness: Some((harness.into(), 7)), app: None };
+    let under =
+        |harness: &str| Chain { harness: Some((harness.into(), 7)), app: None, shipped: None };
     let claim = of_mcp(&env(&both), || under("codex"), Some(&client)).unwrap();
     assert_eq!(claim["harness"], "codex");
     let claim = of_mcp(&env(&both), Chain::default, Some(&client)).unwrap();
@@ -345,4 +350,152 @@ fn ancestors_walk_every_parent_to_the_root_and_stop_at_a_loop() {
     assert_eq!(ancestors_in(of(&[proc(9, 9, "x")]), 9), vec![9]);
     // An unreadable pid reads as nothing.
     assert!(ancestors_in(of(&table), 77).is_empty());
+}
+
+#[test]
+fn a_tool_an_app_ships_is_not_that_app() {
+    // Our outbox relay, run by the python3 Xcode ships: no "Xcode" (Leo, 2026-11-11: "what's up
+    // with this?").
+    let xcode_python = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python";
+    assert_eq!(app_bundle(xcode_python), None);
+    for shipped in [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "/Applications/Foo.app/Contents/Resources/bin/tool",
+        "/Applications/Foo.app/Contents/SharedSupport/bin/tool",
+    ] {
+        assert_eq!(app_bundle(shipped), None, "{shipped}");
+    }
+    // Xcode's own executable is Xcode.
+    assert_eq!(
+        app_bundle("/Applications/Xcode.app/Contents/MacOS/Xcode"),
+        Some(("Xcode.app".into(), "/Applications/Xcode.app".into()))
+    );
+    // A Claude helper bundle in Claude.app's frameworks is still Claude.app's code.
+    assert_eq!(
+        app_bundle(
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"
+        ),
+        Some(("Claude.app".into(), "/Applications/Claude.app".into()))
+    );
+    for own in [
+        "/Applications/A.app/Contents/Helpers/h",
+        "/Applications/A.app/Contents/XPCServices/x.xpc/Contents/MacOS/x",
+        "/Applications/A.app/Contents/Library/LoginItems/L.app/Contents/MacOS/L",
+    ] {
+        assert_eq!(app_bundle(own).map(|(n, _)| n), Some("A.app".into()), "{own}");
+    }
+    assert_eq!(app_bundle("/usr/bin/python3"), None);
+    assert_eq!(app_bundle("/Applications/.app/Contents/MacOS/x"), None);
+}
+
+#[test]
+fn the_relay_under_xcodes_python_claims_no_app_but_stays_a_programs_send() {
+    let table = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(
+            40,
+            1,
+            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+        ),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked, Chain { shipped: Some("Python".into()), ..Chain::default() });
+    // Still a program's send, never the person's plain shell (review of #41064 at 8cc17ed2, F1):
+    // named by the tool, not by the app that ships it.
+    assert_eq!(
+        from_chain(&walked),
+        Some(json!({"harness": "Python", "source": "process"})),
+        "a tool an app ships is a program's send"
+    );
+    // Under a terminal, too: the walk stopped at Xcode before, a claim all the same.
+    let under_terminal = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(40, 30, "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+        proc(30, 1, "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"),
+    ];
+    let walked = chain(of(&under_terminal), 50);
+    assert_eq!(walked.shipped.as_deref(), Some("python3"));
+    assert_eq!(from_chain(&walked).unwrap()["harness"], "python3");
+    // The same python under Claude desktop's shell still finds Claude.app above it.
+    let under_claude = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(40, 30, "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+        proc(30, 20, "/bin/zsh"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    assert_eq!(chain(of(&under_claude), 50).app.unwrap().0, "Claude.app");
+}
+
+/// A bundle on disk with the files `codesign` reads: the executable and the signature's
+/// resource list.
+fn bundle(root: &std::path::Path) -> String {
+    let app = root.join("Tool.app");
+    std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+    std::fs::create_dir_all(app.join("Contents/_CodeSignature")).unwrap();
+    std::fs::write(app.join("Contents/Info.plist"), "<plist/>").unwrap();
+    std::fs::write(app.join("Contents/MacOS/Tool"), "v1").unwrap();
+    std::fs::write(app.join("Contents/_CodeSignature/CodeResources"), "r1").unwrap();
+    app.to_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_bundle_that_has_not_changed_is_not_signed_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = bundle(dir.path());
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        "Authority=Developer ID Application: Tool\n".to_owned()
+    };
+    for _ in 0..3 {
+        assert_eq!(signers.signer(&app, run).as_deref(), Some("Developer ID Application: Tool"));
+    }
+    assert_eq!(runs.get(), 1, "codesign runs once for a bundle whose files are the same");
+}
+
+#[test]
+fn a_bundle_whose_files_change_is_signed_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = bundle(dir.path());
+    let app_path = std::path::Path::new(&app);
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        format!("Authority=Signer {}\n", runs.get())
+    };
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 1"));
+    // An update writes a new executable in place (same inode, new size).
+    std::fs::write(app_path.join("Contents/MacOS/Tool"), "version 2").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 2"));
+    // A re-sign replaces the resource list.
+    std::fs::remove_file(app_path.join("Contents/_CodeSignature/CodeResources")).unwrap();
+    std::fs::write(app_path.join("Contents/_CodeSignature/CodeResources"), "resources 2").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 3"));
+    // A new helper executable in Contents/MacOS.
+    std::fs::write(app_path.join("Contents/MacOS/Helper"), "h").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 4"));
+    // The whole bundle replaced by another one at the same path.
+    std::fs::rename(app_path, dir.path().join("Old.app")).unwrap();
+    bundle(dir.path());
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 5"));
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 5"));
+    assert_eq!(runs.get(), 5);
+}
+
+#[test]
+fn a_path_that_is_not_a_bundle_is_never_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("Gone.app");
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        String::new()
+    };
+    assert_eq!(signers.signer(missing.to_str().unwrap(), run), None);
+    assert_eq!(signers.signer(missing.to_str().unwrap(), run), None);
+    assert_eq!(runs.get(), 2, "nothing on disk to compare, so codesign answers each time");
 }

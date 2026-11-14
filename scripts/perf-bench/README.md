@@ -234,6 +234,11 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 
 - cmux arm: input through the debug socket (`debug.key`, `debug.mouse`, `debug.window_frame`); frames from the
   app's own recorder (`debug.motion record_*`). Chrome arm: `parity_chrome_cdp.py` (DevTools input, Chrome's trace).
+- `run --keep-movies` keeps the cmux arm's movie of the first and of the worst measured round of each (row, load)
+  under `DIR/work` and lists them in `DIR/movies.json`, written again after each round. A movie that is neither goes
+  when its round ends, so the disk holds at most 2 movies for each (row, load) and the one in work (up to hundreds
+  of MB each). The `movie` of a `results.jsonl` entry is the path the round wrote; `movies.json` says which stay.
+  Without the flag each movie is removed after its scan.
 - Each sample is the bench's send stamp to the frame's time. The hop from the keyboard through WindowServer to the
   app is in no number, and the two frame clocks are not the same clock: a difference under one refresh is inside the
   method's error. A before/after pair by this method is A/B evidence; it is not a parity proof by the HID method.
@@ -325,6 +330,8 @@ $BH selftest               # the safety rules with 4 to 6 threads for at most 10
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
+- `made_workspace.py`: the workspace that `workspace.newAtBottom` made, from the answer's `created` or from one
+  `snapshot.get` read; `chrome_parity.py`, `parity_appclock.py` and `session_real.py map` need it beside them.
 - `busy_holder.py`: the load arm `oversub` (shape `spin`: N busy threads that start at the default priority; shape
   `agents`: N processes at utility and background QoS that burst, do I/O and sleep; hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.

@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// The Stop all agents toast (`HomeChiefSurface.stopAllAgents`) for the daemon's answer, one row: what
+/// The Stop all agents toast (HomeHostView+StopAll) for the daemon's answer, one row: what
 /// stopped and a count of the subagents acpmux refused to stop. Which ones and why, and the note
 /// about one still starting, are the tooltip's. A daemon from before #23344 sends no `errors` or
 /// `note`, and its toast is as before.

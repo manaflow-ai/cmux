@@ -16,15 +16,14 @@ pub(crate) fn ledger_actor(
     idempotency_key: &str,
 ) -> anyhow::Result<Option<String>> {
     let actor = transaction
-        .query_row(
+        .prepare_cached(
             "SELECT actor FROM (
                SELECT 0 AS rank, actor FROM resource_effect_receipts WHERE idempotency_key = ?1
                UNION ALL
                SELECT 1, actor FROM resource_mutations WHERE idempotency_key = ?1
              ) ORDER BY rank LIMIT 1",
-            [idempotency_key],
-            |row| row.get::<_, String>(0),
-        )
+        )?
+        .query_row([idempotency_key], |row| row.get::<_, String>(0))
         .optional()?;
     Ok(actor)
 }
@@ -57,7 +56,8 @@ pub(crate) fn resource_record_actor(
         "SELECT COALESCE(actor, ?3) FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
     ] {
         let actor = transaction
-            .query_row(sql, params![origin, idempotency_key, legacy], |row| row.get::<_, String>(0))
+            .prepare_cached(sql)?
+            .query_row(params![origin, idempotency_key, legacy], |row| row.get::<_, String>(0))
             .optional()?;
         if actor.is_some() {
             return Ok(actor);

@@ -359,6 +359,7 @@ impl App {
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
+        self.synchronized_output.clear();
         self.pane_areas.clear();
         self.viewport_projection.clear();
         self.viewport_layout.clear();

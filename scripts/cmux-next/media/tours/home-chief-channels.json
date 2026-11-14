@@ -1,9 +1,12 @@
 {
-  "title": "Chief channels: the palette offers New Channel (the list's Channel tag and unread rows are in the home-messages gallery)",
+  "title": "Chief channels: a channel lists in Home with a Channel tag and its unread state; the palette offers New Channel",
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "Go to Home", "cmux": ["action", "run", "home.show"], "wait": 4, "shot": false,
      "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "Home: two DMs and two channels, each with the Channel tag (Launch is unread)",
+     "rpc": {"method": "debug.home.sidebar_fixture", "params": {"count": 2, "pinned": 0, "channels": ["Launch", "Design"], "width": 340}},
+     "wait": 2, "optional": "debug fixture is DEBUG only"},
     {"title": "Open the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1.5, "shot": false},
     {"title": "Type c", "rpc": {"method": "debug.key", "params": {"key": "c", "target": "palette"}}, "wait": 0.2, "shot": false},
     {"title": "Type h", "rpc": {"method": "debug.key", "params": {"key": "h", "target": "palette"}}, "wait": 0.2, "shot": false},

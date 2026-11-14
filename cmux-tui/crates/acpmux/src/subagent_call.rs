@@ -92,7 +92,7 @@ pub fn end_agent(home: &Path, session: &str, agent: &str) {
 
 /// Removes `session`'s records: it closed.
 pub fn forget(home: &Path, session: &str) {
-    let _ = std::fs::remove_dir_all(session_dir(home, session));
+    let _ = crate::home_fs::remove_dir_all(session_dir(home, session));
 }
 
 #[cfg(test)]

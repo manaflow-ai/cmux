@@ -49,13 +49,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
-  "bookmarks-bar": {
-    "read": [
-      "bookmarks.children"
-    ],
-    "gesture": [],
-    "confirm": []
-  },
   "feed": {
     "read": [
       "feed.github.find_work",
@@ -92,24 +85,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.list",
       "chief.profile.update",
       "palette.rank",
-      "participant.avatar.get"
-    ],
-    "gesture": [
-      "chief.profile.create",
-      "chief.profile.delete",
-      "chief.profile.undo",
-      "workspace.open_url"
-    ],
-    "confirm": []
-  },
-  "home-messages": {
-    "read": [
-      "chief.profile.avatar.get",
-      "chief.profile.avatar.set",
-      "chief.profile.get",
-      "chief.profile.history",
-      "chief.profile.list",
-      "chief.profile.update",
       "participant.avatar.get"
     ],
     "gesture": [

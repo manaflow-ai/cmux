@@ -217,3 +217,52 @@ fn a_notification_queued_before_an_exit_posts_before_the_exit() {
     assert_eq!(all.len(), 1, "the notification posted more than once");
     assert_eq!(all[0].terminal_id.as_ref(), Some(&terminal), "the notification names its terminal");
 }
+
+/// Every resource commit publishes the directory reports that wait (`publish_pending_terminal_directories`), and
+/// only those: a terminal with a waiting report gets its cwd committed, and a commit with no report waiting
+/// commits nothing more.
+#[cfg(unix)]
+#[test]
+fn a_resource_commit_publishes_only_the_directory_reports_that_wait() {
+    let mux = test_mux();
+    let workspace = mux
+        .create_empty_workspace(
+            Some("pending-cwd".into()),
+            Some("018f6e21-7b70-7e70-8000-000000040001".into()),
+            None,
+        )
+        .unwrap();
+    let reporting = mux
+        .seed_running_terminal_for_test(
+            "00000000000040008000000000040001",
+            "10000000000040008000000000040001",
+            &workspace.key,
+        )
+        .map(|id| mux.surface(id).expect("the seeded terminal"))
+        .unwrap();
+    let quiet = mux
+        .seed_running_terminal_for_test(
+            "00000000000040008000000000040002",
+            "10000000000040008000000000040002",
+            &workspace.key,
+        )
+        .map(|id| mux.surface(id).expect("the seeded terminal"))
+        .unwrap();
+    // Settle what the seeds left pending.
+    mux.publish_resource_event();
+    assert!(!quiet.directory_publication_pending());
+
+    let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().to_string_lossy().into_owned();
+    reporting.set_test_pwd(Some(format!("file://localhost{dir}")));
+    assert!(reporting.directory_publication_pending());
+    let before = mux.with_state(|state| state.resource_revision);
+    mux.publish_resource_event();
+
+    assert!(!reporting.directory_publication_pending(), "the waiting report was not published");
+    assert!(reporting.directory_publication_matches(&Some(dir)));
+    let published = mux.with_state(|state| state.resource_revision);
+    assert_eq!(published, before + 1, "the report commits one revision");
+
+    mux.publish_resource_event();
+    assert_eq!(mux.with_state(|state| state.resource_revision), published, "nothing waited");
+}

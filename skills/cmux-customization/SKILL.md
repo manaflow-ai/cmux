@@ -47,17 +47,19 @@ Key surface: `actions`, named entries with `type: "command"` (`command`) or `typ
    test -f ~/.config/cmux/cmux-next.json && sed -n '1,220p' ~/.config/cmux/cmux-next.json
    ```
 
-2. Back up the file when it exists.
+2. Open a draft instead of making a backup copy. cmux keeps every applied setup as a numbered generation, so what was there is one step away.
 
    ```bash
-   stamp="$(date +%Y%m%d-%H%M%S)"
-   test -f ~/.config/cmux/cmux-next.json && cp -p ~/.config/cmux/cmux-next.json ~/.config/cmux/cmux-next.json."$stamp".bak
+   cmux customize brief 'what the person asked for, in their words'
    ```
+
+   It prints where each part lives (settings, shortcuts, themes, their own views, the chat stylesheet, automations) and which files the person edited by hand since your last turn: read those again before writing. From an MCP client the same thing is the `customize_ask` tool. Every save you make shows in their cmux window at once; that is the preview.
 
 3. For app settings, use `cmux settings set <key> <value>` and read it back with `cmux settings get <key>`. Never hand-write a settings key: the app ignores a value its build refuses and keeps the default.
 4. For actions, edit the JSONC by hand and preserve unrelated sections.
 5. Run `cmux settings validate`; it must report no problems. It checks schema values only: an unknown action id, an unsupported chord or a removed key shows only in the app's toast and on the Settings row. Then `cmux settings reload-configuration` (the app also reloads on save). A refused value also shows a toast in the app that names the key, the value and why ([cmux-settings](../cmux-settings/SKILL.md#when-the-app-ignores-a-value)).
 6. Verify the configured entrypoint exists: confirm the action ID and where it should appear.
+7. Run `cmux customize check` (or `customize_check`) and fix every problem it lists, each with a file and a line, until there are none. Then stop: do not run `cmux customize apply` or `discard` unless the person says so. Tell them what changed on screen and that it is a preview they can apply, refine by asking again, or discard. After an apply, `cmux customize rollback` goes back one generation and `cmux customize save NAME` keeps the setup as one file they can share.
 
 For viewer changes, verify the exact path or command state from the matrix. If
 the requested viewer or knob is absent from the schema, explain that it is not
@@ -156,6 +158,38 @@ top, so a block copies between the two:
 - Contrast is guarded: a `foreground` under 4.5:1 on its `background` shows as the
   app theme's text color instead, and Settings says so at the Theme File row.
 
+### Restyle cmux from an agent: `cmux theme`
+
+When someone asks you to change how cmux looks, use these commands rather than
+hand-editing JSON. They check every value the same way the app does, keep the
+file's comments, and work even when cmux is not running. The app picks up each
+save at once, on the Mac and on a paired iPhone.
+
+1. If no theme file is active yet, `cmux theme export --save <name> --use`. It
+   writes the current look as a theme file and makes it the active one. Nothing on
+   screen changes: each live entry holds today's value, and every other look key is
+   a comment showing its default.
+2. Change one thing at a time with `cmux theme set KEY VALUE`, for example
+   `cmux theme set appearance.accent magenta` or
+   `cmux theme set appearance.backgroundOpacity 0.85`. A value cmux refuses is
+   rejected before anything is written, and the error says what is accepted.
+3. Run `cmux theme check`. Each problem prints as `themes/NAME.json:LINE: key:
+   message`. Exit 0 means there are none.
+4. To undo, `cmux theme reset KEY` takes one key out. `cmux theme reset` with no
+   key goes back to the stock look.
+
+The other verbs:
+- `cmux theme get [KEY]` shows what the file sets.
+- `cmux theme list` lists the files and marks the active one.
+- `cmux theme use NAME` picks a different file.
+- `cmux theme import FILE.json [--use]` installs someone else's theme file.
+- `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
+  The exported file's `$schema` already points at it.
+- A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
+  a look. Install it with `cmux theme import scheme.yaml`, then
+  `cmux theme set appearance.theme "<its name>"`.
+- Add `--json` to any of these for output a script can read.
+
 ## Make a view
 
 When someone asks for a view of their own (a sidebar section, a Session Info
@@ -173,6 +207,10 @@ install click.
   Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
 - `implements["cmux.session.info.section/1"]` is its one Session Info section; its
   render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Show or hide it in one step: Toggle Custom Sidebar (Cmd+Shift+P, Ctrl+Opt+Cmd+B, the
+  sidebar's right-click Options menu, or `cmux sidebar toggle-custom`). It flips the app's
+  hidden flag, which cmux keeps across relaunches; with no customize folder it writes the
+  starter template and the view appears.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
@@ -202,7 +240,11 @@ The worked example, as copy-paste files, and the recipe for adding a view:
 To make a button run the person's own command, read the current workspace,
 follow changes or open a pane of their own, start from a folder in
 [templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
-`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`). A button runs a `cmux-next.json` action with
+`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`;
+`clock-weather`, `my-prs` and `design-links`: a time and weather widget, your PRs
+in the order you keep, Figma and other links opened in a cmux tab; `media-player`: a
+radio player with the song on now; `start-page`: a start page of your own as a pane). For "what could I
+make?", start from [references/ideas.md](references/ideas.md). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install
 a template: [references/extensions.md](references/extensions.md).

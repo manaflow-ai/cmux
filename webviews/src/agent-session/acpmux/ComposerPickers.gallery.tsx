@@ -200,10 +200,16 @@ function GalleryComposerPickers(props: Props) {
   return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
 }
 
+/// The access chip names `mode` (not the bare word Mode).
+async function expectModeChip(ctx: Parameters<Play>[0], mode: string) {
+  const text = () => ctx.document.querySelector(".acpmux-mode .acpmux-mode-text")?.textContent?.trim();
+  await ctx.waitFor(() => text() === mode);
+}
+
 const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
 
 /// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
-/// start it in, or, with Cloud picked, no mode (the Cloud machine decides it; cloud-ergo-start-chat).
+/// start it in, or, with Cloud picked, the asking mode the Cloud machine starts it in (Manual).
 function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
   const [answered, setAnswered] = useState(false);
   useEffect(() => {
@@ -221,9 +227,7 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
-          <span>
-            {cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}
-          </span>
+          <span>{cloud ? "The Cloud machine starts it in Manual." : "acpmux on this Mac names the start mode."}</span>
         </div>
         {answered && (
           <ComposerPickers
@@ -544,18 +548,21 @@ export default componentEntry<Props>({
     "new-chat-here": {
       note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
+      play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-cloud": {
-      note: "The same new chat with Cloud picked: the Cloud machine starts it in an asking mode, so the chip promises no Bypass permissions and names no mode until the chat reports one.",
+      note: 'The same new chat with Cloud picked: the Cloud machine starts it in Claude\'s asking mode, so the chip names Manual with its shield, never this Mac\'s Bypass permissions and never the bare word Mode (Leo 2026-11-10: "the "mode" is weird").',
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
+      play: async (ctx) => expectModeChip(ctx, "Manual"),
     },
     "new-chat-here-manual": {
       note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",
       props: { newChat: { start: { modeId: "default", name: "Manual" } } },
     },
     "new-chat-cloud-manual": {
-      note: "Cloud picked with that setting: still no mode named, the Cloud machine decides.",
+      note: "Cloud picked with that setting: Manual, the mode the Cloud machine starts it in.",
       props: { newChat: { start: { modeId: "default", name: "Manual" }, cloud: true } },
+      play: async (ctx) => expectModeChip(ctx, "Manual"),
     },
     "pill-rail": {
       note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",

@@ -14,6 +14,7 @@
 // next toggle, another chat, or the transcript unmounting.
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
+import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import type { LayoutGeometry } from "../conversationGeometry";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
@@ -112,8 +113,26 @@ function startTop(fold: TurnFold, id: string): number | undefined {
 }
 
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
+/// How many px of `node`'s bottom its clip-path hides now (tailGlide.ts clips the row above a row
+/// gliding down under it), or 0. One style read, only while something plays on the row.
+export function clippedBottom(node: HTMLElement): number {
+  if (!node.getAnimations?.().length) return 0;
+  const clip = (node.ownerDocument.defaultView ?? window).getComputedStyle(node).clipPath;
+  const inset = clip && clip !== "none" ? /^inset\(([^)]*)\)/.exec(clip) : null;
+  if (!inset) return 0;
+  const sides = inset[1]!.split(/\s+/).map((side) => Number.parseFloat(side) || 0);
+  const bottom = sides[2] ?? sides[0] ?? 0;
+  return bottom > 0.5 ? bottom : 0;
+}
+
+/// A drawn copy of `row`, inert, for a fold to move while the row itself goes. A row clipped as its
+/// copy is taken (tailGlide.ts, over the row gliding under it) keeps that clip on the copy: a clone
+/// takes none of the row's animations, so the copy drew its whole box at once, its last lines over
+/// the row under it (the turn-end fold's ghost of the reply over the live line).
 export function ghostOf(row: HTMLElement): HTMLElement {
+  const clip = clippedBottom(row);
   const copy = row.cloneNode(true) as HTMLElement;
+  if (clip > 0) copy.style.clipPath = `inset(-4096px -4096px ${Math.ceil(clip)}px -4096px)`;
   for (const node of [copy, ...copy.querySelectorAll<HTMLElement>("[id], [data-row-id], [tabindex]")]) {
     node.removeAttribute("id");
     node.removeAttribute("data-row-id");
@@ -122,6 +141,13 @@ export function ghostOf(row: HTMLElement): HTMLElement {
   for (const name of ["aria-posinset", "aria-setsize", "aria-label", "aria-current", "data-transcript-active"])
     copy.removeAttribute(name);
   copy.classList.remove("acpmux-row--enter", "acpmux-row--message-enter", "acpmux-row--older");
+  // A row that arrived while the chat loaded keeps the load fade's class, and a PR card in it its own
+  // (shared/loadFade.ts): copied, the ghost would play that fade again from opacity 0.
+  copy.classList.remove(LOAD_FADE_CLASS);
+  for (const node of copy.querySelectorAll<HTMLElement>(`.${LOAD_FADE_CLASS}, [data-load-fade]`)) {
+    node.classList.remove(LOAD_FADE_CLASS);
+    node.removeAttribute("data-load-fade");
+  }
   for (const node of copy.querySelectorAll<HTMLElement>(".acpmux-row__message-presentation"))
     node.classList.remove("acpmux-row__message-presentation");
   copy.classList.add(TURN_FOLD_GHOST);
@@ -271,6 +297,9 @@ export function playTurnFold(
       ]),
     );
     const place = index.get(row.id);
+    // A live clock is replaced by Worked for or the activity line, rather than folded work.
+    // Keeping its old words as a fading copy draws two clocks while the replacement is present.
+    if (place === undefined && node.classList.contains("acpmux-working")) continue;
     // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
     // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
     // left a blank band behind).

@@ -154,7 +154,7 @@ struct HomeDockOpensTests {
                 return
             }
             if kind == "page" {
-                #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true, created: placed) != nil)
+                #expect(services.pages.openStoreTab(.keybindings, in: dock, window: window, focus: true, created: placed) != nil)
             } else {
                 // A non-nil typing value uses the asynchronous path, without an optimistic tab.
                 dock.newTerminalTab(typing: kind == "typed terminal" ? ":\r" : nil, placementOwner: true, then: placed)
@@ -218,7 +218,7 @@ struct HomeDockOpensTests {
                 throw DaemonError.notConnected
             }
             defer { services.pages.createStoreTab = create; fail?.resume() }
-            let view = try #require(services.pages.openStoreTab(.inbox, in: dock, window: window,
+            let view = try #require(services.pages.openStoreTab(.keybindings, in: dock, window: window,
                                                               focus: request != "background"))
             try await PasswordManagerRouteTests.until({ fail != nil })
             #expect(dock.stripModel.selectedID == original, "the provisional page selected itself in Home")
@@ -265,9 +265,9 @@ struct HomeDockOpensTests {
                     target: Self.target(dock.pane), arguments: ["path": .string(file.path)], origin: .cli)))
                 try await Self.untilBeside(home, dock.pane, "file open")
             } else {
-                #expect(services.pages.openNew(.inbox, in: window, focus: false) != nil)
-                let right = try await Self.untilBeside(home, dock.pane, "Inbox page")
-                #expect(right.tabs.contains { $0.page == InternalPageID.inbox.rawValue })
+                #expect(services.pages.openNew(.keybindings, in: window, focus: false) != nil)
+                let right = try await Self.untilBeside(home, dock.pane, "Keyboard Shortcuts page")
+                #expect(right.tabs.contains { $0.page == InternalPageID.keybindings.rawValue })
             }
         }
     }

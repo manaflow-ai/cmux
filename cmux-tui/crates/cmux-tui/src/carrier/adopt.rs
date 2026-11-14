@@ -188,8 +188,9 @@ pub(super) fn watch(
             if retryable(outcome) {
                 unclaim(&machine);
             }
+            // One whole line, as every connect-log line is: the next route line starts its own.
             log(format!(
-                "carrier.adopt machine={machine} outcome={outcome} ms={}",
+                "carrier.adopt machine={machine} outcome={outcome} ms={}\n",
                 began.elapsed().as_millis()
             ));
         });

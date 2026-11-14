@@ -7,6 +7,7 @@ import { activity, assistant, chat, row, summary, tool, user } from "../../../ga
 import type { AcpmuxRow } from "../model";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 
 const quiet = (id: string, minutes: number): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
@@ -42,6 +43,35 @@ const fourFinished = [
   ...dot("gallery-run-d", 7),
 ];
 const RUN = backgroundRunRowId(backgroundTurnRowId("gallery-run-a"));
+
+/// Leo's coordinator chat (2026-11-12): about 40 subagents' background shells ended one after another,
+/// each a "Background command completed" row, dozens in a row. `failed` makes two of them fail.
+const WAITS = [
+  "Look for new review verdicts",
+  "Wait for verdict comments",
+  "wait file /tmp/subresume-push.out --contains '^rc='",
+  "Block on verdict wait",
+  "Peek at both runs",
+  "Short wait for review",
+  "Wait for codegen EXIT",
+  "Wait for rust test run",
+  "codegen and rust-test fleet runs end",
+  "CI rollup for 41443 and 41514",
+];
+const shellEnds = (failed = false, stopped = true): AcpmuxRow[] =>
+  Array.from({ length: 23 }, (_, i) =>
+    row("backgroundTask", 10 - i * 0.1, {
+      id: `gallery-wait-${i}`,
+      backgroundTask: {
+        toolCallId: `gallery-wait-${i}`,
+        command: WAITS[i % WAITS.length]!,
+        state: failed && (i === 6 || i === 15) ? "failed" : stopped && i === 8 ? "stopped" : "completed",
+        ...(failed && (i === 6 || i === 15) && { exitCode: 1 }),
+        ownerTitle: `helper ${(i % 9) + 1}`,
+      },
+    }),
+  );
+const WAIT_RUN = backgroundRunRowId("gallery-wait-0");
 
 /// A stopped shell among the quiet lines, as in Leo's screenshot.
 const mixed = [
@@ -107,22 +137,55 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${RUN}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
       },
     },
     mixed: {
-      note: "A stopped shell among the quiet lines, as in Leo's screenshot: one line, 4 background updates. A failed shell would stay on its own row.",
+      note: "A stopped shell among the quiet lines, as in Leo's screenshot: one line, 4 background updates. A failed shell would join it and be counted (', 1 failed').",
       snapshot: chat(mixed),
     },
     "reply-kept": {
       note: "A task the agent answered with something to say splits the run: 2 background tasks finished, its rows and reply as they came, then 2 more.",
       snapshot: chat(withReply),
     },
+    commands: {
+      note: "Leo's coordinator chat, 2026-11-12 ('there are way too many [waits] here'): 23 subagent shells' ends in a row, one stopped, are one closed line, 23 background commands finished, in every look.",
+      snapshot: chat([...opening, ...shellEnds()]),
+    },
+    "commands-completed": {
+      note: "Twenty-three completed background commands fold into one closed line with the specific summary, 23 background commands completed.",
+      snapshot: chat([...opening, ...shellEnds(false, false)]),
+    },
+    "commands-open": {
+      note: "The same run opened: each Background command completed row again, in order, with its helper. Play: open the run.",
+      snapshot: chat([...opening, ...shellEnds()]),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the run intentionally reveals its rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const line = { selector: `[data-row-id="${WAIT_RUN}"] .cv-background-turn` };
+        await ctx.click(line);
+        await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "commands-failed": {
+      note: "Two of the 23 failed, with one stopped: still one line, and it names them, 21 background commands finished, 2 failed.",
+      snapshot: chat([...opening, ...shellEnds(true)]),
+    },
     "single-line": {
       note: "One quiet line alone stays as it was (no run of one); opened, its lone dot draws no row of its own.",
       snapshot: chat([...opening, quiet("gallery-one", 10), ...dot("gallery-one", 10)]),
     },
+  },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
   },
 });

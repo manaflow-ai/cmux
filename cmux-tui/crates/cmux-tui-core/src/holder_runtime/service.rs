@@ -622,6 +622,9 @@ impl HolderService {
                 });
             }
         }
+        // Reaped here while this daemon runs; it outlives the daemon (that is what keeps
+        // terminals across a restart), also when the reaper thread cannot start.
+        child.detach("the terminal holder outlives this daemon so its terminals survive a restart");
         let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
             let _ = child.wait();
         });

@@ -1640,26 +1640,130 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
     return run_checks(repo, plan, jobs)
 
 
+def piece_tree_paths(repo: Path, sha: str | None, plan: Plan, read) -> list[str] | None:
+    """The files of commit SHA a lint tree needs when PLAN runs lone source-check pieces only (a Swift-only push:
+    Plan.script_pieces and trusted_pieces, no package check, no ESLint), or None when the tree must be the whole
+    commit. They are what the pieces declare they read (INPUTS, the same declaration that chose them), the
+    package's package.json (the folder a piece starts in) and its other executed folders (scripts/cmux-next/, where
+    the scripts and the modules they import are).
+
+    A full lint tree is every file of the commit: 49,011 files on 2026-11-10, written by `git worktree add`, which
+    took 7 s of a Swift-only push's 11 s of web lint on an idle Mac and 2-6 minutes on a loaded one, for three
+    checks that read 14,791 of them and run for 2 s.
+
+    None also when a piece declares nothing, or when a symlink or a submodule lies in what a piece reads: a link
+    would be read through to a file this tree does not hold."""
+    if sha is None or plan.script_packages or plan.eslint_files or not (plan.script_pieces or plan.trusted_pieces):
+        return None
+    packages = {package.directory: package for package in SCRIPT_PACKAGES}
+    readers = ((plan.script_pieces, read),
+               (plan.trusted_pieces, trusted_reader(plan.trusted, read) if plan.trusted else read))
+    patterns: list[str] = []
+    for pieces_of, reader in readers:
+        for directory, pieces in pieces_of.items():
+            package = packages[directory]
+            for piece in pieces:
+                inputs = piece_inputs(package, piece, reader)
+                if not inputs:
+                    return None
+                patterns += inputs
+            patterns += [f"{directory}/package.json", *(path for path in package.executed if path != f"{directory}/")]
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    # Where each pattern reads: the folder a `DIR/**/GLOB` walks, or the path itself.
+    roots = [pattern.split("**/", 1)[0] if "**/" in pattern else pattern.rstrip("/") + "/" for pattern in patterns]
+    paths = []
+    for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition("\t")
+        mode, kind = meta.split(" ")[:2]
+        if kind != "blob" or mode == SYMLINK_MODE:
+            if any(f"{path}/".startswith(root) or root.startswith(f"{path}/") for root in roots):
+                return None
+            continue
+        if any(input_matches(path, pattern) for pattern in patterns):
+            paths.append(path)
+    return paths
+
+
+def export_files(repo: Path, sha: str, paths: list[str], tree: Path, work: Path) -> None:
+    """PATHS of commit SHA written under TREE (a new folder), from git objects through a throwaway index in WORK.
+    No worktree is registered, so nothing here takes the clone's shared worktree list, which `git worktree add`
+    and `remove` both lock (nine hooks at once waited minutes on each, 2026-11-10). The index is filled from the
+    paths' own tree entries, never `git read-tree`: that applies a sparse checkout's rules and would leave files
+    out. Raises when a path was not written: a check must never pass on a tree short of a file it reads."""
+    wanted = set(paths)
+    listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+    if listed.returncode != 0:
+        raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+    entries = [entry for entry in listed.stdout.split(b"\0")
+               if entry and entry.partition(b"\t")[2].decode("utf-8", "surrogateescape") in wanted]
+    # Through a file, never a pipe: on a Mac short of pipe memory a write into a pipe blocks for good (git_batch.py).
+    info = work / "index-info"
+    info.write_bytes(b"".join(entry + b"\0" for entry in entries))
+    env = {**os.environ, "GIT_INDEX_FILE": str(work / "index")}
+    tree.mkdir()
+    for command, stdin in ((["update-index", "-z", "--index-info"], info),
+                           (["checkout-index", "--all", f"--prefix={tree}{os.sep}"], None)):
+        with open(stdin or os.devnull, "rb") as handle:
+            done = subprocess.run(["git", "-C", str(repo), *command], env=env, stdin=handle, capture_output=True)
+        if done.returncode != 0:
+            raise SystemExit(f"web-lint: git {command[0]} for the lint tree of {sha[:12]} failed: "
+                             f"{done.stderr.decode(errors='replace').strip()}; nothing was linted")
+    missing = [path for path in paths if not (tree / path).is_file()]
+    if missing:
+        raise SystemExit(f"web-lint: the lint tree of {sha[:12]} lacks {len(missing)} file(s) the checks read "
+                         f"({', '.join(missing[:3])}); nothing was linted")
+
+
 def in_place_cache(repo: Path, head: str | None) -> bool:
     """ESLint's cache is used only in the checkout itself, as run_plan's caller decides (cache=tree == repo)."""
     return head is None or is_checked_out(repo, head)
 
 
 def is_checked_out(repo: Path, sha: str) -> bool:
-    """The checkout is exactly `sha`: HEAD is it and nothing is modified or untracked."""
+    """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
+    sparse checkout (git status is clean in one that lacks most of the commit)."""
     return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
-            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip())
+            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip()
+            and not is_sparse(repo))
+
+
+def is_sparse(repo: Path) -> bool:
+    """The checkout leaves files of the index out: an index entry has the skip-worktree bit (`git ls-files -t`
+    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file."""
+    return any(entry.startswith("S ") for entry in git(repo, "ls-files", "-t", "-z").split("\0"))
+
+
+def sparse_refusal(plan: Plan, mode: str) -> str:
+    """What a push from a sparse checkout is told when its checks need the whole commit (tree_of())."""
+    areas = sorted({package.directory for package in plan.script_packages} | set(plan.eslint_files))
+    return (f"{mode}: refused; nothing was linted. This worktree is a sparse checkout, and the "
+            f"{', '.join(area + '/' for area in areas)} checks read the whole repository, which it does not hold. "
+            "Run `git sparse-checkout disable` here and push again, or push with "
+            "`scripts/cmux-next/push-from-host.sh <branch>`, which runs this hook on a full clone.")
 
 
 @contextlib.contextmanager
-def tree_of(repo: Path, sha: str | None, directories: list[str]):
+def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str] | None = None):
     """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
-    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..)."""
+    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..). Except with
+    ONLY (piece_tree_paths(): a plan of lone source-check pieces): then just those files of the commit."""
     if sha is None or is_checked_out(repo, sha):
         yield repo
         return
     holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
     tree = holder / "tree"
+    if only is not None:
+        try:
+            with phase(f"lint tree at {sha[:12]} ({len(only)} files the checks read)"):
+                export_files(repo, sha, only, tree, holder)
+            yield tree
+        finally:
+            shutil.rmtree(holder, ignore_errors=True)
+        return
     try:
         # No hooks: a checkout hook must not run for a lint tree.
         with phase(f"lint tree at {sha[:12]}"):
@@ -1818,7 +1922,10 @@ def main(argv: list[str] | None = None) -> int:
                 ranges, errors = push_range.pushed_ranges(repo, sys.stdin.read().splitlines(), args.remote)
             else:
                 # The working tree (no --head) is linted over the own range of HEAD.
-                ranges, errors = [push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
+                # Fetching the shared base first, as a push does (manual_range; an older installed copy lacks it).
+                manual = getattr(push_range, "manual_range", None)
+                ranges, errors = [manual(repo, args.head or "HEAD", remote=args.remote) if manual
+                                  else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
         if errors:
@@ -1827,6 +1934,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{mode}: refused; nothing was linted. Fix the clone as said above and push again.", file=sys.stderr)
             return 1
         for own in ranges:
+            # The range's note says how its base was chosen, and that a base the refresh could not fetch is this
+            # clone's stale copy (push_range.refresh_base): files a newer base brought in then count as the push's.
+            print(f"{mode}: linting {own.describe()}", file=sys.stderr)
             head = own.head if args.pre_push else args.head
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
@@ -1881,7 +1991,16 @@ def main(argv: list[str] | None = None) -> int:
             for job in setup + fixes + jobs:
                 print(shown(job))
             continue
-        with tree_of(repo, head, directories) as tree:
+        only = piece_tree_paths(repo, head, plan, read)
+        if is_sparse(repo):
+            # 2026-11-11: a sparse checkout passed is_checked_out() before is_sparse() was part of it, and the checks
+            # ran in it: FileNotFoundError without webviews/, "no Packages/macOS/CmuxNext/Sources" without the sources.
+            if head is None or only is None:
+                print(sparse_refusal(plan, mode), file=sys.stderr)
+                return 1
+            print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
+                  f"files of {head[:12]} they read.", file=sys.stderr)
+        with tree_of(repo, head, directories, only) as tree:
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

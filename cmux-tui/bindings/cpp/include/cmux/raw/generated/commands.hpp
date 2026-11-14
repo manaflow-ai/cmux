@@ -61,6 +61,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<CancelCreatingInputResult> cancel_creating_input(const CancelCreatingInputRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefWorkResult> chief_work(const ChiefWorkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});

@@ -16,8 +16,6 @@ the panes rest:
   keys        a held key resize: resizePaneRight pressed 4 times at key-repeat pace (33 ms), then resizePaneLeft
               4 times (Ctrl-Cmd-Right / Left by default, through the action path, which takes the key-resize hold); 4 steps
               of 5% each way stay inside the pane minimums, so the split ends where it started
-  sidepanel   the window's right sidebar shown (switchRightSidebarToFiles, keyboard stays put) and hidden
-              (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
   page        a browser page opening on the right (splitBrowserRight, Leo's "opening up a new thing on the
@@ -56,7 +54,7 @@ the fork geometry posts per moving frame (posts_per_frame). A layout whose page 
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--browser-engine chromium|webkit]
-       [--actions split,close,column,zoom,window,drag,keys,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
+       [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
@@ -182,7 +180,7 @@ BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for ke
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
                  "rAF", "catch", "reord", "post/f"]
 WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
-STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
+STILL = ("drag", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
 WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
 # Window geometry is sampled from the native display-link trace and cross-checked against the
 # action's display-frame probe. Keep this acceptance local to the window rows: other action rows
@@ -407,7 +405,6 @@ def perform(name):
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
              "column": "newColumn", "column-close": "closePane", "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom",
              "window-zoom": "zoomWindow", "window-unzoom": "zoomWindow",
-             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar",
              "page": "splitBrowserRight", "page-close": "closePane"}
     if name == "drag":
         return drag_divider()
@@ -420,8 +417,7 @@ def perform(name):
         if not PROBE.get("tab"):
             return "scroll needs --browser"
         return None if page_eval(SCROLL_SCRIPT) is True else "the page did not start its scroll"
-    # The right sidebar shows without taking the keyboard, so the focused pane keeps it.
-    reply = action(verbs[name], focus=not name.startswith("sidepanel"))
+    reply = action(verbs[name], focus=True)
     return str(reply.get("error")) if isinstance(reply, dict) and reply.get("error") else None
 
 
@@ -612,7 +608,7 @@ def measure(label, name):
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
             "keys": ["keys"], "window": ["window-zoom", "window-unzoom"],
-            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "scroll": ["scroll"], "idle": ["idle"],
             "page": ["page", "page-close"]}
 
 
@@ -642,8 +638,7 @@ def profile(name, label):
     pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "window-zoom": ["window-zoom", "window-unzoom"], "window-unzoom": ["window-zoom", "window-unzoom"],
-            "drag": ["drag"], "keys": ["keys"], "sidepanel": ["sidepanel", "sidepanel-close"],
-            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "drag": ["drag"], "keys": ["keys"], "scroll": ["scroll"], "idle": ["idle"],
             "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
@@ -822,7 +817,7 @@ def main():
                     if index == 0:
                         print(f"  {label} {step}: not applicable ({skip}), not measured", flush=True)
                     continue
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "sidepanel-close", "page-close"):
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=label, panes=panes, round=index)

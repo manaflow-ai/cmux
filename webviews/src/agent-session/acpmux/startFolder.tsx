@@ -1,12 +1,20 @@
 import { useT } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { type FolderAsk } from "./startFolderModel";
-/// New Worktree's refusal above the composer: the host's reason, and Dismiss.
-export function WorktreeFailure({ error, onDismiss }: { error: string; onDismiss(): void }) {
+/// New Worktree's refusal above the composer: what happened in plain words, Retry (when the folder
+/// is known, the same ask again) and Dismiss. The host's own words are in the log.
+export function WorktreeFailure({ onRetry, onDismiss }: { onRetry?(): void; onDismiss(): void }) {
   const t = useT();
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice">
-      <span role="alert">{t("worktree.failedBecause", { reason: error })}</span>{" "}
+      <span role="alert">{t("worktree.failedPlain")}</span>{" "}
+      {onRetry && (
+        <>
+          <button type="button" className="acpmux-folder-choice-button" onClick={onRetry}>
+            {t("project.retry")}
+          </button>{" "}
+        </>
+      )}
       <button type="button" className="acpmux-folder-choice-button" onClick={onDismiss}>
         {t("worktree.dismiss")}
       </button>
@@ -16,7 +24,7 @@ export function WorktreeFailure({ error, onDismiss }: { error: string; onDismiss
 
 /// The question above the composer, in the place of the private-folder line: what the home
 /// folder means for the agent, Use Home Folder, and the way back (the private folder, or the
-/// workspace's folder the chat keeps). `/` gets no Use button. `error` is the host's refusal.
+/// workspace's folder the chat keeps). `/` gets no Use button. `error` is the refusal in plain words.
 export function StartFolderAsk({
   ask,
   current,

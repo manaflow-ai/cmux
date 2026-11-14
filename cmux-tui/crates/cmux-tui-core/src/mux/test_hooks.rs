@@ -2,6 +2,31 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static COMMITTED_BEFORE_ROUTE_PUBLISH_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Test hook: `hook` runs once on this thread, in the next terminal respawn
+/// (`install_respawned_runtime`) or terminal adoption
+/// (`finish_terminal_adoption`) this thread makes, after its COMMIT and
+/// before the drop of the state guard that publishes its routes.
+#[cfg(test)]
+pub(super) fn set_committed_before_route_publish_hook(hook: impl FnOnce() + 'static) {
+    COMMITTED_BEFORE_ROUTE_PUBLISH_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
+/// Where a mutator has committed a change of a route table and still holds
+/// the state guard that publishes it. Nothing outside tests.
+#[cfg(test)]
+pub(super) fn run_committed_before_route_publish_hook() {
+    let hook = COMMITTED_BEFORE_ROUTE_PUBLISH_HOOK.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 impl Mux {
     #[cfg(test)]
     pub(super) fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {

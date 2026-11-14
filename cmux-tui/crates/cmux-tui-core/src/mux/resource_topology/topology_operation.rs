@@ -289,6 +289,7 @@ impl Mux {
                 entity,
                 workspace_revision,
                 transaction: None,
+                mutation: None,
             },
             index > 0,
         );

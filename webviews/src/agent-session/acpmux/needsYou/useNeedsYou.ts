@@ -1,7 +1,7 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
-import { answerFromHome } from "../homeInboxModel";
+import { answerFromHome, replyElsewhere } from "../homeInboxModel";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";
@@ -40,11 +40,11 @@ export function answerParams(
   };
 }
 
-/// An answer to an ask of a chat this pane does not show: a tool permission the host answers on
-/// this click (`chat.asks.answer`, AgentPaneAskAnswer: allow once or deny once, a chat on this
-/// Mac's acpmux only), else that chat opens, where its card takes the answer ("opened"). A
-/// question, or another computer's chat, always opens. Needs you's rows and Waiting on you
-/// (queue/QueueScreen.tsx) answer through this one path.
+/// An answer to an ask of a chat this pane does not show: a tool permission's allow or deny once,
+/// or a question's choice as its card sends it, the host answers on this click (`chat.asks.answer`,
+/// AgentPaneAskAnswer: a chat on this Mac's acpmux only), else that chat opens, where its card
+/// takes the answer ("opened"). Another computer's chat always opens. Needs you's rows, Waiting on
+/// you (queue/QueueScreen.tsx) and the composer hat answer through this one path.
 export async function answerAnotherChat(
   callNative: CallNative,
   item: NeedsYouItem,
@@ -52,7 +52,7 @@ export async function answerAnotherChat(
   { peer, open }: { peer: boolean; open: () => unknown },
 ): Promise<"answered" | "opened"> {
   if (!answerParams(item, choice)) throw new Error("unanswerable");
-  if (!item.question && !peer) return answerFromHome(callNative, item, choice, () => void open());
+  if (!peer) return answerFromHome(callNative, item, choice, () => void open());
   await open();
   return "opened";
 }
@@ -148,10 +148,15 @@ export function useNeedsYou({
       return callNative(call.method, call.params);
     },
     reply: async (item: NeedsYouItem, sent: QuestionReply) => {
-      // An expanded question's whole answer goes the way its card sends it, for this chat only:
-      // another chat's opens that chat on the side, where its card takes the answer.
+      // An expanded question's whole answer goes the way its card sends it: this chat's through the
+      // relay; another chat's on this Mac through the host on this click (`replyElsewhere`), else
+      // (another computer's, or a host that can't) that chat opens on the side, where its card
+      // takes the answer, and the row stays.
       if (item.sessionId !== sessionId) {
-        await openElsewhere(item);
+        const outcome = isPeer(item)
+          ? (await openElsewhere(item), "opened")
+          : await replyElsewhere(callNative, sent, () => void openElsewhere(item));
+        if (outcome === "answered") return;
         throw new Error();
       }
       return callNative("chat.permission", replyParams(sent));

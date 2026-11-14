@@ -12,8 +12,8 @@ import Testing
 /// 6612204462) named as untested. The hold (`PaneHostView`, RESIZE KEYS K3, FRAME OWNER S1) holds only each pane's content
 /// area (`PaneContentAreaView`); these tests pin how it ends on the paths other than a landing: a host taken out of the
 /// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the spring over (with the default live resize and
-/// with content the provider holds), and content shown during the hold; and how held content converts points and takes
-/// clicks while its area's bounds origin keeps it on the held edges.
+/// with content the provider holds), and content shown during the hold. In the hold the content has its area's size in
+/// every frame (Lawrence 2026-11-11: "all must have smooth transition").
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct FrameOwnerS1HoldPathsTests {
@@ -135,7 +135,7 @@ struct FrameOwnerS1HoldPathsTests {
         if afterTheLanding { try #require(!host.isOnLayoutSpring && !rig.afterCommit.isEmpty, "the landing left no release waiting") }
         host.removeFromSuperview()
         rig.release()
-        #expect(!view.contentHost.isHolding && view.contentHost.bounds.origin == .zero, "the area of a host taken out of the screen still holds")
+        #expect(!view.contentHost.isHolding, "the area of a host taken out of the screen still holds")
         #expect(content.settled.count <= 1, "p2's content heard the landing \(content.settled.count) times")
         #expect(content.frame == view.contentHost.bounds, "p2's content is not at its area's size: \(content.frame) in \(view.contentHost.bounds)")
     }
@@ -143,12 +143,11 @@ struct FrameOwnerS1HoldPathsTests {
     // MARK: Reduce Motion mid-spring
 
     /// Reduce Motion turns on three frames into a key spring: the next frame lands it at once (`LayoutRootView.landMotion`,
-    /// `ScreenContentView.settleMotion`); the release lets every area go, each strip is on its pane, and each content took
-    /// its final size once and heard the landing once.
+    /// `ScreenContentView.settleMotion`); the release lets every area go, each strip is on its pane, and each content is at
+    /// its final size and heard the landing once.
     @Test func reduceMotionDuringAKeySpringLandsItAndLetsTheAreasGo() throws {
         let rig = Rig(Self.pair)
         defer { rig.window.closeAfterTest() }
-        for content in rig.provider.contents.values { content.sizes.removeAll() }
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         try #require(rig.frames(3) == 3 && rig.provider.views.values.allSatisfy { $0.contentHost.isHolding }, "the areas do not hold")
         rig.root.context.reduceMotionOverride = true
@@ -157,8 +156,7 @@ struct FrameOwnerS1HoldPathsTests {
         for (pane, view) in rig.provider.views {
             let content = try #require(rig.provider.contents[pane])
             #expect(!view.contentHost.isHolding, "\(pane.rawValue)'s area still holds after Reduce Motion landed the spring")
-            #expect(content.frame == view.contentHost.bounds && content.sizes.count == 1,
-                    "\(pane.rawValue)'s content: \(content.frame) in \(view.contentHost.bounds), sizes \(content.sizes)")
+            #expect(content.frame == view.contentHost.bounds, "\(pane.rawValue)'s content: \(content.frame) in \(view.contentHost.bounds)")
             #expect(content.settled == [view.contentHost.bounds], "\(pane.rawValue) heard the landing at \(content.settled)")
         }
         #expect(rig.strayStrips("after the landing").isEmpty, "\(rig.strayStrips("after the landing"))")
@@ -205,9 +203,8 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With content the provider holds (an agent chat), the key spring lays nothing out (RESIZE KEYS K3: the content keeps
-    /// its start size), and the split taking that spring over lays p2's content out once, at the split's rest, on its
-    /// first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you
+    /// With content the provider holds (an agent chat), the key spring resizes it in each frame as any content, and the
+    /// split taking that spring over lays p2's content out at the split's rest on its first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you
     /// waiting?"); no later frame of that spring and not its landing resizes it.
     @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOncePerSpringAtItsStart() throws {
         let rig = Rig(Self.pair, holdsContent: true)
@@ -225,18 +222,17 @@ struct FrameOwnerS1HoldPathsTests {
         let frames = rig.frames()
         try #require(frames > 2, "the split did not spring (\(frames) more frames)")
         rig.release()
-        #expect(duringKey.isEmpty, "p2's content laid out during the key hold: \(duringKey)")
-        #expect(atSplitStart.count == 1, "p2's content did not take the split's rest once, on its first frame: \(atSplitStart)")
+        #expect(!duringKey.isEmpty, "p2's content did not follow its pane during the key spring")
+        #expect(atSplitStart.count == duringKey.count + 1, "p2's content did not take one size, the split's rest, on the split's first frame: \(atSplitStart.dropFirst(duringKey.count))")
         #expect(content.frame == view.contentHost.bounds && content.sizes == atSplitStart,
                 "p2's content did not hold the split's rest to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }
 
     // MARK: Content shown during the hold
 
-    /// Two frames into a key spring p2 shows another tab's content: it joins the held area at the held size
-    /// (`PaneContentAreaView.contentBounds`), rides the held edges with the rest, never shows under the strip, and takes
-    /// the area's size once, at the release.
-    @Test func contentShownDuringAKeySpringJoinsTheHoldAndTakesItsSizeOnceAtTheRelease() throws {
+    /// Two frames into a key spring p2 shows another tab's content: it has the area's size from its first frame and in
+    /// every later frame of the spring, never shows under the strip, and the release changes nothing.
+    @Test func contentShownDuringAKeySpringFollowsItsPaneFromItsFirstFrame() throws {
         let rig = Rig(Self.pair)
         defer { rig.window.closeAfterTest() }
         let view = try #require(rig.provider.views["p2"])
@@ -247,62 +243,18 @@ struct FrameOwnerS1HoldPathsTests {
         rig.root.layoutSubtreeIfNeeded()
         var off: [String] = []
         func check(_ label: String) {
-            if joiner.frame != view.contentHost.contentBounds { off.append("\(label): joiner \(joiner.frame), held rect \(view.contentHost.contentBounds)") }
+            if joiner.frame != view.contentHost.bounds { off.append("\(label): joiner \(joiner.frame), area \(view.contentHost.bounds)") }
             let shown = joiner.convert(joiner.visibleRect, to: nil), strip = view.stripView.convert(view.stripView.bounds, to: nil)
             if !shown.isEmpty, shown.maxY > strip.minY + 0.25 { off.append("\(label): the joiner shows under the strip (\(shown.maxY) > \(strip.minY))") }
         }
         check("at the switch")
         let moved = rig.frames { check("frame \($0)") }
         try #require(moved > 1, "the spring landed at the switch (\(moved) frames after it)")
+        rig.root.layoutSubtreeIfNeeded()
+        let landed = joiner.sizes
         rig.release()
         #expect(off.isEmpty, "\(off.count) frames off: \(off.prefix(4))")
-        #expect(joiner.frame == view.contentHost.bounds && joiner.sizes.count == 2,
-                "the joiner did not take the held size, then its rest size once: \(joiner.sizes) (\(joiner.frame) in \(view.contentHost.bounds))")
-    }
-
-    // MARK: Points and clicks in held content
-
-    /// A flipped view inside the held content of an area that holds on each pair of edges and is now smaller than when
-    /// the hold began: a click in the area reaches the subview drawn there, and points convert between the window and
-    /// the subview at the place the subview shows.
-    @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
-    func heldContentTakesClicksAndConvertsPointsWhereItShows(trailing: Bool, bottom: Bool) throws {
-        final class Flipped: NSView { nonisolated override var isFlipped: Bool { true } }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        window.contentView = root
-        let area = PaneContentAreaView(frame: NSRect(x: 100, y: 50, width: 400, height: 300))
-        root.addSubview(area)
-        let content = NSView(frame: area.bounds)
-        content.autoresizingMask = [.width, .height]
-        area.addSubview(content)
-        // A flipped marker 40 x 30 at the content's top-left corner (content coordinates: y up), kept at the top.
-        let marker = Flipped(frame: NSRect(x: 0, y: content.bounds.height - 30, width: 40, height: 30))
-        marker.autoresizingMask = [.minYMargin]
-        content.addSubview(marker)
-        area.hold = PaneMotionHold(trailing: trailing, bottom: bottom)
-        area.setFrameSize(NSSize(width: 300, height: 220))
-        try #require(area.isHolding && content.frame.size == NSSize(width: 400, height: 300), "the held content did not keep its size")
-        // Where the held content shows: its pinned edges on the area's.
-        let shown = content.convert(content.bounds, to: nil), areaInWindow = area.convert(area.bounds, to: nil)
-        #expect(trailing ? shown.maxX == areaInWindow.maxX : shown.minX == areaInWindow.minX, "held x edge: \(shown) in \(areaInWindow)")
-        #expect(bottom ? shown.minY == areaInWindow.minY : shown.maxY == areaInWindow.maxY, "held y edge: \(shown) in \(areaInWindow)")
-        // Round trips between the window and the flipped marker.
-        let point = CGPoint(x: 7, y: 5)
-        #expect(marker.convert(marker.convert(point, to: nil), from: nil) == point)
-        // A click on the marker where it shows reaches it, when it shows in the area.
-        let markerInWindow = marker.convert(marker.bounds, to: nil)
-        let visible = markerInWindow.intersection(areaInWindow)
-        if !visible.isEmpty {
-            let click = CGPoint(x: visible.midX, y: visible.midY)
-            let inSuperview = root.superview?.convert(click, from: nil) ?? click // hitTest takes its superview's coordinates
-            #expect(root.hitTest(inSuperview) === marker, "a click at \(click) did not reach the marker at \(markerInWindow)")
-        }
-        // The release fills the area at once: the bounds origin back at zero, the content at the area's size.
-        area.hold = nil
-        #expect(!area.isHolding && content.frame == area.bounds && area.bounds.origin == .zero, "the release did not fill the area")
-        #expect(marker.frame.maxY == content.bounds.height, "the marker did not stay at the content's top after the release")
+        #expect(joiner.frame == view.contentHost.bounds && joiner.sizes == landed,
+                "the joiner changed size after the landing's frame: \(joiner.sizes.dropFirst(landed.count)) (\(joiner.frame) in \(view.contentHost.bounds))")
     }
 }

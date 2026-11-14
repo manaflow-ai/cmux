@@ -231,3 +231,44 @@ fn a_schema_or_affinity_change_matches_a_fresh_read() {
     index.paths_changed(&wal(&codex));
     assert_eq!(chats(&index), fresh(&codex), "after an integer spawn edge");
 }
+
+/// macOS reports an extended attribute event on the WAL while processes read it, with nothing
+/// written. Each daemon's read made every other daemon read the table again, for as long as they
+/// ran (19 daemons at 320% CPU). An event on a store file whose stamp did not move reads nothing.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_event_on_an_unchanged_store_reads_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let codex = home.path().join(".codex");
+    let _writer = codex_db(&codex);
+    let mut index = ChatIndex::new(vec![root(&codex)]);
+    index.rescan_all();
+    index.paths_changed(&wal(&codex));
+
+    let before = thread_read_bytes();
+    let changes = index.paths_changed(&wal(&codex));
+    let read = thread_read_bytes() - before;
+
+    // The counter's own read of `/proc` is all that may show; a store read is megabytes.
+    assert!(read < 1_024, "read {read} bytes with nothing written");
+    assert!(changes.is_empty());
+}
+
+/// A writer that holds its connection open may report no event on the store at all, so the
+/// transcript it writes beside it says to look: a new thread still shows.
+#[test]
+fn a_transcript_event_finds_a_store_write_that_reported_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let codex = home.path().join(".codex");
+    let writer = codex_db(&codex);
+    let mut index = ChatIndex::new(vec![root(&codex)]);
+    index.rescan_all();
+    index.paths_changed(&wal(&codex));
+
+    insert(&writer, THREADS, &prompt(THREADS));
+    let rollout = codex
+        .join(format!("sessions/2026/11/10/rollout-2026-11-10T00-00-00-{}.jsonl", id(THREADS)));
+    index.paths_changed(&[rollout]);
+
+    assert_eq!(index.len(), THREADS + 1);
+}

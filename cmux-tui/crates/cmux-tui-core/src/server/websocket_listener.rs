@@ -167,7 +167,11 @@ pub fn serve_websocket_with_keepalive(
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
+            let Some(permit) = claim_connection(&active_connections) else {
+                let commands = active_connections.commands();
+                commands.connection_refused(crate::diagnostics::ClientKind::WebSocket);
+                continue;
+            };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             if let Ok(tracked) = stream.try_clone() {
                 thread_connections.lock().recover_poison().insert(id, tracked);
@@ -351,10 +355,13 @@ fn handle_websocket_connection_with_permit(
     let Ok(mut ping_stream) = websocket.get_ref().try_clone() else { return };
     let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
+    // The sink's descriptor closes when this connection ends, also while a
+    // clone of `writer` lives on elsewhere (bounded_outbound.rs, SinkControl).
+    let control = SinkControl::websocket(control);
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         render_service,
     );
     let writer_outbound = outbound;
@@ -387,6 +394,8 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let commands = mux.connection_stats().commands();
+    writer.kind.registered(commands, crate::diagnostics::ClientKind::WebSocket);
     if admission == CredentialMatch::Person {
         mux.control_clients.mark_person(client);
     }
@@ -470,9 +479,11 @@ fn handle_websocket_connection_with_permit(
         }
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+    mux.control_clients.git_lane.abandon(client);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     let _ = websocket.close(None);
+    control.close();
     drop(connection_permit);
 }
 

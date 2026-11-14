@@ -23,11 +23,13 @@ import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace } from "../../../ui/scrollHover";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
@@ -257,7 +259,9 @@ export function MediaPlayer({
 
 /// A video large over the pane (Expand, or an attachment's ▶ in the composer, whose tile is too small
 /// for a player's controls): its name, Close (Escape) and the player. It opens paused, like the
-/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play).
+/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play). A click beside the
+/// video closes it, as beside an image in the image viewer (ui/scrimClose.ts); a click on the video
+/// or its controls does not.
 export function VideoViewer({
   src,
   name,
@@ -279,6 +283,7 @@ export function VideoViewer({
   const close = useRef<HTMLButtonElement>(null);
   // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
   const below = belowTabRowStyle(useTabRow());
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -304,7 +309,11 @@ export function VideoViewer({
             <Close />
           </button>
         </div>
-        <div className="cv-media-stage">
+        {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
+            "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
+            dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="cv-media-stage" {...scrim.props}>
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
           <VideoThumbnail
             src={src}
@@ -367,6 +376,9 @@ export function VideoThumbnail({
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
   const [hovered, setHovered] = useState(false);
+  /// The poster scrolled under a still pointer: the preview waits for the pointer to move on it.
+  const parked = useRef<PointerPlace | null>(null);
+  useEffect(() => trackPointerRest(), []);
   const [duration, setDuration] = useState<string | undefined>();
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
@@ -459,11 +471,23 @@ export function VideoThumbnail({
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
+          onMouseEnter={(event) => {
             setHovered(true);
+            if (slidUnderStillPointer(event)) {
+              parked.current = { x: event.clientX, y: event.clientY };
+              return;
+            }
+            parked.current = null;
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
+          }}
+          onMouseMove={(event) => {
+            const still = parked.current;
+            if (!still || !movedFrom(still, event)) return;
+            parked.current = null;
             if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
+            parked.current = null;
             setHovered(false);
             setHover(null);
           }}

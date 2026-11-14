@@ -37,4 +37,9 @@ nonisolated public extension Data {
     init(acpmuxRequest id: Int, method: String, params: [String: Any]) {
         self = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
     }
+
+    /// The feed bridge's `_acpmux/watch` (id 3): one row, since the bridge reads only the watch's
+    /// notices. Without a limit it answered the whole session list (31 MB with ~10,000 peer
+    /// sessions), past its line's cap, so the line closed and asked again on each reconnect.
+    static let acpmuxFeedWatch = Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true, "limit": 1])
 }

@@ -14,11 +14,14 @@ ahead of the token, or an unpinned action.
 import pathlib
 import re
 import json
+import sys
 import unittest
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-testbox-warmup.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "testbox-broker-guard.yml"
 JOB = "cmux-tui-rust"
@@ -27,6 +30,17 @@ WARM_TARGET_DISKS = {
     "cmux-tui-target-v2-main": "/home/runner/cmux-tui-target/main",
     "cmux-tui-target-v2-next": "/home/runner/cmux-tui-target/next",
 }
+
+
+def sticky_disk_keys(document: object) -> list:
+    """The `with.key` of every useblacksmith/stickydisk step in a workflow."""
+    keys = []
+    jobs = document.get("jobs") if isinstance(document, dict) else None
+    for job in (jobs or {}).values():
+        for step in (job or {}).get("steps") or []:
+            if isinstance(step, dict) and "useblacksmith/stickydisk" in str(step.get("uses", "")):
+                keys.append((step.get("with") or {}).get("key"))
+    return keys
 
 
 def load_job() -> dict:
@@ -106,7 +120,9 @@ class TestboxBrokerGuardTests(unittest.TestCase):
             )
 
     def test_the_job_keeps_its_reviewed_environment_and_least_privilege(self) -> None:
-        self.assertEqual(self.job["environment"]["name"], "blacksmith-testbox-trusted")
+        environment = workflow_jobs.resolve(self.job, JOB).environment
+        self.assertIsNotNone(environment)
+        self.assertEqual(environment["name"], "blacksmith-testbox-trusted")
         self.assertEqual(self.job["permissions"], {"contents": "read"})
         self.assertEqual(self.document["permissions"], {})
 
@@ -148,13 +164,37 @@ class TestboxBrokerGuardTests(unittest.TestCase):
                 f"{path.relative_to(ROOT)} must not mount the Testbox warm target disk",
             )
             # A computed key could still resolve to the Testbox key, so any
-            # other sticky disk must use a literal key.
-            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
-                self.assertNotRegex(
-                    match.group(1),
-                    r"key:\s*[^\n]*\$\{\{",
+            # other sticky disk must use a literal key. Read each step's own
+            # key: a text match ran on past the step into the rest of the
+            # file and took a later step's computed key for the disk's.
+            for key in sticky_disk_keys(yaml.safe_load(text)):
+                self.assertNotIn(
+                    "${{",
+                    str(key),
                     f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
                 )
+
+    def test_sticky_disk_keys_are_each_steps_own(self) -> None:
+        document = yaml.safe_load(
+            """
+jobs:
+  build:
+    steps:
+      - uses: useblacksmith/stickydisk@abc
+        with:
+          key: literal-disk
+          path: /home/runner/disk
+      - uses: Swatinem/rust-cache@abc
+        with:
+          key: ${{ matrix.target }}
+  other:
+    steps:
+      - uses: useblacksmith/stickydisk@abc
+        with:
+          key: disk-${{ github.ref }}
+"""
+        )
+        self.assertEqual(sticky_disk_keys(document), ["literal-disk", "disk-${{ github.ref }}"])
 
     def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
@@ -174,7 +214,10 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         self.assertIn("$TESTBOX_GUARD_PYTHON", validate["run"])
 
     def test_the_runner_label_is_declared_for_actionlint(self) -> None:
-        label = self.job["runs-on"]
+        cells = workflow_jobs.resolve(self.job, JOB).runs_on_cells
+        self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        label = cells[0]
         config = (ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8")
         pool = re.fullmatch(r"\$\{\{\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}", label)
         if pool:

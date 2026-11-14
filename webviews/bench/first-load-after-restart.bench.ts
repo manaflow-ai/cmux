@@ -10,7 +10,8 @@
 // `drawTailWhileConnecting`). Then the first handshake fails quietly (hostRetry.ts `hostIsReconnecting`)
 // and the page retries about every 2 s until acpmux answers. This bench replays that with the production
 // pane (a vite build of the pane's dev entry, as chat-open.bench.ts builds it) served as the app serves
-// it: one `<style id="cmux-pane-styles">` with every sheet, and the copy's two scripts before the module.
+// it: one linked `pane.css` (id cmux-pane-styles) with every sheet and the copy's `pane-copy.css` beside it,
+// and the copy's two scripts before the module.
 //
 // Each round, per mode:
 //   warm      a fresh context opens the TURNS-turn chat with acpmux up, waits until the newest answer
@@ -18,22 +19,33 @@
 //   relaunch  a new (cold) context opens the same chat, served that copy and the chat's kept tail by the
 //             host, with acpmux unavailable for ACPMUX_DOWN_MS from navigation:
 //               down       the socket is refused (HTTP 503, no upgrade), as while acpmux restarts;
-//               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does.
+//               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does;
+//               native-ready       native ready waits, with the saved HTML copy;
+//               native-ready-tail  native ready waits, no HTML copy, retained event tail only.
 //             Every painted frame until ACPMUX_DOWN_MS + 4000 ms is read after it painted
 //             (test/support/paintedFrames.ts) from the layer on top: the copy's shadow root while it
 //             shows, else the live page.
+// Two more modes time a hidden chat whose page was released (HiddenChatPages' idle release; Leo 2026-11-14: "if
+// something isn't drawn/is completely proven idle then dont bother taking memory") and opens again, with acpmux up:
+//               reopen          the page is built in the warm renderer (one renderer per site, another chat page open
+//                               in it, as the app's other chats are), served the copy its hide wrote and the kept tail;
+//               reopen-no-copy  the same with no copy and no tail: a page built from nothing.
+//             Not in MODE=all: MODE=reopen (or reopen-no-copy) runs them; the rounds' p50 and p95 are printed too.
 // Per round (bench/firstLoadFrames.ts): blank frames after the first content, shift frames (the composer
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
-//   [MODE=all|down|slow-init] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//   [MODE=all|down|slow-init|native-ready|native-ready-tail] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
 //     bun bench/first-load-after-restart.bench.ts
-// GATE=1 exits 1 when any round blanked or shifted; otherwise it always exits 0. TRACE=1 prints each
+// GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
+// PANE_SOURCE_REF=<sha> loads that immutable App/direct revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, Page } from "playwright";
 import {
   PAGE_STYLE_ID,
   SNAPSHOT_BOOT_GLOBAL,
@@ -42,18 +54,21 @@ import {
   SNAPSHOT_THEME_GLOBAL,
   type ChatSnapshot,
 } from "../src/agent-session/acpmux/chatSnapshot/shared";
+import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 
-const MODES_ALL = ["down", "slow-init"] as const;
-type Mode = (typeof MODES_ALL)[number];
+const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
+const REOPEN_MODES = ["reopen", "reopen-no-copy"] as const;
+type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number];
 const MODE = process.env.MODE ?? "all";
-if (MODE !== "all" && !(MODES_ALL as readonly string[]).includes(MODE))
-  throw new Error(`MODE must be all, ${MODES_ALL.join(" or ")}`);
-const MODES: readonly Mode[] = MODE === "all" ? MODES_ALL : [MODE as Mode];
+const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, "reopen-both"];
+if (MODE !== "all" && !NAMED.includes(MODE)) throw new Error(`MODE must be all, ${NAMED.join(" or ")}`);
+const MODES: readonly Mode[] = MODE === "all" ? MODES_ALL : MODE === "reopen-both" ? REOPEN_MODES : [MODE as Mode];
+const isReopen = (mode: Mode) => (REOPEN_MODES as readonly string[]).includes(mode);
 const ROUNDS = Number(process.env.ROUNDS ?? 3);
 const TURNS = Number(process.env.TURNS ?? 120);
 const DOWN_MS = Number(process.env.ACPMUX_DOWN_MS ?? 3000);
@@ -152,7 +167,7 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number };
+  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number };
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
@@ -164,8 +179,30 @@ type BenchWindow = {
 /// place (`chat.scrollAnchor.get`: null, the chat opens at its newest message). The page assigns its own
 /// `window.cmuxAcpmuxActions` once its client is up (App.tsx); these stay beside its own, as the app's
 /// host keeps answering them. Runs in the page, so it closes over nothing.
-function installHost({ tail }: { tail: unknown }) {
-  const asked = { tailAskedAt: 0, tailCalls: 0 };
+function installHost({ tail, readyDelayMs }: { tail: unknown; readyDelayMs: number }) {
+  // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does.
+  let webkit: unknown;
+  Object.defineProperty(window, "webkit", {
+    configurable: true,
+    get: () => webkit,
+    set: (next) => {
+      for (const name of ["agentSession", "cmuxPage"]) {
+        const handler = next?.messageHandlers?.[name];
+        if (!handler || readyDelayMs <= 0) continue;
+        const post = handler.postMessage.bind(handler);
+        handler.postMessage = async (request: { method?: string; op?: string }) => {
+          if (["ready", "handshake"].includes((request.method ?? request.op ?? "").replace(/^cmux\.agent\./, ""))) {
+            // fixed-wait: the withheld native handshake is the condition measured by this mode.
+            await new Promise((done) => setTimeout(done, Math.max(0, readyDelayMs - performance.now())));
+            asked.readyAnsweredAt = performance.now();
+          }
+          return post(request);
+        };
+      }
+      webkit = next;
+    },
+  });
+  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0 };
   (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   const served: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
     "chat.tail.get": async () => {
@@ -225,7 +262,9 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   }).observe({ type: "layout-shift", buffered: true });
   let signature = "";
   const read = (): Frame => {
-    const host = document.querySelector(hostTag);
+    // A copy still waiting for its sheets is laid out hidden (paint.ts) and paints nothing: not on top.
+    const drawn = document.querySelector<HTMLElement>(hostTag);
+    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     // Under a copy the live root is held clear until the swap (chatSnapshot/paint.ts); with no copy over
     // it, a clear root shows nothing of the chat.
@@ -294,6 +333,7 @@ type Round = {
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
+  readyAnsweredMs: number | null;
   /// When the stand-in acpmux started answering, ms from navigation.
   acpmuxUpMs: number;
   /// Socket upgrades refused while acpmux was down.
@@ -371,7 +411,23 @@ try {
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-work-"));
   releases.push(["bundles", () => fs.rmSync(work, { recursive: true, force: true })]);
   const { build } = await import("vite");
+  // An immutable pane source revision under the same harness makes the before/after comparable.
+  // Only these presentation sources differ; the page host, daemon fixture and frame recorder stay fixed.
+  const sourceRef = process.env.PANE_SOURCE_REF;
+  const priorSources = new Map<string, string>();
+  if (sourceRef)
+    for (const file of ["App.tsx", "direct.ts"])
+      priorSources.set(
+        path.join(webviews, "src/agent-session/acpmux", file),
+        execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
+          cwd: webviews,
+          encoding: "utf8",
+          maxBuffer: 8 * 1024 * 1024,
+        }),
+      );
+  console.log(`pane source: ${sourceRef ?? "worktree"}`);
   await build({
+    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
@@ -392,8 +448,9 @@ try {
   );
   const captureScript = await bundle(captureEntry);
 
-  // The page as the app serves it (build-agent-pane-web.sh): every sheet in one `<style id="cmux-pane-styles">`,
-  // which the copy draws under and the writer leaves out of the copy, and after `<main id="root">` the
+  // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
+  // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
+  // (`pane-copy.css`, rewritten for its shadow tree), and after `<main id="root">` the
   // host's snapshot (async) and the script that draws it, before the module. Vite's own build links its
   // sheets instead; a lazy chunk's sheet comes later, so every sheet of the build goes in, linked ones first.
   let index = fs.readFileSync(path.join(out, "index.html"), "utf8");
@@ -415,7 +472,7 @@ try {
   if (sheets.length === 0) throw new Error("the pane build has no stylesheet");
   const css = sheets
     .map((sheet) =>
-      // A sheet's relative url() names a file beside it; inline, it resolves from the page.
+      // A sheet's relative url() names a file beside it; joined at the root, it resolves from there.
       fs
         .readFileSync(path.join(out, sheet), "utf8")
         .replace(
@@ -425,12 +482,17 @@ try {
         ),
     )
     .join("\n");
-  if (/<\/style/i.test(css)) throw new Error("a pane sheet closes the page's <style>");
-  // Each inlined sheet keeps an inert link of its href, so vite's preload helper finds it there and
+  fs.writeFileSync(path.join(out, "pane.css"), css);
+  fs.writeFileSync(path.join(out, "pane-copy.css"), snapshotCss(css));
+  // Each joined sheet keeps an inert link of its href, so vite's preload helper finds it there and
   // links none of them again after the page's own sheet (the app's bundle links none): a sheet linked
   // late wins rules the page sheet's order lost them (a 48 px quiet composer row instead of 28).
   const placeholders = sheets.map((sheet) => `<link rel="stylesheet" media="not all" href="/${sheet}">`).join("\n");
-  index = index.replace("</head>", () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n${placeholders}\n</head>`);
+  index = index.replace(
+    "</head>",
+    () =>
+      `<link rel="stylesheet" id="${PAGE_STYLE_ID}" href="/pane.css" data-copy="pane-copy.css">\n${placeholders}\n</head>`,
+  );
   const ROOT = /<main id="root"><\/main>/;
   if (!ROOT.test(index)) throw new Error('the pane build has no <main id="root"></main>');
   index = index.replace(
@@ -453,7 +515,7 @@ try {
       // As the page host answers it (AgentPageResources.swift): the globals, then the boot if it ran first.
       if (pathname === "/__snapshot/chat.js")
         return script(
-          `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
+          `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
       if (pathname === "/chat-snapshot.js") return script(bootScript);
       const file = Bun.file(path.join(out, pathname));
@@ -463,16 +525,26 @@ try {
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
   const browser: Browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
+    // A released chat opens again in the renderer the app's other chat pages share (one per site).
+    args: MODES.some(isReopen) ? ["--process-per-site"] : [],
   });
   releases.push(["browser", () => browser.close()]);
+  /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
+  let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
+  if (MODES.some(isReopen)) {
+    warmContext = await browser.newContext({ viewport: VIEWPORT });
+    const other = await warmContext.newPage();
+    await other.goto(url);
+    await other.waitForFunction((text) => document.body.textContent?.includes(text) ?? false, LATEST, {
+      timeout: 120_000,
+      polling: 200,
+    });
+  }
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number) => {
+  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0) => {
     await installPaintedFrames(page);
-    await page.addInitScript(installHost, { tail });
+    await page.addInitScript(installHost, { tail, readyDelayMs });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -531,14 +603,21 @@ try {
   /// The load after the restart: a cold context, the copy and the kept tail served, acpmux unavailable
   /// for DOWN_MS from navigation in `mode`.
   const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = copy;
-    const context = await browser.newContext({ viewport: VIEWPORT });
+    servedCopy = mode === "native-ready-tail" || mode === "reopen-no-copy" ? null : copy;
+    // A reopen builds its page in the warm renderer; a relaunch in a cold context.
+    const context = isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: VIEWPORT });
+    const page = await context.newPage();
     try {
-      const page = await context.newPage();
-      await prepare(page, keptTail, RECORD_MS);
+      await prepare(
+        page,
+        mode === "reopen-no-copy" ? null : keptTail,
+        RECORD_MS,
+        mode.startsWith("native-ready") ? DOWN_MS : 0,
+      );
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
-      downMode = mode;
-      downUntil = Date.now() + DOWN_MS;
+      // acpmux is up for a reopen: only the page is new.
+      downMode = isReopen(mode) ? undefined : mode;
+      downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
       await page.goto(url, { waitUntil: "commit" });
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -555,9 +634,12 @@ try {
           miss: w.__cmuxChatSnapshotMiss ?? null,
           shown: w.__cmuxChatSnapshotShown ?? null,
           tailAskedAt: w.__benchHost.tailAskedAt,
+          readyAnsweredAt: w.__benchHost.readyAnsweredAt,
           liveLatestAt: w.__firstLoad.liveLatestAt,
         };
       });
+      if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
+        throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
       return {
         mode,
@@ -569,6 +651,7 @@ try {
         swapMs: got.shown?.swappedAt ?? null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
+        readyAnsweredMs: got.readyAnsweredAt || null,
         acpmuxUpMs: upAt - got.origin,
         refused: load.refused,
         socketOpenedMs: since(load.socketOpenedAt),
@@ -579,7 +662,8 @@ try {
       downMode = undefined;
       downUntil = 0;
       servedCopy = null;
-      await context.close();
+      if (context === warmContext) await page.close();
+      else await context.close();
     }
   };
 
@@ -658,7 +742,12 @@ try {
     for (const r of rounds)
       if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
     const bad = rounds.filter(
-      (r) => r.metrics.blankAfterContent > 0 || r.metrics.shiftFrames > 0 || r.liveLatestMs === null,
+      (r) =>
+        r.metrics.blankAfterContent > 0 ||
+        r.metrics.shiftFrames > 0 ||
+        r.liveLatestMs === null ||
+        r.metrics.firstContentMs === null ||
+        r.metrics.firstContentMs > 2000,
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
@@ -689,6 +778,34 @@ try {
         });
       }
     }
+    if (isReopen(mode)) {
+      // What a person sees on reopen: the first content (the copy or the live page), when the live page shows the
+      // newest answer (it takes input), blank and shift frames; p50 and p95 over the rounds.
+      const pct = (values: number[], share: number) =>
+        values.length
+          ? [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!
+          : null;
+      const first = numbers(rounds, (r) => r.metrics.firstContentMs);
+      const live = numbers(rounds, (r) => r.liveLatestMs);
+      const blanks = rounds.reduce((sum, r) => sum + r.metrics.blankAfterContent, 0);
+      const shifts = rounds.reduce((sum, r) => sum + r.metrics.shiftFrames, 0);
+      console.log(
+        `${mode}: first content p50 ${ms(pct(first, 0.5))} ms, p95 ${ms(pct(first, 0.95))} ms; live (newest answer, takes input) p50 ${ms(pct(live, 0.5))} ms, p95 ${ms(pct(live, 0.95))} ms; blank frames ${blanks}, shift frames ${shifts} (n=${rounds.length})`,
+      );
+      const row = mode.replaceAll("-", "_");
+      perfRow({
+        name: `first_load_after_restart.${row}.first_content`,
+        p50: pct(first, 0.5) ?? 0,
+        p95: pct(first, 0.95) ?? 0,
+        unit: "ms",
+      });
+      perfRow({
+        name: `first_load_after_restart.${row}.live`,
+        p50: pct(live, 0.5) ?? 0,
+        p95: pct(live, 0.95) ?? 0,
+        unit: "ms",
+      });
+    }
     json[mode] = {
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
@@ -713,7 +830,9 @@ try {
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
   if (GATE && failed) {
-    console.error("first-load-after-restart: a round blanked the chat after it showed content or moved it (GATE=1)");
+    console.error(
+      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
+    );
     process.exitCode = 1;
   }
 } finally {

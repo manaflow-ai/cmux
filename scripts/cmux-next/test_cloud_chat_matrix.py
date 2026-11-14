@@ -38,6 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
+            if kind in matrix.REFUSED_CELLS:
+                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -45,6 +47,15 @@ class FixtureTests(unittest.TestCase):
             expected = matrix.local_manifest(folder, "cmxcanarytest")
             if not expected["left_out"] or set(expected["left_out"]) == {"symlink"}:
                 self.assertEqual(remote_manifest(folder)["sha256"], expected["sha256"], kind)
+
+    def test_a_parent_of_repositories_is_no_repository_and_holds_each(self):
+        for kind in ("parent-repos", "huge-parent-repos"):
+            folder, _ = matrix.build_fixture(kind, self.root, self.args, "")
+            self.assertFalse((folder / ".git").exists(), kind)
+            for name in matrix.PARENT_REPOS:
+                self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
+        self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
+        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")
@@ -125,6 +136,75 @@ class GrantTests(unittest.TestCase):
         self.assertNotIn(".config/cmux", str(config))
         m.quit()
         self.assertFalse(config.exists())
+
+
+class TrustTests(unittest.TestCase):
+    """A fixture is trusted on this Mac before its cell, as a person does: an untrusted folder's Cloud start is
+    refused before any machine (#41079), which turned every cell red at 0.0 s. Every decision the run writes is
+    put back at teardown, so the person's trust.json is as it was (#41547 review F1)."""
+
+    # `cmux --json setup trust FOLDER [--level L]` over a JSON record at $FAKE_TRUST, answering as the real one
+    # does: `recorded` (the level before), `written` (the folder whose record changed; absent when it held it).
+    FAKE = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+store = os.environ["FAKE_TRUST"]
+if os.environ.get("FAKE_FAIL"):
+    print(json.dumps({"code": "failed", "message": "no daemon"})); sys.exit(1)
+assert args[:3] == ["--json", "setup", "trust"], args
+folder = args[3]
+level = args[args.index("--level") + 1] if "--level" in args else "trusted"
+record = json.load(open(store)) if os.path.exists(store) else {}
+before = record.get(folder)
+report = {"folder": folder, "recorded": before}
+if before != (None if level == "unknown" else level):
+    if level == "unknown":
+        record.pop(folder, None)
+    else:
+        record[folder] = level
+    with open(store, "w") as f:
+        json.dump(record, f, sort_keys=True)
+    report["written"] = folder
+print(json.dumps({"ok": True, "result": report}))
+"""
+
+    def matrix_with_fake(self, folder: Path, **env) -> "matrix.Matrix":
+        cli = folder / "cmux"
+        cli.write_text(self.FAKE)
+        cli.chmod(0o755)
+        m = matrix.Matrix(matrix.parse_args(["--cli", str(cli), "--out", "/tmp/x"]))
+        m.env.update({"FAKE_TRUST": str(folder / "trust.json"), **env})
+        return m
+
+    def test_a_run_leaves_trust_json_as_it_was(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/kept": "trusted", "/fixtures/dirty": "untrusted"}, sort_keys=True))
+            before = store.read_bytes()
+            m = self.matrix_with_fake(Path(folder))
+            for name in ("small-repo", "dirty", "secrets"):
+                self.assertEqual(m.trust(Path("/fixtures") / name), "")
+            self.assertEqual(json.loads(store.read_text())["/fixtures/small-repo"], "trusted")
+            self.assertEqual(m.forget_trust(), [])
+            self.assertEqual(json.loads(store.read_bytes()), json.loads(before))
+            self.assertEqual(m.trusted, [])
+
+    def test_a_folder_already_trusted_is_left_trusted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/fixtures/small-repo": "trusted"}))
+            m = self.matrix_with_fake(Path(folder))
+            self.assertEqual(m.trust(Path("/fixtures/small-repo")), "")
+            m.forget_trust()
+            self.assertEqual(json.loads(store.read_text()), {"/fixtures/small-repo": "trusted"})
+
+    def test_a_trust_that_fails_is_the_cells_failure_and_records_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = self.matrix_with_fake(Path(folder), FAKE_FAIL="1")
+            note = m.trust(Path(folder) / "small-repo")
+            self.assertTrue(note.startswith("fail: trust: "), note)
+            self.assertIn("no daemon", note)
+            self.assertEqual(m.trusted, [])
 
 
 class StopTests(unittest.TestCase):

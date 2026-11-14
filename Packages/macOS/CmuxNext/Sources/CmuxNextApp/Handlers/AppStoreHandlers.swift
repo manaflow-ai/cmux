@@ -8,20 +8,15 @@ import CmuxNextSettings
 /// App Store actions (app-platform.md 3): automation never installs; installs and removals pass the consent card.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
-            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         let services = context.services
-        let preview: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
-        }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
-        registry.bind("appStore.show", unavailable: preview, invoke: { invocation in
+        registry.bind("appStore.show", invoke: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", unavailable: preview, invoke: { invocation in
+        registry.bind("appStore.showInstalled", invoke: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
         // Hide and unhide (V9): apps-set hidden with the invocation's origin (the supervisor decides); the app keeps running.
@@ -78,8 +73,7 @@ enum AppStoreHandlers {
             }
             registry.track(AppCommandPalette.run(entry, services: services, origin: invocation.origin))
         })
-        bindHidden("app.hide", true)
-        bindHidden("app.unhide", false)
+        for (id, hidden) in [("app.hide", true), ("app.unhide", false)] as [(ActionID, Bool)] { bindHidden(id, hidden) }
         registry.bindEffect("app.reloadCustomViews", requires: nil, effect: { _ in // the error card's Reload, for every local app
             if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
             services.apps.client.reloadLocalApps(); return .done
@@ -114,10 +108,7 @@ enum AppStoreHandlers {
 
     /// Why an app action cannot run while the supervisor is unreachable.
     static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
-        switch reason {
-        case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
-        case .notConnected, .notReady, .turnedOff: ActionFailure(message: reason.text)
-        }
+        ActionFailure(message: reason.text)
     }
 
     /// `app.open`'s refusal: the unavailable reason, else why this app did not open.

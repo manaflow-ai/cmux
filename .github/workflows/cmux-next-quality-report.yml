@@ -12,7 +12,14 @@ name: cmux-next quality report
 #   - CI health (Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER"): over the last 50
 #     commits of feat-cmux-next and of main, the share of checks whose newest finished run is green, and the flake
 #     rate (a check that failed and then passed on the same commit), with the checks red now. One GraphQL read
-#     per 5 commits on the route App's checks-read token.
+#     per 5 commits on the route App's checks-read token;
+#   - the nightly speed budget: merge to feed p50 and p95 against 30 min, nightlies over it and the largest stage,
+#     from the history nightly-speed.yml keeps in the cmuxterm-hq issue "cmux NEXT nightly speed budget" (read token).
+#   - the first-user journey (Leo, 2026-11-12: "We need to, like, actually properly, like, click through and utilize
+#     every single thing"): the newest results of the web click-through (first-user-journey-web.yml) and the iOS
+#     simulator walk (first-user-journey-ios.yml) here, and the fresh-user Mac walk (cmuxterm-hq
+#     first-user-journey-mac.yml), as cells by harness and sign-in state with their reds by rule. HQ
+#     docs/qa/first-user-journey.md.
 # The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
 # report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
 # is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
@@ -35,7 +42,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:
@@ -56,16 +63,21 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: |
-            scripts/cmux-next/quality-report.py
-            scripts/cmux-next/tests/test_quality_report.py
-            scripts/cmux-next/perf-cron.py
-            scripts/cmux-next/perf-budgets.json
-            scripts/cmux-next/perf-budgets.py
+            /*
+            !/cmux-next-ios/verify/
           sparse-checkout-cone-mode: false
 
       - name: Test the report
         if: steps.done.outputs.cache-hit != 'true'
         run: python3 -I scripts/cmux-next/tests/test_quality_report.py
+
+      - name: Initialize v2 gate measures
+        if: steps.done.outputs.cache-hit != 'true'
+        run: |
+          v2_gate_out="$RUNNER_TEMP/quality/v2-measures.ndjson"
+          echo "V2_GATE_OUT=$v2_gate_out" >> "$GITHUB_ENV"
+          mkdir -p "$(dirname "$v2_gate_out")"
+          : > "$v2_gate_out"
 
       # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
       # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). No App or a failed
@@ -107,6 +119,61 @@ jobs:
           GH_TOKEN: ${{ steps.hq-read.outputs.token }}
         run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
+      - name: Set up Rust for agent-service v2 god and small rows
+        if: steps.done.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Run v2 gate measures
+        if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: cmux-tui
+        run: |
+          set -o pipefail
+          ../scripts/cmux-next/run-v2-gates.sh
+
+      - name: Write the v2 god-small input
+        id: v2-home
+        if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: cmux-tui
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/quality"
+          # The gate runner above appends one JSONL line per marked row.
+          cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$RUNNER_TEMP/quality/v2-god-small.json"
+
+      # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
+      # None yet, or no token: the report says "no input given" for god-vs-small.
+      - name: Fetch the degenerate lab's god-small rows
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --status completed -L 1 \
+            --json databaseId -q '.[0].databaseId')"
+          [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
+
+      # Each surface's newest results artifact, on the read token (actions read here and on cmuxterm-hq). A surface
+      # that cannot be read is n/a in the report with the reason; one older than 48 h is stale.
+      - name: Fetch the first-user journey results
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: |
+          for row in "web $GITHUB_REPOSITORY first-user-journey-web.yml" \
+                     "ios $GITHUB_REPOSITORY first-user-journey-ios.yml" \
+                     "mac manaflow-ai/cmuxterm-hq first-user-journey-mac.yml"; do
+            set -- $row
+            python3 -I scripts/cmux-next/quality-report.py fetch-journey --repo "$2" --workflow "$3" \
+              --artifact "first-user-journey-$1" --dir "$RUNNER_TEMP/journey/$1" || true
+          done
+
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
         env:
@@ -117,11 +184,31 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/quality"
           mkdir -p "$out"
-          python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
+          journey=()
+          for surface in web ios mac; do
+            journey+=(--first-user-journey "$RUNNER_TEMP/journey/$surface/results.json")
+          done
+          report_args=(report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
+            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed "${journey[@]}" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
-            --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
+            --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
+          # God-vs-small rows from the v2 bench and the degenerate lab, merged into one input.
+          god_inputs=()
+          [[ -f "$out/v2-god-small.json" ]] && god_inputs+=("$out/v2-god-small.json")
+          [[ -f "$RUNNER_TEMP/god-small/god-small.json" ]] && god_inputs+=("$RUNNER_TEMP/god-small/god-small.json")
+          if (( ${#god_inputs[@]} )); then
+            python3 -I -c 'import json, sys
+          rows = []
+          for path in sys.argv[2:]:
+              data = json.load(open(path))
+              rows += data["rows"] if isinstance(data, dict) else data
+          json.dump({"rows": rows}, open(sys.argv[1], "w"))' "$out/god-small.json" "${god_inputs[@]}"
+            report_args+=(--god-small "$out/god-small.json")
+          else
+            echo "no god-small input (v2 bench or degenerate lab); report records no input given" >&2
+          fi
+          python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       # The public artifact has no signature names (quality-report.py public_report); they go to the sticky only.
@@ -170,3 +257,22 @@ jobs:
         with:
           path: ${{ runner.temp }}/quality-report-marker
           key: ${{ steps.day.outputs.key }}
+
+      - name: Fail when a marked v2 gate has no measure
+        if: steps.done.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/quality/v2-god-small.json"
+          test -s "$report" || { echo "v2 gate home did not write $report" >&2; exit 1; }
+          python3 -I - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              rows = json.load(stream)["rows"]
+          failed = [row for row in rows if row.get("status") == "failed"]
+          if failed:
+              for row in failed:
+                  print(f"v2 gate failed: {row['name']}: {row.get('reason', 'unknown reason')}", file=sys.stderr)
+              raise SystemExit(1)
+          PY

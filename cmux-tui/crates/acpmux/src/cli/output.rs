@@ -183,6 +183,9 @@ pub(crate) struct PromptId {
     /// (`_meta.acpmux.callerSubagent`, `cli/sender.rs` `SUBAGENT_ENV`): a label the daemon puts
     /// on the provenance it binds to the caller's proven session.
     pub subagent: Option<Value>,
+    /// This host's sender token, presented to prove a named sender (`sender_token.rs`): sent as
+    /// `_meta.acpmux.senderToken`, which the daemon takes out before it reads anything else.
+    pub sender_token: Option<crate::sender_token::Presented>,
     /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the receiver's
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
@@ -207,6 +210,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
             None => Self {
@@ -224,6 +228,7 @@ impl PromptId {
                 relay: None,
                 sender_harness: None,
                 subagent: None,
+                sender_token: None,
                 wake_or_fail: false,
             },
         }
@@ -283,6 +288,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if let Some(token) = &self.sender_token {
+            mux.set(crate::sender_token::META_KEY, token.to_value());
         }
         if let Some(Value::Object(relay)) = &self.relay {
             for (key, value) in relay {
@@ -1173,6 +1181,18 @@ async fn collect_once(
     {
         reply = logged;
     }
+    // The reply is its own turn's, read from the log by the turn id its answer names: the
+    // stream also carries the words of a turn it was queued behind, and its answer can come
+    // before the last updates it heard are read. Empty when its turn said nothing. A log that
+    // no longer reaches the turn's start (or an older daemon's answer without a turn id) keeps
+    // the reply heard.
+    if !prompt.resend
+        && steered.turn().is_none()
+        && let Some(turn) = result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str)
+        && let Some(logged) = before_deadline(deadline, id, turn_reply(&client, id, turn)).await?
+    {
+        reply = logged;
+    }
     // A resent prompt id streams nothing: its turn already ran, so read the
     // reply of that turn (not necessarily the newest) from the log.
     if prompt.resend {
@@ -1337,36 +1357,8 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
     })
 }
 
-/// The last `count` assistant replies of a session, oldest first.
-pub(crate) async fn last_replies(
-    client: &Arc<Client>,
-    id: &str,
-    count: usize,
-) -> Result<Vec<String>> {
-    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
-    let page = json!({
-        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES,
-        // Events with beforeSeq read newest first. This one-shot read must not attach the
-        // shared daemon-to-daemon link to a running chat's live stream.
-        "beforeSeq": u64::MAX
-    });
-    let mut t = Transcript::default();
-    for e in paged_events(client, page, method::MUX_EVENTS).await? {
-        t.apply_event(&e);
-    }
-    let mut out: Vec<String> = t
-        .items
-        .iter()
-        .rev()
-        .filter_map(|i| match i {
-            Item::Assistant { text } => Some(text.clone()),
-            _ => None,
-        })
-        .take(count.max(1))
-        .collect();
-    out.reverse();
-    Ok(out)
-}
+/// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
+pub(crate) use super::last_reply::last_replies;
 
 #[cfg(test)]
 mod prompt_tests {
@@ -1507,6 +1499,38 @@ mod prompt_tests {
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
+        drop(dir);
+    }
+
+    /// A send queued behind another client's running turn hears that turn's words too: its reply
+    /// is its own turn's only, empty when its turn says nothing (`send -q`, `--json`, `run`).
+    /// Before, it was the running turn's text.
+    #[tokio::test]
+    async fn a_queued_sends_reply_is_its_own_turns_not_the_turn_before_it() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        // "slow" streams "tick0 tick1 tick2" for about a second.
+        queue_prompt(client.clone(), &id, "slow", false, None, &PromptId::new(None)).await.unwrap();
+        let path = dir.path().join("d.sock");
+        let other = Client::connect(&path).await.unwrap();
+        let opts = CollectOpts {
+            timeout: Some(20),
+            deadline: None,
+            on_permission: OnPermission::Deny,
+            stall_secs: 0,
+            retries: 0,
+            steer: false,
+        };
+        let quiet = PromptId::new(None);
+        let got = collect_reply(other, &id, "quiet-tool", opts, &quiet).await.unwrap();
+        assert!(!got.reply.contains("tick"), "the turn before's words: {:?}", got.reply);
+        assert_eq!(got.reply, "", "its own turn said nothing");
+        let session = hub.resolve(&id).unwrap();
+        assert_eq!(session.meta().turn_count, 2);
         drop(dir);
     }
 

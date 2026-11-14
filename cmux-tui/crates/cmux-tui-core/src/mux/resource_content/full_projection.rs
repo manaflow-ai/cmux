@@ -36,6 +36,8 @@ impl Mux {
         state: &mut State,
         result: Value,
     ) -> anyhow::Result<(ResourceEffectProjection, ProjectionSpans)> {
+        #[cfg(test)]
+        scoped_projection::FULL_PROJECTIONS.with(|count| count.set(count.get() + 1));
         let started = Instant::now();
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
@@ -68,6 +70,7 @@ impl Mux {
             stored_live: &stored_live,
             active_terminal_hosts: None,
             rows: WorkspaceRows::All,
+            unplaced_terminals: false,
         };
         let projection = self.project_live_tree(&input, state, result)?;
         let spans = ProjectionSpans {
@@ -124,15 +127,25 @@ impl Mux {
         let mut public = Vec::new();
         let mut screens = PublishedScreens::default();
 
+        #[cfg(test)]
+        scoped_projection::WORKSPACES_PROJECTED
+            .with(|count| count.set(count.get() + state.workspaces.len() as u64));
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
-            live_workspaces.insert(workspace.public_id.clone());
             let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
+            if !in_scope && !input.rows.states(workspace_index) && input.rows.scope_frame() {
+                // `before` holds no row of this workspace and the walk states none: there is
+                // nothing to compare, to keep or to delete for it.
+                continue;
+            }
+            live_workspaces.insert(workspace.public_id.clone());
             if !in_scope && !input.rows.states(workspace_index) {
                 // The caller knows this workspace's row and public value did not change. Its key
                 // stays live, so the walk does not publish a delete of it.
                 unchanged_keys.insert(("workspace".into(), workspace.public_id.to_string()));
                 continue;
             }
+            #[cfg(test)]
+            crate::walk_counters::workspace_rows_stated(1);
             changes.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
                     id: workspace.id,
@@ -455,10 +468,17 @@ impl Mux {
                 &mut public,
             )?;
         }
-        let catalog = if scope.is_some() { None } else { Some(&state.terminal_catalog) };
+        let catalog =
+            (scope.is_none() || input.unplaced_terminals).then_some(&state.terminal_catalog);
+        // A scoped walk did not walk each pane: it reads which terminals have a view.
+        let placed = match scope {
+            Some(_) if input.unplaced_terminals => scoped_projection::placed_terminals(state),
+            _ => HashSet::new(),
+        };
         for (terminal_id, surface) in catalog.into_iter().flatten() {
             // An app terminal is published by its first view (`app_terminals.rs`).
-            if !live_terminals.insert(terminal_id.clone())
+            if placed.contains(terminal_id)
+                || !live_terminals.insert(terminal_id.clone())
                 || self.is_unregistered_app_terminal(surface.id)
             {
                 continue;
@@ -587,6 +607,7 @@ impl Mux {
             changes: Value::Array(deltas),
             result,
             restates_all: scope.is_none(),
+            restated: Vec::new(),
         })
     }
 

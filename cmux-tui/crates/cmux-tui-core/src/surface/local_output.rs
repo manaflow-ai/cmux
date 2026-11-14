@@ -138,7 +138,7 @@ impl LocalOutput {
                     title_update = Some(title);
                 }
             }
-            pty.record_directory(term.pwd());
+            pty.record_terminal_directory(&term);
             if before != after {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);

@@ -117,9 +117,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     lead.push(["mux", "turn_result", { status: "completed" }]);
   }
 
-  let current: Browser | undefined;
   const browsers = new Map<string, Browser>();
-  let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
@@ -192,6 +190,14 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
               const effect = animation.effect as KeyframeEffect | null;
               // Shimmers and spinners loop by design; a load-in plays once.
               if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
+              // The running line now sweeps in finite cadences. These two shimmer layers are
+              // ongoing status, just like an infinite spinner, not a row's entrance animation.
+              const name = (animation as CSSAnimation).animationName;
+              if (
+                (name === "cmux-cadenced-shimmer-band" && effect.target?.matches(".cv-shimmer__band")) ||
+                (name === "cmux-cadenced-shimmer-lit" && effect.target?.matches(".cv-shimmer__band > .cv-shimmer__lit"))
+              )
+                return false;
               return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
             });
           // A live row's entrance (the running turn's rows, after its prompt, arriving as the reply
@@ -346,12 +352,12 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: wheeling up through older history while a reply streams, nothing on screen jumps or flickers",
     async (name) => {
-      current = browsers.get(name)!;
+      const engine = browsers.get(name)!;
       // A fresh chat per engine (an earlier run's streamed reply would move its tail). A running
       // last turn: the pane follows its tail, and Jump to latest offers "still replying".
       // The summary counts every prompt, the older ones too, as acpmux's does: the pane reserves the
       // room for the unloaded history from it.
-      pane = await papercutPane(() => current!, {
+      const pane = await papercutPane(() => engine, {
         turns: 12,
         running: true,
         lead,
@@ -379,16 +385,37 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
             .map((animation) => animation.finished.catch(() => undefined)),
         ),
       );
-      const pagesBefore = pane!.methods.filter((method) => method === "_acpmux/events").length;
+      const pagesBefore = pane.methods.filter((method) => method === "_acpmux/events").length;
       const view = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+      // The reader leaves the latest row before the reply streams, so every paragraph lands below
+      // them. Started at the tail, the first paragraph could land in the frame before the wheel's
+      // first step while the view still followed the tail: the follow moved every row up by that
+      // paragraph (78.75 px), and the trace read it as the wheel's anchor drifting (WebKit, round 0
+      // frame 0, under load).
+      await page.mouse.wheel(0, -240);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            let last = scroller.scrollTop;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              still = scroller.scrollTop === last ? still + 1 : 0;
+              last = scroller.scrollTop;
+              if (still < 6) return true;
+              resolve();
+              return false;
+            });
+          }),
+      );
       // The reply streams below the reader: a paragraph every 80 ms for the whole run.
       let streamed = 0;
       const stream = setInterval(() => {
         const [dir, kind, msg] = say(
           `Streaming paragraph ${++streamed}: the reader scrolls up while this arrives.\n\n`,
         );
-        pane!.record(kind, msg, dir);
+        pane.record(kind, msg, dir);
       }, 80);
       await startWatch(page);
       // A trackpad's uneven steps, in rounds so older pages land while the wheel is moving.
@@ -424,7 +451,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         clearInterval(stream);
       }
       const watched = await stopWatch(page);
-      const pages = pane!.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
+      const pages = pane.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
       const reachedFirst = await page.evaluate(atFirstPrompt);
       const seen = tally(watched.frames);
       const sum = (key: "cancelledWheels" | "missingAnchors" | "blankFrames" | "blankBandFrames" | "overlapFrames") =>
@@ -457,7 +484,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       for (const [key, value] of Object.entries(summary))
         console.info(`chat-scroll-nightly ${name} ${key}: ${JSON.stringify(value)}`);
       await page.close();
-      await pane!.close();
+      await pane.close();
 
       // The run went where the repros are: older pages landed while the wheel moved up.
       expect(pages).toBeGreaterThan(0);

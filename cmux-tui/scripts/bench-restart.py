@@ -150,7 +150,7 @@ def main():
     ap.add_argument("--verbose", action="store_true",
                     help="print each terminal's adoption time and its last read-screen error")
     ap.add_argument("--sample", default=None,
-                    help="macOS: write a `sample` profile of the second restart's first 2 s here")
+                    help="macOS: write a `sample` profile of each restart's first 2 s to <this>.<n>")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="rs-", dir=args.root_dir)
@@ -230,9 +230,9 @@ def main():
             stop_ms = daemon.stop()
             t0 = daemon.start(args.bin)
             profiler = None
-            if args.sample and r == 1:
+            if args.sample:
                 profiler = subprocess.Popen(["sample", str(daemon.proc.pid), "2", "1", "-mayDie",
-                                             "-file", args.sample],
+                                             "-file", f"{args.sample}.{r}"],
                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             c = daemon.connect()
             listen = (time.perf_counter() - t0) * 1000.0

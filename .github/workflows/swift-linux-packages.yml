@@ -1,27 +1,29 @@
 name: Swift packages on Linux
 
-# The receipt behind scripts/ci/swift-linux-packages.txt: every listed package's
-# test targets, run on Linux through the same `package-test-lane.sh suite` a
-# fleet step sends there (the fleet controller routes only the listed packages'
-# suites to Linux; every other package keeps the Mac path). A package joins the
-# list only with a green run of this job, and the job runs on every change to a
-# package, the list or the script, so a listed package that stops building on
-# Linux turns it red. tests/test_swift_linux_packages.py keeps the list, the
-# manifests and this workflow in step.
+# Every SwiftPM package that builds on Linux, in the swift.org toolchain container (the ECR Public
+# mirror of the Docker official image); the Mac jobs keep what needs Apple frameworks. Two kinds of group:
 #
-# Cache: every listed package's .build, restored on every run and saved only by
-# a successful push to feat-cmux-next (never a pull request or a fork). The key
-# is the ISO week + toolchain + arch + the packages' manifests, Package.resolved,
-# the list (its per-package ENV) and the debug-info flags, never github.sha:
-# .build is rebuildable state, so the first push for a key seeds an immutable
-# entry and later runs build on it incrementally. Same pattern as
-# swift-packages-linux.yml (tests/test_ci_swift_packages_linux_cache.py).
+# - `listed`: the receipt behind scripts/ci/swift-linux-packages.txt. Every listed package's test
+#   targets run through the same `package-test-lane.sh suite` a fleet step sends to Linux (the fleet
+#   controller routes only the listed packages' suites there; every other package keeps the Mac path).
+#   A package joins the list only with a green run of this group, so a listed package that stops
+#   building on Linux turns it red. tests/test_swift_linux_packages.py keeps the list, the manifests
+#   and this workflow in step.
+# - the portable groups: whole packages the list does not carry (swift build --build-tests, then
+#   swift test), and the Stack Auth SDK fixtures with a test filter the list cannot express.
+#
+# Cache: every package's .build in the group, restored on every run and saved only by a successful
+# push to feat-cmux-next (never a pull request or a fork). The key is the ISO week + toolchain + arch +
+# group + the manifests, Package.resolved, the list and the debug-info flags, never github.sha:
+# .build is rebuildable state, so the first push for a key seeds an immutable entry and later runs
+# build on it incrementally (tests/test_ci_swift_packages_linux_cache.py).
 
 on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
       - .github/workflows/swift-linux-packages.yml
@@ -29,6 +31,7 @@ on:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
       - .github/workflows/swift-linux-packages.yml
@@ -48,26 +51,47 @@ env:
 
 jobs:
   swift-linux-packages:
-    name: Swift packages on Linux (listed)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    name: Swift packages on Linux (${{ matrix.group }})
+    # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
+    # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
-    container: swift:6.2-noble
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     defaults:
       run:
         shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: listed
+          - group: shared
+            packages: Packages/Shared/CmuxSentryTelemetry
+          - group: mobile-core
+            packages: >-
+              Packages/Shared/CMUXMobileCore
+              Packages/Shared/CmuxTheme
+              Packages/iOS/CmuxMobilePairedMac
+              Packages/iOS/CmuxMobileShellModel
+          # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
+          - group: stack-auth
+            packages: vendor/stack-auth-swift-sdk-prerelease
+            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - name: Python for the lane's watchdog
-        run: command -v python3 >/dev/null || { apt-get update && apt-get install -y --no-install-recommends python3; }
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite, and the image
+      # ships only its runtime.
+      - name: Install python3 and SQLite headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
 
       - name: Cache key
         id: key
         run: |
           set -euo pipefail
-          inputs="$({ find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -81,12 +105,15 @@ jobs:
         id: build_cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          path: Packages/**/.build
-          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}
+          path: |
+            Packages/**/.build
+            vendor/stack-auth-swift-sdk-prerelease/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
-            swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-
+            swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
 
       - name: package-test-lane.sh suite, every listed package
+        if: matrix.group == 'listed'
         run: |
           set -euo pipefail
           status=0
@@ -98,9 +125,45 @@ jobs:
           done < scripts/ci/swift-linux-packages.txt
           exit "$status"
 
+      - name: Build and test
+        if: matrix.group != 'listed'
+        env:
+          PACKAGES: ${{ matrix.packages }}
+          TEST_FILTER: ${{ matrix.test_filter }}
+          # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac) apply only with
+          # this: the fleet reads the same manifests on Linux hosts to build for macOS.
+          CMUX_SWIFTPM_TARGET_LINUX: "1"
+        run: |
+          failed=""
+          filter=()
+          [ -z "${TEST_FILTER:-}" ] || filter=(--filter "$TEST_FILTER")
+          echo "| Package | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for package in $PACKAGES; do
+            echo "::group::$package"
+            result=pass
+            if ! swift build --package-path "$package" --build-tests; then
+              result="build failed"
+            elif [ -d "$package/Tests" ] && ! timeout --kill-after=30 600 swift test --package-path "$package" --skip-build --parallel "${filter[@]}"; then
+              result="tests failed or timed out"
+            fi
+            echo "::endgroup::"
+            echo "| \`$package\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != pass ]; then
+              echo "::error title=$package::$result"
+              failed="$failed $package"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "Failed:$failed"
+            exit 1
+          fi
+
       - name: Save .build
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          path: Packages/**/.build
-          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ steps.key.outputs.inputs }}
+          path: |
+            Packages/**/.build
+            vendor/stack-auth-swift-sdk-prerelease/.build
+          key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}

@@ -7,7 +7,7 @@ import Testing
 /// Leo 2026-10-28, on the top of the sidebar: "the alignment"; on its glyphs: "i feel like this is misaligned
 /// checkmark :( can we all audit the checkmarks and whatnot"; on the trailing marks: "eg look at this alignment :("
 /// (two blue unread dots right of two red (i) marks). Every leading glyph (a band row's, a pinned row's pin, a
-/// workspace row's icon) centers on one icon column and on its title's center line, and every trailing mark (the
+/// workspace row's icon) starts on one icon column's leading edge and centers on its title's center line, and every trailing mark (the
 /// unread dot, an error, Home's dot) centers on one trailing column.
 @MainActor @Suite(.closesItsWindows, .serialized) struct SidebarIconColumnTests {
     typealias Case = HomePinnedRowAlignmentTests.Case
@@ -82,22 +82,25 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon share one center x, the icon column's center
-    /// (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence msg 19643 had started every ink at the inset, which
-    /// put the narrow pin's center left of the house's).
+    /// Home's glyph starts its ink on the icon column's leading edge and the narrow pin centers under it (#42431), where a workspace row's icon
+    /// column starts too (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence 2026-11-09,
+    /// "home/pin icons not left aligned with 'Fix…'", by their left edge, the titles' edge).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
-    func leadingGlyphsShareOneCenterX(_ c: Case) throws {
+    func leadingGlyphsStartOnOneX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).midX
-            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
-            let iconX = list.convert(iconRow.icon.frame, from: iconRow).midX
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon's column at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon's column at \(iconX)")
+            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).minX
+            let homeMid = list.convert(try #require(home.glyphInkFrame), from: home).midX
+            let pinMid = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
+            let columnX = list.convert(home.leadingColumnFrame, from: home).minX
+            let iconColumnX = list.convert(iconRow.icon.frame, from: iconRow).minX
+            #expect(abs(homeX - columnX) <= Self.tolerance, "\(c.testDescription): Home's glyph starts at \(homeX), its column at \(columnX)")
+            #expect(abs(pinMid - homeMid) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinMid), Home's glyph at \(homeMid)")
+            #expect(abs(iconColumnX - columnX) <= Self.tolerance, "\(c.testDescription): a row icon's column at \(iconColumnX), Home's at \(columnX)")
         }
     }
 
@@ -134,8 +137,12 @@ import Testing
                 ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
                 ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
+            // Beside a bare glyph (Home's house, a pin) the title drops 0.04 em on the pixel grid, so a mostly lowercase
+            // word sits level with a glyph whose mass is low (Lucas 2026-11-13; SidebarItemRowView's `opticalDrop`).
+            let drop = (SidebarStyle.titleFont.pointSize * 0.04 * 2).rounded() / 2
             for (name, glyph, text) in pairs {
-                #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
+                let allowed = name == "icon" ? Self.tolerance : Self.tolerance + drop
+                #expect(abs(glyph - text) <= allowed, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
             }
         }
     }

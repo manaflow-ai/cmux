@@ -46,6 +46,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `browser.vimKeys`; on when unset or invalid (``BrowserVimKeysSetting``).
+    public var browserVimKeys = BrowserVimKeysSetting.fallback
+    /// `browser.showLoadingBar`; off when unset.
+    public var browserShowLoadingBar = BrowserLoadingBarSetting.fallback
     /// `browser.import.enabled`; on when unset or invalid.
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `browser.import.cookieBanner`; on when unset or invalid (``BrowserCookieBannerSetting``).
@@ -352,6 +356,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
+        snapshot.take(BrowserLoadingBarSetting().parse(root), \.browserShowLoadingBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
         snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)
@@ -449,7 +455,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root)
             + MachineColorsSetting().parse(root).1
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
-        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabPosition.parseButton(root).1].compactMap(\.self) + NewTabWidgetSettings.diagnostics(root)
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabPosition.parseButton(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }

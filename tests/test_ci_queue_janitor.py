@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import importlib.util
 import re
 import sys
 import tempfile
@@ -19,11 +18,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/queue_janitor.py"
 WORKFLOW = ROOT / ".github/workflows/ci-queue-janitor.yml"
-SPEC = importlib.util.spec_from_file_location("queue_janitor", SCRIPT)
-janitor = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules["queue_janitor"] = janitor
-SPEC.loader.exec_module(janitor)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+# tests/test_ci_pr_runner_pool.py imports queue_janitor by name too.
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
+import queue_janitor as janitor  # noqa: E402
 
 NOW = dt.datetime(2026, 9, 22, 17, 0, tzinfo=dt.timezone.utc)
 MAC = "blacksmith-6vcpu-macos-15"

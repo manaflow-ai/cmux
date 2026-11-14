@@ -268,8 +268,7 @@ impl Mux {
                 set_active_screen(&mut after, &workspace_id, Some(screen_id.clone()));
                 let deltas =
                     focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
-                let workspace_record =
-                    registry_workspace(state, workspace_index, registry.session_id().as_str());
+                let workspace_record = registry_workspace(state, workspace_index, &mux.session);
                 let result = json!({"screen":screen_id});
                 let active_pane =
                     state.workspaces[workspace_index].screens[screen_index].active_pane;

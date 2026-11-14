@@ -21,6 +21,9 @@
 //!   and the app's cloud sign-in read now, so a device the person may not use, one that does not
 //!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
 //!   device list of its own.
+//! - `--on MACHINE` or `--on joined:ID`: a machine joined to the account (`cmux machine add`)
+//!   that only the mesh hub reaches, by its name or account id. acpmux starts the chat there and
+//!   picks the carrier (joined.rs); a device name in the catalog is matched first.
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
@@ -34,6 +37,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::agents::turn::{self, Begin};
@@ -106,12 +110,17 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
 Starts an agent chat, right here unless --on names another target:
 
   --on here          This machine, as a tab in the cmux app (the default)
-  --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
+  --on cloud         Today the same as --on vm: your one VM, the one running VM of
+                     several, or a new one when you have none; several and none
+                     running is refused with their names
   --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm ls`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
+  --on MACHINE       A machine you joined (`cmux machine add`), by its name, or
+  --on joined:ID     by its id; acpmux starts the chat there, no ssh needed.
+                     The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`
   CMUX_ON=TARGET names the target when --on is absent.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
@@ -162,7 +171,7 @@ Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo R
 (`cmux chat cd --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
 ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
-signed_out, no_route).
+signed_out, revoked, no_route).
 Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent
 waits on a permission (chat.permission_waiting), 3 --timeout passed
 (chat.wait_timeout; its details.answer has timed_out: true).
@@ -210,6 +219,8 @@ pub(super) enum Route {
     Here,
     /// A Cloud VM (`cloud start-chat`'s run).
     Cloud(Machine),
+    /// A machine joined to the account, which acpmux reaches through the mesh hub (joined.rs).
+    Joined(joined::JoinedMachine),
 }
 
 /// `Some(exit code)` when `args` is a chat start: `cmux chat` with no words, `cmux chat new …`,
@@ -325,7 +336,7 @@ pub(super) fn parse_with(
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
                     return Err(UsageError::new(
-                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME or a device",
+                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME, a device or a joined machine",
                     ));
                 }
                 start.on = Some(on);
@@ -536,8 +547,9 @@ where
     }
     let catalog = (reads.catalog)()?;
     let id = device_id(on, &catalog)?;
-    let record = machines(&catalog).iter().find(|machine| text(machine, "id") == Some(id.as_str()));
-    let origin = record.and_then(|machine| text(machine, "origin")).unwrap_or("local");
+    let record =
+        machines(&catalog).iter().find(|machine| machine.get_str("id") == Some(id.as_str()));
+    let origin = record.and_then(|machine| machine.get_str("origin")).unwrap_or("local");
     let signed_in = origin == "cloud" && (reads.signed_in)();
     match cmux::resolve_chat_target(&id, &catalog, signed_in) {
         Err(refusal) => Err(refused(&refusal)),
@@ -550,7 +562,7 @@ where
                 if let Some(error) = not_loaded(&listed) {
                     return Err(error);
                 }
-                existing_vm(&id, text(machine, "name"), &listed).map(Route::Cloud).map_err(
+                existing_vm(&id, machine.get_str("name"), &listed).map(Route::Cloud).map_err(
                     |found| {
                         refusal(
                             "chat_target.unavailable",
@@ -610,15 +622,15 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let usable: Vec<&Value> = rows
         .iter()
-        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .filter(|row| !row.get_str("status").is_some_and(|status| NOT_REUSED.contains(&status)))
         .collect();
     let running: Vec<&Value> =
-        usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
+        usable.iter().copied().filter(|row| row.get_str("status") == Some("running")).collect();
     // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
     let making = listed
         .get("creating")
         .and_then(Value::as_array)
-        .is_some_and(|rows| rows.iter().any(|row| text(row, "status") != Some("failed")));
+        .is_some_and(|rows| rows.iter().any(|row| row.get_str("status") != Some("failed")));
     let id = match (usable.as_slice(), running.as_slice()) {
         ([], _) if making => {
             return Err(retryable(refusal(
@@ -629,7 +641,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             )));
         }
         ([], _) => return Ok(Machine::New),
-        ([only], _) | (_, [only]) => text(only, "machine_id"),
+        ([only], _) | (_, [only]) => only.get_str("machine_id"),
         _ => None,
     };
     if let Some(id) = id {
@@ -637,7 +649,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     }
     let names: Vec<&str> = usable
         .iter()
-        .map(|row| text(row, "title").or(text(row, "machine_id")).unwrap_or(""))
+        .map(|row| row.get_str("title").or(row.get_str("machine_id")).unwrap_or(""))
         .collect();
     Err(refusal(
         "chat_target.which_vm",
@@ -655,13 +667,13 @@ pub(super) fn existing_vm(
     listed: &Value,
 ) -> Result<Machine, Vec<String>> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    if rows.iter().any(|row| text(row, "machine_id") == Some(id)) {
+    if rows.iter().any(|row| row.get_str("machine_id") == Some(id)) {
         return Ok(Machine::Target(id.to_owned()));
     }
     let titled: Vec<String> = rows
         .iter()
-        .filter(|row| name.is_some() && text(row, "title") == name)
-        .filter_map(|row| text(row, "machine_id").map(str::to_owned))
+        .filter(|row| name.is_some() && row.get_str("title") == name)
+        .filter_map(|row| row.get_str("machine_id").map(str::to_owned))
         .collect();
     match titled.as_slice() {
         [machine] => Ok(Machine::Target(machine.clone())),
@@ -672,13 +684,13 @@ pub(super) fn existing_vm(
 /// The id `selector` names: a catalog machine with that id, else the one machine with that name.
 fn device_id(selector: &str, catalog: &Value) -> Result<String, Value> {
     let machines = machines(catalog);
-    if machines.iter().any(|machine| text(machine, "id") == Some(selector)) {
+    if machines.iter().any(|machine| machine.get_str("id") == Some(selector)) {
         return Ok(selector.to_owned());
     }
     let named: Vec<&str> = machines
         .iter()
-        .filter(|machine| text(machine, "name") == Some(selector))
-        .filter_map(|machine| text(machine, "id"))
+        .filter(|machine| machine.get_str("name") == Some(selector))
+        .filter_map(|machine| machine.get_str("id"))
         .collect();
     match named.as_slice() {
         [id] => Ok((*id).to_owned()),
@@ -714,8 +726,39 @@ fn machines(catalog: &Value) -> &[Value] {
     cmux::catalog_machines(catalog)
 }
 
-fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
-    machine.get(key).and_then(Value::as_str)
+/// `first` (the catalog's route, [`route_start`]), then a joined machine (joined.rs) when the
+/// catalog knows no device by that name or has no CLI route to it. `joined:ID` names only a
+/// joined machine and reads no catalog.
+pub(super) fn route_or_joined<F, H, R>(
+    on: Option<&str>,
+    first: F,
+    sources: joined::Sources<H, R>,
+) -> Result<Route, Value>
+where
+    F: FnOnce() -> Result<Route, Value>,
+    H: FnOnce() -> Vec<Value>,
+    R: FnOnce() -> Result<Vec<Value>, String>,
+{
+    if let Some(selector) = on.filter(|on| on.starts_with(joined::PREFIX)) {
+        return joined::resolve(selector, sources)
+            .unwrap_or_else(|| {
+                Err(refused(&ChatTargetRefusal::UnknownDevice { id: selector.to_owned() }))
+            })
+            .map(Route::Joined);
+    }
+    let first = first();
+    let (Some(selector), Err(error)) = (on, &first) else { return first };
+    let fallback = matches!(
+        error.get("code").and_then(Value::as_str),
+        Some("chat_target.unknown_device" | "chat_target.no_route")
+    );
+    if !fallback {
+        return first;
+    }
+    match joined::resolve(selector, sources) {
+        Some(found) => found.map(Route::Joined),
+        None => first,
+    }
 }
 
 fn run(global: &GlobalArgs, start: Start) -> i32 {
@@ -728,7 +771,8 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
         return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
     }
-    let route = match route_start(&start, reads) {
+    let sources = joined::Sources { hub: joined::hub_peers, rows: || joined::account_rows(global) };
+    let route = match route_or_joined(start.on.as_deref(), || route_start(&start, reads), sources) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
     };
@@ -768,6 +812,13 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
         }
         Route::Cloud(_) => start,
+        // A joined machine runs the chat in its own folders: no clone or copy from here.
+        Route::Joined(_)
+            if start.repo.is_some() || start.from_folder.is_some() || !start.attach.is_empty() =>
+        {
+            return usage_failure(&UsageError::new(JOINED_OWN_FOLDERS), global.output);
+        }
+        Route::Joined(_) => start,
     };
     match route {
         Route::Here => match here_wait(&start) {
@@ -798,6 +849,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             }
             Err(error) => usage_failure(&error, global.output),
         },
+        Route::Joined(machine) => joined::run(global, &start, &machine),
     }
 }
 
@@ -819,6 +871,10 @@ const FROM_FOLDER_CLOUD_ONLY: &str = "--from-folder copies a folder to a Cloud c
 /// nothing on this Mac goes with it, and a person in a project folder would otherwise not know.
 const EMPTY_CLOUD_FOLDER: &str = "cmux: the Cloud chat starts in a new empty folder on the VM; \
      add --from-folder . to take this folder with it";
+
+const JOINED_OWN_FOLDERS: &str = "--repo, --from-folder and --attach carry this Mac's files to a \
+     chat here or in Cloud; a chat on a joined machine starts in that machine's folders \
+     (--cwd DIR there)";
 
 const REPO_HERE_ONLY: &str = "--repo starts a chat here in a clone; a Cloud chat goes to a \
      repository with cmux chat cd SESSION --repo REPO once it has started";
@@ -884,7 +940,7 @@ pub(super) fn in_environment(start: &Start, route: Route) -> Result<Route, Usage
             "--environment makes a new machine; with --on cloud or --on vm:new, not a VM that \
              already has its environment",
         )),
-        Route::Here => {
+        Route::Here | Route::Joined(_) => {
             Err(UsageError::new("--environment picks a Cloud chat's environment; add --on cloud"))
         }
     }
@@ -1063,6 +1119,8 @@ fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     }
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
+
+pub(super) mod joined;
 
 #[cfg(test)]
 mod tests;

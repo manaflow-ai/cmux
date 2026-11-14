@@ -115,6 +115,12 @@ is per answer, so only the dial's `carrier.routes` line reports it. The probe ac
 `CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
 that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
 the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
+Once the gates pass, the drill starts the chat without its prompt (a promptless `start-chat`
+answer carries `daemon_tab`, the chat tab's number on the machine's daemon), dials the machine
+once over the Cloud carrier, attaches to that tab's event stream on the relay, sends the prompt,
+kills the relay inside that session after N events and resumes the stream over ssh after the
+last seq it had, all inside one `--timeout`. A drill that reached the turn's last event answers
+the record under `drill`.
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
@@ -370,7 +376,7 @@ is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
-Authenticated network operations use `remote connect|ssh|forward|rpc`,
+Authenticated network operations use `remote connect|ssh|exec|cp|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
 targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
@@ -810,6 +816,7 @@ git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -1048,6 +1055,19 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+`git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
+64 hex digits that stay equal while the scope's `git diff` stays equal, for a
+view that asks often if its diff is still current. It runs no patch: the
+digits come from the work tree's top folder, HEAD, the merge base (the
+`branch` scope), the `core`, `diff` and `filter` settings (as one constant
+above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
+hash of its work tree content. A file's hash is kept by its stat
+entry, so a work tree at rest costs no file read (`files_read` and
+`bytes_read` say what one read cost), and a file whose time stamp alone moved
+gives the same digits. One read hashes at most 8192 files and 256 MiB and no
+file above 64 MiB; a file past a bound counts by its stat entry. Compare two
+replies of one running session host: the digits hold random bytes of its
+process, and are not equal across a restart or a version.
 `git branches` (`git.branches`, capability `git-branches-v1`) lists at most
 `--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
 each by newest tip commit. Each carries its full ref, commit and whether HEAD
@@ -1289,6 +1309,11 @@ cmux agents events --until agent.state --match state=idle --match terminal_id=te
   `null`). Every condition must hold. Either flag alone starts a wait.
 - `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
 
+A change to one tab's record (`tab.update`: an unread mark, an attention
+mark, a zoom, an icon; `browser.tab.emulate`) is one `tab.changed` event for
+that tab and no `workspace.changed` event, so a wait for `workspace.changed`
+does not end on it; wait for `tab.changed` with `--match id=TAB`.
+
 A wait prints only the matching event and exits 0. When the time runs out it
 exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
 true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
@@ -1327,8 +1352,12 @@ deprecated alias of `status`. The daemon's wire does not change: `agent.list` an
 `session.snapshot` still say `state: done` for an ended session, and the CLI
 maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
-finished turn that nobody viewed yet. The CLI leaves out the ended agents of
-terminals that closed (the snapshot has no such terminal); `--state ended`
+finished turn that nobody viewed yet. A terminal that closed has no agent: the
+daemon deletes the agent record with the terminal (`resource-api-v2.md`,
+"Agent"), so no output lists it, `--state ended` included; the ended chat, with
+its provider and session id, stays in `cmux history list --kind agent`. The CLI still
+leaves out an ended agent whose terminal the snapshot does not have (a daemon
+of an older build kept the records of closed terminals); `--state ended`
 shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
 and the text output ends with a line that says how many (localized).
 `--state` takes

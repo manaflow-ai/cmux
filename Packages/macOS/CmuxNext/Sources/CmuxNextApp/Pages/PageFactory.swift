@@ -54,8 +54,8 @@ struct PageFactory {
         return page
     }
 
-    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/inbox?surface=page`,
-    /// `#/list?surface=sidebar`, `#/needs-you`); nil only when the page
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you`, the only
+    /// route the app opens now); nil only when the page
     /// resources are missing. `cmux.feed.` goes to the daemon's feed client through the page relay,
     /// `cmux.app.` runs the page's actions (open an item, a GitHub action, Settings).
     func feedWebPage(route: String) -> PageWebView? {

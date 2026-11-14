@@ -3,6 +3,7 @@
 // started one character late; the find folds it to `i` first (src/find/fold.ts).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "NodeFilter"] as const;
@@ -21,11 +22,8 @@ beforeAll(() => {
   container = window.document.getElementById("view")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("ranges after İ cover the matched text, and a plain i query finds İ", async () => {

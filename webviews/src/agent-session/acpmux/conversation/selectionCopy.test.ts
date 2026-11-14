@@ -2,6 +2,7 @@
 // Cmd-C on a selection inside a reply (selectionCopy.ts): clean HTML with the reply's formatting and
 // none of the transcript's classes, styles or buttons, and Markdown as its plain text.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { htmlMarkdown } from "../richClipboard";
 import { selectionHtml } from "./selectionCopy";
@@ -30,8 +31,13 @@ beforeAll(() => {
   }
   doc = dom.window.document;
 });
-afterAll(() => {
-  for (const key of KEYS) scope[key] = saved.get(key);
+afterAll(async () => {
+  await settleReact();
+  for (const key of KEYS) {
+    const value = saved.get(key);
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
 });
 
 test("a selection in one reply copies as clean HTML and Markdown", () => {

@@ -27,7 +27,7 @@ export interface HomeLinkChipProps {
   href: string;
   /** The link's text in the message. */
   label: string;
-  /** Asks the app for the target's facts (`cmux.home.messages.linkPreview`). */
+  /** Asks the app for the target's facts (`cmux.home.linkPreview`). */
   fetchPreview: LinkPreviewFetch;
   /** A click: the host opens the app link or path (`link.open`), never the system. */
   onOpen(href: string): void;
@@ -96,18 +96,13 @@ export function useLinkPreview(
   useEffect(() => {
     if (!open) return;
     let current = true;
-    // A link answered before shows its last full answer until the new full one: the quick answer
-    // (no slow facts) would take its last lines and thumbnail away for a moment.
-    const shown = recentPreviews.get(request);
     const keep = (preview: HomeLinkPreview | null | undefined) => {
-      if (!preview || !current) return;
-      recentPreviews.keep(request, preview);
-      setAnswer({ request, preview });
+      if (preview && current) setAnswer({ request, preview });
     };
     void fetchPreview({ url: href, kind, details: false })
       .then((quick) => {
         if (!current) return;
-        if (!shown) keep(quick);
+        keep(quick);
         return fetchPreview({ url: href, kind, details: true });
       })
       .then(keep)
@@ -116,34 +111,8 @@ export function useLinkPreview(
       current = false;
     };
   }, [href, kind, open, fetchPreview, request]);
-  if (!open) return undefined;
-  // The link's last answer shows while it is read again (a card hovered before, a row scrolled back
-  // or a conversation reopened): its facts are live, so they are always read again, never only kept.
-  return answer?.request === request ? answer.preview : recentPreviews.get(request);
+  return open && answer?.request === request ? answer.preview : undefined;
 }
-
-/** The last answers of the links hovered most recently (at most `size`, least recent dropped). */
-export class RecentPreviews {
-  private readonly answers = new Map<string, HomeLinkPreview>();
-
-  constructor(private readonly size: number) {}
-
-  get(request: string): HomeLinkPreview | undefined {
-    return this.answers.get(request);
-  }
-
-  keep(request: string, preview: HomeLinkPreview): void {
-    this.answers.delete(request);
-    this.answers.set(request, preview);
-    for (const oldest of this.answers.keys()) {
-      if (this.answers.size <= this.size) break;
-      this.answers.delete(oldest);
-    }
-  }
-}
-
-/** The page's link answers: a hover card shows its link's last facts at once. */
-const recentPreviews = new RecentPreviews(200);
 
 /** The card's body: the kind's icon and the live title with its state, where the target is, a few
  * content lines, then a thumbnail when there is one. No empty row for a fact it lacks. */

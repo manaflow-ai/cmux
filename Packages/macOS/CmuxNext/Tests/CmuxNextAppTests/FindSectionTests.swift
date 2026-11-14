@@ -6,7 +6,7 @@ import Foundation
 import Testing
 import CmuxNextFilesUI
 
-/// The right sidebar's Find section and Open Find as Pane (classic's project-wide find): ripgrep
+/// The Find section and Open Find as Pane (classic's project-wide find): ripgrep
 /// over the focused terminal's folder, one row per matching line, a result opening in cmux.
 @MainActor @Suite(.serialized)
 struct FindSectionTests {
@@ -74,30 +74,11 @@ struct FindSectionTests {
         #expect(match.column == 3)
     }
 
-    @Test(arguments: ["switchRightSidebarToFind", "palette.openFindPane"])
+    @Test(arguments: ["palette.openFindPane"])
     func theFindActionsAreWorkingActions(id: String) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         #expect(services.registry.unavailableReason(for: ActionID(rawValue: id)) == nil)
-    }
-
-    @Test func showFindShowsTheFindSection() throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let suite = "cmux-find-section-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(testSuiteName: suite))
-        services.rightSidebarDefaults = defaults
-        services.windows.ordersWindowsIn = false
-        AppActions.bind(services)
-        let controller = try #require(services.windows.openWindow(workspaces: ["find-workspace"]))
-        defer {
-            for controller in services.windows.controllers { controller.window?.close() }
-            defaults.removePersistentDomain(forName: suite)
-        }
-        #expect(services.registry.perform("switchRightSidebarToFind", invocation: ActionInvocation(origin: .cli)))
-        let panel = try #require(controller.root.rightPanel)
-        #expect(panel.shownMode == .find)
-        #expect(panel.shownSection is FindSectionView)
     }
 }

@@ -1,7 +1,7 @@
 public import AppKit
 
 /// The key that presses one dialog button, as the button shows it (u2647: every
-/// dialog button says which key presses it, "Cancel ⎋", "Change ↩", "Don't Save ⌘D").
+/// dialog button says which key presses it, "Cancel esc", "Change ↩", "Don't Save ⌘D").
 ///
 /// A hint is derived from the same rules that answer the keys
 /// (``CmuxDialogKeys/hint(for:in:)``), so a button never shows a key that does not
@@ -15,11 +15,11 @@ public nonisolated enum CmuxDialogKeyHint: Equatable, Sendable {
     /// Command plus this lowercase character presses the button.
     case command(Character)
 
-    /// The keycap text drawn after the title, as macOS menus write keys: `↩`, `⎋`, `⌘D`.
+    /// The keycap text: `↩`, `esc` (as a Mac keyboard prints it; Lawrence 2026-11-09), `⌘D`.
     public var glyph: String {
         switch self {
         case .return: "↩"
-        case .escape: "⎋"
+        case .escape: "esc"
         case .command(let character): "⌘" + character.uppercased()
         }
     }

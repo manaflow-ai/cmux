@@ -38,7 +38,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
         ));
     }
     if meta.file_type().is_dir() {
-        std::fs::create_dir_all(dst)?;
+        crate::home_fs::create_dirs(dst)?;
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             copy_legacy_tree(&entry.path(), &dst.join(entry.file_name()))?;
@@ -51,7 +51,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
                 "new durable state is occupied",
             ));
         }
-        std::fs::copy(src, dst)?;
+        crate::home_fs::copy(src, dst)?;
         std::fs::File::open(dst)?.sync_all()?;
     } else {
         return Err(std::io::Error::new(
@@ -73,16 +73,16 @@ fn copy_legacy_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
     let tmp = dst.with_file_name(format!(".{name}.migrating"));
     if let Ok(meta) = std::fs::symlink_metadata(&tmp) {
         if meta.file_type().is_dir() {
-            std::fs::remove_dir_all(&tmp)?;
+            crate::home_fs::remove_dir_all(&tmp)?;
         } else {
-            std::fs::remove_file(&tmp)?;
+            crate::home_fs::remove_file(&tmp)?;
         }
     }
     copy_legacy_tree(src, &tmp)?;
     if let Some(parent) = dst.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
-    std::fs::rename(&tmp, dst)?;
+    crate::home_fs::rename(&tmp, dst)?;
     if let Some(parent) = dst.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
@@ -102,7 +102,7 @@ fn migrate_legacy_harness_state(
     if pi_session_for(new_root, agent_id)?.is_none()
         && let Some(old_pi) = pi_session_for(&legacy_root, agent_id)?
     {
-        std::fs::create_dir_all(new_root)?;
+        crate::home_fs::create_dirs(new_root)?;
         let target = new_root.join(old_pi.file_name().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
         })?);
@@ -119,7 +119,7 @@ fn migrate_legacy_harness_state(
     for suffix in ["continuity.jsonl", "events.jsonl"] {
         let source = legacy_events.join(format!("{agent_id}.{suffix}"));
         if std::fs::symlink_metadata(&source).is_ok() {
-            std::fs::create_dir_all(&new_events)?;
+            crate::home_fs::create_dirs(&new_events)?;
             let target = new_events.join(format!("{agent_id}.{suffix}"));
             if std::fs::symlink_metadata(&target).is_err() {
                 copy_legacy_atomic(&source, &target)?;
@@ -335,6 +335,71 @@ impl Hub {
                 crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
             }
         }
+        // Claude on a cmux Cloud machine: the model-plane pair the image's launcher puts back in
+        // team mode (claude_cloud_auth.rs). A bound route owns the provider instead.
+        // The family as the launch derives it (`agent/command.rs`): a discovered Claude profile has
+        // none set. The sign-in check reads the env the child gets: the profile's `${env:…}` and
+        // keychain references resolved as the launch resolves them (`resolved_profile_env`; one
+        // that does not resolve keeps own), over the vault's and `machine.env`'s values
+        // (`login_env::effective_for`), and its project settings.
+        // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
+        // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
+        let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+            && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
+            && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
+        let resolved = match claude_on_cloud.then(|| crate::agent::resolved_profile_env(&p)) {
+            Some(Ok(env)) => Some(env),
+            Some(Err(error)) => {
+                tracing::info!(session = %meta.id, %error, "claude profile env does not resolve; it keeps its own sign-in");
+                None
+            }
+            None => None,
+        };
+        if let Some(resolved) = resolved {
+            let env = crate::login_env::effective_for(Some("claude"), &resolved);
+            let read = env.clone();
+            let var = move |k: &str| read.get(k).cloned().filter(|v| !v.is_empty());
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            let inputs = crate::codex_cloud_auth::Inputs {
+                root: &root,
+                home: &home,
+                var: &var,
+                broker: false,
+            };
+            let cwd = std::path::Path::new(&meta.cwd);
+            // The launch's own `--settings`, which Claude applies over every settings file; one
+            // it cannot read keeps own.
+            let flag = crate::claude_cloud_auth::flag_settings(p.argv.get(1..).unwrap_or(&[]), cwd);
+            let pair = match &flag {
+                Ok(flag) => {
+                    crate::claude_cloud_auth::team_pair(
+                        &inputs,
+                        &env,
+                        flag.as_ref(),
+                        cwd,
+                        crate::codex_cloud_auth::host_resolves,
+                    )
+                    .await
+                }
+                Err(error) => {
+                    tracing::info!(session = %meta.id, %error, "claude --settings does not read; it keeps its own sign-in");
+                    None
+                }
+            };
+            if let (Some(pair), Ok(flag)) = (pair, &flag) {
+                tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
+                crate::claude_cloud_auth::apply_team(
+                    &mut p.env,
+                    &mut p.argv,
+                    flag.as_ref(),
+                    pair,
+                    env.get(crate::claude_cloud_auth::HEADERS).map(String::as_str).unwrap_or(""),
+                    meta.remote_origin,
+                );
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -484,3 +549,7 @@ pub fn expand_env_value(
     }
     out
 }
+
+#[cfg(test)]
+#[path = "spawn_claude_cloud_tests.rs"]
+mod claude_cloud_tests;

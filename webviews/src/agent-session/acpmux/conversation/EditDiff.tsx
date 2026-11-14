@@ -1,6 +1,6 @@
 // An opened edit inside the transcript: a card per changed file with its name, the lines added
-// and removed, Wrap lines and copy, and the change on @pierre/diffs: its first lines under a fade
-// with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
+// and removed, Wrap lines and copy, and the change on @pierre/diffs, scrolling in an eight-line
+// box when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { cornerAction } from "./cornerActions";
@@ -10,9 +10,10 @@ import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, WrapButton } from "./BlockParts";
+import { WrapButton } from "./BlockParts";
 import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
+import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
@@ -82,6 +83,7 @@ export function EditDiffFrame({
   const body = useSidewaysRef<HTMLDivElement>();
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
+  useMoreBelowOn(body, painted);
   return (
     <div className="cv-edit-diff" data-wrap={wrap}>
       <div className="cv-edit-diff__header">
@@ -118,7 +120,6 @@ export function EditDiffFrame({
           {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
         </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }

@@ -97,7 +97,7 @@ struct HomePerWindowTests {
             let dockB = try #require(HomeDockTab.view(services))
             #expect(dockA !== dockB, "both windows draw one dock view")
             #expect(dockA.mode == .messages && dockB.mode == .messages)
-            #expect(dockA.messages !== dockB.messages, "both windows draw one Messages page")
+            #expect(dockA.messages?.shown == dockB.messages?.shown, "the docks show different Chief conversations")
         }
     }
 }

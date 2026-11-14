@@ -5,6 +5,9 @@ cmux checkout and the app you're using right now changes as you save: no build, 
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
 Chromium, and it's on by default. The feature is called **cmux Live**.
 
+For a tagged Debug app with separate chat and pages servers, use
+[live chat editing](live-chat-editing.md). It includes the chat scenario workbench and source checks.
+
 ### Is cmux Live the same as Live Web Reload?
 
 Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >

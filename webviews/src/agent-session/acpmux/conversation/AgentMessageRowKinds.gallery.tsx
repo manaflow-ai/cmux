@@ -164,6 +164,19 @@ export default componentEntry<Props>({
       rendering("The hover digest is up for review."),
       verified?.kind === "message" ? verified.message : undefined,
     ]);
+    // A fleet tool's `acpmux send` with no session token: acpmux names the program it saw run the
+    // send (incomingMessage.ts `senderProgram`), on the machine the checking daemon read it on; beside it, one with
+    // no program, still an unverified sender.
+    const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
+    const program = incomingPrompt("Merged #23727 (squash, pinned at 4be1c0d).", {
+      _meta: {
+        provenance: {
+          ...unverified,
+          program: { name: "next-autoland", path: "/Users/me/tools/next-autoland", host: "build-box" },
+        },
+      },
+    });
+    const unknown = incomingPrompt("Merged #23727 (squash, pinned at 4be1c0d).", { _meta: { provenance: unverified } });
     const send = acpmuxSendCall(SEND)!;
     return function GalleryMessageRowKinds({ look, hover }: Props) {
       return (
@@ -201,6 +214,20 @@ export default componentEntry<Props>({
                           <InboxNoticeCard rowId="kinds-unverified" notice={notice} onOpen={() => undefined} />
                         </div>
                       </section>
+                      {[program, unknown].map(
+                        (prompt, index) =>
+                          prompt?.kind === "message" && (
+                            <section key={index} className="acpmux-row">
+                              <div className="cv-incoming">
+                                <IncomingMessageLine
+                                  id={`kinds-program-${index}`}
+                                  message={prompt.message}
+                                  onOpen={() => undefined}
+                                />
+                              </div>
+                            </section>
+                          ),
+                      )}
                       <section className="acpmux-row">
                         <SubagentDoneLine row={SUBAGENT} />
                       </section>

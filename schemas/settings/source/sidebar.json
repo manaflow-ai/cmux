@@ -977,7 +977,7 @@
               }
             }
           ],
-          "default": "dot",
+          "default": "leftRail",
           "keywords": [
             "sidebar",
             "workspace",

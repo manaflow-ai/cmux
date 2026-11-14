@@ -237,19 +237,31 @@ public actor CloudLinkSession {
         state = .ended(.disconnected(reason: reason))
     }
 
-    /// Ends the link for good and asks the app server to close it.
+    /// Ends the link and stops the machine's `carrier serve` child, keeping the link reusable (the machine
+    /// paused). A child left running keeps resuming its relay session on its cached ticket, which never asks
+    /// the platform, and that traffic wakes a VM its person paused. The next connect starts a fresh child,
+    /// whose first dial the platform judges (a person's pause refuses it).
+    public func park(reason: String) async {
+        end(reason: reason)
+        await resolver.close(key)
+    }
+
     /// The machine's carrier socket for the Cloud app server (``CloudLinkResolver/carrierSocket(_:)``): it
     /// neither connects nor ends this link.
     public func carrierSocket() async throws -> String { try await resolver.carrierSocket(key) }
 
     /// The Cloud app server's carrier ask (``CloudCredentialRelay/carrierSocketOp``) of `machine`, whose app
     /// link is `link` (nil: this app has no session of it), as the relay's answer: the socket path, or the
-    /// carrier step that refused (``CloudCarrierDial/carrierRefusal(_:)``).
-    public static func carrierAnswer(_ link: CloudLinkSession?, machine: String) async -> Result<String, CloudCredentialRelay.CarrierRefusal> {
+    /// carrier step that refused (``CloudCarrierDial/carrierRefusal(_:)``). `paused`: the machine is paused or
+    /// pausing, so the ask is refused as `cloud.machine.paused` without starting a serve child: a chat stream's
+    /// retry would otherwise respawn the serve a pause just stopped, and its dial would wake the machine.
+    public static func carrierAnswer(_ link: CloudLinkSession?, machine: String, paused: Bool = false) async -> Result<String, CloudCredentialRelay.CarrierRefusal> {
         guard let link else { return .failure(.init(code: "cloud.machine.not_found", message: "this Mac has no session of \(machine)")) }
+        if paused { return .failure(.init(code: "cloud.machine.paused", message: "\(machine) is paused; resume it first")) }
         do { return .success(try await link.carrierSocket()) } catch { return .failure(CloudCarrierDial.carrierRefusal(error)) }
     }
 
+    /// Ends the link for good and stops the machine's `carrier serve` (machine removed, sign-out, quit).
     public func close() async {
         end(reason: "closed")
         await resolver.close(key)

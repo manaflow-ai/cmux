@@ -1,0 +1,381 @@
+{
+ "name": "cmux-next daemon tests",
+ "steps": [
+  {
+   "number": 1,
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:20Z",
+   "completed_at": "2026-11-11T06:48:24Z"
+  },
+  {
+   "number": 2,
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:24Z",
+   "completed_at": "2026-11-11T06:48:25Z"
+  },
+  {
+   "number": 3,
+   "name": "Give this job its own acpmux home",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:25Z",
+   "completed_at": "2026-11-11T06:48:25Z"
+  },
+  {
+   "number": 4,
+   "name": "Clear stale git locks (self-hosted reused workspace)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:25Z",
+   "completed_at": "2026-11-11T06:48:25Z"
+  },
+  {
+   "number": 5,
+   "name": "Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:25Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 6,
+   "name": "Discard the workspace repository after a failed checkout",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 7,
+   "name": "Retry checkout after transient network failure",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 8,
+   "name": "Drop stale submodule checkouts (self-hosted reused workspace)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 9,
+   "name": "Require the GUI session on a mini",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 10,
+   "name": "Select Xcode",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:32Z"
+  },
+  {
+   "number": 11,
+   "name": "Keep Swift package builds on this owned Mac",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:32Z",
+   "completed_at": "2026-11-11T06:48:34Z"
+  },
+  {
+   "number": 12,
+   "name": "Compute the fast-tier seed keys",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:34Z",
+   "completed_at": "2026-11-11T06:48:34Z"
+  },
+  {
+   "number": 13,
+   "name": "Restore the CmuxNext build the base seeded",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:34Z",
+   "completed_at": "2026-11-11T06:48:34Z"
+  },
+  {
+   "number": 14,
+   "name": "Replay the seed's input times",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:34Z",
+   "completed_at": "2026-11-11T06:48:34Z"
+  },
+  {
+   "number": 15,
+   "name": "Set up pinned cmux-tui Rust (sidebar layout reducer)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:34Z",
+   "completed_at": "2026-11-11T06:48:36Z"
+  },
+  {
+   "number": 16,
+   "name": "Setup Bun",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:36Z",
+   "completed_at": "2026-11-11T06:48:37Z"
+  },
+  {
+   "number": 17,
+   "name": "Give this job its own bun",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:37Z",
+   "completed_at": "2026-11-11T06:48:38Z"
+  },
+  {
+   "number": 18,
+   "name": "Setup Node",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:38Z",
+   "completed_at": "2026-11-11T06:48:38Z"
+  },
+  {
+   "number": 19,
+   "name": "Source key of the web bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:38Z",
+   "completed_at": "2026-11-11T06:48:40Z"
+  },
+  {
+   "number": 20,
+   "name": "Restore the web bundles from R2",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:40Z",
+   "completed_at": "2026-11-11T06:48:42Z"
+  },
+  {
+   "number": 21,
+   "name": "Restore the web bundles built for this source key",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:42Z",
+   "completed_at": "2026-11-11T06:48:43Z"
+  },
+  {
+   "number": 22,
+   "name": "Download the web bundles this run's bundle job built",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:43Z",
+   "completed_at": "2026-11-11T06:48:46Z"
+  },
+  {
+   "number": 23,
+   "name": "Install the restored web bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:46Z",
+   "completed_at": "2026-11-11T06:48:47Z"
+  },
+  {
+   "number": 24,
+   "name": "Build the web bundles",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:48:47Z",
+   "completed_at": "2026-11-11T06:48:47Z"
+  },
+  {
+   "number": 25,
+   "name": "Build package and tests",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:48:47Z",
+   "completed_at": "2026-11-11T06:51:25Z"
+  },
+  {
+   "number": 26,
+   "name": "Upload the test build measurement and log",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:51:25Z",
+   "completed_at": "2026-11-11T06:51:27Z"
+  },
+  {
+   "number": 27,
+   "name": "Check generated action catalog, surfaces and inventory",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:51:27Z",
+   "completed_at": "2026-11-11T06:52:08Z"
+  },
+  {
+   "number": 28,
+   "name": "Check the settings exports",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:52:08Z",
+   "completed_at": "2026-11-11T06:52:08Z"
+  },
+  {
+   "number": 29,
+   "name": "Pack the exports for the base autofix",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:52:08Z",
+   "completed_at": "2026-11-11T06:52:08Z"
+  },
+  {
+   "number": 30,
+   "name": "Upload the exports for the base autofix",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:52:08Z",
+   "completed_at": "2026-11-11T06:52:08Z"
+  },
+  {
+   "number": 31,
+   "name": "Compile string catalogs into the resource bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:52:08Z",
+   "completed_at": "2026-11-11T06:52:11Z"
+  },
+  {
+   "number": 32,
+   "name": "Clean generated layout-reducer FFI lockfile",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:52:11Z",
+   "completed_at": "2026-11-11T06:52:11Z"
+  },
+  {
+   "number": 33,
+   "name": "Fetch the same-tree cmux-tui",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:52:11Z",
+   "completed_at": "2026-11-11T06:52:43Z"
+  },
+  {
+   "number": 34,
+   "name": "Check the same-tree cmux-tui serves the app's daemon capabilities",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:52:43Z",
+   "completed_at": "2026-11-11T06:52:49Z"
+  },
+  {
+   "number": 35,
+   "name": "Run the live-daemon suites",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-11T06:52:49Z",
+   "completed_at": "2026-11-11T06:58:57Z"
+  },
+  {
+   "number": 36,
+   "name": "Run state-resource regressions",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:58:57Z",
+   "completed_at": "2026-11-11T06:59:13Z"
+  },
+  {
+   "number": 37,
+   "name": "Regenerate stale files",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-11T06:59:13Z",
+   "completed_at": "2026-11-11T06:59:24Z"
+  },
+  {
+   "number": 38,
+   "name": "Upload the regenerated files",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:59:24Z",
+   "completed_at": "2026-11-11T06:59:24Z"
+  },
+  {
+   "number": 39,
+   "name": "Give the generated files verdict",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:24Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 40,
+   "name": "Stop this job's acpmux daemons and remove its home",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 41,
+   "name": "Upload the test helper's crash reports",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 42,
+   "name": "Report the same-tree result on the tested commit",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 81,
+   "name": "Post Setup Node",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 82,
+   "name": "Post Setup Bun",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 83,
+   "name": "Post Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:25Z"
+  },
+  {
+   "number": 84,
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:25Z",
+   "completed_at": "2026-11-11T06:59:27Z"
+  },
+  {
+   "number": 85,
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T06:59:27Z",
+   "completed_at": "2026-11-11T06:59:28Z"
+  }
+ ]
+}

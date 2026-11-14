@@ -7,6 +7,12 @@ extension AppPageDevToolsSetting {
     public nonisolated static let fallback = true
 }
 
+extension InternalDeveloperModeSetting {
+    /// `app.internalDeveloperMode`: Off (the default): the Command Palette lists no debug commands. On: every debug-only action is a palette row titled "Debug: <name>" (playgrounds, Debug Settings, the latency HUD); there is no Debug menu. DEV and NIGHTLY only: Release and RC builds have no debug actions and never show this row. Scripts (the CLI, MCP) run debug actions in DEV and NIGHTLY whatever this is.
+    public nonisolated static let configPath = ["app", "internalDeveloperMode"]
+    public nonisolated static let fallback = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum DeveloperToolsSettingsSchema {
     /// Settings > Advanced > Developer Tools (Lawrence 2026-11-07: "make it possible to open chrome devtools in chat ui itself").
@@ -22,6 +28,23 @@ nonisolated enum DeveloperToolsSettingsSchema {
                 kind: .toggle,
                 default: .bool(AppPageDevToolsSetting.fallback),
                 keywords: ["developer", "devtools", "inspector", "web inspector", "inspect element", "chrome", "debug"]
+            ),
+        ]
+    }
+
+    /// Settings > Development (DEV and NIGHTLY only) > Internal Developer Mode (Lawrence 2026-11-09: "move all debug things to cmd shift p that is only visible when cmux internal developer mode is toggled on").
+    static var internalDeveloperMode: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.internalDeveloperMode", "Internal Developer Mode")
+        return [
+            SettingDescriptor(
+                InternalDeveloperModeSetting.configPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.internalDeveloperMode", "Internal Developer Mode"),
+                help: SettingsText.keyed("settings.internalDeveloperMode.help", "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."),
+                kind: .toggle,
+                default: .bool(InternalDeveloperModeSetting.fallback),
+                keywords: ["developer", "internal", "debug", "developer mode", "playground", "command palette", "diagnostics"]
             ),
         ]
     }

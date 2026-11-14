@@ -19,8 +19,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
-want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$root/webviews/package.json")"
-[[ -n "$want" ]] || { echo "error: webviews/package.json pins no bun (devEngines.packageManager)" >&2; exit 1; }
+# The one shared reader of the pin (it prints the bun entry's exact version or says why not).
+want="$(python3 -I "$root/scripts/webviews_bun_version.py" "$root/webviews/package.json")" || exit 1
 
 dir="$RUNNER_TEMP/private-bun"
 rm -rf "$dir"

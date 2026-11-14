@@ -237,6 +237,18 @@
       "scope": "channel:write",
       "class": "mutation"
     },
+    "chat.list": {
+      "scope": "chat:read",
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -762,6 +774,10 @@
       "class": "read"
     },
     "git.files.search": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.fingerprint": {
       "scope": "git:read",
       "class": "read"
     },
@@ -1849,6 +1865,18 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "theme.scheme.convert": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
+      "scope": "theme:read",
+      "class": "read"
+    },
     "thread.update": {
       "scope": "thread:write",
       "class": "mutation"
@@ -2027,6 +2055,7 @@
     "browser.close",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.archive",
     "chief.delete",
     "classic_import.plan",
@@ -2044,11 +2073,13 @@
     "cloud.environment.delete",
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
+    "cloud.machine.chat_access",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
     "cloud.machine.link_token",
     "cloud.machine.resize",
+    "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
@@ -2095,6 +2126,7 @@
     "credential.mint",
     "credential.rotate",
     "credential.verify",
+    "diff.comments.send",
     "domain.claim",
     "domain.release",
     "domain.verify",
@@ -2163,6 +2195,7 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.edit",
     "settings.reset",
     "settings.reset_all",
     "settings.set",

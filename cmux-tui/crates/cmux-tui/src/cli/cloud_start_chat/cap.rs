@@ -53,6 +53,11 @@ pub(super) fn cap_of(code: &str, message: &str, resource: Option<&str>) -> Optio
     {
         return Some(Cap::Spend);
     }
+    // The provider's VM limit (cmux-platform#1192 `cloud.quota.vm_limit`, the app server's
+    // `cmux.cloud.vm_limit`): every machine held counts, paused ones too.
+    if code.ends_with("vm_limit") {
+        return Some(Cap::Held);
+    }
     match resource {
         Some("active") => return Some(Cap::Running),
         Some("machines") => return Some(Cap::Held),

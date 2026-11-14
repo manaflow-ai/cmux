@@ -17,6 +17,7 @@ import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/
 import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -63,6 +64,7 @@ afterEach(async () => {
   resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false, pullRequest: null });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

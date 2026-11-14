@@ -38,6 +38,8 @@ on:
       - cmux-tui/crates/cmux-cloud-environment/**
       - cmux-tui/crates/cmux-cloud-config/**
       - cmux-tui/crates/cmux-host/**
+      # The journey's carrier dial runs this pull request's CLI, so a carrier change is timed here.
+      - cmux-tui/crates/cmux-tui/src/carrier/**
       - cmux-tui/crates/acpmux/src/cli/cloud_join*
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts

@@ -95,6 +95,7 @@ async fn issue_link_creates_fix_worktree_and_chat() {
         record: home.join("trust.json"),
         agent_home: None,
         cmux_worktrees: Some(home.join(".cmux/worktrees")),
+        peer_scratch: None,
     };
     daemon.set_trust_gate(Some(trust.clone()));
     let params = json!({"url": "https://github.com/acme/widget/issues/12", "cwd": repo});

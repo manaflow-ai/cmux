@@ -3,6 +3,14 @@
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HangReports.generated.swift",
   "type": "HangReportsSettingsSchema",
   "lists": {
-    "hangReports": ["descriptors", null]
-  }
+    "hangReports": [
+      "hangReportRows",
+      null
+    ],
+    "usagePatterns": [
+      "usagePatternRows",
+      "HangReportsSettingsSchema"
+    ]
+  },
+  "joined": "descriptors"
 }

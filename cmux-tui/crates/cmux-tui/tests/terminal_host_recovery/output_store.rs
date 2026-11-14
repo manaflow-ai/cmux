@@ -139,6 +139,13 @@ fn is_registry_file(path: &Path) -> bool {
     })
 }
 
+/// Whether `path` is the daemon's slow request log or its older file (cmux-tui-core
+/// diagnostics/request_log.rs): a record of a slow request or a long lock hold, never output.
+fn is_slow_request_log(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == "slow-requests.jsonl" || name == "slow-requests.jsonl.1")
+}
+
 fn idle_terminals_write_nothing(mode: &str) {
     let _exclusive = exclusive_process_test();
     let harness = harness(&format!("output-idle-{mode}"), mode);
@@ -188,10 +195,23 @@ fn idle_terminals_write_nothing(mode: &str) {
         grown.is_empty(),
         "idle redrawing terminals added journal rows in {mode} mode: {grown:?}"
     );
+    // A request or a lock hold that passes the 100 ms limit of the slow request log in the window
+    // (a loaded host) adds a record there. That file is diagnostics, not terminal output: it is
+    // printed here and is not part of the assert below.
+    for (path, len, _) in after.iter().filter(|state| !before.contains(state)) {
+        if is_slow_request_log(path) {
+            let text = fs::read_to_string(path).unwrap_or_default();
+            eprintln!(
+                "output-store idle {mode}: the slow request log changed in the idle window (not \
+                 part of this assert): {} ({len} bytes)\n{text}",
+                path.display()
+            );
+        }
+    }
     let changed = after
         .iter()
         .filter(|state| !before.contains(state))
-        .filter(|(path, _, _)| !is_registry_file(path))
+        .filter(|(path, _, _)| !is_registry_file(path) && !is_slow_request_log(path))
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
     assert!(
@@ -326,6 +346,89 @@ fn snapshot_mode_restores_the_screen_after_a_crash_and_reboot() {
     assert!(!files_named(&restored.state, "snap").is_empty(), "snapshot mode wrote no snapshot");
     assert!(files_named(&restored.state, "seg").is_empty(), "snapshot mode wrote segments");
     assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
+}
+
+/// The screen after a quit and a reboot: the daemon prints a line (its
+/// generation's first snapshot), then a marker the snapshot interval (600
+/// s) leaves to the tail, and stops on SIGTERM (an update, a logout). The
+/// shell and its host die (the reboot) and a new daemon starts: the
+/// respawned terminal shows the marker only if the quit stored it. Returns
+/// (the screen, whether a tail file outlived the quit). Other builds as the
+/// reader: kill_all_restore.rs, `quit_then_reboot_matrix`.
+fn screen_after_quit_then_reboot(name: &str) -> (String, bool) {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), "600000".into()));
+    harness.restart();
+    let (terminal_id, incarnation, surface) = start_shell(&harness, "quit-reboot");
+    send_line(&harness.socket, surface, "printf 'first-%s\\n' line");
+    wait_for_screen(&harness.socket, surface, "first-line\n");
+    // The generation's first snapshot is written at once; the tail
+    // continues it from the next output.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while files_named(&harness.state, "snap").is_empty() {
+        assert!(Instant::now() < deadline, "no snapshot of the new terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send_line(&harness.socket, surface, "printf 'quit-%s\\n' marker");
+    wait_for_screen(&harness.socket, surface, "quit-marker\n");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.terminate();
+    let tail_kept = !files_named(&harness.state, "tail").is_empty();
+    kill_shell_then_host(&record_path, &record);
+    harness.restart();
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    (wait_for_screen(&harness.socket, surface, RESPAWN_MARKER), tail_kept)
+}
+
+#[test]
+fn the_screen_a_quit_stores_survives_a_reboot() {
+    let _exclusive = exclusive_process_test();
+    let (screen, tail_kept) = screen_after_quit_then_reboot("quit-reboot-same");
+    assert!(screen.contains("quit-marker"), "the quit lost the last output: {screen}");
+    assert!(screen.contains("first-line"), "the quit lost the snapshot's screen: {screen}");
+    assert!(tail_kept, "the quit rewrote the snapshot instead of keeping the tail");
+}
+
+/// A terminal on the alternate screen at quit gets a snapshot, not only its
+/// tail: a build before ed6ab5728d8c (2026-11-10) rebuilds a snapshot plus a
+/// tail that ends on the alternate screen without the primary screen and its
+/// scrollback (the rollback matrix in kill_all_restore.rs lost 64 of 64
+/// lines with reader 91caaf25), and a snapshot of this build keeps both.
+#[test]
+fn a_quit_stores_a_terminal_on_the_alternate_screen_in_a_snapshot() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("quit-alt-snapshot");
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), "600000".into()));
+    harness.restart();
+    let (_, _, surface) = start_shell(&harness, "quit-alt");
+    send_line(&harness.socket, surface, "printf 'primary-%s\\n' line");
+    wait_for_screen(&harness.socket, surface, "primary-line\n");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while files_named(&harness.state, "snap").is_empty() {
+        assert!(Instant::now() < deadline, "no snapshot of the new terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send_line(
+        &harness.socket,
+        surface,
+        "printf '\\033[?1049h\\033[2J\\033[H'; printf 'alt-%s' shown; read x",
+    );
+    wait_for_screen(&harness.socket, surface, "alt-shown");
+    // Past the tail's flush: the alternate screen's bytes are in the tail.
+    std::thread::sleep(Duration::from_millis(500));
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.terminate();
+    let tails = files_named(&harness.state, "tail")
+        .into_iter()
+        .filter(|path| fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0))
+        .collect::<Vec<_>>();
+    assert!(
+        tails.is_empty(),
+        "the quit left a terminal on the alternate screen to its tail: {tails:?}"
+    );
+    kill_shell_then_host(&record_path, &record);
 }
 
 #[test]

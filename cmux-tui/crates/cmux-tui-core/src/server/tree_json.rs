@@ -322,6 +322,29 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
     value
 }
 
+/// [`workspaces_json`] with only the workspaces at `indices` of `state.workspaces`, in that
+/// order, and `total`, how many the client may see (`list-workspaces` `limit`). Builds only
+/// those rows.
+pub(crate) fn workspaces_json_at(
+    state: &State,
+    notifications: &TreeDecorations,
+    indices: &[usize],
+    total: usize,
+) -> Value {
+    let short_ids = ShortIds::of(state);
+    json!({
+        "workspace_revision": state.workspace_revision,
+        "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
+        "workspaces": indices.iter().filter_map(|index| {
+            state.workspaces.get(*index).map(|workspace| {
+                workspace_json(state, workspace, *index, &short_ids, notifications)
+            })
+        }).collect::<Vec<_>>(),
+        "total": total,
+    })
+}
+
 pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
@@ -723,9 +746,9 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value.insert("workspace_revision", json!(revision));
-        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value.insert("origin", json!(event.origin));
-            value.insert("mutation_id", json!(event.mutation_id));
+        if let Some(mutation) = &delta.mutation {
+            value.insert("origin", json!(mutation.origin));
+            value.insert("mutation_id", json!(mutation.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
         value.insert("registry_id", json!(registry_id));

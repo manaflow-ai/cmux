@@ -81,7 +81,9 @@ struct BrowserHostTabSwitchReadTests {
 
         // The provider's link: one end of a socket pair. A new link announces every listed tab.
         var fds: [Int32] = [-1, -1]
-        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "fixture: socketpair failed (errno \(errno))")
+        let pairResult = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        let pairErrno = errno
+        try #require(pairResult == 0, "fixture: socketpair failed (errno \(pairErrno))")
         let reader = LinkReader(fd: fds[1])
         provider.connection = ProviderConnection(fd: fds[0])
         provider.refreshTabs()

@@ -22,7 +22,7 @@ extension HoverCardCoordinator {
             return cached.number
         }
         let number = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
-            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: cardWindowNumbers)
         topWindowCache = (point, time, number)
         return number
     }
@@ -32,13 +32,19 @@ extension HoverCardCoordinator {
     /// other runs' windows, so the system's topmost window there is often
     /// not ours.
     private func ownTopWindowNumber(at point: CGPoint) -> Int? {
-        let card = panel?.windowNumber
-        return ownWindows().first { $0.number != card && $0.frame.contains(point) }?.number
+        let cards = cardWindowNumbers
+        return ownWindows().first { !cards.contains($0.number) && $0.frame.contains(point) }?.number
     }
 
-    private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {
-        let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
-        guard let card, top == card else { return top }
-        return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: card)
+    /// The card windows: the shown one and any fading out (a card is never the window under the pointer).
+    private var cardWindowNumbers: Set<Int> { Set(([panel] + retiring).compactMap { $0?.windowNumber }) }
+
+    private static func topWindowNumber(at point: CGPoint, excluding cards: Set<Int>) -> Int {
+        var top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+        // Each step goes below the card found, so at most one step per card window.
+        for _ in 0..<cards.count where cards.contains(top) {
+            top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: top)
+        }
+        return top
     }
 }

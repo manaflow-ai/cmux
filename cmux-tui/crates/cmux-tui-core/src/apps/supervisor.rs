@@ -166,6 +166,8 @@ pub(super) struct Mount {
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
     pub reset: bool,
+    /// Its op-batch rate and coalescing (`budget.rs`).
+    pub budget: super::budget::MountBudget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +266,9 @@ pub(super) struct Inner {
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
     pub good_tried: HashMap<String, u64>,
+    /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
+    /// is paused. Absent: Normal with nothing counted.
+    pub ladders: HashMap<String, super::budget::AppLadder>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -423,6 +428,7 @@ impl Supervisor {
                 local_prints: local_prints.clone(),
                 last_good,
                 good_tried: HashMap::new(),
+                ladders: HashMap::new(),
             }),
             config,
             router,
@@ -497,6 +503,10 @@ impl Supervisor {
                     row.set("run_state", json!(run_state));
                 }
                 row.set("can_rollback", json!(can_rollback));
+                row.set("budget", json!(Self::budget_step_locked(&inner, id).as_str()));
+                if let Some(ladder) = inner.ladders.get(id.as_str()) {
+                    row.set("scene_batches", ladder.batches_json());
+                }
                 row
             })
             .collect();
@@ -579,6 +589,8 @@ impl Supervisor {
                 vec![]
             }
             Effect::StopHost(app) => {
+                // Off is the ladder's last step: on again starts Normal.
+                inner.ladders.remove(app);
                 let mut outs = self.terminal_access_changed_locked(inner, app);
                 outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
@@ -757,6 +769,7 @@ impl Supervisor {
         // A fresh daemon may not have created its state directory yet.
         std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
+        let mirror = mirror.to_stored().map_err(std::io::Error::other)?;
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
             .map_err(std::io::Error::other)?;
         let mut file = std::fs::File::create(&temp)?;
@@ -806,9 +819,10 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     let Some(dir) = state_dir else { return Mirror::default() };
     let path = dir.join("apps.json");
     let Ok(raw) = std::fs::read(&path) else { return Mirror::default() };
+    // A record or field of a newer build is kept, not a reason to set the file aside.
     match serde_json::from_slice::<Value>(&raw)
         .ok()
-        .and_then(|v| serde_json::from_value::<Mirror>(v["mirror"].clone()).ok())
+        .and_then(|mut v| Mirror::from_stored(v["mirror"].take()))
     {
         Some(mirror) => mirror,
         None => {

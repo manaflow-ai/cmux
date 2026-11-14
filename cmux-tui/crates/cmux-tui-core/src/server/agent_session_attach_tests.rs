@@ -78,15 +78,25 @@ impl FakeAcpmux {
         }
     }
 
-    /// The next frame the daemon sent to acpmux.
-    /// The next frame the daemon sent to acpmux (its session watch skipped).
+    /// The next frame the daemon sent to acpmux (its session watch and the attach's first read of
+    /// this machine's list skipped).
     pub(super) fn frame(&self) -> Value {
         loop {
             let frame = self.frames.recv_timeout(WAIT).expect("a frame to acpmux");
-            if frame["method"] != json!("_acpmux/watch") {
+            if !Self::watch_frame(&frame) {
                 return frame;
             }
         }
+    }
+
+    /// The attach's session watch, its first read of this machine's own list, or the
+    /// `initialize` that learns which list filters this acpmux serves.
+    fn watch_frame(frame: &Value) -> bool {
+        frame["method"] == json!("_acpmux/watch")
+            || frame["method"] == json!("initialize")
+            || (frame["method"] == json!("_acpmux/sessions")
+                && frame["params"]["localOnly"] == json!(true)
+                && frame["params"].get("cursor").is_none())
     }
 
     /// The next frame the daemon sent to acpmux, its session watch included.
@@ -103,7 +113,7 @@ impl FakeAcpmux {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match self.frames.recv_timeout(left) {
-                Ok(frame) if frame["method"] == json!("_acpmux/watch") => continue,
+                Ok(frame) if Self::watch_frame(&frame) => continue,
                 Ok(frame) => panic!("the daemon must not reach acpmux: {frame}"),
                 Err(_) => return,
             }
@@ -183,6 +193,32 @@ pub(super) struct Fixture {
     /// When set, `_acpmux/status` reports a person key for this acpmux run (`personInstance`);
     /// each catalog hang-up ([`Fixture::catalog_hang_ups`]) brings the run named `restarted`.
     pub(super) keyed_run: Option<KeyedRun>,
+    /// An acpmux from before `session-list-filters-v1`: its `initialize` lists no such
+    /// capability, and its `_acpmux/sessions` ignores `localOnly` (a param it does not know)
+    /// and lists every peer's sessions too. Its watch still takes a `limit`.
+    pub(super) old_list_filters: bool,
+    /// Peer sessions each list answers beside this machine's ([`peer_rows`]); a served
+    /// `localOnly` leaves them out.
+    pub(super) peer_rows: usize,
+    /// The rows and bytes of every session list the fake answered (`_acpmux/watch` and
+    /// `_acpmux/sessions`): what a client read.
+    pub(super) list_reads: Arc<Mutex<ListReads>>,
+}
+
+/// What a client read from the fake's session lists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ListReads {
+    pub(super) rows: usize,
+    pub(super) bytes: usize,
+}
+
+/// `count` sessions of a peer daemon, each naming [`SESSION`] as its parent: never a
+/// descendant all the same, since a peer's session is never one.
+pub(super) fn peer_rows(count: usize) -> impl Iterator<Item = Value> {
+    (0..count).map(|n| {
+        json!({"sessionId": format!("acp_peer_{n:05}"), "peer": "peer-mac", "startedBy": SESSION,
+               "status": "idle", "title": "a chat another Mac mirrors here", "updatedAt": n})
+    })
 }
 
 /// The acpmux run the fake reports a person key for, and the run a restart brings.
@@ -233,6 +269,15 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "initialize" => {
+                let mut capabilities = vec!["acpmux-v1"];
+                if !fixture.old_list_filters {
+                    capabilities.extend(["session-list-filters-v1", "session-list-pending-v1"]);
+                }
+                Some(
+                    json!({"protocolVersion": 1, "_meta": {"acpmux": {"capabilities": capabilities}}}),
+                )
+            }
             "_acpmux/web_modes" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if params.get("sessionId").is_none()
@@ -330,12 +375,23 @@ fn serve(
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => {
+            // A watch with a page size turns the notices on; the attach reads this machine's own
+            // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
+            "_acpmux/watch" if !params["limit"].is_null() => Some(json!({"sessions": []})),
+            "_acpmux/watch" | "_acpmux/sessions"
+                if frame["method"] == json!("_acpmux/watch")
+                    || (params["localOnly"] == json!(true) && params["cursor"].is_null()) =>
+            {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
                 if fixture.watch_pages {
                     Some(json!({"sessions": sessions, "nextCursor": "w1"}))
                 } else {
                     sessions.extend(fixture.watch.iter().cloned());
+                    // A served `localOnly` leaves the peers' sessions out; an older acpmux
+                    // ignores it and lists them all.
+                    if params["localOnly"] != json!(true) || fixture.old_list_filters {
+                        sessions.extend(peer_rows(fixture.peer_rows));
+                    }
                     Some(json!({"sessions": sessions}))
                 }
             }
@@ -467,6 +523,13 @@ fn serve(
             _ => None,
         };
         if let Some(result) = reply {
+            if matches!(frame["method"].as_str(), Some("_acpmux/watch" | "_acpmux/sessions"))
+                && let Some(rows) = result.get("sessions").and_then(Value::as_array)
+            {
+                let mut reads = fixture.list_reads.lock().unwrap();
+                reads.rows += rows.len();
+                reads.bytes += result.to_string().len();
+            }
             let frame = match result.get(FAKE_ERROR) {
                 Some(message) => {
                     let mut error = json!({"code":-32000,"message":message});
@@ -783,6 +846,7 @@ include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
 include!("agent_session_media_tests.rs");
+include!("agent_session_real_acpmux_tests.rs");
 
 // MARK: Capability and trust
 
@@ -1514,6 +1578,13 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
             json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
             "_acpmux/view",
             json!({"sessionId": SESSION, "visible": false}),
+        ),
+        // The person away from the chat on screen (agent-session-attention-v1): acpmux keeps its
+        // turns unread, left off at the seq of their last input.
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":true,"attending":false,"seen_seq":41}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": true, "attending": false, "seenSeq": 41}),
         ),
     ] {
         let reply = client.request(frame);

@@ -7,6 +7,8 @@ use cmux_json::JsonSet as _;
 
 mod auxiliary;
 mod browser_engine;
+pub(crate) mod browser_import;
+mod chats;
 mod close_value;
 mod config;
 mod content;
@@ -18,6 +20,7 @@ mod owner;
 pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
+pub(crate) mod theme_scheme;
 mod topology;
 mod wait_text;
 pub(crate) use wait_text::WaitText;
@@ -110,19 +113,26 @@ pub(crate) struct ParsedResourceRequest {
 /// value into the dispatched request, so no check reads the line a second
 /// time and none can read it differently.
 pub(crate) fn parse_resource_line(message: &str) -> Option<Result<RequestEnvelope, ResourceError>> {
+    parse_resource_line_given(message, || serde_json::from_str::<Value>(message).ok())
+}
+
+/// [`parse_resource_line`] for a caller that may hold the line's JSON value
+/// already: `value` gives the line parsed as a `Value` (`None` when it is not
+/// JSON), and is called only when the line is not a typed envelope.
+pub(crate) fn parse_resource_line_given<V: std::borrow::Borrow<Value>>(
+    message: &str,
+    value: impl FnOnce() -> Option<V>,
+) -> Option<Result<RequestEnvelope, ResourceError>> {
     match parse_resource_envelope(message) {
         Ok(envelope) => Some(Ok(envelope)),
         // A typed envelope always has `protocol`; only a line that is not
         // one needs the member probe to choose between v2 and legacy.
-        Err(error) => is_resource_protocol_message(message).then_some(Err(error)),
+        Err(error) => value()
+            .is_some_and(|value| {
+                value.borrow().as_object().is_some_and(|object| object.contains_key("protocol"))
+            })
+            .then_some(Err(error)),
     }
-}
-
-fn is_resource_protocol_message(message: &str) -> bool {
-    serde_json::from_str::<Value>(message)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .is_some_and(|object| object.contains_key("protocol"))
 }
 
 #[cfg(test)]
@@ -140,11 +150,14 @@ pub(crate) fn handle_parsed_resource_request(
 ) -> Result<Value, ResourceError> {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    // Opt-in usage patterns: the operation's wire name (a catalog constant), one atomic load when off.
+    cmux_usage_patterns::count("operation", operation.wire_name());
     let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
-    serde_json::to_value(match result {
+    match result {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
-    })
+    }
+    .into_value()
     .map_err(|error| {
         ResourceError::operation_failed(
             "response.encode",
@@ -281,6 +294,9 @@ fn dispatch_resource_request(
             crate::state::conductor_import_router::dispatch(mux, request)
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
+        OperationOwner::Chat => chats::dispatch(mux, request),
+        OperationOwner::ThemeScheme => theme_scheme::dispatch(mux, request),
+        OperationOwner::BrowserImport => browser_import::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -1143,6 +1159,8 @@ mod frontend_browser_effect_tests;
 mod pane_move_tests;
 #[cfg(test)]
 mod partial_create_tests;
+#[cfg(test)]
+mod split_fit_tests;
 #[cfg(test)]
 mod split_focus_tests;
 #[cfg(test)]

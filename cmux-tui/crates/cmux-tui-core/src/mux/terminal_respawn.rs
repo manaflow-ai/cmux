@@ -104,8 +104,9 @@ const RESPAWN_REASONS: &[&str] = &[
     "died_without_exit_status",
     "missing_record",
     "incarnation_mismatch",
-    // A signal that ended the shell while the owner shut down (logout, a
-    // daemon stop): the next owner's start sweep respawns it.
+    // A signal or an exit status that ended the shell while the owner shut
+    // down (logout, a restart, a daemon stop): the next owner's start sweep
+    // respawns it.
     "session_shutdown",
     // A host that ended its shell because no owner served it for the orphan
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
@@ -777,7 +778,7 @@ impl Mux {
     /// incarnation in one registry + state critical section. False when a
     /// close won.
     #[cfg(any(unix, windows))]
-    fn install_respawned_runtime(
+    pub(super) fn install_respawned_runtime(
         &self,
         plan: &RespawnPlan,
         surface: &Arc<Surface>,
@@ -840,6 +841,8 @@ impl Mux {
         match committed {
             Ok(Some((terminal_revision, resource_revision))) => {
                 state.resource_revision = resource_revision;
+                #[cfg(test)]
+                test_hooks::run_committed_before_route_publish_hook();
                 drop(state);
                 self.emit_terminal_registry_changed(&registry, terminal_revision);
                 Ok(true)

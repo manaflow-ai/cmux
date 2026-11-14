@@ -24,7 +24,7 @@ pub struct Cursor {
     pub await_fresh: bool,
 }
 impl Cursor {
-    fn text(&mut self, text: &str, pattern: Option<&str>) {
+    pub(super) fn text(&mut self, text: &str, pattern: Option<&str>) {
         if let Some(pattern) = pattern {
             let joined = format!("{}{text}", self.tail);
             self.matched |= joined.contains(pattern);
@@ -127,7 +127,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             // The page holds only the kinds read below: the records it passed over (a prompt
             // and its images, tool output) are read all the same, so the cursor moves past
             // them and the next page never asks for them again.
-            through = page["pageThrough"].as_u64();
+            through = page.get("pageThrough").and_then(Value::as_u64);
             events
         } else {
             Vec::new()
@@ -278,5 +278,40 @@ fn emit(
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
         found.push(format!("{name} ({key}) is {state}. Last reply: {reply}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chunk(text: &str, ids: usize) -> Value {
+        let mut msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "c",
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
+        // Short id fields that, read first, would fill the stub before its text.
+        for n in 0..ids {
+            msg[format!("field{n:03}Id")] = json!("i".repeat(200));
+        }
+        msg
+    }
+
+    /// A `match` at the longest a watch takes, split across two long reply chunks that both come
+    /// as stubs, is still found: each stub keeps at least the pattern's length of its text's ends,
+    /// before any field (review of #40800: a 5000-char pattern across an 80 KB chunk was lost).
+    #[test]
+    fn a_longest_match_across_two_stubbed_chunks_is_found() {
+        let pattern =
+            format!("{}{}", "a".repeat(1500), "b".repeat(crate::hub::MAX_MATCH_BYTES - 1500));
+        let first = format!("{}{}", "x".repeat(80 * 1024), "a".repeat(1500));
+        let second =
+            format!("{}{}", "b".repeat(crate::hub::MAX_MATCH_BYTES - 1500), "y".repeat(80 * 1024));
+        let mut c = Cursor::default();
+        for text in [&first, &second] {
+            let stub = super::super::paging::stub_msg(&chunk(text, 60), 90 * 1024, Some(&pattern));
+            let omitted = &stub["_meta"]["acpmux"]["omitted"];
+            assert_eq!(omitted["matched"], false, "neither chunk holds it alone");
+            c.stub_text(omitted, Some(&pattern));
+        }
+        assert!(c.matched, "the match across the two chunks was lost");
     }
 }
