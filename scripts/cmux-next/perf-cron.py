@@ -814,7 +814,11 @@ def linux_bench_runs(root, part="diff-viewer"):
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "infinite-items":
-        return {"suite": (["bash", os.path.join(root, INFINITE_ITEMS), "pages=0", "days=1", "--window=5"], root or ".", {})}
+        # The release build first, in a run of its own: a cold one takes about 15 minutes, and each run has its own
+        # 30-minute cap. The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        script = os.path.join(root, INFINITE_ITEMS)
+        return {"build": (["bash", script, "build-only"], root or ".", {}),
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",

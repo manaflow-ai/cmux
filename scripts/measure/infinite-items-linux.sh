@@ -2,18 +2,21 @@
 # Infinite items on Linux (CMUX-571): the daemons (scripts/measure/infinite-items.py) and the headless
 # chat pages (webviews/bench/chat-pages-memory.bench.ts, RELEASE=1), at each count. Run at a pushed head:
 #   cmux-ci test -- bash -c 'scripts/measure/infinite-items-linux.sh [counts=10,100,1000] [days=3] [pages=0]; echo rc=$?'
+#   infinite-items-linux.sh build-only: only the release build.
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
 set -euo pipefail
 counts="10,100,1000"
 days=3
 pages=1
 page_counts=""
+build_only=0
 extra=()
 for arg in "$@"; do
   case "$arg" in
     counts=*) counts="${arg#counts=}" ;;
     days=*) days="${arg#days=}" ;;
     pages=*) pages="${arg#pages=}" ;;
+    build-only) build_only=1 ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -38,6 +41,8 @@ command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
 cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
+# build-only: the perf cron builds in a step of its own, so the build and the run each get its 30-minute cap.
+[[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 cd "$root"
 if [ -n "${FAST_CHECKS_OUT:-}" ]; then

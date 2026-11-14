@@ -631,7 +631,10 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(cron.is_linux_part("infinite-items"))
         self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
-        argv, cwd, _ = cron.linux_bench_runs("/r", "infinite-items")["suite"]
+        runs = cron.linux_bench_runs("/r", "infinite-items")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
+        argv, cwd, _ = runs["suite"]
         self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
         self.assertIn("pages=0", argv)
         self.assertEqual(cwd, "/r")
