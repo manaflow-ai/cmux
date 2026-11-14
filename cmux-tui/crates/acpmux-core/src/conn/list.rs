@@ -257,10 +257,9 @@ fn open(hub: &Hub, sub: &Sub, peer: bool) -> Result<Delivery, ConnError> {
     let subscription = if peer { hub.subscribe_peer(sub)? } else { hub.subscribe(sub)? };
     // The frame and cursor come from ONE snapshot. Never substitute a second read.
     subscription.receiver.reposition(subscription.cursor);
-    let first = if peer { hub.peer_window(sub)? } else { subscription.window };
     Ok(Delivery {
         receiver: subscription.receiver,
-        first,
+        first: subscription.window,
         cursor: Cursor(subscription.cursor),
         mode: Mode::Live,
     })

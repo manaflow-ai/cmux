@@ -45,6 +45,7 @@ pub(super) struct PeerHistory {
     head: usize,
     len: usize,
     first: u64,
+    floor: u64,
     last: u64,
     tail: usize,
     used: usize,
@@ -201,7 +202,7 @@ impl History {
             Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,
         };
         if self.len != 0 && self.first.checked_add(self.len as u64) != Some(seq) {
-            self.clear();
+            self.clear(self.last);
         }
         if self.len == self.entries.len() {
             self.pop().map_err(serde_json::Error::io)?;
@@ -315,15 +316,19 @@ impl History {
 }
 
 impl PeerHistory {
-    pub(super) fn new() -> Self {
-        let capacity = CREDIT_WINDOW_BYTES;
+    pub(super) fn new(start: u64) -> Self {
+        Self::with_capacity(start, CREDIT_WINDOW_BYTES)
+    }
+
+    fn with_capacity(start: u64, capacity: usize) -> Self {
         Self {
             bytes: vec![0; capacity].into_boxed_slice(),
             entries: vec![Entry::default(); (capacity / MIN_OP_BYTES).max(1)].into_boxed_slice(),
             head: 0,
             len: 0,
             first: 0,
-            last: 0,
+            floor: start,
+            last: start,
             tail: 0,
             used: 0,
         }
@@ -334,7 +339,7 @@ impl PeerHistory {
     }
 
     pub(super) fn can_resume(&self, cursor: u64) -> bool {
-        self.len == 0 || cursor.saturating_add(1) >= self.first
+        cursor >= self.floor
     }
 
     pub(super) fn append(&mut self, seq: u64, summary: Option<&Summary>) -> serde_json::Result<()> {
@@ -380,7 +385,7 @@ impl PeerHistory {
 
     fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
         if bytes.len() > self.bytes.len() {
-            self.clear();
+            self.clear(self.last);
             return Err(io::Error::other("peer list op exceeds history byte capacity"));
         }
         while self.used + bytes.len() > self.bytes.len() || self.len == self.entries.len() {
@@ -391,6 +396,7 @@ impl PeerHistory {
             self.used = self.used.saturating_sub(entry.len);
             self.head = (self.head + 1) % self.entries.len();
             self.len -= 1;
+            self.floor = entry.seq;
             self.first = self.entries.get(self.head).map_or(seq, |next| next.seq);
         }
         let start = self.tail;
@@ -426,7 +432,7 @@ impl PeerHistory {
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
-        if self.len != 0 && cursor.saturating_add(1) < self.first {
+        if cursor < self.floor {
             return None;
         }
         let mut out = Vec::new();
@@ -469,11 +475,12 @@ impl PeerHistory {
         true
     }
 
-    fn clear(&mut self) {
+    fn clear(&mut self, floor: u64) {
         self.head = 0;
         self.len = 0;
         self.first = 0;
-        self.last = 0;
+        self.floor = floor;
+        self.last = floor;
         self.tail = 0;
         self.used = 0;
     }
@@ -712,7 +719,7 @@ mod tests {
 
     #[test]
     fn peer_history_keeps_only_local_rows_and_writes_valid_raw_ops() {
-        let mut history = PeerHistory::new();
+        let mut history = PeerHistory::new(0);
         let mut local = Summary::new("local-chat");
         local.origin = "local".into();
         local.peer_form = Some(
@@ -739,6 +746,36 @@ mod tests {
         assert_eq!(values[0]["summary"]["title"], "masked");
         assert_eq!(values[1]["seq"], 4);
         assert_eq!(values[1]["origin"], "local");
+    }
+
+    #[test]
+    fn peer_history_floor_requires_a_window_before_creation() {
+        let mut history = PeerHistory::new(10);
+        assert!(!history.can_resume(5));
+        assert!(history.after_frame(5, 10, usize::MAX).is_none());
+        let end = history.after_frame(10, 10, usize::MAX).unwrap();
+        assert!(end.bytes.is_empty());
+        assert_eq!(end.last_seq, 10);
+
+        let remote = Summary::new("remote-only");
+        let mut remote = remote;
+        remote.origin = "remote".into();
+        history.append(11, Some(&remote)).unwrap();
+        history.append_gone(12, "remote", "remote-only").unwrap();
+        assert!(history.after_frame(5, 12, usize::MAX).is_none());
+        assert!(history.after_frame(10, 12, usize::MAX).unwrap().bytes.is_empty());
+    }
+
+    #[test]
+    fn peer_history_floor_advances_when_entries_are_evicted() {
+        let mut history = PeerHistory::with_capacity(0, 128);
+        for seq in 1..32 {
+            history.append_gone(seq, "local", &format!("chat-{seq}")).unwrap();
+        }
+        assert!(history.floor > 0);
+        let floor = history.floor;
+        assert!(history.after_frame(floor.saturating_sub(1), history.last, usize::MAX).is_none());
+        assert!(history.can_resume(floor));
     }
 
     #[test]

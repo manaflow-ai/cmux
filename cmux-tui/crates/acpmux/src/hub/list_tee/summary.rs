@@ -288,9 +288,13 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
             cut_title(&mut summary.title);
             summary = summary.prepare()?;
             let peer_extra = extra(&masked);
-            Some(Form { row: summary, extra: peer_extra })
+            if summary.title == local.row.title && peer_extra == local.extra {
+                None
+            } else {
+                Some(Form { row: summary, extra: peer_extra })
+            }
         }
-        _ => Some(Form { row: local.row.clone(), extra: local.extra.clone() }),
+        _ => None,
     };
     loop {
         local.refresh()?;
@@ -406,7 +410,7 @@ mod tests {
         assert!(extra.get("queue").is_none());
         assert!(extra.get("usageStats").is_none());
         assert!(extra.get("tools").is_none());
-        assert!(row.peer_form.is_some());
+        assert!(row.peer_form.is_none());
         assert_eq!(row.last_activity, session.meta().updated_at);
     }
 

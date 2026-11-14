@@ -11,7 +11,6 @@ use acpmux_book::index::{
 };
 use arc_swap::ArcSwap;
 use serde::Serialize;
-use serde::ser::Error as _;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -448,10 +447,11 @@ struct PeerRow<'a>(&'a Summary);
 
 impl Serialize for PeerRow<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let Some(raw) = self.0.peer_form.as_ref() else {
-            return Err(S::Error::custom("local row has no producer peer form"));
-        };
-        raw.serialize(serializer)
+        if let Some(raw) = self.0.peer_form.as_ref() {
+            raw.serialize(serializer)
+        } else {
+            self.0.serialize(serializer)
+        }
     }
 }
 
@@ -870,7 +870,7 @@ impl Hub {
         if let Ok(mut slot) = self.peer_history.lock()
             && slot.is_none()
         {
-            *slot = Some(PeerHistory::new());
+            *slot = Some(PeerHistory::new(self.published.load().seq()));
         }
     }
 
@@ -901,7 +901,11 @@ impl Hub {
         } else {
             index.seq()
         };
-        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let frame = if peer {
+            self.peer_window_at(sub, &index)?
+        } else {
+            self.window_frame_at_cursor(sub, &index, resume_cursor)?
+        };
         let resume_cursor = if folders::is_folders(sub.view) {
             frame.decode_json::<crate::wire::FolderWindow>()?.cursor
         } else {
@@ -977,11 +981,15 @@ impl Hub {
     /// their producer-owned raw peer form, so the send path never parses or
     /// re-encodes `extra` and never materialises a local wire row first.
     pub fn peer_window(&self, sub: &Sub) -> Result<Frame, HubError> {
+        let index = self.snapshot();
+        self.peer_window_at(sub, &index)
+    }
+
+    fn peer_window_at(&self, sub: &Sub, index: &SummaryIndex) -> Result<Frame, HubError> {
         if sub.stream.as_str() != "list" || sub.view != Some(crate::wire::ListView::Live) {
             return Err(HubError::InvalidParams("peer links serve the live list only".into()));
         }
         let requested = validate_window(sub)?;
-        let index = self.snapshot();
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
                 Some(book_key(key)),
