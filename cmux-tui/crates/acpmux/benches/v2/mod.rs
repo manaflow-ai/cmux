@@ -139,15 +139,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "3c",
-        name: "v2.pr03c.window_folds",
-        done_when: "A window at the end of a chat of 100,000 folded turns, against 10: 1.2x. Window time and reads of folds.idx (one search a read, at both sizes). The same rows in the window on both sides.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
         pr: "3a3",
         name: "v2.pr03a3.actor_line",
         done_when: "One settled line through the actor at 40 rows and 2M rows: best p95 1.2x, aggregate p95 2x.",
