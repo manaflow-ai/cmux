@@ -380,6 +380,14 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers.insert(number)
     }
 
+    /// Hold the next status requests relative to requests already seen.
+    func holdNextHostStatusRequests(count: Int = 1) {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            heldHostStatusRequestNumbers.insert(hostStatusRequestCount + offset)
+        }
+    }
+
     /// Delay the Nth status response until released, then return its ordinary
     /// payload. Unlike ``holdHostStatusRequest``, this models a slow healthy
     /// dial instead of a half-dead transport.
