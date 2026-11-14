@@ -78,8 +78,17 @@ const PARTS: &str = "_acpmuxParts";
 /// it are one hub message.
 const PART_BYTES: usize = 45 * 1024;
 
+/// The time a read in parts may take for each part, on average, past its two [`READ_WAIT`]s: a
+/// hub that answers each part just inside its own wait ends the read, not the asker's patience.
+/// A part takes one hub round trip, well under a second on a working hub.
+const PART_WAIT: Duration = Duration::from_secs(5);
+
 /// The refusal prefix of a session the receiving daemon does not have.
 const NO_SESSION: &str = "mesh.read_no_session";
+
+/// The refusal prefix of a held answer the receiving daemon no longer has: it went idle, or a
+/// newer answer took its room (`parts::MAX_HELD_BYTES`). Reading again holds it anew.
+const PART_GONE: &str = "mesh.read_part_gone";
 
 /// The receiving side: run one authorized read and answer it in the ack.
 pub(super) async fn answer(hub: &Arc<Hub>, message: &InMessage) -> Ack {
@@ -117,7 +126,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
         return match hub.mesh_read_parts.part(id, &session.id, index, PART_BYTES) {
             Some(part) => Ok(json!({"part": part}).to_string()),
-            None => Err("mesh.read_part_gone: this machine no longer holds that answer".into()),
+            None => Err(format!("{PART_GONE}: this machine no longer holds that answer")),
         };
     }
     // Whether the sender reads an answer in parts: only when a smallest page still does not fit.
@@ -282,7 +291,8 @@ pub(crate) async fn read(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let text = ask(mesh, host, key, body(m, params)).await?;
+    let until = tokio::time::Instant::now() + READ_WAIT;
+    let text = ask(mesh, host, key, body(m, params), until).await?;
     let mut reply: Value = serde_json::from_str(&text)
         .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
     if let Some(held) = reply.get(PARTS).cloned() {
@@ -308,13 +318,20 @@ async fn gather(
     let most = crate::rpc::MAX_MESSAGE_BYTES.div_ceil(PART_BYTES) as u64;
     let count = held.get("count").and_then(Value::as_u64).filter(|n| (1..=most).contains(n));
     let count = count.ok_or_else(malformed)?;
+    // The parts' time from here: one READ_WAIT, then PART_WAIT for each part on average. With
+    // the first ask's own READ_WAIT, a whole read ends within 2 READ_WAIT + PART_WAIT a part.
+    let parts = u32::try_from(count).unwrap_or(u32::MAX);
+    let until = tokio::time::Instant::now() + READ_WAIT + PART_WAIT.saturating_mul(parts);
     let mut text = Vec::new();
     for index in 0..count {
+        if tokio::time::Instant::now() >= until {
+            return Err(unanswered(host));
+        }
         let body = json!({
             "version": 1, "method": READ_PART, "params": {"id": id, "index": index}
         });
-        let part: Value = serde_json::from_str(&ask(mesh, host, key, body.to_string()).await?)
-            .map_err(|_| malformed())?;
+        let part = ask(mesh, host, key, body.to_string(), until).await?;
+        let part: Value = serde_json::from_str(&part).map_err(|_| malformed())?;
         let part = part.get("part").and_then(Value::as_str).ok_or_else(malformed)?;
         let part =
             base64::engine::general_purpose::STANDARD.decode(part).map_err(|_| malformed())?;
@@ -323,12 +340,14 @@ async fn gather(
     serde_json::from_slice(&text).map_err(|_| malformed())
 }
 
-/// One read message to `HOST/KEY` through the hub, and the receiver's answer text.
+/// One read message to `HOST/KEY` through the hub, and the receiver's answer text, waited for
+/// [`READ_WAIT`] at most and not past `until`.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
     key: &str,
     body: String,
+    until: tokio::time::Instant,
 ) -> Result<String, RpcError> {
     let message = OutMessage {
         to: recipient(host, key),
@@ -340,7 +359,7 @@ async fn ask(
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
     let mut receipt = mesh.send(&message).await.map_err(|e| hub_error(host, key, e))?;
-    let deadline = tokio::time::Instant::now() + READ_WAIT;
+    let deadline = (tokio::time::Instant::now() + READ_WAIT).min(until);
     loop {
         match receipt.state.as_str() {
             "delivered" => break,
@@ -348,6 +367,9 @@ async fn ask(
                 let why = receipt.detail.unwrap_or_else(|| "the machine refused the read".into());
                 return Err(if why.starts_with(NO_SESSION) {
                     RpcError::not_found(format!("no session matches \"{host}/{key}\""))
+                } else if why.starts_with(PART_GONE) {
+                    RpcError::new(-32000, format!("{host} no longer holds this answer; read again"))
+                        .with_data(json!({"reason": PART_GONE, "retryable": true}))
                 } else {
                     RpcError::new(-32003, why).with_data(json!({"reason": "mesh.read_refused"}))
                 });
