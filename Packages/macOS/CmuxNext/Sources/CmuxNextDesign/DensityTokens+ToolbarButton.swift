@@ -10,7 +10,7 @@ extension DensityTokens {
     /// with the chrome row.
     /// A density's own `browserRowHeight` (Helium's 28 pt at Default) wins over the sidebar row.
     public var toolbarButtonSize: CGFloat {
-        if let row = tokens["browserRowHeight"] { return CGFloat(row) }
+        if let row = BrowserChromeTuning.override(.rowHeight, tokens: self) ?? tokens["browserRowHeight"].map({ CGFloat($0) }) { return row }
         return resolve(compact: 24, comfortable: 32, token: "sidebarRowHeight")
     }
 
