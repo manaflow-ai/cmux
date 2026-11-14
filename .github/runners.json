@@ -415,6 +415,7 @@
       "class": "apple-ios",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "first-user-journey-ios.yml#journey": "apple-ios",
     "ios-internal-nightly.yml#archive": "apple-ios",
     "ios-review-gate.yml#reviewer-path": {
       "class": "apple-ios",

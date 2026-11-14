@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FromHost, ToHost};
+use cmux_app_host::{FatalReason, FromHost, ToHost};
 use serde_json::{Value, json};
 
 use super::catalog::Sources;
@@ -52,7 +52,12 @@ fn scripted_app_host() {
                 });
             }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
-            ToHost::Mount { mount, export, .. } => {
+            ToHost::Mount { mount, export, ctx } => {
+                // `timeout`: the render runs past its entry deadline, every time.
+                if ctx["timeout"] == true {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "mount".into() });
+                    std::process::exit(70);
+                }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
                     continue;
@@ -109,9 +114,11 @@ fn scripted_app_host() {
                     .find(|(c, _)| *c == cb)
                     .map(|(_, m)| m.clone())
                     .unwrap_or_default();
+                // One node per call: two answers in one frame stay two ops
+                // when the supervisor coalesces them (budget.rs).
                 send(FromHost::Scene {
                     mount,
-                    ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
+                    ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
             ToHost::Run { cb, export, gesture, .. } => {
@@ -707,9 +714,12 @@ fn view_state_ops_need_a_live_token_for_this_app_spent_once() {
         .unwrap();
     let mut results = Vec::new();
     while results.len() < 2 {
+        // Both answers may come in one coalesced batch.
         let update =
             f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
-        results.push(update["ops"][0]["props"]["result"].clone());
+        for op in update["ops"].as_array().into_iter().flatten() {
+            results.push(op["props"]["result"].clone());
+        }
     }
     // Answers arrive in any order: a refusal is immediate, an accepted call
     // answers from its worker thread.
@@ -1021,3 +1031,6 @@ mod run_lifecycle;
 
 #[path = "supervisor_rollback_tests.rs"]
 mod rollback_tolerance;
+
+#[path = "supervisor_budget_tests.rs"]
+mod budget;
