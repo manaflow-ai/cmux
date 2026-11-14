@@ -4,10 +4,13 @@ import Foundation
 /// Home's rule for MessagesLab's link previews (README, Link previews), as
 /// iMessage does it: the SENDER makes the preview. The projection store asks
 /// for a preview of every link card it sends or receives; this gate lets a
-/// fetch through only for a link in a message this Mac sends, or a card the
-/// user taps. An incoming card never fetches on its own: it shows what the
-/// sender attached, else the domain (no request to a URL another person or an
-/// agent chose, and the receiver's address never reaches the sender's server).
+/// fetch through only for a link in a message this Mac sends, a card in a
+/// message of the person's own or of their Chief (issue 38178: the Chief is
+/// the person's agent, and its replies are where the Chief chat's links are;
+/// HomeProjection+LinkPreviews), or a card the user taps. Another person's or
+/// another agent's card never fetches on its own: it shows what the sender
+/// attached, else the domain (no request to a URL they chose, and the
+/// receiver's address never reaches the sender's server).
 /// Every fetch goes through MessagesLab's LinkGuard (LinkPreviews: public
 /// addresses only, redirects re-checked, an ephemeral session, size caps).
 /// Main thread only, as LinkPreviews.
@@ -38,6 +41,10 @@ final class HomeLinkPreviews: LinkPreviewFetching {
 
     /// The user tapped a card: its preview may be fetched now.
     func allowTap(_ url: String) { allowed.insert(url) }
+
+    /// A card in a message this Mac's person sent or their Chief wrote (HomeProjection+LinkPreviews):
+    /// its preview may be fetched now.
+    func allowShown(_ url: String) { allowed.insert(url) }
 
     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
         // Not allowed: a pending card becomes the domain card (Store.apply), nothing is requested.
