@@ -69,11 +69,18 @@ cleanup() {
 trap cleanup EXIT
 echo "CHAT-TYPING-AB disk free before: $(df -h "$here" | awk 'NR==2 {print $4}')"
 echo "CHAT-TYPING-AB host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null) base $base head $head rounds $rounds"
-# Steps run with a per-step HOME; bun, node and cargo for the app build live under the account's real home.
+# Steps run with a per-step HOME; node and cargo for the app build live under the account's real home.
+# The worker puts the bun webviews/package.json pins (<fleet>/tools/bun-<pin>) first on PATH; the
+# account's ~/.bun/bin may hold an older one, so that pinned bun goes back in front after the prepends
+# (step 33bef005, 2026-11-14: "webviews needs bun 1.4.4 or newer ...; /Users/cmux/.bun/bin/bun is bun
+# 1.4.2", every round failed).
+pinned_bun="$(command -v bun 2>/dev/null || true)"
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
+[ -n "$pinned_bun" ] && export PATH="$(dirname "$pinned_bun"):$PATH"
+echo "CHAT-TYPING-AB bun $(command -v bun) $(bun --version 2>/dev/null)"
 if [ -n "$account_home" ]; then
   [ -z "${RUSTUP_HOME:-}" ] && [ -d "$account_home/.rustup" ] && export RUSTUP_HOME="$account_home/.rustup"
   [ -z "${CARGO_HOME:-}" ] && [ -d "$account_home/.cargo" ] && export CARGO_HOME="$account_home/.cargo"

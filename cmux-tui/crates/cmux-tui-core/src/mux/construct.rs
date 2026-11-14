@@ -521,6 +521,12 @@ impl Mux {
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_restart_handler(Some(Arc::new(move |restart| {
+            if let Some(mux) = weak_mux.upgrade() {
+                mux.record_journal_plugin_restart(restart);
+            }
+        })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
         timings.lap("mux.build");

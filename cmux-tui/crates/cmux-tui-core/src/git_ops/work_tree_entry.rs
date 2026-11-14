@@ -7,11 +7,12 @@
 //! opened through its parent's descriptor and refuses a link (`O_NOFOLLOW`),
 //! and the entry is looked at and opened through its folder's descriptor.
 //!
-//! The top folder is reached the same way. git gives its path with real
-//! folders only, so the walk starts at the root of the file system and takes
-//! each folder of that path through its parent: a link at the top folder or
-//! above it gives no work tree. The top folder is opened one time and held,
-//! and each entry is of that held folder.
+//! The top folder is reached the same way. A caller gives its path with real
+//! folders only (git's own answer, or a path that the daemon made real), so
+//! the walk starts at the root of the file system and takes each folder of
+//! that path through its parent: a link at the top folder or above it gives
+//! no work tree. The top folder is opened one time and held, and each entry
+//! is of that held folder.
 //!
 //! A system that is not Unix has no call that reads a name through an open
 //! folder. There the top folder is found by its path at each entry, and each
@@ -88,7 +89,14 @@ mod through_folders {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     const ABOVE_TOP_FLAGS: libc::c_int =
         libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    /// macOS: `O_SEARCH` has `O_DIRECTORY` in it and opens a folder for a
+    /// search of its names only. A kernel older than the flag (before
+    /// macOS 13) does not read the bit, by a read of its source and with
+    /// no run: there the open is for a read, as it was before this flag.
+    #[cfg(target_os = "macos")]
+    const ABOVE_TOP_FLAGS: libc::c_int =
+        libc::O_SEARCH | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
     const ABOVE_TOP_FLAGS: libc::c_int = FOLDER_FLAGS;
     /// Bytes of a link's target text that count.
     const MAX_TARGET_BYTES: usize = 4096;
@@ -169,7 +177,7 @@ mod through_folders {
 
     impl Tree {
         /// The work tree at `root`, the path of its top folder from the root
-        /// of the file system, as git gives it: a list of names of real
+        /// of the file system, as its caller gives it: a list of names of real
         /// folders. Each folder of the path is opened through its parent and
         /// refuses a link, and the top folder stays open. A name that is no
         /// folder is no work tree, and no open waits for the other end of a
@@ -451,7 +459,7 @@ mod tests {
         std::os::unix::fs::symlink("real", top.join("link")).unwrap();
         std::os::unix::fs::symlink("real/root", top.join("root-link")).unwrap();
 
-        // The path of a top folder, as git gives it, has real folders only.
+        // The path of a top folder, as a caller gives it, has real folders only.
         let mut tree = Tree::open(&root).unwrap();
         assert_eq!(text(&mut tree, "file").as_deref(), Some("inside"));
         // A link is no folder of that path, at the top folder and above it.
@@ -460,6 +468,25 @@ mod tests {
         // The path is a list of names from the root of the file system.
         assert!(Tree::open(&top.join("real/../real/root")).is_none(), "a path with `..`");
         assert!(Tree::open(Path::new("real/root")).is_none(), "a path from no root");
+
+        std::fs::remove_dir_all(top).unwrap();
+    }
+
+    #[test]
+    fn work_tree_entry_takes_a_top_folder_below_a_folder_that_can_be_passed_and_not_listed() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let top = fresh_folder();
+        let above = top.join("above");
+        let root = above.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file"), "inside").unwrap();
+        // The search right only: a name in `above` is reached, and its names are not listed.
+        // A user that has each right (root) passes it with and without the right to list.
+        std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let read = Tree::open(&root).and_then(|mut tree| text(&mut tree, "file"));
+        // The old rights, before the result is looked at: the folder can be removed.
+        std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(read.as_deref(), Some("inside"), "the folder above is passed");
 
         std::fs::remove_dir_all(top).unwrap();
     }

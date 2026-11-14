@@ -609,6 +609,13 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     hub.watch_take_over(&s, if_live).await
 }
 
+/// `_acpmux/release_to_watch {sessionId}`: once idle, the chat's harness stops and the chat
+/// watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+pub(super) async fn release_to_watch(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    hub.release_to_watch(&s).await
+}
+
 #[cfg(test)]
 mod prompt_suggestions_push_tests {
     use super::prompt_suggestions_forced;
