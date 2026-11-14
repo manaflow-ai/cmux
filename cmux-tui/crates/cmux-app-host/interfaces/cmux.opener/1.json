@@ -1,14 +1,27 @@
 {
   "name": "cmux.opener/1",
   "version": 1,
-  "docs": "Open a URL scheme or file type.",
+  "docs": "Open links the person clicks. A clicked link goes to the app whose options.urls pattern matches it (`*` is any run of characters, matched case-insensitively), or whose schemes list its scheme, before cmux opens it itself. The most specific pattern (the most literal characters) wins, then the lowest app id; a scheme alone is the least specific. The export gets {url}; a failed open falls back to cmux's own.",
   "props": {
     "types": "string[]",
     "schemes": "string[]"
   },
   "methods": {
-    "open": "(handle|url) -> void"
+    "open": "({url}) -> void"
   },
   "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "urls": {
+        "type": "array",
+        "maxItems": 32,
+        "uniqueItems": true,
+        "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "description": "URL patterns this app opens, for example https://jira.example/browse/*."
+      }
+    }
+  },
   "status": "draft: shapes are refined with the first implementing app before the interface is public"
 }

@@ -47,6 +47,8 @@ mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
+mod openers;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
