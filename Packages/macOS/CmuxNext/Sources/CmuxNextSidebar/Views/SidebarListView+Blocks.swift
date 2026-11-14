@@ -83,9 +83,11 @@ final class SidebarBlockRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        layer?.cornerRadius = 0
         addSubview(region)
     }
+
+    /// A block's corners stay square: its open and close clip to its bounds, and its tiles reach the corners.
+    override var fillCornerRadius: CGFloat { 0 }
 
     /// The region's own views take the pointer (tiles, the header, an app section).
     override func hitTest(_ point: NSPoint) -> NSView? {
