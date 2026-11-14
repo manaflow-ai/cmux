@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import plistlib
 import re
 import stat
 import subprocess
@@ -225,13 +226,44 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         ).is_file()
 
 
+def test_generated_helper_declares_apple_events_usage(sha: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-helper-apple-events-") as tmp:
+        root = Path(tmp)
+        contents = root / "fixture.app/Contents"
+        output = contents / "Resources/bin/cmux-cua"
+        arch = "arm64" if platform.machine() in {"arm64", "aarch64"} else "x86_64"
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), "--output", str(output), "--archs", arch,
+             "--cache-dir", str(root / "cache")],
+            env=successful_build_environment(root, sha),
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        helper = contents / "Library/cmux Computer Use.app/Contents"
+        info = plistlib.loads((helper / "Info.plist").read_bytes())
+        key = "NSAppleEventsUsageDescription"
+        assert info.get(key), "Generated helper cannot explain its Apple Events request"
+        for locale in ("en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"):
+            localized = helper / f"Resources/{locale}.lproj/InfoPlist.strings"
+            validation = subprocess.run(
+                ["/usr/bin/plutil", "-lint", str(localized)],
+                capture_output=True, text=True,
+            )
+            assert validation.returncode == 0, validation.stdout + validation.stderr
+            strings = localized.read_text()
+            assert f'"{key}" = "' in strings, locale
+            if locale != "en":
+                assert "controls browsers only" not in strings, locale
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
-    print("PASS: cmux-cua builds preserve unmanaged cache contents")
+    test_generated_helper_declares_apple_events_usage(sha)
+    print("PASS: 5 cmux-cua cache and helper packaging checks")
     return 0
 
 
