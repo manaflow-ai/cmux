@@ -129,7 +129,6 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         acpmux.beginFirstPrompt(session)
         Task {
-            defer { acpmux.endFirstPrompt(session) }
             let blocks = await Task.detached(priority: .userInitiated) { Self.taskPromptBlocks(task) }.value
             do {
                 _ = try await acpmux.request("session/prompt", .object([
@@ -139,6 +138,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                     ])]),
                 ]))
             } catch {
+                // Not sent (or unknown): the chat stops saying it is starting. On success the
+                // mark stays until the chat shows the task (its records can come after this reply).
+                acpmux.endFirstPrompt(session)
                 failed(Self.deliveryFailure(error))
             }
         }

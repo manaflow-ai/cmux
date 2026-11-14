@@ -284,6 +284,9 @@ struct TaskComposerScreen: View {
                             .frame(width: 18, height: 18)
                             .accessibilityHidden(true)
                         Text(shown.count > 1 ? "\(first.name) +\(shown.count - 1)" : first.name)
+                            // Room for the model pill beside it (live run 14: a long agent name
+                            // pushed the model under Start).
+                            .frame(maxWidth: 132, alignment: .leading)
                     } else {
                         Image(systemName: "person.crop.circle.badge.exclamationmark").accessibilityHidden(true)
                         Text("No agents")
@@ -625,6 +628,7 @@ struct TaskComposerModelMenu: View {
                 HStack(spacing: 7) {
                     Image(systemName: "cpu").accessibilityHidden(true)
                     Text(label)
+                        .frame(maxWidth: 104, alignment: .leading)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(theme.colors.label2.color)

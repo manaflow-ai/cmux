@@ -39,7 +39,11 @@ public final class AcpmuxHub {
     /// Sessions whose first message this phone is sending (New Task), until that send ends
     /// (its turn finished, or it failed). Observed: the chat leaves its starting state with it.
     private(set) var firstPromptsInFlight: Set<String> = []
-    func beginFirstPrompt(_ sessionID: String) { firstPromptsInFlight.insert(sessionID) }
+    func beginFirstPrompt(_ sessionID: String) {
+        // Bounded: a mark left by a send that succeeded ends only once its chat shows turns.
+        if firstPromptsInFlight.count >= 32, let any = firstPromptsInFlight.first { firstPromptsInFlight.remove(any) }
+        firstPromptsInFlight.insert(sessionID)
+    }
     func endFirstPrompt(_ sessionID: String) { firstPromptsInFlight.remove(sessionID) }
 
     /// Notes a session this phone started (`session/new`); the newest 32 are kept.
