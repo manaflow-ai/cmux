@@ -133,6 +133,11 @@ describe("mobile-mac-compat route", () => {
       nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
     });
     expect(next.buildKinds?.internal).toEqual(next.buildKinds?.beta);
+    expect(next.maxIOSVersion).toBeUndefined();
+    expect(next.buildKinds?.beta).toEqual({
+      stableMinVersion: "0.64.25",
+      nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
+    });
   });
 
   test("rejects conflicting legacy and build-kind minimums", () => {
