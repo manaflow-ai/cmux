@@ -3067,3 +3067,16 @@ merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 13
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
 as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
 other route keeps 15.
+
+## Fast-tier optional arguments on the Mac's shell
+
+The fast-tier runner's non-repin path has no `--only` arguments. Bash 3.2 under
+`set -u` treats an empty array as unset, so its expansion must use
+`${selected[@]+"${selected[@]}"}`. The populated case still passes the handler
+suite name as one argument, and the empty case passes no placeholder argument.
+Detector: `GatewayRunsOnlyTheFleetClient.test_the_mac_runner_selects_only_handler_coverage_for_a_repin`
+executes the workflow's actual script for `true`, `false`, and empty repin values.
+On Linux, point `CMUX_PARSE_BASH` at the pinned interpreter built by
+`scripts/ci/build-bash32.sh` to exercise the Mac's runtime, rather than Bash 5.
+The unguarded expansion failed both non-repin cases in run 43606321888,
+job 132481675435; changing the test's default shell would hide that regression.
