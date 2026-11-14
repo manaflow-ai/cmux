@@ -91,7 +91,8 @@ fn off_switch() -> Option<String> {
     if let Ok(v) = std::env::var(OFF_ENV) {
         return Some(v);
     }
-    let out = std::process::Command::new("/bin/launchctl").args(["getenv", OFF_ENV]).output().ok()?;
+    let out =
+        std::process::Command::new("/bin/launchctl").args(["getenv", OFF_ENV]).output().ok()?;
     let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!v.is_empty()).then_some(v)
 }
