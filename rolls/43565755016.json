@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43565755016",
+  "recorded_at": "2026-11-14T06:26:59Z",
+  "reason": "cmux-tui eb34c95e3bfa changes the image's cmux-tui (pinned c2548a7e941f)",
+  "dry_run": false,
+  "cmux_tui": "eb34c95e3bfa58225ba7b70cc360c81447d97cd2",
+  "fixes": [
+    {
+      "sha": "eb34c95e3bfa58225ba7b70cc360c81447d97cd2",
+      "mergedAt": "2026-11-13T21:57:32-08:00",
+      "subject": "Cloud start follow-ups: new machine deleted on a failed pin, Retry keeps its folder, long folder picks still send (#41443)"
+    },
+    {
+      "sha": "58ecee932333a91116ee38d1563da1552332aaa6",
+      "mergedAt": "2026-11-13T21:48:42-08:00",
+      "subject": "carrier drill S1: the event stream over the real Cloud dial, pinned to one carrier, with a per-carrier kill (#40433)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:26:59Z",
+    "snapshot_id": "sh-1065ad01213d450c83230879de95b793",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43565755016): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e4477f4aa24f5563bc84592674f04065c7d645f9",
+    "image": "cloud-native-auto-eb34c95e-43565755016-1",
+    "revision": "ci-43565755016-1",
+    "at": "2026-11-14T06:26:59Z"
+  },
+  "rolled_back": false
+}
