@@ -252,9 +252,10 @@ actor TaskDraftDisk {
         try? files.createDirectory(at: images, withIntermediateDirectories: true)
         // A file already written keeps its bytes (a draft's photos don't change under its id).
         // Protected until first unlock: a save made as the phone locks still lands.
-        for image in new where Self.isSafeName(image.id) && !files.fileExists(atPath: images.appendingPathComponent(image.id).path) {
-            try? image.data.write(to: images.appendingPathComponent(image.id),
-                                  options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        for image in new where Self.isSafeName(image.id) {
+            let file = images.appendingPathComponent(image.id)
+            if files.fileExists(atPath: file.path) { continue }
+            try? image.data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
         if let data = try? JSONEncoder().encode(drafts) {
             try? data.write(to: index, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
