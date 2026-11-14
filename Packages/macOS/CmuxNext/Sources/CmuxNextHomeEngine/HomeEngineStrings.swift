@@ -156,6 +156,17 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.harnessCheckFailed", defaultValue: "%@ did not pass its check, so the Chief stays on what it runs now.",
                table: "Home", bundle: .module)
     }
+    /// The note for a failed harness check: the harness's name, the failing step and the doctor's
+    /// reason when it gave one (#38152), else the plain "did not pass its check".
+    static func harnessCheckFailed(_ title: String, _ check: HomeHarnessCheck) -> String {
+        guard case let .failed(step, _) = check, let reason = check.shortDetail else {
+            return String(format: harnessCheckFailedFormat, title)
+        }
+        let format = String(localized: "home.engine.harnessCheckFailedAt",
+                            defaultValue: "%1$@ failed its check at %2$@ (%3$@), so the Chief stays on what it runs now.",
+                            table: "Home", bundle: .module)
+        return String(format: format, title, step, reason)
+    }
     /// "Checking %@…" (the harness's name) while its backend check runs.
     static var harnessCheckingFormat: String {
         String(localized: "home.engine.harnessChecking", defaultValue: "Checking %@…", table: "Home", bundle: .module)

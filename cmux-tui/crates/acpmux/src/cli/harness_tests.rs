@@ -137,3 +137,41 @@ fn hermes_example_profile_loads_as_an_acp_harness() {
     assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
     assert_eq!(meta.display_name.as_deref(), Some("Hermes Agent"));
 }
+
+/// #38152: the built-in `codex` harness is `codex app-server`, which never speaks ACP. A session
+/// reaches it through acpmux's in-process bridge, and so must the doctor: it spoke ACP
+/// `session/new` to the app-server itself and always failed, so Chief settings refused Codex.
+#[tokio::test(flavor = "multi_thread")]
+async fn doctor_checks_codex_app_server_through_the_bridge_sessions_use() {
+    use std::os::unix::fs::PermissionsExt;
+    const FAKE_APP_SERVER: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
+    let dir = temp("doctor-codex-bridge");
+    // Named `codex`, as the bridge recognises a launch (`codex_app_server::is_launch`).
+    let codex = dir.join("codex");
+    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {FAKE_APP_SERVER:?} \"$@\"\n"))
+        .unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let profile = HarnessProfile {
+        kind: HarnessKind::Acp,
+        argv: vec![codex.to_string_lossy().into_owned(), "app-server".into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: Vec::new(),
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("codex".into(), profile);
+
+    let report = doctor(&cfg, "codex", &options(&[])).await;
+    assert!(report.ok, "{}", report.text());
+    for name in ["launch", "initialize", "session", "prompt"] {
+        assert_eq!(step(&report, name).status, StepStatus::Pass, "{}", report.text());
+    }
+    assert_eq!(report.reply.as_deref(), Some("ok"), "{}", report.text());
+    let _ = std::fs::remove_dir_all(&dir);
+}

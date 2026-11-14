@@ -154,7 +154,7 @@ final class HomeHostView: NSView {
             self?.settings.close()
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
-        settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
+        settingsView.checkHarness = { [weak services] id in await HomeHarnessCheck(describe: AgentHarnessCenter.text) { try await services?.agentHarnesses.doctor(id: id) } }
         // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
         settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
         // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.

@@ -8156,6 +8156,137 @@
         }
       }
     },
+    "home.engine.harnessCheckFailedAt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ failed its check at %2$@ (%3$@), so the Chief stays on what it runs now."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat die Prüfung bei %2$@ nicht bestanden (%3$@), daher bleibt der Chief bei dem, was er gerade nutzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a échoué à sa vérification à l’étape %2$@ (%3$@) : le Chief garde ce qu’il utilise maintenant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل %1$@ في الفحص عند %2$@ (%3$@)، لذا يبقى Chief على ما يعمل به الآن."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no superó su comprobación en %2$@ (%3$@), así que el Chief sigue con lo que usa ahora."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 在 %2$@ 這一步沒有通過檢查（%3$@），因此 Chief 會繼續使用目前的設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 在 %2$@ 这一步没有通过检查（%3$@），因此 Chief 会继续使用当前的设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@이(가) %2$@ 단계에서 확인에 실패해(%3$@) Chief는 지금 쓰는 것을 계속 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は %2$@ でチェックに失敗しました (%3$@)。Chief は現在のまま動作します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nije prošao provjeru u koraku %2$@ (%3$@), pa Chief ostaje na onome što sada koristi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bestod ikke sit tjek ved %2$@ (%3$@), så Chief bliver ved det, den kører nu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non ha superato il controllo al passaggio %2$@ (%3$@), quindi il Chief resta su ciò che usa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនបានឆ្លងការត្រួតពិនិត្យនៅ %2$@ (%3$@) ទេ ដូច្នេះ Chief នៅប្រើអ្វីដែលវាកំពុងប្រើឥឡូវនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ besto ikke sjekken ved %2$@ (%3$@), så Chief fortsetter med det den kjører nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie przeszedł sprawdzenia na etapie %2$@ (%3$@), więc Chief zostaje przy tym, czego używa teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ falhou na verificação em %2$@ (%3$@), então o Chief continua com o que usa agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не прошёл проверку на шаге %2$@ (%3$@), поэтому Chief остаётся на том, что использует сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ไม่ผ่านการตรวจสอบที่ %2$@ (%3$@) Chief จึงยังใช้สิ่งที่ใช้อยู่ตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ denetimini %2$@ adımında geçemedi (%3$@), bu yüzden Chief şu an kullandığıyla devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не пройшов перевірку на кроці %2$@ (%3$@), тому Chief лишається на тому, що використовує зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không vượt qua bước kiểm tra %2$@ (%3$@), nên Chief vẫn dùng những gì đang chạy."
+          }
+        }
+      }
+    },
     "home.engine.harnessChecking": {
       "extractionState": "manual",
       "localizations": {
