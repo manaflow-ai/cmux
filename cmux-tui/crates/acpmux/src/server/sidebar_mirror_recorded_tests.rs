@@ -155,7 +155,8 @@ fn check_or_bless(name: &str, actual: &[u8]) {
 fn live_rows() -> Vec<(String, &'static str, Value)> {
     let mut live: Vec<_> = (0..17).map(|n| (format!("chat-{n:02}"), "idle", json!({}))).collect();
     live.push(("parent".into(), "idle", json!({})));
-    live.push(("child".into(), "running", json!({"spawnedBy": {"value": "parent"}})));
+    // Spawned by `parent` late in the script (see there).
+    live.push(("child".into(), "running", json!({})));
     live
 }
 
@@ -230,8 +231,18 @@ async fn the_sidebar_mirror_stream_is_recorded() {
     assert_eq!(gone["chatId"], "peer-chat", "a peer's dropped row arrives as gone missed");
     assert!(any_names(&step.changes, "chat-05"), "the tab's closed chat is read again");
 
-    // The tab closes, so the parent below is the only key the mirror reads.
+    // The tab closes, so the parent below is the only key the mirror reads. The child gets its
+    // parent only now: the mirror wants the parent of each child it holds, and a parent wanted
+    // beside the tab's key at a walk would be read in either order.
     rec.call(json!({"call": "unwant", "request": want_request(&tab)}));
+    let spawned = crate::store::Tag { value: "parent".into(), expires_at: None };
+    fx.edit("child", |meta| {
+        meta.tags.insert(crate::hub::views::SPAWNED_BY_TAG.into(), spawned);
+    });
+    let listed = |change: &Value| {
+        names(change, "child") && rows(change).iter().any(|row| row.get("spawnedBy").is_some())
+    };
+    rec.step("child-spawned", |changes| changes.iter().any(listed)).await;
 
     let archived = crate::store::Tag { value: "1".into(), expires_at: None };
     fx.edit("parent", |meta| {
