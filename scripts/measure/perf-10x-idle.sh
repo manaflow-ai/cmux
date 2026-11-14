@@ -59,6 +59,15 @@ app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
+sdprobe_summary() {
+  for f in /tmp/cmux-sd-wakes-*.log; do
+    [ -f "$f" ] || continue
+    echo "SDPROBE $1 log $f lines=$(wc -l < "$f")"
+    awk '{print $2, $3}' "$f" | sed 's/rev=[0-9]*//; s/prev=[0-9]*//' | sort | uniq -c | sort -rn | head -40 | sed "s/^/SDPROBE $1 kind /"
+    tail -n 150 "$f" | cut -c1-400 | sed "s/^/SDPROBE $1 tail /"
+  done
+}
+rm -f /tmp/cmux-sd-wakes-*.log
 
 echo "PERF-IDLE-LOAD daemon $(uptime | sed 's/.*load averages*: //')"
 state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
@@ -73,6 +82,8 @@ for n in "${daemon_counts[@]}"; do
     --latency-samples 20 --latency-terminals 5 --topology-samples 20 \
     --root-dir "$state_root" --out "$work/daemon-$n.json" > "$work/daemon-$n.log" 2>&1 || status=$?
 done
+sdprobe_summary daemon
+rm -f /tmp/cmux-sd-wakes-*.log
 python3 - "$work"/daemon-*.json <<'PY' || status=$?
 import json, sys
 for path in sys.argv[1:]:
@@ -87,7 +98,15 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 &
+sdbench=$!
+sleep 60
+ps -axo pid,ppid,%cpu,command | grep -i "agent-screen-detection" | grep -v grep | cut -c1-250 | sed 's/^/SDPROBE ps /'
+for pid in $(pgrep -f 'bin/cmux-agent-screen-detection'); do
+  sample "$pid" 10 2>&1 | grep -v '^$' | head -120 | cut -c1-250 | sed "s/^/SDPROBE sample $pid /"
+done
+wait "$sdbench" || { status=$?; tail -n 60 "$work/app.log"; }
+sdprobe_summary app
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
