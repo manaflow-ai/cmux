@@ -247,6 +247,112 @@ else:
     if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
         failures.append("wake-nightly-next-tick runs on the nightly mini, as the other loop control jobs")
 
+# Latest wins at the slot too. A push run checks for a newer push before the slot (resolve's leave step), then may
+# wait ~30 min at nightly-next-one-push while newer commits land; admitted, it would build its old commit. So the
+# same check runs again as nightly-next-one's first step after the claim, and a run that leaves skips every build
+# and publish step (LEFT_SLOT in the job's env): it ends green, nothing is cancelled. Main's tick does not count a
+# run in that step as building (nightly_next_rolling.LEAVE_ONE_STEP), so it promotes the newest commit meanwhile.
+LEAVE_ONE_STEP = "Leave the push slot to a newer nightly-next push"
+CLEANUP = {"Delete signing keychain before runtime checks", "Finish the signed-app checks",
+           "Delete signing keychain after the DMG signature", "Release the nightly-next publish lease",
+           "Bound the kept Rust target directories (warm nightly-next builder)", "Stop the helper builds still running",
+           "Cleanup keychain", "Wipe this job's credentials and temp files"}
+one_steps = ONE.get("steps") or []
+leave_at = next((i for i, s in enumerate(one_steps) if s.get("id") == "one-leave"), None)
+if leave_at is None:
+    failures.append("nightly-next-one has no leave step (id one-leave) after the slot admits it")
+else:
+    leave_step = one_steps[leave_at]
+    names = [s.get("name") for s in one_steps]
+    if leave_step.get("name") != LEAVE_ONE_STEP:
+        failures.append(f"nightly-next-one's leave step is named {LEAVE_ONE_STEP!r} (main's tick reads it by name)")
+    if "Claim the whole Mac for signing" not in names[:leave_at] or leave_at > names.index(
+            "Point the signing steps at the build products"):
+        failures.append("the leave step runs right after the whole-Mac claim, before any build step")
+    leave_if = str(leave_step.get("if", ""))
+    for name, ctx in (("a push run", context()), ("the loop's retry", context("workflow_dispatch", **RETRY))):
+        if not evaluate(parse_expression(leave_if), ctx):
+            failures.append(f"{name} must reach the leave step in nightly-next-one")
+    if evaluate(parse_expression(leave_if), {**context("workflow_dispatch"), "github.ref": "refs/heads/main"}):
+        failures.append("only nightly-next loop runs leave at nightly-next-one's slot")
+    leave_env = leave_step.get("env") or {}
+    if str(leave_env.get("IN_SLOT")) != "1" or "resolve-leave-build-slot.sh" not in str(leave_step.get("run", "")):
+        failures.append("the leave step runs resolve-leave-build-slot.sh with IN_SLOT=1 (the wait measured at the slot)")
+    for key in ("GH_TOKEN", "TIP_SHA", "REPOSITORY", "LOOP_RETRY", "SUPERSEDE_SKIP"):
+        if key not in leave_env:
+            failures.append(f"the leave step sets {key}, as resolve's does")
+    for step in one_steps[leave_at + 1:]:
+        name = step.get("name")
+        cond = str(step.get("if", "")).strip()
+        bare = cond[3:-2].strip() if cond.startswith("${{") and cond.endswith("}}") else cond
+        if name in CLEANUP:
+            continue
+        try:
+            skipped = not evaluate(parse_expression(bare), {"env.LEFT_SLOT": "1"}) if bare else False
+        except (ValueError, KeyError, IndexError, TypeError):
+            skipped = bare.endswith("&& !env.LEFT_SLOT") and ("||" not in bare or bare.startswith("("))
+        if not skipped:
+            failures.append(f"nightly-next-one's step {name!r} must skip when the run left the slot (!env.LEFT_SLOT)")
+    if "steps.one-leave.outputs.superseded" not in str((ONE.get("outputs") or {}).get("left", "")):
+        failures.append("nightly-next-one outputs left (the run left the slot and published nothing)")
+    for job_id in ("published-build", "attest-nightly-remote-daemon"):
+        if "needs.nightly-next-one.outputs.left != 'true'" not in str(JOBS.get(job_id, {}).get("if", "")):
+            failures.append(f"{job_id} must not run for a nightly-next-one that left the slot")
+
+
+def leave_in_slot(heads: list[str], tip: str, *, feat: str = "", asked_min_ago: float = 0.5, **env_extra) -> tuple:
+    """resolve-leave-build-slot.sh with IN_SLOT=1: the fake gh answers `heads` for nightly-next in turn (the last one
+    repeats), `feat` for feat-cmux-next and, for the run's jobs, resolve's end `asked_min_ago` minutes ago."""
+    import datetime as dt
+    asked = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=asked_min_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "heads").write_text("\n".join(heads) + "\n")
+        fake = Path(tmp) / "gh"
+        fake.write_text(f"""#!/bin/sh
+case "$2" in
+  */heads/nightly-next) n=$(cat {tmp}/n 2>/dev/null || echo 1); sed -n "${{n}}p" {tmp}/heads | grep . || tail -n 1 {tmp}/heads
+                        echo $((n + 1)) > {tmp}/n ;;
+  */heads/feat-cmux-next) echo {feat} ;;
+  */actions/runs/*/jobs*) echo {asked} ;;
+  */actions/runs/*) echo 2020-01-01T00:00:00Z ;;
+esac
+""")
+        fake.chmod(0o755)
+        git = Path(tmp) / "git"
+        git.write_text(f"""#!/bin/sh
+[ "$1" = -C ] && shift 2
+[ "$1" = ls-remote ] || exit 1
+n=$(cat {tmp}/n 2>/dev/null || echo 1); h=$(sed -n "${{n}}p" {tmp}/heads | grep .) || h=$(tail -n 1 {tmp}/heads)
+echo $((n + 1)) > {tmp}/n
+[ -n "$h" ] && printf '%s\\trefs/heads/nightly-next\\n' "$h"
+""")
+        git.chmod(0o755)
+        out, envfile = Path(tmp) / "out", Path(tmp) / "env"
+        envfile.write_text("")
+        env = {k: v for k, v in os.environ.items() if k not in ("LOOP_RETRY", "SUPERSEDE_SKIP")}
+        env.update(PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_OUTPUT=str(out), GITHUB_ENV=str(envfile), TIP_SHA=tip,
+                   REPOSITORY="o/r", GITHUB_RUN_ID="1", YIELD_MINUTES="1", YIELD_POLL_SECONDS="0", IN_SLOT="1")
+        env.update(env_extra)
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/resolve-leave-build-slot.sh")], env=env,
+                       check=True, capture_output=True, timeout=120)
+        return out.read_text().strip(), envfile.read_text().strip()
+
+
+OLD_HEAD, NEW_HEAD = "c31b2b6786669f7d25210f6496653b58bcc71dd3", "7341dd7bef6021463ef2ad54a9189502e8361adf"
+FEAT_TIP = "fdb12f557063a1c5d4bb55b4ef47c6e70f6ef0b3"
+# P2(C) waited 30 min at the slot while D and E landed: admitted, it waits for the tick's promotion and leaves to it.
+if leave_in_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30) \
+        != ("superseded=true", "LEFT_SLOT=1"):
+    failures.append("a push run admitted after 30 min at the slot, with newer commits on feat-cmux-next, must wait "
+                    "for the promotion and leave (superseded=true, LEFT_SLOT=1 in the job's env)")
+# Admitted at once (the slot was free): it builds, however old the run (resolve already checked its age).
+if leave_in_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=1) != ("superseded=false", ""):
+    failures.append("a run admitted with no wait at the slot builds its commit at once")
+if leave_in_slot([OLD_HEAD], OLD_HEAD, asked_min_ago=30) != ("superseded=false", ""):
+    failures.append("a run at nightly-next's head with nothing newer on feat-cmux-next keeps the slot")
+if leave_in_slot([NEW_HEAD], OLD_HEAD, LOOP_RETRY="1") != ("superseded=true", "LEFT_SLOT=1"):
+    failures.append("a loop retry whose head nightly-next moved past leaves at the slot too")
+
 if failures:
     print("FAIL: nightly-next push slot at nightly-next-one\n  " + "\n  ".join(failures))
     sys.exit(1)
