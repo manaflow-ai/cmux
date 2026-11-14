@@ -7,6 +7,8 @@ import importlib.util
 import json
 import os
 import plistlib
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -748,6 +750,51 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([(f["rule"], f["severity"], f["guideline"]) for f in findings],
                          [("agent.reviewer", "warning", "4.0")])
+
+    def test_the_agent_launches_the_app_the_way_the_reviewer_walk_does(self) -> None:
+        # Gate run 43591424745: the pass launched the app with no mock
+        # account, so the sign-in buttons the prompt promised were the live
+        # ones, and the agent stopped at sign-in with nothing else judged.
+        # The walk (AppReviewGateUITests.launch) starts the mock account
+        # signed out, in English, with no restored tab; the agent's first
+        # launch must match it, and every relaunch the agent makes keeps the
+        # mock account.
+        swift = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
+        helper = swift.split("    private func launch(", 1)[1].split("\n    }\n", 1)[0]
+        walk_args = re.search(r'app\.launchArguments \+= \[([^\]]*)\]\n        app\.launchEnvironment', helper).group(1)
+        walk_args = re.findall(r'"([^"]*)"', walk_args)
+        self.assertIn('app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"', helper)
+        self.assertIn('app.launchEnvironment["CMUX_MOBILE_CLEAR_AUTH"] = "1"', helper)
+
+        log = self.root / "calls.jsonl"
+        recorder = (
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            f"open({str(log)!r}, 'a').write(json.dumps({{'tool': os.path.basename(sys.argv[0]), 'argv': sys.argv[1:],"
+            " 'child': {k[13:]: v for k, v in os.environ.items() if k.startswith('SIMCTL_CHILD_')}}) + '\\n')\n"
+        )
+        self.tool("xcrun", recorder)
+        self.tool("axe")
+        self.tool("claude", recorder + STUB_CLAUDE.split("\n", 1)[1])
+        code, _ = self.run_pass("verdict")
+        self.assertEqual(code, 0)
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        launches = [c for c in calls if c["tool"] == "xcrun" and c["argv"][:2] == ["simctl", "launch"]]
+        self.assertEqual(len(launches), 1, calls)
+        self.assertEqual(launches[0]["argv"], ["simctl", "launch", "UDID", "com.cmux.app", *walk_args])
+        self.assertEqual(launches[0]["child"], {"CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_CLEAR_AUTH": "1"})
+        # The agent's own `xcrun simctl launch` inherits the mock account
+        # but not the sign-out, so a relaunch keeps a signed-in reviewer
+        # signed in.
+        agent = [c for c in calls if c["tool"] == "claude"]
+        self.assertEqual([c["child"] for c in agent], [{"CMUX_MOBILE_MOCK_AUTH": "1"}])
+        # The prompt hands the agent the same relaunch and the mock email
+        # code the app accepts (CmuxMobileAuthModel), the reviewer's path.
+        prompt = agent[0]["argv"][agent[0]["argv"].index("-p") + 1]
+        self.assertIn(f"xcrun simctl launch UDID com.cmux.app {shlex.join(walk_args)}", prompt)
+        auth = (ROOT / "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/CmuxMobileAuthModel.swift").read_text()
+        code_value = re.search(r'guard code == "(\d+)" else \{ throw AuthError\.invalidCode \}', auth).group(1)
+        self.assertIn(f"code {code_value}", prompt)
 
     def report(self, *extra: str) -> tuple[int, str]:
         out = self.root / "report.md"
