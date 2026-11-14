@@ -1138,6 +1138,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1182,6 +1183,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1631,6 +1633,7 @@ where
                     filter: sub.request.filter.clone(),
                     edition: None,
                     fold: None,
+                    turns: false,
                 }
             };
             self.pages.insert(
@@ -2833,6 +2836,7 @@ tail"#;
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({
