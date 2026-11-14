@@ -45,6 +45,10 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Manual capture harness regression; the workflow path is an admission identity fixture,
+    # not a workflow file read. Run after changing the harness or its HQ workflow identity.
+    # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
+    "tests/test_ios_screen_sharing_proof.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.

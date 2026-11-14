@@ -28,6 +28,7 @@ beside the code it covers.
 
 from __future__ import annotations
 
+import ast
 import functools
 import json
 import os
@@ -101,8 +102,51 @@ FLEET_SUDO_NAMERS: set[str] = set()
 
 
 def keychain_lines(text: str) -> int:
-    """Keychain reads, whatever service they name."""
-    return len(KEYCHAIN_READ.findall(text))
+    """Secret reads and unknown forms; exact literal service-attributes argv reads no password."""
+    matches = list(KEYCHAIN_READ.finditer(text))
+    if not matches:
+        return 0
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return len(matches)
+    # Accept only a direct argv literal in a subprocess call (including the injected subprocess.run
+    # default used by portable tests), or the test assertion of that literal. A stored/mutated list,
+    # shell string, unknown wrapper, starred options or any extra flags remains a counted read.
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    ignored = []
+    lines = text.splitlines(keepends=True)
+    def offset(node, end=False):
+        line = (node.end_lineno if end else node.lineno) - 1
+        column = node.end_col_offset if end else node.col_offset
+        return sum(len(part) for part in lines[:line]) + len(lines[line].encode()[:column].decode())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.List, ast.Tuple)) or len(node.elts) != 4:
+            continue
+        first = node.elts[:3]
+        if not all(isinstance(part, ast.Constant) and isinstance(part.value, str) for part in first):
+            continue
+        if (first[0].value not in ("security", "/usr/bin/security")
+                or first[1].value != "find-generic-password" or first[2].value != "-s"
+                or isinstance(node.elts[3], ast.Starred)):
+            continue
+        call = parents.get(node)
+        if not isinstance(call, ast.Call) or node not in call.args:
+            continue
+        name = ast.unparse(call.func)
+        known = name == "subprocess.run" or name == "self.assertEqual"
+        if name == "run":
+            scope = call
+            while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope = parents[scope]
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = [*scope.args.posonlyargs, *scope.args.args]
+                known = any(arg.arg == "run" and ast.unparse(default) == "subprocess.run"
+                            for arg, default in zip(args[-len(scope.args.defaults):], scope.args.defaults))
+        if known and not any(item.arg is None or item.arg == "shell" for item in call.keywords):
+            ignored.append((offset(first[1]), offset(first[1], True)))
+    return sum(not any(start <= match.start() and match.end() <= end for start, end in ignored)
+               for match in matches)
 
 
 def reads_fleet_sudo(text: str) -> bool:

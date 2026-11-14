@@ -220,6 +220,10 @@ class ProofTests(unittest.TestCase):
 class HostTests(unittest.TestCase):
     def setUp(self):
         self.host = proof.host_module()
+        temporary = tempfile.TemporaryDirectory(prefix="ss-fixture-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.app = self.root / "owned.app"
 
     def test_parent_exit_does_not_leave_owned_group_children(self):
         proc = Mock(pid=123)
@@ -255,7 +259,7 @@ class HostTests(unittest.TestCase):
         for changed in ({"name": "prod"}, {"name": "local"}, {"stack_project_id": "other"}):
             with self.subTest(changed=changed), patch.object(self.host, "command", return_value=json.dumps({**selection, **changed})):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_staging_backend_unverified"):
-                    self.host.identity_service(Path("/tmp/owned.app"), bundle, {})
+                    self.host.identity_service(self.app, bundle, {})
 
     def test_freshness_checks_resolved_app_identity_namespace(self):
         bundle = "com.cmuxterm.app.debug.capabc"
@@ -263,10 +267,10 @@ class HostTests(unittest.TestCase):
             selection = dict(bundle_id=bundle, legacy_storage=legacy, auth_namespace="development", name="staging",
                              stack_project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895", auth_storage_namespace="deliberately-different")
             with self.subTest(legacy=legacy), patch.object(self.host, "command", return_value=json.dumps(selection)) as command:
-                service = self.host.identity_service(Path("/tmp/owned.app"), bundle, {"HOME": "/tmp/owned"})
+                service = self.host.identity_service(self.app, bundle, {"HOME": str(self.root / "owned")})
                 self.assertEqual(service, bundle + ("" if legacy else ".cloud.development") + ".device-hub")
                 self.assertEqual(command.call_args.kwargs["env"]["CMUX_BUNDLE_ID"], bundle)
-                self.assertEqual(command.call_args.kwargs["env"]["HOME"], "/tmp/owned")
+                self.assertEqual(command.call_args.kwargs["env"]["HOME"], str(self.root / "owned"))
                 self.assertEqual(command.call_args.args[0][-6:], ["--json", "cloud", "env", "get", "--backend", "staging"])
 
     def test_unknown_or_mismatched_namespace_fails_closed(self):
@@ -276,7 +280,7 @@ class HostTests(unittest.TestCase):
         for selection in invalid:
             with self.subTest(selection=selection), patch.object(self.host, "command", return_value=json.dumps(selection)):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_cloud_namespace_unavailable"):
-                    self.host.identity_service(Path("/tmp/owned.app"), "cap", {})
+                    self.host.identity_service(self.app, "cap", {})
 
     def test_existing_cloud_device_identity_refuses_before_launch(self):
         bundle = "com.cmuxterm.app.debug.capabc"
@@ -288,7 +292,7 @@ class HostTests(unittest.TestCase):
         def command(argv, **_):
             return json.dumps(selected) if "cloud" in argv else ""
         with tempfile.TemporaryDirectory(prefix="ss-") as work:
-            host = self.host.Host(Path("/tmp/owned.app"),
+            host = self.host.Host(self.app,
                                   {"CFBundleIdentifier": bundle, "CFBundleExecutable": "cmux"},
                                   work, ("account", "password"))
             with patch.object(self.host, "command", side_effect=command), patch.object(self.host.subprocess, "run", side_effect=run), \
@@ -305,7 +309,7 @@ class HostTests(unittest.TestCase):
             # The ID was never committed, but the signing-key item survived.
             return Mock(returncode=44 if "device-id" in argv else 0)
         with tempfile.TemporaryDirectory(prefix="ss-") as work:
-            host = self.host.Host(Path("/tmp/owned.app"),
+            host = self.host.Host(self.app,
                                   {"CFBundleIdentifier": bundle, "CFBundleExecutable": "cmux"},
                                   work, ("account", "password"))
             with patch.object(self.host, "command", return_value=json.dumps(selected)), \
@@ -332,8 +336,8 @@ class HostTests(unittest.TestCase):
         self.assertEqual(command.call_count, 1)
 
     def make_host(self):
-        instance = self.host.Host(Path("/tmp/owned.app"), {"CFBundleIdentifier": "owned"},
-                                  "/tmp/owned", ("account", "password"))
+        instance = self.host.Host(self.app, {"CFBundleIdentifier": "owned"},
+                                  str(self.root / "owned"), ("account", "password"))
         instance.proc, instance.probe, instance.log = Mock(), Mock(), Mock()
         instance.owns_auth = True
         instance.auth_prepared = instance.device_prepared = True
@@ -455,7 +459,7 @@ class HostTests(unittest.TestCase):
                         patch.object(self.host, "rpc", return_value=self.remote_result(started, prepare=phase == "prepare")) as call:
                     instance._remote_capture(phase)
                     self.assertEqual(call.call_args.args[1:], ("debug.remote.capture_" + phase,
-                        {"lease_id": "a" * 24, "bundle_id": "owned", "private_root": "/tmp/owned/home"}))
+                        {"lease_id": "a" * 24, "bundle_id": "owned", "private_root": str(instance.work / "home")}))
 
     def test_prepare_cannot_remove_preexisting_identity_or_relay_items(self):
         instance = self.make_host()
