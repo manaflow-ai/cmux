@@ -502,6 +502,29 @@ class GalleryRenderPlanTests(unittest.TestCase):
         cases = [self.case("a.b", "picked-solid"), self.case("a.b", "first")]
         self.assertEqual(self.tool.infer(row, cases, lambda rev, path: text, lambda c, p: set()), "a.b/first")
 
+    def test_a_commit_with_no_gallery_change_is_pictured_by_the_entry_covering_it(self):
+        # model-picker-min-width (2026-11-14) changed QuickModelColumns.tsx and no gallery file, and shipped bare.
+        cases = [self.case("pane.picker", "list", "src/P.gallery.tsx"), self.case("pane.any-model", "narrow-old", "src/A.gallery.tsx"),
+                 self.case("pane.any-model", "search", "src/A.gallery.tsx"), self.case("pane.any-model", "installing", "src/A.gallery.tsx")]
+        covers = {"pane.picker": ["a/ModelPicker.tsx", "a/QuickModelMenu.tsx", "a/QuickModelColumns.tsx", "ui/ScrollArea.tsx"],
+                  "pane.any-model": ["a/QuickModelColumns.tsx"]}
+        rows = [{"id": "h", "role": "after", "sources": [], "covered": ["a/QuickModelColumns.tsx", "a/modelMenuWidth.ts"], "commit": "c"},
+                {"id": "h", "role": "before", "sources": [], "covered": ["a/QuickModelColumns.tsx", "a/modelMenuWidth.ts"], "commit": "c",
+                 "parent": "p"}]
+        at_parent = {("p", "webviews/src/A.gallery.tsx"): "variants: {\n  search: {},\n}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent.get((rev, path)), {}, covers)
+        # The entry about that file, not the one listing it among four; its first variant not named for an old look;
+        # its before the same state at the commit before, where the gallery file is unchanged.
+        self.assertEqual(missing, [])
+        self.assertEqual([(r["role"], r["state"], r.get("parent")) for r in out],
+                         [("after", "pane.any-model/search", None), ("before", "pane.any-model/search", "p")])
+        # A variant its note calls "Selected" comes first.
+        notes = {"pane.any-model": {"installing": "Selected: the install step."}}
+        self.assertEqual(self.tool.covered_state(rows[0], cases, covers, notes), "pane.any-model/installing")
+        # Nothing covers it: named, with what it changed.
+        out, missing = self.tool.resolve(rows[:1], cases, lambda rev, path: None, {}, {})
+        self.assertEqual(missing, ["h: no gallery state in no gallery entry covering a/QuickModelColumns.tsx, a/modelMenuWidth.ts"])
+
     def test_resolve_names_a_highlight_with_no_gallery_entry(self):
         row = {"id": "h", "role": "after", "sources": ["src/none.gallery.ts"], "commit": "c"}
         rows, missing = self.tool.resolve([row], [self.case("a.b", "x")], lambda rev, path: "")
