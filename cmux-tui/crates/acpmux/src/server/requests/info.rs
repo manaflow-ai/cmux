@@ -97,13 +97,18 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
         let read = hub.refresh_usage_stats();
         let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
     }
-    Ok(rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES))
+    rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES)
 }
 
 /// The `{rows, missing, rest}` reply of `keys` whose row texts are `texts` (`None` for a key
 /// that names no row): rows in the order asked until `budget` bytes of them, at least one, and
-/// every key after the first that would pass it in `rest`.
-fn rows_reply(keys: &[String], texts: Vec<Option<Arc<str>>>, budget: usize) -> Value {
+/// every key after the first that would pass it in `rest`. A row text that is not a JSON object
+/// is an internal error: a client reads every row as one.
+fn rows_reply(
+    keys: &[String],
+    texts: Vec<Option<Arc<str>>>,
+    budget: usize,
+) -> Result<Value, RpcError> {
     let mut rows = Vec::new();
     let mut missing = Vec::new();
     let mut rest = Vec::new();
@@ -122,9 +127,12 @@ fn rows_reply(keys: &[String], texts: Vec<Option<Arc<str>>>, budget: usize) -> V
             continue;
         }
         used = used.saturating_add(text.len());
-        rows.push(serde_json::from_str::<Value>(&text).unwrap_or(Value::Null));
+        match serde_json::from_str::<Value>(&text) {
+            Ok(row @ Value::Object(_)) => rows.push(row),
+            _ => return Err(RpcError::internal(format!("the list's row for {key} is not a row"))),
+        }
     }
-    json!({"rows": rows, "missing": missing, "rest": rest})
+    Ok(json!({"rows": rows, "missing": missing, "rest": rest}))
 }
 
 #[cfg(test)]

@@ -184,18 +184,28 @@ fn a_reply_past_its_bytes_names_the_rest_and_a_second_completes_it() {
     };
     let texts: Vec<_> = (0..5).map(text).collect();
     // Two rows fit 250 bytes; a missing key is answered whatever the bytes.
-    let first = super::rows_reply(&keys, texts.clone(), 250);
+    let first = super::rows_reply(&keys, texts.clone(), 250).unwrap();
     assert_eq!(first["rows"].as_array().unwrap().len(), 2);
     assert_eq!(first["missing"], json!(["k2"]));
     assert_eq!(first["rest"], json!(["k3", "k4"]));
     let rest: Vec<String> = serde_json::from_value(first["rest"].clone()).unwrap();
     let again: Vec<_> = rest.iter().map(|key| text(key[1..].parse().unwrap())).collect();
-    let second = super::rows_reply(&rest, again, 250);
+    let second = super::rows_reply(&rest, again, 250).unwrap();
     assert_eq!(second["rows"].as_array().unwrap().len(), 2);
     assert_eq!(second["rest"], json!([]));
     // A row larger than the bound alone still goes, one a reply.
-    let one = super::rows_reply(&keys[..1], texts[..1].to_vec(), 10);
+    let one = super::rows_reply(&keys[..1], texts[..1].to_vec(), 10).unwrap();
     assert_eq!(one["rows"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn a_row_text_that_is_not_a_row_is_an_error_never_a_null_row() {
+    let keys = vec!["a".to_owned(), "b".to_owned()];
+    for bad in ["", "null", "[1]", "{\"sessionId\""] {
+        let texts = vec![Some(Arc::from("{\"sessionId\":\"a\"}")), Some(Arc::from(bad))];
+        let error = super::rows_reply(&keys, texts, 1 << 20).expect_err(bad);
+        assert_eq!(error.code, crate::rpc::RpcError::internal("").code, "{bad:?}");
+    }
 }
 
 #[tokio::test]
@@ -219,27 +229,26 @@ fn p95(values: &mut [u128]) -> u128 {
     values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
 }
 
-/// Wall time and reply bytes of one 100-key batch, five rounds of 40, with `closed` closed
-/// chats beside the hundred live ones.
-async fn batch_samples(closed: usize) -> (Vec<Vec<u128>>, Vec<Vec<u128>>) {
+/// A hub with a hundred live chats, and `closed` closed ones beside them: the hundred's keys.
+fn batch_hub(closed: usize) -> (Arc<Hub>, Vec<String>) {
     let hub = memory_hub();
     let keys: Vec<String> = (0..100).map(|n| session(&hub, n, "idle")).collect();
     for n in 0..closed {
         session(&hub, 100 + n, "closed");
     }
+    (hub, keys)
+}
+
+/// One round of 40 batches of `keys` on `hub`: each one's wall time and reply bytes.
+async fn batch_round(hub: &Arc<Hub>, keys: &[String]) -> (Vec<u128>, Vec<u128>) {
     let (mut times, mut bytes) = (Vec::new(), Vec::new());
-    for _ in 0..5 {
-        let (mut round_times, mut round_bytes) = (Vec::new(), Vec::new());
-        for _ in 0..40 {
-            let started = Instant::now();
-            let (reply, len) =
-                call(&hub, method::MUX_INFO, json!({"sessionIds": keys, "row": true})).await;
-            round_times.push(started.elapsed().as_nanos());
-            assert_eq!(reply.unwrap()["rows"].as_array().unwrap().len(), 100);
-            round_bytes.push(len as u128);
-        }
-        times.push(round_times);
-        bytes.push(round_bytes);
+    for _ in 0..40 {
+        let started = Instant::now();
+        let (reply, len) =
+            call(hub, method::MUX_INFO, json!({"sessionIds": keys, "row": true})).await;
+        times.push(started.elapsed().as_nanos());
+        assert_eq!(reply.unwrap()["rows"].as_array().unwrap().len(), 100);
+        bytes.push(len as u128);
     }
     (times, bytes)
 }
@@ -264,13 +273,62 @@ fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128
 #[ignore = "Linux release gate: 100 keys beside 11,000 closed chats against the same 100 alone"]
 #[tokio::test]
 async fn v2_pr07b_info_rows() {
-    let (small_times, small_bytes) = batch_samples(0).await;
-    let (god_times, god_bytes) = batch_samples(11_000).await;
+    // Both hubs first, then their rounds in turn (decision 185): a slow stretch of the machine
+    // lands on both sides.
+    let (small, small_keys) = batch_hub(0);
+    let (god, god_keys) = batch_hub(11_000);
+    let (mut small_times, mut small_bytes, mut god_times, mut god_bytes) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let (times, bytes) = batch_round(&small, &small_keys).await;
+        small_times.push(times);
+        small_bytes.push(bytes);
+        let (times, bytes) = batch_round(&god, &god_keys).await;
+        god_times.push(times);
+        god_bytes.push(bytes);
+    }
     for (name, small, god, unit) in [
         ("v2.pr07b.info_rows_wall", &small_times, &god_times, "ns"),
         ("v2.pr07b.info_rows_bytes", &small_bytes, &god_bytes, "bytes"),
     ] {
         let (small, god) = emit(name, small, god, unit);
         assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+    }
+}
+
+/// What `_acpmux/status` costs with 11,000 closed chats of this daemon's and 11,000 a peer
+/// mirrors: its p95 wall time, the best of five rounds of 40. The PR runs it at its head and
+/// with the `closedListed` line taken out, for the before and after of that count.
+#[ignore = "a measure for the PR's body, not a gate: status beside 22,000 closed rows"]
+#[tokio::test]
+async fn status_cost_beside_closed_rows() {
+    let (hub, _) = batch_hub(11_000);
+    let mirrored: Vec<Value> = (0..11_000)
+        .map(|n| {
+            json!({"sessionId": crate::god_fixture::chat_id(20_000 + n), "name": format!("far-{n}"),
+                   "status": "closed", "updatedAt": 1_791_000_000_000_u64 + n as u64})
+        })
+        .collect();
+    let peer = hub.seed_down_peer("far", mirrored.clone());
+    hub.seed_peer_back(&peer, mirrored);
+    let mut rounds = Vec::new();
+    for _ in 0..5 {
+        let mut round = Vec::new();
+        for _ in 0..40 {
+            let started = Instant::now();
+            let status = hub.status().await;
+            round.push(started.elapsed().as_nanos());
+            assert!(status.get("version").is_some());
+        }
+        rounds.push(round);
+    }
+    let best = rounds.iter_mut().map(|round| p95(round)).min().unwrap_or(0);
+    let line = json!({"name": "status.beside_closed_wall", "p95": best, "unit": "ns"}).to_string();
+    eprintln!("{line}");
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{line}");
+        }
     }
 }
