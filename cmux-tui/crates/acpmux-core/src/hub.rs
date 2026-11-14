@@ -524,18 +524,6 @@ impl Hub {
             }
             Err(error) => return Err(error.into()),
         };
-        let log = if rebuild {
-            None
-        } else {
-            match IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref()) {
-                Ok(log) => Some(log),
-                Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-                    rebuild = true;
-                    None
-                }
-                Err(error) => return Err(error.into()),
-            }
-        };
         if rebuild {
             quarantine_index(directory)?;
             let edition = IndexEdition::open_rebuild(directory, boot, random)?;
@@ -543,7 +531,17 @@ impl Hub {
             let index = SummaryIndex::empty_with_edition(edition.edition);
             return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
         }
-        let log = log.expect("non-rebuild open has a log");
+        let log = match IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref()) {
+            Ok(log) => log,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                quarantine_index(directory)?;
+                let edition = IndexEdition::open_rebuild(directory, boot, random)?;
+                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let index = SummaryIndex::empty_with_edition(edition.edition);
+                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+            }
+            Err(error) => return Err(error.into()),
+        };
         let edition = IndexEdition::open(
             directory,
             boot,
