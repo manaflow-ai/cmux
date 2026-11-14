@@ -1792,7 +1792,7 @@ button.cv-subagent > :last-child {
 .cv-tool.cv-subagent-done-row[data-look="grid"] {
   display: grid;
   /* words | Retry | refusal note | ⋯ | time | chevron. Retry and the time have a floor that lines
-     them up from row to row and grow for a longer label ("Ask parent to retry", a translation) or a
+     them up from row to row and grow for a longer label (a translation) or a
      duration past an hour, so neither spills into its neighbour. Every row has the same tracks, so
      an empty note or ⋯ track moves every row alike. */
   grid-template-columns:
