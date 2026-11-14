@@ -27,7 +27,8 @@ fn is_token(token: &str) -> bool {
 
 /// `#rrggbb` exactly (Swift `ThemeEdits.isColor`).
 fn is_color(text: &str) -> bool {
-    text.len() == 7 && text.starts_with('#') && text[1..].chars().all(|c| c.is_ascii_hexdigit())
+    text.strip_prefix('#')
+        .is_some_and(|digits| digits.len() == 6 && digits.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 fn hex(color: Rgb) -> String {
