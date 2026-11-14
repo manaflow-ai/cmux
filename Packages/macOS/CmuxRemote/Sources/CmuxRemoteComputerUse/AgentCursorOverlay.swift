@@ -365,7 +365,14 @@ private final class SessionCursor {
     private var tailTicker: FrameTicker?
     private var lastTailFrame: CFTimeInterval?
     private var tailSpeed = 1.0
-    private var tailLively = true
+    /// The idle life played ahead (``AgentCursorTail/isLively`` false): the model as it was when
+    /// the batch began, when it began, and the timer that plays the next batch.
+    private var idleBatch: (start: AgentCursorTail, began: CFTimeInterval, pointer: CGPoint)?
+    private var idleTimer: Timer?
+    /// Frames per idle batch and their spacing: 2 s at 60 keyframes a second (the render server
+    /// interpolates between them at the display's refresh).
+    static let idleBatchFrames = 120
+    static let idleBatchStep = 1.0 / 60
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
     private let offscreen: CGRect?
@@ -553,7 +560,8 @@ private final class SessionCursor {
         tail.strokeColor = deep.cgColor
         rim.strokeColor = deep.withAlphaComponent(0.55).cgColor
         // Paused or refused: the tail droops until the next step.
-        tailMotion.drooping = color != nil
+        let drooping = color != nil
+        if tailMotion.drooping != drooping { stirTail { $0.drooping = drooping } }
     }
 
     /// Every layer under `layer` draws at `scale` (vector paths, text, shadows stay sharp).
@@ -623,11 +631,13 @@ private final class SessionCursor {
     /// makes it wiggle, anything else wakes it from calm. (Paused and refused droop it through
     /// the alert tint.)
     func noteTailEvent(_ kind: AgentCursorEvent.Kind) {
-        switch kind {
-        case .click: tailMotion.click()
-        case .typing: tailMotion.typing()
-        case .keys: tailMotion.key()
-        default: tailMotion.activity()
+        stirTail { tail in
+            switch kind {
+            case .click: tail.click()
+            case .typing: tail.typing()
+            case .keys: tail.key()
+            default: tail.activity()
+            }
         }
     }
 
@@ -796,17 +806,76 @@ private final class SessionCursor {
         let ticker = FrameTicker { [weak self] link in self?.tailFrame(link) }
         let link = view.displayLink(target: ticker, selector: #selector(FrameTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
-        tailLively = true
         tailTicker = ticker
         tailLink = link
         lastTailFrame = nil
     }
 
     private func stopTail() {
+        endIdleBatch()
         tailLink?.invalidate()
         tailLink = nil
         tailTicker = nil
         lastTailFrame = nil
+    }
+
+    /// Changes the tail's model from outside (an event, a droop): first brings a played-ahead
+    /// idle batch back to now and wakes the frame clock, so the change starts from what is on
+    /// screen.
+    private func stirTail(_ change: (inout AgentCursorTail) -> Void) {
+        endIdleBatch()
+        change(&tailMotion)
+        tailLink?.isPaused = false
+    }
+
+    /// Plays the next `idleBatchFrames` of the idle life as one keyframe animation on the tail's
+    /// path and pauses the frame clock until the batch ends (or something stirs the tail).
+    private func playIdleBatch(pointer: CGPoint) {
+        guard let link = tailLink else { return }
+        idleTimer?.invalidate()
+        let start = tailMotion
+        let paths = tailMotion.advance(frames: Self.idleBatchFrames, dt: Self.idleBatchStep, pointer: pointer,
+                                       speed: tailSpeed, scale: Self.k)
+        guard let last = paths.last else { return }
+        let duration = Double(Self.idleBatchFrames) * Self.idleBatchStep
+        // motion: allow the idle life played ahead: made only while the tail animates (`runTail`: the app's cursor switches and Reduce Motion), its frames stepped at ui.animationSpeed, removed when anything stirs the tail or the cursor hides.
+        let play = CAKeyframeAnimation(keyPath: "path")
+        play.values = paths
+        play.duration = duration
+        play.calculationMode = .linear
+        setTailPath(last)
+        tail.add(play, forKey: "idle")
+        tailEdge.add(play, forKey: "idle")
+        idleBatch = (start, CACurrentMediaTime(), pointer)
+        link.isPaused = true
+        lastTailFrame = nil
+        // The batch's end: the next batch carries on from its last frame (a one-shot, replaced
+        // by every batch, invalidated when the cursor hides or something stirs the tail).
+        idleTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.idleBatch != nil else { return }
+                self.playIdleBatch(pointer: pointer)
+            }
+        }
+    }
+
+    /// Ends a played-ahead batch where it is now: the model is stepped from the batch's start to
+    /// now (the same frames the animation showed), the animation goes, the path stays.
+    private func endIdleBatch() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+        guard let batch = idleBatch else { return }
+        idleBatch = nil
+        let elapsed = max(CACurrentMediaTime() - batch.began, 0)
+        let frames = min(Int(elapsed / Self.idleBatchStep), Self.idleBatchFrames)
+        var model = batch.start
+        for _ in 0..<frames {
+            model.step(dt: Self.idleBatchStep, pointer: batch.pointer, speed: tailSpeed, pointScale: Double(Self.k))
+        }
+        tailMotion = model
+        tail.removeAnimation(forKey: "idle")
+        tailEdge.removeAnimation(forKey: "idle")
+        setTailPath(tailMotion.path(scale: Self.k))
     }
 
     /// One display frame: where the pointer is on screen now (mid-glide too), one step of the
@@ -817,13 +886,9 @@ private final class SessionCursor {
         lastTailFrame = now
         let pointer = (body.presentation() ?? body).position
         stepTail(dt: dt, pointer: pointer)
-        // Full refresh while the tail follows, flicks or settles; a slow idle rate for its calm
-        // idle life, so a waiting cursor costs little.
-        let lively = tailMotion.isLively
-        if lively != tailLively {
-            tailLively = lively
-            link.preferredFrameRateRange = lively ? .default : CAFrameRateRange(minimum: 15, maximum: 30, preferred: 24)
-        }
+        // Every frame while something drives the tail; its calm idle life, which depends on
+        // nothing but time, plays ahead in batches so a waiting cursor costs (almost) nothing.
+        if !tailMotion.isLively { playIdleBatch(pointer: pointer) }
     }
 
     /// Steps the tail model and draws its path (the overlay's frames and the offscreen frames).
@@ -1069,7 +1134,7 @@ private final class SessionCursor {
         }
         chip(.text(ComputerUseText.t("computerUse.cursor.here", "Here")))
         if animated { squish(speed: speed) }
-        tailMotion.click()
+        stirTail { $0.click() }
     }
 
     func pulse(speed: Double) {

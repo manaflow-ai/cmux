@@ -109,8 +109,8 @@ struct AgentCursorTail {
     private(set) var excitement = 0.0
     private(set) var calm = 0.0
     private var sinceEvent = 0.0
-    /// Seconds since anything stirred the tail beyond its idle life (pointer motion, an event, a
-    /// flick, a droop changing): ``isLively``.
+    /// Seconds since something outside stirred the tail (pointer motion, a click, a key, typing,
+    /// a droop changing): ``isLively``.
     private var sinceStir = 0.0
     private(set) var droop = 0.0
     var drooping = false
@@ -159,6 +159,7 @@ struct AgentCursorTail {
 
     /// A click: a quick happy flick, alternating sides.
     mutating func click() {
+        sinceStir = 0
         kick(tuning.clickKick * flickSide)
         flickSide = -flickSide
         sinceEvent = 0
@@ -166,6 +167,7 @@ struct AgentCursorTail {
 
     /// A key press: a smaller flick.
     mutating func key() {
+        sinceStir = 0
         kick(tuning.keyKick * flickSide)
         flickSide = -flickSide
         sinceEvent = 0
@@ -184,11 +186,25 @@ struct AgentCursorTail {
         sinceEvent = 0
     }
 
-    /// True while the tail does more than its slow idle life (following the pointer, flicking,
-    /// wiggling, drooping or settling, and 2 s after): the overlay draws it at the display's full
-    /// rate then, and at an idle rate (about 24 fps) otherwise, which the slow wave does not need
-    /// more than (the tip moves well under a point per idle frame).
+    /// True while something outside drives the tail (the pointer moving, a click, a key, typing,
+    /// a droop changing, and 2 s after): the overlay steps it every display frame then. Otherwise
+    /// its motion depends on nothing but time (the idle wave and its own seeded flicks), so the
+    /// overlay plays it ahead as a keyframe animation (``advance(frames:dt:pointer:speed:scale:)``)
+    /// and the process sleeps between batches.
     var isLively: Bool { animates && sinceStir < 2 }
+
+    /// Steps `frames` frames of `dt` seconds with the pointer still at `pointer` and returns the
+    /// tail's path after each (scaled by `scale`): the same frames, step for step, that stepping
+    /// it frame by frame gives.
+    mutating func advance(frames: Int, dt: Double, pointer: CGPoint, speed: Double, scale: CGFloat) -> [CGPath] {
+        var paths: [CGPath] = []
+        paths.reserveCapacity(frames)
+        for _ in 0..<frames {
+            step(dt: dt, pointer: pointer, speed: speed, pointScale: Double(scale))
+            paths.append(path(scale: scale))
+        }
+        return paths
+    }
 
     /// The pointer jumped (a new screen, the first placement): not motion to follow.
     mutating func teleport() {
@@ -199,7 +215,6 @@ struct AgentCursorTail {
 
     private mutating func kick(_ amount: Double) {
         guard animates else { return }
-        sinceStir = 0
         for i in 0..<Self.segmentCount {
             spins[i] += amount * (0.35 + 0.65 * Double(i) / Double(Self.segmentCount - 1))
         }
@@ -267,8 +282,6 @@ struct AgentCursorTail {
         if untilFlick <= 0 {
             untilFlick = tuning.flickGap.lowerBound + (tuning.flickGap.upperBound - tuning.flickGap.lowerBound) * random.unit()
             kick(tuning.flickKick * (random.unit() < 0.5 ? 1 : -1) * moodAmplitude)
-            // An idle flick is small and quick: one second at full rate is enough for it.
-            sinceStir = 1
         }
         // The outside force (per unit mass): drag against the pointer's velocity, inertia
         // against its acceleration, each saturating so a fast fling stays bounded.

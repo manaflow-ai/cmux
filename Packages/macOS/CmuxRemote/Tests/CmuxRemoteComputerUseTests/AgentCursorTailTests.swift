@@ -231,6 +231,26 @@ import UniformTypeIdentifiers
         #expect(!still.isLively, "without animation it never asks for frames")
     }
 
+    @Test func anIdleBatchIsTheSameFramesAsSteppingFrameByFrame() {
+        // The overlay plays the idle life ahead in batches and, when something stirs the tail
+        // mid-batch, steps a copy from the batch's start to now: both must be exactly the
+        // frames the tail would have had frame by frame.
+        var batched = AgentCursorTail(session: "batch", animates: true)
+        var stepped = batched
+        let at = CGPoint(x: 40, y: 40)
+        let paths = batched.advance(frames: 120, dt: 1.0 / 60, pointer: at, speed: 1, scale: 1.3)
+        #expect(paths.count == 120)
+        var same = 0
+        for path in paths {
+            stepped.step(dt: 1.0 / 60, pointer: at, speed: 1, pointScale: 1.3)
+            if stepped.path(scale: 1.3) == path { same += 1 }
+        }
+        #expect(same == 120)
+        #expect(batched.angles == stepped.angles)
+        // And it is alive: the batch's first and last frames differ.
+        #expect(paths.first != paths.last)
+    }
+
     @Test func thePointersTipNeverMovesWhileTheTailLives() throws {
         // A cursor that clicks, types and presses keys in place: every frame draws the pointer's tip
         // on the same pixels, whatever the tail does.
