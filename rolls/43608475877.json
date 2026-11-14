@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43608475877",
+  "recorded_at": "2026-11-14T15:20:46Z",
+  "reason": "cmux-tui aba5ead2f610 changes the image's cmux-tui (pinned 5e31c1f3268c)",
+  "dry_run": false,
+  "cmux_tui": "aba5ead2f61099eff738915fa262f989e590ff28",
+  "fixes": [
+    {
+      "sha": "aba5ead2f61099eff738915fa262f989e590ff28",
+      "mergedAt": "2026-11-14T06:46:58-08:00",
+      "subject": "Sign-in enroll: tokenless reports, late leave intents, daemon restarts, carrier after re-enroll (#38319, #38440 review follow-ups) (#43084)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:20:46Z",
+    "snapshot_id": "sh-2fd5db7044534346b10c48f98b82f926",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43608475877): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "61dae4b430d5977678adc6969df6be9ec078bf2d",
+    "image": "cloud-native-auto-aba5ead2-43608475877-1",
+    "revision": "ci-43608475877-1",
+    "at": "2026-11-14T15:20:46Z"
+  },
+  "rolled_back": false
+}
