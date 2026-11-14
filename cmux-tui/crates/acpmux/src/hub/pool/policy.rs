@@ -50,6 +50,11 @@ pub struct PoolKey {
     /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
     /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
     pub prompt_suggestions: Option<bool>,
+    /// The agent tool servers a session of this shape gets now (`agent_tools::current`, scoped to
+    /// its spawn env), by name: a pooled agent was given its servers as it started, so a change
+    /// since (the person's answer to cmux's tools, `agents.cmuxMcp`; `mcp.enabled`; Computer Use
+    /// off) leaves its key unmatched and the entry is discarded, never served with the old servers.
+    pub tool_servers: String,
 }
 
 impl PoolKey {

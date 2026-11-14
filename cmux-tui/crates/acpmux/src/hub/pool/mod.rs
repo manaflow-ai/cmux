@@ -256,6 +256,15 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
     reads.then(enabled)
 }
 
+/// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
+/// ([`PoolKey::tool_servers`]).
+fn tool_servers(
+    tools: crate::agent_tools::AgentTools,
+    env: &std::collections::BTreeMap<String, String>,
+) -> String {
+    tools.scoped(env).servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+}
+
 #[cfg(test)]
 #[path = "suggestions_tests.rs"]
 mod suggestions_tests;
@@ -365,6 +374,7 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
+            tool_servers: tool_servers(crate::agent_tools::current(), &spawn.env),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
