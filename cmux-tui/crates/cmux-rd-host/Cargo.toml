@@ -36,10 +36,12 @@ openh264 = { version = "0.9", default-features = false, features = ["source"], o
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
 
 [target.'cfg(windows)'.dependencies]
-# The Windows host uses the stable user32/gdi32 capture path and SendInput.  The
-# DirectX and Media Foundation feature groups are kept here for the phase-3
-# backend seams; the first Windows runner uses GDI readback plus OpenH264 while
-# hardware MFT selection is probed at runtime.
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi",
+] }
+# COM wrappers for Desktop Duplication; user32/gdi32 remain the fallback and
+# SendInput implementation. Both paths feed the same OpenH264 encoder.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

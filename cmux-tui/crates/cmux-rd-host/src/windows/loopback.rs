@@ -203,6 +203,8 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         "60".into(),
         "--codec".into(),
         opts.str_or("codec", "openh264"),
+        "--capture".into(),
+        opts.str_or("capture", "auto"),
     ];
     let host_opts = Opts::parse(&args)?;
     // Connect before spawning, so accept cannot wait forever if viewer setup fails.
@@ -228,6 +230,8 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         // A reset caused by cleanup must not hide the original decoder/readback failure.
         let mut report = result?;
         let metrics = host_result??;
+        report["capture"] = metrics.capture_details["backend"].clone();
+        report["capture_details"] = metrics.capture_details;
         report["capture_ms"] = distribution(&metrics.capture_ms);
         report["convert_ms"] = distribution(&metrics.convert_ms);
         report["encode_ms"] = distribution(&metrics.encode_ms);

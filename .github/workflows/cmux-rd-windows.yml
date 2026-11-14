@@ -44,7 +44,7 @@ jobs:
         run: |
           cargo build --release --locked --no-default-features --features bench
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --release --locked --no-default-features --features bench optional_4k_mode
+          cargo test --release --locked --no-default-features --features bench windows::
 
       - name: Capture and encode a real desktop sample
         working-directory: cmux-tui/crates/cmux-rd-host
@@ -68,22 +68,24 @@ jobs:
             if (-not $ready.WaitOne(10000) -or $motion.HasExited) {
               throw 'Windows motion source did not show its window within 10 seconds'
             }
-            foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
-              foreach ($trial in 1..2) {
-                $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
-                  --width $size[0] --height $size[1] --duration-s 10 --codec openh264
-                if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
-                $result = $json | ConvertFrom-Json
-                if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
-                  Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
-                  Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
-                  break
+            foreach ($backend in @('gdi', 'dxgi')) {
+              foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
+                foreach ($trial in 1..2) {
+                  $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
+                    --width $size[0] --height $size[1] --duration-s 10 --codec openh264 --capture $backend
+                  if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
+                  $result = $json | ConvertFrom-Json
+                  if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
+                    Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
+                    Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
+                    break
+                  }
+                  if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
+                    throw 'Loopback did not prove a decoded frame in the viewer'
+                  }
+                  Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
+                  Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
                 }
-                if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
-                  throw 'Loopback did not prove a decoded frame in the viewer'
-                }
-                Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
-                Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
               }
             }
           } finally {

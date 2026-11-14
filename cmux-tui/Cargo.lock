@@ -1875,6 +1875,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "windows",
  "windows-sys 0.61.2",
  "x11rb",
 ]
