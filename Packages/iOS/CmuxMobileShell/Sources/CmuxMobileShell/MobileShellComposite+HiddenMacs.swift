@@ -189,6 +189,35 @@ extension MobileShellComposite {
         }
     }
 
+    /// Clears a reconnect's hidden marker only while that reconnect still owns
+    /// the connection attempt. The mutation is queued with the user-visible
+    /// hide/unhide operations for this computer so a newer hide cannot be
+    /// overwritten by a stale persistence continuation.
+    func clearHiddenMacDeviceIDAfterCurrentWrite(
+        _ macDeviceID: String,
+        instanceTag: String?,
+        scope: MobileShellScopeSnapshot?,
+        ifStillCurrent: (() -> Bool)?
+    ) async -> Bool {
+        guard ifStillCurrent?() ?? true else { return false }
+        guard let scope else { return true }
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let task = enqueueComputerVisibilityMutation(computerID: pairingID) {
+            store in
+            guard ifStillCurrent?() ?? true else { return }
+            await store.clearHiddenMacDeviceID(
+                macDeviceID,
+                instanceTag: instanceTag,
+                scope: scope
+            )
+        }
+        await task.value
+        return ifStillCurrent?() ?? true
+    }
+
     // MARK: - Forgotten Mac recovery
 
     private func forgottenMacRecoveryKey(accountID: String) -> String {
