@@ -284,21 +284,103 @@ class HostTests(unittest.TestCase):
         self.assertEqual(command.call_count, 1)
 
     def make_host(self):
-        instance = self.host.Host(Path("/tmp/owned.app"), {}, "/tmp/owned", ("account", "password"))
+        instance = self.host.Host(Path("/tmp/owned.app"), {"CFBundleIdentifier": "owned"},
+                                  "/tmp/owned", ("account", "password"))
         instance.proc, instance.probe, instance.log = Mock(), Mock(), Mock()
         instance.owns_auth = True
+        instance.auth_prepared = instance.device_prepared = True
+        instance.lease = "a" * 24
+        instance.namespace = "owned.cloud.development"
         return instance
+
+    @staticmethod
+    def capture_result(auth):
+        return dict(ok=True, code="ok", verified_absent=True,
+                    **(dict(keychain_absent=True, files_absent=True) if auth else
+                       dict(identity_removed=3, relays_removed=0)))
+
+    def test_capture_binds_auth_and_device_to_their_exact_namespaces(self):
+        instance = self.make_host()
+        for auth, method, bundle in ((True, "debug.cloud.capture_prepare", "owned"),
+                                      (False, "debug.device_hub", "owned.cloud.development")):
+            with self.subTest(auth=auth), patch.object(self.host, "rpc", return_value=self.capture_result(auth)) as call:
+                instance._capture("prepare", auth=auth)
+                self.assertEqual(call.call_args.args[1], method)
+                self.assertEqual(call.call_args.args[2]["bundle_id"], bundle)
+                self.assertEqual(call.call_args.args[2]["lease_id"], instance.lease)
+
+    def test_credentials_wait_for_both_namespace_claims(self):
+        for refusal in (None, "auth", "device"):
+            with self.subTest(refusal=refusal), tempfile.TemporaryDirectory(prefix="ss-") as directory:
+                instance = self.host.Host(Path("/owned.app"),
+                                          {"CFBundleIdentifier": "owned", "CFBundleExecutable": "cmux"},
+                                          directory, ("account", "password"))
+                launches, order = [], []
+                def launch(env, _home):
+                    launches.append(dict(env))
+                    order.append("launch")
+                    instance.proc = Mock()
+                    instance.proc.poll.return_value = None
+                def claim(phase, *, auth):
+                    name = "auth" if auth else "device"
+                    order.append(phase + "-" + name)
+                    if phase == "prepare" and refusal == name:
+                        raise self.host.HostFailure("host_namespace_prepare_failed")
+                with patch.object(self.host, "command", return_value=""), \
+                        patch.object(self.host, "identity_service", return_value="owned.cloud.development.device-hub"), \
+                        patch.object(self.host.subprocess, "run", return_value=Mock(returncode=44)), \
+                        patch.object(instance, "_launch", side_effect=launch), \
+                        patch.object(instance, "_account", return_value={"signed_in": False}), \
+                        patch.object(instance, "_capture", side_effect=claim), \
+                        patch.object(instance, "hub", return_value={"signed_in": True, "this_device": "owned-device"}), \
+                        patch.object(self.host, "rpc", return_value={"signed_in": True, "email": "account"}), \
+                        patch.object(self.host, "stop", side_effect=lambda proc: order.append("stop")):
+                    if refusal:
+                        with self.assertRaises(self.host.HostFailure): instance.__enter__()
+                    else:
+                        instance.__enter__()
+                if instance.log and not instance.log.closed: instance.log.close()
+                self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launches[0])
+                self.assertEqual(len(launches), 1 if refusal else 2)
+                if not refusal:
+                    self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "stop", "launch"])
+                    self.assertEqual(launches[1]["CMUX_UITEST_STACK_PASSWORD"], "password")
+
+    def test_capture_rejects_incomplete_or_wrongly_typed_absence_proof(self):
+        instance = self.make_host()
+        for auth, field, value in ((True, "files_absent", False), (True, "keychain_absent", None),
+                                    (True, "verified_absent", None), (False, "identity_removed", True),
+                                    (False, "relays_removed", -1), (False, "verified_absent", False)):
+            with self.subTest(auth=auth, field=field), \
+                    patch.object(self.host, "rpc", return_value={**self.capture_result(auth), field: value}):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_cleanup_failed"):
+                    instance._capture("cleanup", auth=auth)
 
     def test_signout_is_read_back_before_owned_process_stop(self):
         instance = self.make_host()
         order = []
-        def rpc(_socket, method):
+        def rpc(_socket, method, *_args, **_kwargs):
             order.append(method)
+            if method.startswith("debug.cloud.capture_"): return self.capture_result(True)
+            if method == "debug.device_hub": return self.capture_result(False)
             return {"ended": True} if method.endswith("end_session") else {"signed_in": False, "restoring": False}
         with patch.object(self.host, "rpc", side_effect=rpc), patch.object(self.host, "stop", side_effect=lambda p: order.append(p)):
             instance.__exit__()
         self.assertTrue(instance.cleanup_ok)
-        self.assertEqual(order, [instance.probe, "debug.cloud.end_session", "auth.status", instance.proc])
+        self.assertEqual(order, [instance.probe, "debug.cloud.end_session", "auth.status",
+                                 "debug.cloud.capture_cleanup", "debug.device_hub", instance.proc])
+
+    def test_failed_auth_absence_preserves_device_marker_and_stops_process(self):
+        instance = self.make_host()
+        def rpc(_socket, method, *_args, **_kwargs):
+            if method == "debug.cloud.end_session": return {"ended": True}
+            if method == "auth.status": return {"signed_in": False, "restoring": False}
+            return {"ok": True}
+        with patch.object(self.host, "rpc", side_effect=rpc) as call, patch.object(self.host, "stop") as stop:
+            instance.__exit__()
+        self.assertFalse(instance.cleanup_ok)
+        self.assertNotIn("debug.device_hub", [c.args[1] for c in call.call_args_list])
+        stop.assert_any_call(instance.proc)
 
     def test_failed_signout_still_stops_owned_app_and_fails_cleanup(self):
         instance = self.make_host()
@@ -309,6 +391,7 @@ class HostTests(unittest.TestCase):
 
     def test_preexisting_auth_is_never_signed_out(self):
         instance = self.make_host(); instance.owns_auth = False
+        instance.auth_prepared = instance.device_prepared = False
         with patch.object(self.host, "rpc") as rpc, patch.object(self.host, "stop"):
             instance.__exit__()
         rpc.assert_not_called()

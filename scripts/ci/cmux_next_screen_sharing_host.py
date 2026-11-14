@@ -110,10 +110,10 @@ def identity_service(app, bundle, env):
     return bundle + suffix + ".device-hub"
 
 
-def rpc(path, method, params=None):
+def rpc(path, method, params=None, *, timeout=10):
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(10)
+            client.settimeout(timeout)
             client.connect(str(path))
             client.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
             data = b""
@@ -167,12 +167,31 @@ class Host:
         self.viewer_name = None
         self.device = None
         self.owns_auth = False
+        self.auth_prepared = self.device_prepared = False
+        self.account_mismatch = False
+        self.namespace = None
+        self.lease = os.environ.get("GLAEDA_CAPTURE_LEASE_ID", "")
         self.cleanup_ok = False
         self.sock = self.work / "host.sock"
         self.events_path = self.work / "input.jsonl"
 
     def hub(self, params):
         return rpc(self.sock, "debug.device_hub", params)
+
+    def _capture(self, phase, *, auth):
+        params = {"lease_id": self.lease,
+                  "bundle_id": self.info["CFBundleIdentifier"] if auth else self.namespace}
+        if auth:
+            result = rpc(self.sock, "debug.cloud.capture_" + phase, params, timeout=30)
+            verified = all(result.get(key) is True for key in
+                           ("ok", "keychain_absent", "files_absent", "verified_absent"))
+        else:
+            result = rpc(self.sock, "debug.device_hub", {"action": "capture_" + phase, **params}, timeout=30)
+            verified = (result.get("ok") is True and result.get("verified_absent") is True
+                        and all(type(result.get(key)) is int and result[key] >= 0
+                                for key in ("identity_removed", "relays_removed")))
+        if not verified or result.get("code") != "ok":
+            raise HostFailure("host_namespace_" + phase + "_failed")
 
     def _launch(self, env, home):
         self.proc = subprocess.Popen([str(self.app / "Contents/MacOS" / self.info["CFBundleExecutable"]),
@@ -220,6 +239,7 @@ class Host:
         # never a key's value; 44 is errSecItemNotFound. Remote's separate key
         # scope is tied to the daemon state root beneath this private home.
         service = identity_service(self.app, bundle, env)
+        self.namespace = service.removesuffix(".device-hub")
         # Any existing item makes this service pre-owned, even when a previous
         # launch wrote a signing blob but never committed its device-id.
         found = subprocess.run(["security", "find-generic-password", "-s", service],
@@ -235,7 +255,12 @@ class Host:
             account = self._account()
             if account.get("signed_in") is not False or account.get("user_id"):
                 raise HostFailure("host_namespace_has_existing_account")
+            self._capture("prepare", auth=True)
+            self.auth_prepared = True
+            self._capture("prepare", auth=False)
+            self.device_prepared = True
             stop(self.proc)
+            self.proc = None
             self.sock.unlink(missing_ok=True)  # this process's socket only
             env.update(CMUX_DEV_AUTH_PROFILE="agent", CMUX_DEV_AUTH_ACCOUNT=email,
                        CMUX_UITEST_STACK_EMAIL=email, CMUX_UITEST_STACK_PASSWORD=password)
@@ -255,6 +280,7 @@ class Host:
                     if str(account.get("email", "")).casefold() != email.casefold():
                         # Do not clear a different account, even on a fresh tag.
                         self.owns_auth = False
+                        self.account_mismatch = True
                         raise HostFailure("host_account_mismatch")
                     if state.get("signed_in") is True and state.get("this_device"):
                         self.device = state["this_device"]
@@ -315,6 +341,8 @@ class Host:
                     failures.append("device")
         if self.owns_auth:
             try:
+                if not self.auth_prepared or not self.device_prepared:
+                    raise HostFailure("host_namespace_cleanup_failed")
                 if rpc(self.sock, "debug.cloud.end_session").get("ended") is not True:
                     raise HostFailure("host_signout_not_acknowledged")
                 account = rpc(self.sock, "auth.status")
@@ -322,6 +350,18 @@ class Host:
                     raise HostFailure("host_signout_not_complete")
             except HostFailure:
                 failures.append("auth")
+        if self.account_mismatch:
+            failures.append("account_mismatch")
+        elif "auth" not in failures:
+            # Auth absence must be verified before removing the device lease
+            # marker, keeping a failed cleanup attributable and retryable.
+            try:
+                if self.auth_prepared:
+                    self._capture("cleanup", auth=True)
+                if self.device_prepared:
+                    self._capture("cleanup", auth=False)
+            except HostFailure:
+                failures.append("namespace")
         try:
             stop(self.proc)
         except (OSError, subprocess.SubprocessError):
