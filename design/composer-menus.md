@@ -40,6 +40,11 @@ same controls.
   column (chat): one line for icons, one centre line for the pills.
 - A long project name cuts in the middle; the machine never shrinks, it drops its name in a narrow
   strip and keeps its icon.
+- With Cloud picked, the Environment chip gives way first: in a narrow strip it is its icon alone,
+  its name ("Cloud environment: Auto") in its tooltip and accessible name, before the folder, the
+  Where chip or its team tag cut. Nothing changes at full width (cmux#39001, the coordinator's
+  decision on Leo's authority, 2026-11-14). Gallery: `agent-pane.cloud-composer-chips`, each state
+  at full width, 760 px and 400 px.
 
 ## Cloud machines in the machine menu
 

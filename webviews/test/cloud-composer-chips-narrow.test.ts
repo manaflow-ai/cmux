@@ -59,7 +59,14 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
   });
 
   type Chip = { kind: string; width: number; labelShown: boolean; cut: boolean; name: string; tooltip: string };
-  type Strip = { strip: number; chips: Chip[]; play: string | undefined; error: string | undefined };
+  type Strip = {
+    strip: number;
+    viewport: number;
+    chain: string;
+    chips: Chip[];
+    play: string | undefined;
+    error: string | undefined;
+  };
 
   /// The variant's stage at `width`, its play done and the Environment chip's column settled.
   const open = async (variant: string, width: number): Promise<{ page: Page; strip: Strip }> => {
@@ -101,9 +108,17 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
       });
       const report = (window as Window & { cmuxGalleryPlayReport?: { status: string; error?: string } })
         .cmuxGalleryPlayReport;
+      const chain: string[] = [];
+      for (let node: Element | null = document.querySelector(".acpmux-composer-strip"); node; node = node.parentElement)
+        chain.push(
+          `${node.tagName.toLowerCase()}.${[...node.classList].slice(0, 2).join(".")}=${Math.round(node.getBoundingClientRect().width)}(max:${getComputedStyle(node).maxWidth})`,
+        );
+      const viewport = window.innerWidth;
       return {
         strip: document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect().width,
         chips,
+        viewport,
+        chain: chain.join(" < "),
         play: report?.status,
         error: report?.error,
       };
@@ -115,15 +130,16 @@ await requireBrowserLane("cloud-composer-chips-narrow.test.ts", async () => {
   const environment = (strip: Strip) => strip.chips.find((chip) => chip.kind === "cloud-environment")!;
 
   for (const variant of ["personal-default", "team-bypass", "removed-team"]) {
-    test(`${variant}: at 760 px every chip shows whole, the Environment chip with its name`, async () => {
-      const { page, strip } = await open(variant, 760);
-      try {
-        expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
-        expect(environment(strip).labelShown).toBe(true);
-      } finally {
-        await page.close();
-      }
-    });
+    for (const width of [1100, 760])
+      test(`${variant}: at ${width} px every chip shows whole, the Environment chip with its name`, async () => {
+        const { page, strip } = await open(variant, width);
+        try {
+          expect(strip.chips.filter((chip) => chip.cut)).toEqual([]);
+          expect(environment(strip).labelShown).toBe(true);
+        } finally {
+          await page.close();
+        }
+      });
 
     test(`${variant}: at 400 px the Environment chip is its icon alone, named in its tooltip, and nothing else cuts`, async () => {
       const { page, strip } = await open(variant, 400);
