@@ -20,7 +20,7 @@ import Testing
             if implementsOpener {
                 implements["cmux.opener/1"] = ["export": "openLink", "options": ["urls": ["https://jira.example/browse/*"]]]
             }
-            return ["manifestVersion": 2, "id": "local/jira", "name": "Jira", "version": "1.0.\(revision)", "implements": .object(implements)]
+            return ["manifestVersion": 2, "id": "local/jira", "name": "Jira", "version": .string("1.0.\(revision)"), "implements": .object(implements)]
         }
 
         func start() {}
