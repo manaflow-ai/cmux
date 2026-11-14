@@ -55,7 +55,9 @@ import Testing
         list.frame = NSRect(x: 0, y: 0, width: width, height: 1000)
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
-        #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
+        let headers = list.rowViews.values.compactMap { $0 as? SectionHeaderRowView }
+        #expect(!headers.isEmpty, "flat layouts retain machine headers so Add remains reachable")
+        #expect(headers.allSatisfy { !$0.addButton.isHidden }, "Add stays visible in the flat layout")
         for id in ["local", "mac", "cloud", "offline"] {
             let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
             let button = try #require(row.screenSlot.made)
