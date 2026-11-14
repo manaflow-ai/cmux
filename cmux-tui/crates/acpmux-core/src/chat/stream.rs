@@ -681,7 +681,16 @@ pub(super) fn flush_text(state: &mut ActorState, row: Option<u64>) {
     let seq = state.log.last_seq();
     let mut ops = Vec::new();
     for (row, text) in pieces {
-        op_text(&mut ops, seq, row, &text);
+        let mut rest = text.as_slice();
+        while !rest.is_empty() {
+            let (piece, after) = rest.split_at(text_cut(rest, TEXT_PIECE));
+            if !ops.is_empty() && ops.len() + piece.len() + TEXT_OP_OVERHEAD > TEXT_PIECE {
+                offer_live(state, &ops, seq);
+                ops.clear();
+            }
+            op_text(&mut ops, seq, row, piece);
+            rest = after;
+        }
     }
     offer_live(state, &ops, seq);
 }
@@ -740,7 +749,10 @@ fn offer_live(state: &mut ActorState, ops: &[u8], seq: u64) {
         // never goes on with ops missing.
         let keep = match delta(&sub.sid, None, ops) {
             Ok(frame) => offer(sub, frame, seq),
-            Err(_) => true,
+            Err(_) => {
+                sub.sink.dropped(&sub.sid);
+                false
+            }
         };
         if keep {
             at += 1;
