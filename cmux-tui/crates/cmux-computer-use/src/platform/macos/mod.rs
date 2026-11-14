@@ -8,6 +8,7 @@
 //! [`Delivery::Foreground`].
 
 mod actions;
+mod activation;
 mod ax;
 mod capture;
 mod cgwindows;

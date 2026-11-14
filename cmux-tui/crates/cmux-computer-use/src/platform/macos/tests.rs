@@ -41,6 +41,44 @@ fn background_click_on_a_hit_element() {
     assert!(roles::is_label_role("AXStaticText") && !roles::is_label_role("AXButton"));
 }
 
+/// Bugs 2 and 3: a background chord whose matches are all disabled (the app
+/// has no key window) gets its menus validated first; a blocked or enabled
+/// match, or none, does not.
+#[test]
+fn a_background_chord_with_only_disabled_matches_needs_validation() {
+    let m = |enabled, blocked| roles::ShortcutMatch {
+        title: "Select All".into(),
+        enabled,
+        blocked,
+        checked: true,
+        unknown: false,
+        unplaced: false,
+    };
+    assert!(roles::needs_menu_validation(&[m(false, false)]));
+    assert!(roles::needs_menu_validation(&[m(false, false), m(false, false)]));
+    assert!(!roles::needs_menu_validation(&[]));
+    assert!(!roles::needs_menu_validation(&[m(true, false)]));
+    assert!(!roles::needs_menu_validation(&[m(false, false), m(true, false)]));
+    assert!(!roles::needs_menu_validation(&[m(false, true)]));
+}
+
+/// The window server records posted to the target's process: the window id
+/// little-endian at 0x3C, the focus direction at 0x8A, the make-key flag and
+/// mask for the make-key pair.
+#[test]
+fn activation_records_carry_the_window_and_direction() {
+    let focus = activation::record(0x0D, 0x0102_0304, activation::FOCUS_IN);
+    assert_eq!((focus[0x04], focus[0x08]), (0xF8, 0x0D));
+    assert_eq!(&focus[0x3C..0x40], &[0x04, 0x03, 0x02, 0x01]);
+    assert_eq!(focus[0x8A], 0x01);
+    assert_eq!(focus[0x3A], 0);
+    let out = activation::record(0x0D, 7, activation::FOCUS_OUT);
+    assert_eq!(out[0x8A], 0x02);
+    let make = activation::record(0x01, 7, 0);
+    assert_eq!((make[0x08], make[0x3A], make[0x8A]), (0x01, 0x10, 0));
+    assert!(make[0x20..0x30].iter().all(|b| *b == 0xFF));
+}
+
 #[test]
 fn modifier_flags() {
     assert_eq!(keymap::flags(&[]), 0);

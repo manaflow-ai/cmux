@@ -1005,6 +1005,13 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     }
 }
 
+/// Whether a background chord's menu matches need the app to validate its
+/// menus first: there are matches, none is blocked and none is enabled (an
+/// app with no key window disables every item that acts on one).
+pub fn needs_menu_validation(matches: &[ShortcutMatch]) -> bool {
+    !matches.is_empty() && !matches.iter().any(|m| m.blocked || m.enabled)
+}
+
 /// Whether the rule reads the layout and the Services shortcuts: while
 /// something is denied and no match is blocked, for a foreground chord
 /// (which is posted when they pass) and for a background one with no
