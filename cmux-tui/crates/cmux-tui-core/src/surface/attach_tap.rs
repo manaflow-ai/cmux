@@ -296,7 +296,7 @@ pub(super) struct AttachTap {
     pub(super) lifecycle: AttachLifecycle,
     /// The history a byte viewer asked for (`replay_history_rows`): a resize or
     /// resync replays it that window, not the whole history. `None`: all of it.
-    pub(super) history: Option<super::history_window::HistoryWindow>,
+    pub(super) history: Option<HistoryWindow>,
 }
 
 pub(super) struct AttachTapState {

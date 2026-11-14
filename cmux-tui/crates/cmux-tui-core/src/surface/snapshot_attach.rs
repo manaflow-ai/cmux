@@ -426,7 +426,7 @@ impl PtySurface {
         &self,
         term: &Terminal,
         frame: Option<AttachFrame>,
-        windows: &super::pty_surface::TapWindowReplays,
+        windows: &pty_surface::TapWindowReplays,
     ) {
         match &frame {
             Some(frame) => self.snapshot_position.observe_frame(frame),
