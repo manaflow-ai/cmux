@@ -108,6 +108,11 @@ enum OmnibarStyle {
     /// starts on the rows' column (Lucas 2026-11-14: "like 1pt to the right for search input"). A fixed inset of the
     /// text views, so it does not scale with the density.
     static let fieldTextInsetCorrection: CGFloat = 1
+    /// The resting field's own text inset: its cell's title rect and its field editor's line fragment padding
+    /// (`OmnibarFieldEditor`) both start the text 2 pt inside the field.
+    static let fieldTextInset: CGFloat = 2
+    /// Where the URL's text starts in the bar: the chip, the gap after it, the field's correction and its own inset.
+    static var textOrigin: CGFloat { chipLeading + chipSize + textLeading + fieldTextInsetCorrection + fieldTextInset }
     /// The bar's trailing marks' distance from its edge.
     static let edgeInset: CGFloat = 2
     /// The field's distance from the trailing marks.
