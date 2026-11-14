@@ -26,24 +26,22 @@ impl Registry {
     /// Returns the existing mailbox or starts one actor for this chat.
     pub fn hydrate(&self, config: ChatConfig) -> ChatHandle {
         let id = config.id.clone();
-        let dead = {
-            let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(entry) = entries.get(&id)
-                && !entry.actor.is_finished()
-            {
-                return entry.actor.handle.clone();
-            }
-            entries.remove(&id)
-        };
+        // Spawning only starts a worker; no book I/O runs under this map lock. Keep
+        // admission serialized until its handle is published, including cold lookups.
+        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = entries.get(&id)
+            && !entry.actor.is_finished()
+        {
+            return entry.actor.handle.clone();
+        }
+        let dead = entries.remove(&id);
+        let actor = ChatActor::spawn(config);
+        let handle = actor.handle.clone();
+        entries.insert(id, Entry { actor });
+        drop(entries);
         if let Some(entry) = dead {
             entry.actor.join();
         }
-        let actor = ChatActor::spawn(config);
-        let handle = actor.handle.clone();
-        self.entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(id, Entry { actor });
         handle
     }
 
