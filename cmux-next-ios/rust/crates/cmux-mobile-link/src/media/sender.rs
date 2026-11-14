@@ -436,7 +436,8 @@ mod tests {
             let now = 125_000 + i * 50_000;
             let seq = core.twcc_seq;
             core.stamp(&mut Packet::default(), now);
-            report(&mut core, [seq], now as i64 + 25_000, now + 50_000);
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, seq..seq + 2, now as i64 + 25_000, now + 50_000);
         }
         assert_eq!(core.state().loss, 0.0);
         assert!(core.state().target_bps >= start);
@@ -460,7 +461,8 @@ mod tests {
             let now = 150_000 + i * 50_000;
             let seq = core.twcc_seq;
             core.stamp(&mut Packet::default(), now);
-            report(&mut core, [seq], now as i64 + 25_000, now + 50_000);
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, seq..seq + 2, now as i64 + 25_000, now + 50_000);
         }
         assert!(core.state().target_bps >= start, "a1% loss window must not lower the target");
     }
@@ -474,8 +476,9 @@ mod tests {
         report(&mut core, 90..100, 25_000, 50_000);
         core.on_path_change(75_000);
         core.stamp(&mut Packet::default(), 100_000);
-        report(&mut core, [100], 125_000, 200_000);
-        assert_eq!(core.state().loss, 0.0);
+        core.stamp(&mut Packet::default(), 100_000);
+        report(&mut core, 100..102, 125_000, 200_000);
+        assert_eq!(core.state().loss, 0.0, "old-path gaps must not reach new-path feedback");
     }
 
     #[test]
