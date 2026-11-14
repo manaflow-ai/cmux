@@ -2220,6 +2220,7 @@
 		A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */; };
 		828800020000000000000002 /* FileExplorerPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828800020000000000000001 /* FileExplorerPalette.swift */; };
 		D38ACA7DC265E9BC23C08CBE /* FileExplorerPreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */; };
+		AF3DB86F592FC844439578F5 /* FileExplorerRemoteTmuxRootTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */; };
 		FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996040000000000000001 /* FileExplorerRowView.swift */; };
@@ -4693,6 +4694,7 @@
 		EE30D5000000000000000004 /* WorkspaceRemoteRelayCommandRewriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */; };
 		EE30D6000000000000000004 /* WorkspaceRemoteSessionBuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000003 /* WorkspaceRemoteSessionBuildInfo.swift */; };
 		EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */; };
+		07C668A3C8EDF418A9F8A2F4 /* WorkspaceRemoteTmuxMirrorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE52CEEA6C6F518AB603787 /* WorkspaceRemoteTmuxMirrorState.swift */; };
 		44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
 		6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */; };
@@ -6928,6 +6930,7 @@
 		06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOpenedTabDragSourceTests.swift; sourceTree = "<group>"; };
 		828800020000000000000001 /* FileExplorerPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPalette.swift; sourceTree = "<group>"; };
 		1DE752CEBF4A6BCFA11FDD35 /* FileExplorerPreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerPreviewCoordinator.swift"; sourceTree = "<group>"; };
+		AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerRemoteTmuxRootTests.swift"; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootSyncPolicyTests.swift; sourceTree = "<group>"; };
 		FE5996040000000000000001 /* FileExplorerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRowView.swift; sourceTree = "<group>"; };
@@ -9367,6 +9370,7 @@
 		EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteRelayCommandRewriter.swift; sourceTree = "<group>"; };
 		EE30D6000000000000000003 /* WorkspaceRemoteSessionBuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionBuildInfo.swift; sourceTree = "<group>"; };
 		EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionHostAdapter.swift; sourceTree = "<group>"; };
+		8CE52CEEA6C6F518AB603787 /* WorkspaceRemoteTmuxMirrorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteTmuxMirrorState.swift; sourceTree = "<group>"; };
 		92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift; sourceTree = "<group>"; };
 		9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
 		6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarAgentRuntimeObservationModel.swift; sourceTree = "<group>"; };
@@ -12695,6 +12699,7 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				8CE52CEEA6C6F518AB603787 /* WorkspaceRemoteTmuxMirrorState.swift */,
 				9EEA4A95E38F9F819B101793 /* Workspace+SharedLiveAgentIndex.swift */,
 				C2452EDA6ED2355F908EE912 /* AppDelegate+KiroAgentMessages.swift */,
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
@@ -14339,6 +14344,7 @@
 				C977F027484909BFDB0FE0E5 /* DividerDoubleClickSettingsFileTests.swift */,
 				CB22E358DB4A0CDAE76D29C9 /* DividerTrackingEventProbe.swift */,
 				ED0B9F5049CC27EC7AAA3419 /* CMUXCLIRestoreRecordRefreshTests.swift */,
+				AEFD050842C69541B3169029 /* FileExplorerRemoteTmuxRootTests.swift */,
 				25FD7520201E1CA17A64BAEE /* ClaudeRelaunchRestoresEveryWorkspaceTests.swift */,
 				116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
 				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
@@ -17922,6 +17928,7 @@
 				EE30D5000000000000000004 /* WorkspaceRemoteRelayCommandRewriter.swift in Sources */,
 				EE30D6000000000000000004 /* WorkspaceRemoteSessionBuildInfo.swift in Sources */,
 				EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */,
+				07C668A3C8EDF418A9F8A2F4 /* WorkspaceRemoteTmuxMirrorState.swift in Sources */,
 				44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
 				6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */,
@@ -19038,6 +19045,7 @@
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
 				9860F0029860F0029860F002 /* FileExplorerNativeDragOwnershipTests.swift in Sources */,
 				A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */,
+				AF3DB86F592FC844439578F5 /* FileExplorerRemoteTmuxRootTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */,
 				F5996002A1B2C3D4E5F60001 /* FileExplorerShortcutSettingsTests.swift in Sources */,
