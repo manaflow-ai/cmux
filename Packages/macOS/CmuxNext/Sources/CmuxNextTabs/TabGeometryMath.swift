@@ -84,11 +84,14 @@ public struct TabScrollMapping: Equatable, Sendable {
     /// The band for `result`: the first unpinned slot's x after leading pinned
     /// tabs. Pinned tabs that leave the unpinned ones less than
     /// `minimumScrollable` of `viewportWidth` (or no unpinned tab at all) fix
-    /// nothing: then the whole strip scrolls, pinned tabs too.
+    /// nothing: then the whole strip scrolls, pinned tabs too. Nor do pinned tabs wider than half the
+    /// viewport (titled pinned tabs, `tabs.pinnedKeepsTitle`): fixed, they would leave the other tabs a
+    /// window of about one tab to scroll through.
     public init(result: TabLayoutResult, viewportWidth: CGFloat, minimumScrollable: CGFloat, offset: CGFloat) {
         var fixed: CGFloat = 0
         if result.slots.first?.isPinned == true, let first = result.slots.first(where: { !$0.isPinned }) { fixed = first.x }
-        self.init(band: fixed > 0 && fixed + minimumScrollable <= viewportWidth ? fixed : 0, offset: offset)
+        let fits = fixed + minimumScrollable <= viewportWidth && fixed * 2 <= viewportWidth
+        self.init(band: fixed > 0 && fits ? fixed : 0, offset: offset)
     }
 
     /// The offset a tab in that region takes: 0 for a fixed pinned tab.
