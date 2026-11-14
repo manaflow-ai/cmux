@@ -173,6 +173,7 @@ const REMOTE_VALUE_OPTIONS: &[&str] = &[
     "--wireguard-hub",
     "--ssh-arg",
     "--workspace-root",
+    "--vm-kind",
     "--host",
     "--port",
     "--listen",

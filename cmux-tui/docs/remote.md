@@ -234,7 +234,7 @@ tar -C src -cf - . | cmux remote exec <route> -- tar -C /srv/app -xf -
 cmux remote exec <route> -- tar -C /srv/app -cf - . | tar -C copy -xf -
 ```
 
-Without `--cwd` the command runs in `/`. `--tty` runs it under a terminal sized like the local one (80x24 when stdout is not a terminal) with the local `TERM`, and puts a local terminal in raw mode.
+Without `--cwd` the command runs in `/`. `--tty` runs it under a terminal sized like the local one (80x24 when stdout is not a terminal) with the local `TERM`, and puts a local terminal in raw mode. At the end of piped input it sends Control-D (twice when the last line has no newline, so `printf foo | cmux remote exec <route> --tty -- cat` ends).
 
 `remote cp` copies one file each way. Exactly one side is `remote:PATH`, an absolute path on the remote machine; a destination that is a directory (or a remote path ending in `/`) gets the file under its own name. `--json` prints `{"bytes","seconds","mib_per_s"}` when the copy is done.
 
@@ -243,7 +243,7 @@ cmux remote cp <route> ./build.tar remote:/srv/app/build.tar --json
 cmux remote cp <route> remote:/var/log/app.log ./
 ```
 
-Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads up to 8 MiB are one `write-file`. Larger uploads go up as 8 MiB `write-file` parts into a private staging directory beside the destination (`mktemp -d`, mode 0700; each part must be a new file), each checked against its SHA-256, and a remote `/bin/sh` joins them into a file it creates exclusively under umask 077, gives it its mode once complete, and renames it into place; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads get the local file's permission bits (a remote `chmod`). Downloads never widen access: a new file is 0600 (0700 when the remote file is executable) less the local umask, and a replaced file keeps its mode, narrowed to that. Directories are refused: copy a tree with `remote exec` and `tar` as above.
+Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads go up as 8 MiB `write-file` parts into a private staging directory beside the destination (`mktemp -d`, mode 0700; each part must be a new file), each checked against its SHA-256, and a remote `/bin/sh` joins them into a file it creates exclusively under umask 077, gives it its mode once complete, and renames it into place, refusing a destination that is a directory; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads get the local file's permission bits before they are published, so a private file is never visible with a wider mode. Downloads never widen access: a new file is 0600 (0700 when the remote file is executable) less the local umask, and a replaced file keeps its mode, narrowed to that. Directories are refused: copy a tree with `remote exec` and `tar` as above.
 
 ## Coding-agent RPC
 

@@ -1122,9 +1122,9 @@ async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
     assert_eq!(exit, Some(0));
 }
 
-/// P1-F1 (review of #43048): stdout and stderr have a reader each. A read
-/// admitted on one pipe may wait for data while the other fills the log; its
-/// chunk must have been reserved, or it publishes past the byte limit and
+/// P1-F1 (review of #43048): stdout and stderr have a reader each. A read on
+/// one pipe may wait for data while the other fills the log; its chunk must
+/// get room before it is published, or it publishes past the byte limit and
 /// evicts output the held reader has not taken.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

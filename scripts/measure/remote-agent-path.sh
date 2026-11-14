@@ -13,8 +13,14 @@ bin="$1" route="$2" state="$3" n="${4:-20}" mib="${5:-64}"
 run() { "$bin" remote exec "$route" --state-dir "$state" "$@"; }
 now_ms() { date +%s%3N; }
 pct() { sort -n | awk -v p="$1" '{a[NR]=$1} END {i=int((NR-1)*p+0.5)+1; print a[i]}'; }
-# A private directory for every local scratch file; removed on exit.
-work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
+# A private directory for every local scratch file, and the remote temp file once mktemp made it:
+# both removed on any exit, a failed copy included.
+work="" remote=""
+cleanup() {
+  if [ -n "$work" ]; then rm -rf "$work"; fi
+  if [ -n "$remote" ]; then run -- rm -f "$remote" || true; fi
+}
+work=$(mktemp -d); trap cleanup EXIT
 
 samples=()
 for _ in $(seq 1 "$n"); do
@@ -44,7 +50,7 @@ remote=$(run -- mktemp)
 head -c $((mib * 1048576)) /dev/urandom > "$local_file"
 up=$("$bin" remote cp "$route" --state-dir "$state" --json "$local_file" "remote:$remote")
 down=$("$bin" remote cp "$route" --state-dir "$state" --json "remote:$remote" "$back")
-run -- rm -f "$remote"
+run -- rm -f "$remote"; remote=""
 [ "$(sha256sum < "$local_file")" = "$(sha256sum < "$back")" ] || { echo "REMOTE-AGENT-PATH cp sha256 mismatch"; exit 1; }
 rm -f "$local_file" "$back"
 echo "REMOTE-AGENT-PATH cp_up $up"

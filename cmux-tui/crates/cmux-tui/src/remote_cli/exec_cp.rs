@@ -47,8 +47,10 @@ const EXIT_TRANSPORT: i32 = 255;
 const EXIT_INTERRUPTED: i32 = 130;
 const EXIT_BROKEN_PIPE: i32 = 141;
 const DEFAULT_TERMINAL: (u16, u16) = (80, 24);
+/// The terminal's EOF character (`VEOF`, Control-D).
+const CONTROL_D: u8 = 0x04;
 
-/// Makes a private staging directory for a large upload beside its
+/// Makes a private staging directory for an upload beside its
 /// destination `$1` and prints its path. `mktemp -d` creates it exclusively
 /// with mode 0700, so nobody else can plant or read a part in it.
 const STAGING_SCRIPT: &str = r#"set -eu
@@ -67,10 +69,18 @@ const STAGING_PREFIX: &str = ".cmux-cp.";
 /// exclusively (`set -C`) under umask 077, gets its mode only once complete,
 /// and is renamed into place. Only the staging directory's own files are
 /// removed, whatever happens.
+///
+/// `mv` onto a directory moves into it, and BSD `mv` (macOS) has no `-T` to
+/// forbid that, so a directory at `$2` is refused before the rename. The file
+/// is renamed under the staging directory's own random name first: should a
+/// directory appear at `$2` between the check and the `mv`, the file lands at
+/// `$2/<that name>`, which no existing file has, and is taken back out.
+/// Every command here is POSIX and takes the same options on BSD and GNU.
 const ASSEMBLE_SCRIPT: &str = r#"set -eu
 d=$1; f=$2; n=$3; m=$4
+t=$d/${d##*/}
 umask 077
-cleanup() { rm -f -- "$d"/part.* "$d/assembled"; rmdir -- "$d" 2>/dev/null || true; }
+cleanup() { rm -f -- "$d"/part.* "$d/assembled" "$t"; rmdir -- "$d" 2>/dev/null || true; }
 trap cleanup EXIT
 set -C
 : > "$d/assembled"
@@ -78,10 +88,13 @@ set +C
 i=0
 while [ "$i" -lt "$n" ]; do cat "$(printf '%s/part.%06d' "$d" "$i")" >> "$d/assembled"; i=$((i+1)); done
 chmod "$m" "$d/assembled"
-mv -f -- "$d/assembled" "$f"
+mv -f -- "$d/assembled" "$t"
+if [ -d "$f" ]; then printf '%s: is a directory\n' "$f" >&2; exit 1; fi
+mv -f -- "$t" "$f"
+if [ -d "$f" ]; then rm -f -- "$f/${d##*/}"; printf '%s: is a directory\n' "$f" >&2; exit 1; fi
 "#;
 
-/// Removes the staging directory `$1` of a failed large upload.
+/// Removes the staging directory `$1` of a failed upload.
 const CLEANUP_STAGING_SCRIPT: &str = r#"rm -f -- "$1"/part.*; rmdir -- "$1""#;
 
 /// An exit status `run` returns as is, printing `error` first when present.
@@ -379,7 +392,7 @@ async fn exec_on(client: Arc<WorkspaceClient>, parsed: ExecArgs) -> anyhow::Resu
     // Input runs beside the output loop in this future (no task to own): the
     // command's status ends both, and an input side that finished waits.
     let input = async {
-        forward_stdin(&client, process).await;
+        forward_stdin(&client, process, parsed.tty).await;
         std::future::pending::<anyhow::Result<i32>>().await
     };
     tokio::select! {
@@ -422,14 +435,26 @@ fn spawn_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<StdinChunk
 /// time, and EOF at local EOF. It runs beside the output loop so a command
 /// blocked on a full stdout can never stall its own input. A write the
 /// daemon refuses (the command closed stdin or exited) stops forwarding.
-async fn forward_stdin(client: &WorkspaceClient, process: ProcessId) {
+///
+/// On a PTY, EOF is the daemon's one Control-D, which ends input only at the
+/// start of a line: after an unterminated line it just hands that line to
+/// the reader. So when the last byte sent was not a newline, an extra
+/// Control-D goes first to release the line (`printf foo | ... --tty -- cat`).
+async fn forward_stdin(client: &WorkspaceClient, process: ProcessId, tty: bool) {
     let Ok(mut input) = spawn_stdin_reader() else { return };
     let mut write_id = 0_u64;
+    let mut last_sent = None;
     loop {
         let (data, eof) = match input.recv().await {
             Some(StdinChunk::Data(data)) => (data, false),
+            Some(StdinChunk::End) | None if tty && pty_line_open(last_sent) => {
+                (vec![CONTROL_D], false)
+            }
             Some(StdinChunk::End) | None => (Vec::new(), true),
         };
+        if let Some(last) = data.last() {
+            last_sent = Some(*last);
+        }
         write_id += 1;
         let request = WorkspaceRequest::WriteProcess {
             process,
@@ -441,6 +466,12 @@ async fn forward_stdin(client: &WorkspaceClient, process: ProcessId) {
             return;
         }
     }
+}
+
+/// Whether a PTY's line is unterminated after `last_sent`, the last input byte
+/// written: a Control-D there releases the line instead of ending input.
+pub(super) fn pty_line_open(last_sent: Option<u8>) -> bool {
+    last_sent.is_some_and(|byte| byte != b'\n' && byte != CONTROL_D)
 }
 
 fn write_output(output: &mut impl Write, data: &ByteString) -> anyhow::Result<()> {
@@ -794,17 +825,13 @@ async fn upload(
     } else {
         remote.to_owned()
     };
-    // `write-file` makes a new file 0600 and `cat >` follows the umask: give
-    // the copy the local file's permission bits, as scp does.
+    // Give the copy the local file's permission bits, as scp does. Every
+    // upload, a small one too, is joined in private staging and gets its mode
+    // there, before it is renamed into place: writing the destination first
+    // and `chmod` after would show a private file with the old file's mode
+    // until then (and for good if the connection drops in between).
     let mode = format!("{:o}", metadata.permissions().mode() & 0o777);
     let size = metadata.len();
-    if size <= WRITE_FILE_BYTES as u64 {
-        let bytes = tokio::fs::read(local).await?;
-        write_remote_file(client, workspace, &remote, &bytes).await?;
-        let argv = vec!["chmod".into(), mode, "--".into(), remote.clone()];
-        check_step("chmod", run_remote(client, workspace, argv, None).await?)?;
-        return Ok(bytes.len() as u64);
-    }
     let staging = make_staging(client, workspace, &remote).await?;
     let parts = match upload_parts(client, workspace, local, &staging, &remote).await {
         Ok(parts) => parts,
@@ -825,7 +852,7 @@ async fn upload(
     Ok(size)
 }
 
-/// Creates the private staging directory for a large upload to `remote`.
+/// Creates the private staging directory for an upload to `remote`.
 async fn make_staging(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
@@ -846,7 +873,7 @@ async fn make_staging(
     Ok(staging)
 }
 
-/// Where part `index` of a large upload goes, in its staging directory.
+/// Where part `index` of an upload goes, in its staging directory.
 pub(super) fn upload_part_path(staging: &str, remote: &str, index: u64) -> String {
     let _ = remote;
     format!("{staging}/part.{index:06}")
@@ -910,26 +937,4 @@ async fn upload_parts(
         }
     }
     Ok(index)
-}
-
-async fn write_remote_file(
-    client: &WorkspaceClient,
-    workspace: &WorkspaceId,
-    remote: &str,
-    bytes: &[u8],
-) -> anyhow::Result<()> {
-    let request = WorkspaceRequest::WriteFile {
-        workspace: workspace.clone(),
-        path: workspace_relative(remote),
-        data: ByteString::from_bytes(bytes),
-        precondition: FilePrecondition::Any,
-        create_parents: true,
-    };
-    let WorkspaceResponse::Written { content_hash, .. } = client.request(request).await? else {
-        return Err(unexpected("write-file"));
-    };
-    if content_hash != sha256_hex(bytes) {
-        return Err(anyhow!(catalog().remote_client.cp_hash_mismatch(remote)));
-    }
-    Ok(())
 }

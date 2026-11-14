@@ -280,9 +280,9 @@ struct EventHistory {
     /// viewer does not, and keeps the lossy, bounded retention.
     holds: BTreeMap<u64, u64>,
     next_hold: u64,
-    /// Output events readers have room for but not yet published: each
-    /// reader reserves one before it reads, so stdout and stderr cannot both
-    /// take the last room and publish past the limit.
+    /// Output events readers have room for but not yet published: a reader
+    /// with output in hand reserves one before it publishes, so stdout and
+    /// stderr cannot both take the last room and publish past the limit.
     reserved: usize,
 }
 
@@ -359,9 +359,12 @@ impl ProcessEventLog {
 
     /// Waits until a held subscriber can take one more output event without
     /// losing one, and reserves that room (checked and taken under one lock).
-    /// Output readers call it before each read and keep the reservation until
-    /// they publish, so a slow held reader slows the child (its pipe fills)
-    /// instead of dropping output.
+    /// Output readers call it once a read returned output and keep the
+    /// reservation until they publish it, so a slow held reader slows the
+    /// child (the reader reads no more, and the pipe fills) instead of
+    /// dropping output. A reader still waiting for its pipe holds no room:
+    /// with a budget of one event, a quiet stdout holding it would block a
+    /// child writing only stderr for good.
     async fn wait_for_room(&self) -> RoomReservation<'_> {
         let mut stall = None;
         loop {
@@ -2238,10 +2241,11 @@ async fn read_pipe(
     let stream = if stderr { ProcessOutputStream::Stderr } else { ProcessOutputStream::Stdout };
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
-        let _room = events.wait_for_room().await;
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
+                // Room only for output in hand (see `wait_for_room`).
+                let _room = events.wait_for_room().await;
                 events.publish_output(process, stderr, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
@@ -2264,10 +2268,11 @@ async fn read_pty(
 ) -> Result<(), ProcessOutputTruncationReason> {
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
-        let _room = events.wait_for_room().await;
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
+                // Room only for output in hand (see `wait_for_room`).
+                let _room = events.wait_for_room().await;
                 events.publish_output(process, false, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }

@@ -2739,13 +2739,14 @@ fn upload_assembly_writes_only_its_private_staging_and_stays_private() {
     for name in ["out.bin.cmux-tmp", "out.bin.cmux-part.000000", "out.bin.cmux-part.000001"] {
         std::os::unix::fs::symlink(&victim, root.path().join(name)).unwrap();
     }
-    // A `cat` that records the mode of the file it appends to.
+    // A `cat` that records the mode of the file it appends to. Its stdout is
+    // that file: keep it on fd 3 for `stat`, whose own stdout is the log.
     let bin = root.path().join("bin");
     fs::create_dir(&bin).unwrap();
     let log = root.path().join("cat.log");
     fs::write(
         bin.join("cat"),
-        "#!/bin/sh\nstat -L -c %a /proc/self/fd/1 >> \"$CAT_LOG\"\nexec /bin/cat \"$@\"\n",
+        "#!/bin/sh\nstat -L -c %a /proc/self/fd/3 3>&1 >> \"$CAT_LOG\"\nexec /bin/cat \"$@\"\n",
     )
     .unwrap();
     fs::set_permissions(bin.join("cat"), fs::Permissions::from_mode(0o755)).unwrap();
@@ -2788,4 +2789,122 @@ fn upload_assembly_writes_only_its_private_staging_and_stays_private() {
         "joined file modes while it grew: {modes:?}"
     );
     assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// Runs the upload join of `parts` into `dest` the way the remote does, with
+/// `bin` (when given) first on PATH. Returns the staging dir and the status.
+#[cfg(unix)]
+fn run_assembly(
+    root: &Path,
+    dest: &Path,
+    parts: &[&str],
+    bin: Option<&Path>,
+) -> (PathBuf, std::process::ExitStatus) {
+    let dest_text = dest.to_str().unwrap().to_owned();
+    let staging = tempfile::Builder::new().prefix(".cmux-cp.").tempdir_in(root).unwrap().keep();
+    let staging_text = staging.to_str().unwrap().to_owned();
+    for (index, part) in parts.iter().enumerate() {
+        fs::write(exec_cp::upload_part_path(&staging_text, &dest_text, index as u64), part)
+            .unwrap();
+    }
+    let argv = exec_cp::assemble_argv(&staging_text, &dest_text, parts.len() as u64, "600");
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg("exec \"$@\"").arg("sh").args(&argv).env("DEST", dest);
+    if let Some(bin) = bin {
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        command.env("PATH", path);
+    }
+    (staging, command.status().unwrap())
+}
+
+/// P3-F1 (review of #43048): `mv` onto a directory moves into it. An upload
+/// whose destination is an existing directory must fail and leave that
+/// directory alone, not overwrite a file in it named like a staging file.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_refuses_a_directory_destination() {
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("payload");
+    fs::create_dir(&dest).unwrap();
+    fs::write(dest.join("assembled"), "keep").unwrap();
+
+    let (staging, status) = run_assembly(root.path(), &dest, &["new ", "data"], None);
+
+    assert!(!status.success(), "assembly onto a directory succeeded");
+    assert_eq!(fs::read_to_string(dest.join("assembled")).unwrap(), "keep");
+    let names: Vec<_> =
+        fs::read_dir(&dest).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(names, vec![std::ffi::OsString::from("assembled")], "wrote into the directory");
+    assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// P3-F1: a directory that appears at the destination after the check (an
+/// `mv` that makes it first stands in for the race) gets the file under the
+/// staging dir's random name, which is taken back out, and the copy fails.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_takes_back_a_file_moved_into_a_racing_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("payload");
+    let bin = root.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    fs::write(
+        bin.join("mv"),
+        "#!/bin/sh\nfor last; do :; done\n[ \"$last\" = \"$DEST\" ] && mkdir \"$DEST\"\nexec /bin/mv \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("mv"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (staging, status) = run_assembly(root.path(), &dest, &["data"], Some(&bin));
+
+    assert!(!status.success(), "assembly into a racing directory succeeded");
+    assert!(dest.is_dir());
+    assert_eq!(fs::read_dir(&dest).unwrap().count(), 0, "left the file in the directory");
+    assert!(!staging.exists(), "staging dir left behind");
+}
+
+/// P3-F2: a small upload is one part through the same join, and an empty
+/// file is none; both replace an existing file with the new mode.
+#[cfg(unix)]
+#[test]
+fn upload_assembly_handles_one_part_and_an_empty_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    for parts in [&["small"][..], &[]] {
+        let dest = root.path().join("out.txt");
+        fs::write(&dest, "old").unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o644)).unwrap();
+        let (staging, status) = run_assembly(root.path(), &dest, parts, None);
+        assert!(status.success(), "assembly of {parts:?} failed: {status}");
+        assert_eq!(fs::read_to_string(&dest).unwrap(), parts.concat());
+        assert_eq!(fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(!staging.exists(), "staging dir left behind");
+    }
+}
+
+#[test]
+fn cp_takes_vm_kind_as_a_connect_value() {
+    // P2-F1 (review of #43048): `owner` is the option's value, not a path.
+    let parsed = exec_cp::parse_cp_args(&words(&[
+        "box",
+        "--vm-kind",
+        "owner",
+        "./file",
+        "remote:/tmp/file",
+    ]))
+    .unwrap();
+    assert_eq!(parsed.connect, words(&["--vm-kind", "owner", "box"]));
+    assert_eq!(parsed.destination, exec_cp::CopyEndpoint::Remote("/tmp/file".into()));
+}
+
+#[test]
+fn tty_eof_releases_an_unterminated_line_first() {
+    // P3-F4: one Control-D after `foo` only hands `foo` to the reader.
+    assert!(!exec_cp::pty_line_open(None));
+    assert!(!exec_cp::pty_line_open(Some(b'\n')));
+    assert!(!exec_cp::pty_line_open(Some(0x04)));
+    assert!(exec_cp::pty_line_open(Some(b'o')));
 }
