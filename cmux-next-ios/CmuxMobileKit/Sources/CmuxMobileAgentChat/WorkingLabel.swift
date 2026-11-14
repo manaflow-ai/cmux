@@ -23,7 +23,7 @@ public struct WorkingLabel: View {
             }
             if let since {
                 TimelineView(Self.elapsedSchedule(since: since)) { context in
-                    let _ = Self.noteRedraw()
+                    let _ = Self.noteRedraw(since: since)
                     if let elapsed = Self.elapsedText(since: since, at: context.date) {
                         Text(elapsed)
                             .font(.footnote.monospacedDigit())
@@ -52,14 +52,17 @@ public struct WorkingLabel: View {
     /// DEBUG and Demo: in the list rig's running chat (`CMUX_MOBILE_LIST_HOLD_TURN=1`), one
     /// `FRAMELOG list-stress label-tick` line per redraw of the time; the energy bench counts
     /// them, so it shows whether the time still redraws off screen or in the background.
-    static func noteRedraw() {
+    @MainActor static func noteRedraw(since: Date) {
         #if DEBUG
+        if let counted = redrawCounts[since] { redrawCounts[since] = counted + 1 }
         if ListStressSettings.shared.logsLabelTicks { tickLog.notice("FRAMELOG list-stress label-tick") }
         #endif
     }
 
     #if DEBUG
     private static let tickLog = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+    /// DEBUG, for tests: the redraws of the time of each label whose start a test put here (as 0).
+    @MainActor static var redrawCounts: [Date: Int] = [:]
     #endif
 }
 
