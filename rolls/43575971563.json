@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43575971563",
+  "recorded_at": "2026-11-14T08:35:57Z",
+  "reason": "cmux-tui 8e9bb0bda143 changes the image's cmux-tui (pinned 754dadbe74d3)",
+  "dry_run": false,
+  "cmux_tui": "8e9bb0bda143d25daae10b5ef7201f19930294f7",
+  "fixes": [
+    {
+      "sha": "8e9bb0bda143d25daae10b5ef7201f19930294f7",
+      "mergedAt": "2026-11-14T00:08:12-08:00",
+      "subject": "Agent chat: no stuck spinners, dimmed cards or stale notices after their cause is gone (#41501)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T08:35:57Z",
+    "snapshot_id": "sh-b2c8c53fa21a4743b0bce8ada436b772",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43575971563): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5610da19ffe9cc69e1f697e3ec98c0ffbb938810",
+    "image": "cloud-native-auto-8e9bb0bd-43575971563-1",
+    "revision": "ci-43575971563-1",
+    "at": "2026-11-14T08:35:57Z"
+  },
+  "rolled_back": false
+}
