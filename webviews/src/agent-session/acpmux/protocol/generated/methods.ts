@@ -43,6 +43,7 @@ export interface AcpmuxRequests {
   "_acpmux/view": { params: ViewParams; result: ViewDone };
   "_acpmux/typing": { params: TypingParams; result: Done };
   "_acpmux/markUnread": { params: MarkUnreadParams; result: Done };
+  "_acpmux/markRead": { params: SessionRef; result: Done };
   "_acpmux/seen": { params: SeenParams; result: SeenDone };
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
@@ -302,6 +303,9 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_set": { params: unknown; result: unknown };
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
+  "_acpmux/machine_enroll": { params: unknown; result: unknown };
+  "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
+  "_acpmux/machine_signed_in": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.detach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.rekey": { params: unknown; result: unknown };
@@ -401,6 +405,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/view", kind: "request", acp: false, typed: true },
   { name: "_acpmux/typing", kind: "request", acp: false, typed: true },
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/markRead", kind: "request", acp: false, typed: true },
   { name: "_acpmux/seen", kind: "request", acp: false, typed: true },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
@@ -666,6 +671,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.detach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.rekey", kind: "request", acp: false, typed: false },

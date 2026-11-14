@@ -634,6 +634,9 @@ impl MediaEngine {
                     break;
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    if let Ok((header, _)) = DatagramHeader::decode(d) {
+                        self.cc.on_retransmitted(header.transport_seq);
+                    }
                     out.datagrams.push(d.clone());
                     budget -= 1;
                 }
@@ -673,7 +676,12 @@ impl MediaEngine {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);
                 if let Some(datagrams) = state.history.get(&state.last_frame) {
-                    out.datagrams.extend(datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK).cloned());
+                    for d in datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK) {
+                        if let Ok((header, _)) = DatagramHeader::decode(d) {
+                            self.cc.on_retransmitted(header.transport_seq);
+                        }
+                        out.datagrams.push(d.clone());
+                    }
                 }
                 continue;
             }

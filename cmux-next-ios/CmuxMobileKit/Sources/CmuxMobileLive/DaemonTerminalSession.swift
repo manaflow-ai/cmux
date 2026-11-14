@@ -88,6 +88,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
+
+    /// The raw failure for `lastError`, which goes to the log only (never on
+    /// screen): the Mac's own words, so a log reads "unknown surface 9" and not
+    /// the sentence a person sees.
+    nonisolated static func diagnostic(_ error: any Error) -> String {
+        if let error = error as? LinkError { return error.message.isEmpty ? error.code : String(error.message.prefix(160)) }
+        return String(error.localizedDescription.prefix(160))
+    }
+
     /// The terminal's shared size state, live while attached to a daemon
     /// with `shared-sizing-v1`.
     public let sizing = TerminalSizingLive()
@@ -858,7 +867,7 @@ public final class DaemonTerminalSession: TerminalSession {
             openInputLane(for: client)
         } catch {
             heldEvents = nil
-            lastError = LinkController.reason(error)
+            lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
             if let old = replacing {
                 // A failed fetch of older rows: the old attach no longer
@@ -1116,7 +1125,7 @@ public final class DaemonTerminalSession: TerminalSession {
             } catch {
                 // The channel failed under the request (a dead link): keep the
                 // keystrokes for the reattach instead of dropping them.
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 if self.client === client {
                     self.client = nil
                     attached = false
@@ -1240,7 +1249,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             } catch {
                 if !written { inputWriting = false }
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
                     inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))

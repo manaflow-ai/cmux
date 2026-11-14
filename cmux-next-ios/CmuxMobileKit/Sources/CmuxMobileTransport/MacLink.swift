@@ -149,6 +149,48 @@ public struct LinkError: Error, Equatable, Sendable {
     }
 }
 
+/// What a person reads for a link error: never the code or the type.
+extension LinkError: LocalizedError {
+    /// The codes with fixed copy: a fragment for status lines ("WebRTC failed: …")
+    /// and a sentence for alerts and failure states.
+    private var known: (reason: String, sentence: String)? {
+        switch code {
+        case "timeout":
+            return (reason: "the Mac didn't answer in time", sentence: "Your Mac didn't answer in time. Try again.")
+        case "not_admitted":
+            return (reason: "the Mac refused this phone",
+                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
+        case "offline":
+            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
+        case LinkError.unauthorized:
+            return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
+        default:
+            return nil
+        }
+    }
+
+    /// The Mac's or the link's own message, when it reads as a sentence for a person.
+    private var proseMessage: String? {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= 240, text.contains(" "), let first = text.unicodeScalars.first,
+              CharacterSet.uppercaseLetters.contains(first) else { return nil }
+        let markers = ["{", "}", "<", ">", "_", "://", "Error(", "(code:", "couldn’t be completed", "couldn't be completed"]
+        return markers.contains(where: { text.contains($0) }) ? nil : text
+    }
+
+    /// A short, display-safe fragment for a status line (lower case, no period).
+    public var displayReason: String {
+        if let known { return known.reason }
+        return proseMessage.map { String($0.prefix(80)) } ?? "the connection to the Mac failed"
+    }
+
+    /// A sentence: the Mac's own message when it is prose, else the code's copy.
+    public var errorDescription: String? {
+        if code == LinkError.unauthorized { return known?.sentence }
+        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac. Try again."
+    }
+}
+
 /// Everything needed to dial a Mac.
 public struct LinkEndpoint: Sendable, Hashable {
     public var baseURL: URL

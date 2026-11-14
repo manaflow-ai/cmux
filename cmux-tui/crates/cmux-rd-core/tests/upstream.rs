@@ -235,3 +235,42 @@ fn audio_packets_are_independent_and_never_wait_for_a_keyframe() {
     }
     assert_eq!(mic.stats().frames_dropped, 0);
 }
+
+#[test]
+fn repaired_shard_delay_does_not_collapse_the_upstream_bitrate() {
+    let mut s = camera();
+    let sent = s.send_frame(&[7u8; 3_000], 0, true, 0).expect("packetize").expect("sent");
+    let last = sent.len() - 1;
+    let arrivals = seqs(&sent[..last])
+        .into_iter()
+        .map(|transport_seq| Arrival { transport_seq, arrival_us: 25_000 })
+        .collect();
+    let resent = s
+        .on_datagram(
+            &feedback(
+                CAM,
+                &Feedback {
+                    arrivals,
+                    nacks: vec![Nack { frame: 1, indexes: vec![last as u16] }],
+                    ..Feedback::default()
+                },
+            ),
+            50_000,
+        )
+        .expect("NACK feedback");
+    assert_eq!(resent, vec![sent[last].clone()]);
+    let before = s.target_bps(50_000);
+    s.on_datagram(
+        &feedback(
+            CAM,
+            &Feedback {
+                acked_frame: 1,
+                arrivals: vec![Arrival { transport_seq: seqs(&sent)[last], arrival_us: 75_000 }],
+                ..Feedback::default()
+            },
+        ),
+        100_000,
+    )
+    .expect("repair receipt");
+    assert_eq!(s.target_bps(100_000), before, "a repair still crossed a 25 ms path");
+}

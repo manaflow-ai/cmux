@@ -41,6 +41,8 @@ declare namespace Cmux {
   type Budget = { wall_clock_seconds?: number; vm_minutes?: number; model_spend_usd?: unknown; tool_calls?: number }
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
+  type ChatState = "working" | "input" | "idle" | "failed" | "lost"
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string> }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
@@ -706,6 +708,14 @@ interface CmuxGlobal {
     /** `channel.create` (mutation, scope `channel:write`): Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel. */
     create: CmuxOp<{ title: string; display_name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
+  chat: {
+    /** `chat.list` (read, scope `chat:read`) */
+    list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ChatSummary>>
+    /** `chat.mark_read` (mutation, scope `chat:write`) */
+    mark_read: CmuxOp<{ machine?: string; session?: string; chat: string }, Cmux.MutationResult<Cmux.ChatSummary>>
+    /** `chat.pin` (mutation, scope `chat:write`) */
+    pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean }, Cmux.MutationResult<Cmux.ChatSummary>>
+  }
   chief: {
     /** `chief.continue` (mutation, scope `chief:write`) */
     continue: CmuxOp<{ machine?: string; session?: string; chief?: string }, Cmux.MutationResult<Cmux.ChiefContinueResult>>
@@ -1127,16 +1137,6 @@ interface CmuxGlobal {
       /** `integration.policy.get` (read, scope `integration:read`): Read the team's integration policy (allowed providers, GitHub repository scope). */
       get: CmuxOp<Record<string, never>, Cmux.TeamIntegrationPolicy>
     }
-  }
-  integrations: {
-    /** `integrations.connect` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Start connecting a provider; it completes only with a person at the provider. */
-    connect: CmuxOp<{ provider: "github" | "linear" | "slack" }, unknown>
-    /** `integrations.cycle_variant` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Switch to the next Integrations design variant (DEV and NIGHTLY). */
-    cycle_variant: CmuxOp<Record<string, never>, unknown>
-    /** `integrations.import_api` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Add an API from an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list. */
-    import_api: CmuxOp<{ source: string }, unknown>
-    /** `integrations.open` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Open the Integrations pane, or one connection. */
-    open: CmuxOp<{ connection?: string }, unknown>
   }
   invite: {
     /** `invite.approve_join` (mutation, scope `invite:write`): Approve (default) or decline a join that waits for approval (pending_approval). */
@@ -1769,16 +1769,6 @@ interface CmuxGlobal {
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }
-  theme: {
-    scheme: {
-      /** `theme.scheme.convert` (read, scope `theme:read`) */
-      convert: CmuxOp<{ machine?: string; session?: string; text: string; file?: string | null; from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; to?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.export` (read, scope `theme:read`) */
-      export: CmuxOp<{ machine?: string; session?: string; name: string; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.from_image` (read, scope `theme:read`) */
-      from_image: CmuxOp<{ machine?: string; session?: string; width: number; height: number; channels: number; pixels: string; appearance?: "dark" | "light" | null; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeFromImageResult>
-    }
-  }
   thread: {
     /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
     update: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; title?: string; status?: Cmux.HomeThreadStatus; owner?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
@@ -1914,6 +1904,8 @@ declare const cmux: CmuxGlobal
 interface CmuxSignalMap {
   /** `agent.list`: The agents of the current session and their state (agent.list). The daemon pushes agent.changed when an agent's state changes, so the runtime never polls it. Scope: any of `agent:read`; pushed by `agent.changed`. */
   "agent.list": { params: { state?: string }; value: Array<Cmux.AgentSnapshot> }
+  /** `chat.list`: Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it. Scope: any of `chat:read`; pushed by `chat.changed`. */
+  "chat.list": { params: {  }; value: Array<Cmux.ChatSummary> }
   /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it. Scope: any of `integration:github:read`, `net:api.github.com`; polled every 300 s (never faster than 60 s): nothing pushes it yet. */
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */
