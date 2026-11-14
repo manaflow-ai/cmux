@@ -2742,3 +2742,7 @@ fn event_size(event: &RpcEvent) -> usize {
         | ProcessEvent::Exit { .. } => 0,
     }
 }
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;
