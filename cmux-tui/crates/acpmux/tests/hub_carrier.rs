@@ -887,7 +887,7 @@ impl acpmux::hub_carrier::CmuxTuiGate for TestGate {
     async fn admit(&self, port: u16) -> Result<SocketAddr, acpmux::hub_carrier::ServiceRefusal> {
         let control = if self.granted.load(Ordering::SeqCst) { "granted" } else { "none" };
         let consent = json!({"consentRequired": true, "consent": {"control": control}});
-        acpmux::cmux_tui_service::admit(Some(&self.daemon.to_string()), &consent, port)
+        acpmux::cmux_tui_service::admit(Some(self.daemon.to_string().as_str()), &consent, port)
     }
 }
 
