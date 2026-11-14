@@ -359,6 +359,10 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
             try await PinnedPageTests.until({ hold.held == 1 }, report: { "the close did not read" })
             #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab left the strip before its question")
             #expect(t.pane.stripModel.selectedID?.rawValue == t.tab.id, "the pane showed another tab before the question")
+            // A quick second Cmd-W is behind the question already: it closes nothing (the neighbour is not on screen).
+            let strip = t.pane.orderedIDs
+            _ = t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            #expect(t.pane.orderedIDs == strip, "a second Cmd-W during the read closed a tab that was not on screen")
             try await Self.turns()
             #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab left the strip during the read")
             hold.release()
