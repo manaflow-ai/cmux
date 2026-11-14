@@ -305,6 +305,14 @@ pub struct Session {
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
     pub(super) purged: Arc<AtomicBool>,
+    /// v1's last seq of the chat that its store took, as v2's book tee saw it (`book_tee.rs`): the
+    /// hint of the chat's v1 source. Only the tee's hook raises it, after the store took the line.
+    pub(super) book_hint: Arc<AtomicU64>,
+    /// The last seq v1 found for the chat when it loaded it: a book's first open in this daemon's
+    /// life asks `holds` against it (`v1_source.rs`).
+    pub(super) found_at_start: u64,
+    /// A source of the chat's book was opened in this daemon's life (`V1Log::opened`).
+    pub(super) book_opened: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
