@@ -65,7 +65,7 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-ant-oat01-test")
         let body = try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
         #expect(body?["max_tokens"] as? Int == 1)
-        #expect(body?["model"] as? String == CloudAgentCheck.probeModel)
+        #expect(body?["model"] as? String == CloudAgentCheck.defaultModel)
     }
 
     /// A start's own model is the one asked, and a model's own weekly window stops only that model.
@@ -80,7 +80,28 @@ import Testing
         let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
         #expect(body?["model"] as? String == "claude-opus-5-5")
         #expect(await refusal(check, model: "claude-sonnet-5-5", user: user) == nil)
-        #expect(await refusal(check, user: user) == nil)
+    }
+
+    /// A start that names no model runs the default, Opus, so a used-up Opus window stops it; a `[1m]` id and a
+    /// family alias ask and read the same model, with no suffix the API would refuse.
+    @Test func noModelIsTheDefaultAndASuffixOrAliasIsItsModel() async {
+        let opusSpent = ["anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-representative-claim": "seven_day_opus",
+                         "anthropic-ratelimit-unified-reset": Self.reset]
+        let words = "Claude's weekly Opus limit is used up until Nov 14, 1pm UTC. Pick Codex, or start after then."
+        for model in [nil, "default", "claude-opus-5-5[1m]", "opus", "opus[1m]", "opusplan"] as [String?] {
+            let sent = Sent()
+            #expect(await refusal(check(status: 429, headers: opusSpent, sent: sent), model: model, user: person()) == .limit(words))
+            let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
+            #expect(body?["model"] as? String == "claude-opus-5-5")
+        }
+        #expect(await refusal(check(status: 429, headers: opusSpent), model: "sonnet[1m]", user: person()) == nil)
+        #expect(CloudAgentCheck.modelID("Claude-Sonnet-5-5[1M]") == "claude-sonnet-5-5")
+        #expect(CloudAgentCheck.modelID("haiku") == "claude-haiku-5-5")
+        // A name that is no Claude family (Fable) is never read as Opus: its start goes on, asked on the cheapest model.
+        let sent = Sent()
+        #expect(await refusal(check(status: 429, headers: opusSpent, sent: sent), model: "fable", user: person()) == nil)
+        let body = try? JSONSerialization.jsonObject(with: sent.requests.first?.httpBody ?? Data()) as? [String: Any]
+        #expect(body?["model"] as? String == "claude-haiku-5-5")
     }
 
     @Test func onlyAKnownUsedUpLimitOnALoginTheMachineGetsRefuses() async {

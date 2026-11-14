@@ -1073,7 +1073,8 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
         # An orphaned measured_sha names no commits and refuses every --update: say so whether or not a row is over,
         # and count from where --update would anchor (its first candidate).
         result["orphaned"] = True
-        since = result["anchored_at"] = next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
+        orphan, result["anchored_at"] = since, next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
+        since = anchor_boundary(repo, orphan, result["anchored_at"]) if result["anchored_at"] else None
     culprits = raised_by(repo, since, sha, set(over)) if over and since else {}
     for row_id, (was, n) in over.items():
         result["over"][row_id] = {"recorded": was, "now": n,
@@ -1168,17 +1169,30 @@ def valid_anchor(repo: Path, since: str, anchor: str, upstream_ref: str) -> bool
     return recorded_at(repo, anchor) == since or merge_base_of(repo, since, upstream_ref) == anchor
 
 
+def anchor_boundary(repo: Path, since: str, anchor: str) -> str:
+    """The commit attribution counts from (raised_by's SINCE..) for ANCHOR standing in for the orphaned SINCE: ANCHOR's
+    first parent when ANCHOR is a commit whose json records SINCE (the squash or rebase that carried the record, which
+    may change counted code too: its own rise is then attributed, not lost), else ANCHOR itself (the merge base). A
+    root commit has no parent: ANCHOR."""
+    if recorded_at(repo, anchor) != since:
+        return anchor
+    code, parent = git(repo, "rev-parse", "--verify", "--quiet", f"{anchor}^1")
+    return parent if code == 0 and parent else anchor
+
+
 def record_anchor(repo: Path, old: dict, new: dict, upstream_ref: str) -> str | None:
     """The commit OLD's totals count from in a push from OLD to NEW: OLD's measured_sha while it is on
-    UPSTREAM_REF; when it is not (orphaned), the anchor NEW's `reanchor` names ({"measured_sha": OLD's, "at":
+    UPSTREAM_REF or in the history of NEW's measured_sha (a branch's own earlier --update, as unreachable_record
+    accepts it); when it is neither (orphaned), the anchor NEW's `reanchor` names ({"measured_sha": OLD's, "at":
     anchor}, what --update --anchor writes) once valid_anchor re-checks it, else None (nothing bounds the
     commits, so no generated entry counts, and the orphan is never looked up: in_history)."""
-    since, moved = old.get("measured_sha"), new.get("reanchor")
-    if not isinstance(since, str) or in_history(repo, since, upstream_ref):
+    since, moved, until = old.get("measured_sha"), new.get("reanchor"), new.get("measured_sha")
+    measured = [until] if isinstance(until, str) and load_counts().SHA.fullmatch(until) else []
+    if not isinstance(since, str) or in_history(repo, since, upstream_ref, *measured):
         return since
     if isinstance(moved, dict) and moved.get("measured_sha") == since and valid_anchor(repo, since, moved.get("at"),
                                                                                        upstream_ref):
-        return moved["at"]
+        return anchor_boundary(repo, since, moved["at"])
     return None
 
 
@@ -1279,7 +1293,7 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
             return 1
         print(f"arch-ratchet: measured_sha {since[:11]} is not on {upstream_ref}: counting from {anchor[:11]} "
               "(--anchor), recorded in `reanchor`")
-        reanchor, since = {"measured_sha": since, "at": anchor}, anchor
+        reanchor, since = {"measured_sha": since, "at": anchor}, anchor_boundary(repo, since, anchor)
     # A blocking escape is never recorded as someone else's debt: a rise needs a reviewed exception, wherever it landed.
     upstream_rows = set(uncovered) - {ESCAPE_ROW}
     landed, named = upstream_rises(repo, since, sha, upstream_rows, before, upstream_ref) if upstream_rows else ({}, {})
@@ -1341,6 +1355,8 @@ def pre_push(repo: Path, remote: str, lines: list[str], upstream_ref: str = UPST
         return 0
     for error in errors:
         print(f"arch-ratchet: WARNING: not judged: {error}", file=sys.stderr)
+    for own in ranges:  # the note names a base the refresh could not fetch (push_range.refresh_upstream)
+        print(f"arch-ratchet: judging {own.describe()}", file=sys.stderr)
     if not ranges:
         return 0
     return 1 if run_push(repo, ranges, upstream_ref) else 0
@@ -1392,7 +1408,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         push_range = load_push_range()
         own = (push_range.given_range(repo, args.base, head) if args.base
-               else push_range.own_range(repo, head, [], args.upstream))
+               else push_range.manual_range(repo, head, args.upstream))
     except ValueError as error:
         print(f"arch-ratchet: {error}", file=sys.stderr)
         return 2

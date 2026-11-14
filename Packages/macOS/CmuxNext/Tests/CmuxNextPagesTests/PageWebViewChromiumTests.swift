@@ -85,6 +85,33 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    @Test func anOffscreenPageStartsRenderingWhenItsFirstLayoutGivesItArea() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let prewarm = NSView(frame: host.bounds.offsetBy(dx: -100_000, dy: -100_000))
+        prewarm.alphaValue = 0
+        host.addSubview(prewarm)
+        view.frame = .zero
+        prewarm.addSubview(view)
+        #expect(page.visibility.last == false, "window entry has no page area yet")
+
+        view.frame = prewarm.bounds
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "the full-size reserved page must render before Cmd-N")
+        #expect(view.frame.size == host.bounds.size)
+        #expect(prewarm.alphaValue == 0)
+    }
+
     /// A route asked for before the Chromium page exists (the composer's Open Cloud… opens a new
     /// Cloud tab at `#/get`) is the one the page loads, not the route the view was made with.
     @Test func aRouteOpenedBeforeChromiumStartsIsTheOneItLoads() async throws {

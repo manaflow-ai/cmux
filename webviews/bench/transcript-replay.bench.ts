@@ -42,7 +42,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
@@ -144,7 +145,7 @@ const changed = (p: Play) =>
 
 // ---------- the page side ----------
 /** Init script: the replay clock, layout-shift and long-task buffers. Self-contained (Playwright serializes it). */
-function instrument(start: number) {
+export function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
     __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
@@ -197,12 +198,12 @@ function instrument(start: number) {
   }
 }
 
-const paint = (page: Page, frames: number) =>
+export const paint = (page: Page, frames: number) =>
   page.evaluate(async (count) => {
     for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
   }, frames);
 /// Resolves once the transcript's offset and height have held, with nothing animating, for 12 painted frames.
-const rest = (page: Page) =>
+export const rest = (page: Page) =>
   page.evaluate(async () => {
     const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll");
     const moving = () =>
@@ -359,7 +360,22 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   }
 }
 
-type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
+type BurstResult = {
+  kind: string;
+  rows: number;
+  msPerRecord: number;
+  selfMs?: Map<string, number>;
+  /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
+  dom?: { elements: number; mounted: number; animations: number };
+};
+/// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
+/// script work over every row; one that grows with them is the page's own (style, layout).
+const domSize = (page: Page) =>
+  page.evaluate(() => ({
+    elements: document.getElementsByTagName("*").length,
+    mounted: document.querySelectorAll("[data-row-id]").length,
+    animations: document.getAnimations().length,
+  }));
 type CpuProfile = {
   nodes: {
     id: number;
@@ -449,7 +465,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
         const records = burst.toSeq - burst.fromSeq + 1;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
+        const dom = await domSize(page);
         bursts.push({
+          dom,
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -713,9 +731,6 @@ if (import.meta.main) {
     });
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
     });
     releases.push(() => browser.close());
@@ -752,7 +767,12 @@ if (import.meta.main) {
         ])
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
-          console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+          console.log(
+            `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom
+                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : ""),
+          );
         for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;

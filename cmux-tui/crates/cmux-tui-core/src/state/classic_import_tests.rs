@@ -64,7 +64,7 @@ fn home(with_session: bool) -> Home {
 }
 
 fn plan(mux: &Arc<Mux>, home: &Home, mode: Mode) -> Value {
-    mux.classic_import_plan(Some(&home.places()), BUNDLE, mode).unwrap()
+    mux.classic_import_plan(Some(&home.places()), BUNDLE, mode, false).unwrap()
 }
 
 fn record(mux: &Arc<Mux>, home: &Home, fields: Value, key: &str) -> Value {
@@ -387,4 +387,165 @@ fn begin_refuses_a_link_in_place_of_classics_session() {
     let error = mux.classic_import_record(Some(&home.places()), &mutation, &record).unwrap_err();
     assert!(error.to_string().contains("not one of classic's session files"), "{error}");
     assert!(!home.ledger().parent().unwrap().join("backups").exists());
+}
+
+/// Cancel on the launch's preview stands: later launches skip with
+/// `declined` whatever classic saves, a cut-off run still resumes, and a
+/// manual run's `begin` or `finish` takes the No back.
+#[test]
+fn a_launchs_no_stands_until_a_manual_run() {
+    let mux = Mux::new_for_test("classic-import-decline", SurfaceOptions::default());
+    let home = home(true);
+    let first = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(first["decision"], json!({"decision": "first_run"}));
+    // First contact: the No is recorded with the save the preview showed.
+    record(&mux, &home, json!({"event": "decline", "source": first["source"]}), "no");
+    let ledger = home.ledger_json();
+    assert_eq!(ledger["state"], "completed");
+    assert!(ledger["declinedAt"].is_f64(), "{ledger}");
+    assert_eq!(ledger["source"], first["source"]);
+    assert_eq!(
+        plan(&mux, &home, Mode::Automatic)["decision"],
+        json!({"decision": "skip", "reason": "declined"})
+    );
+    // Classic saves again: still no question.
+    let mut later: Value = serde_json::from_slice(&std::fs::read(home.session()).unwrap()).unwrap();
+    later["createdAt"] = json!(1_791_900_000.0);
+    std::fs::write(home.session(), serde_json::to_vec(&later).unwrap()).unwrap();
+    let relaunch = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(relaunch["decision"], json!({"decision": "skip", "reason": "declined"}));
+    assert_eq!(relaunch["plan"], Value::Null);
+
+    // Import Workspaces from Classic cmux still plans everything, and its begin clears the No.
+    let manual = plan(&mux, &home, Mode::Manual);
+    assert_eq!(keys(&manual).len(), 4, "{manual}");
+    run(&mux, &home, &manual, "manual");
+    assert!(home.ledger_json().get("declinedAt").is_none());
+
+    // A No on a resume ends the run; a finish with nothing to bring clears it too.
+    record(&mux, &home, begin(&manual), "resume-begin");
+    record(&mux, &home, json!({"event": "decline"}), "resume-no");
+    let ledger = home.ledger_json();
+    assert_eq!(
+        (ledger["state"].clone(), ledger["declinedAt"].is_f64()),
+        (json!("completed"), true)
+    );
+    record(&mux, &home, json!({"event": "finish"}), "empty-finish");
+    assert!(home.ledger_json().get("declinedAt").is_none());
+}
+
+/// Every plan says whether the classic app that saved it is open now: its
+/// launch sentinel with a recent save, or the lock beside its socket.
+#[test]
+fn the_plan_says_whether_classic_is_open() {
+    let mux = Mux::new_for_test("classic-import-running", SurfaceOptions::default());
+    let none = home(false);
+    assert_eq!(plan(&mux, &none, Mode::Manual)["classic_running"], false);
+    let home = home(true);
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    let sentinel = home.0.join(".local/state/cmux/lifecycle/com.cmuxterm.app/running.sentinel");
+    std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+    std::fs::write(&sentinel, "").unwrap();
+    // Classic saved just now.
+    std::fs::File::options()
+        .write(true)
+        .open(home.session())
+        .unwrap()
+        .set_modified(std::time::SystemTime::now())
+        .unwrap();
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+    std::fs::remove_file(&sentinel).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let lock = home.0.join(".local/state/cmux/cmux.sock.lock");
+        std::fs::write(&lock, "").unwrap();
+        assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+        let holder = std::fs::File::open(&lock).unwrap();
+        // SAFETY: the descriptor is open for the call.
+        assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], true);
+    }
+}
+
+/// The channel saved last is read, whichever build this is, and a newest
+/// channel whose files do not decode falls back to the next channel's.
+#[test]
+fn the_newest_channel_is_read_and_a_broken_one_falls_back() {
+    let mux = Mux::new_for_test("classic-import-channels", SurfaceOptions::default());
+    let home = home(true);
+    let nightly = home.session().with_file_name("session-com.cmuxterm.app.nightly.json");
+    std::fs::copy(home.session(), &nightly).unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(home.session()).unwrap().set_modified(old).unwrap();
+    let newest = plan(&mux, &home, Mode::Manual);
+    assert_eq!(newest["source"]["bundleID"], "com.cmuxterm.app.nightly", "{newest}");
+    // Only the read channel's files are backed up.
+    assert_eq!(newest["backups"], json!([nightly.to_string_lossy()]));
+
+    std::fs::write(&nightly, "{").unwrap();
+    let fallback = plan(&mux, &home, Mode::Manual);
+    assert_eq!(fallback["source"]["bundleID"], BUNDLE, "{fallback}");
+    assert_eq!(fallback["error"], Value::Null);
+    assert_eq!(keys(&fallback).len(), 4);
+}
+
+/// `outline: true` plans the same workspaces with every tab's scrollback left
+/// out; without it a terminal's scrollback is its replay text.
+#[test]
+fn an_outline_plan_leaves_scrollback_out() {
+    let mux = Mux::new_for_test("classic-import-outline", SurfaceOptions::default());
+    let home = home(true);
+    let mut saved: Value = serde_json::from_slice(&std::fs::read(home.session()).unwrap()).unwrap();
+    for window in saved["windows"].as_array_mut().unwrap() {
+        for workspace in window["tabManager"]["workspaces"].as_array_mut().unwrap() {
+            for panel in workspace["panels"].as_array_mut().unwrap() {
+                if panel["type"] == "terminal" {
+                    panel["terminal"]["scrollback"] = json!("$ ls\r\n\u{1b}]0;t\u{7}ok\r\n");
+                }
+            }
+        }
+    }
+    std::fs::write(home.session(), serde_json::to_vec(&saved).unwrap()).unwrap();
+    let scrollbacks = |reply: &Value| -> Vec<Value> {
+        let mut found = Vec::new();
+        fn walk(node: &Value, found: &mut Vec<Value>) {
+            match node {
+                Value::Object(map) => {
+                    if let Some(scrollback) = map.get("scrollback") {
+                        found.push(scrollback.clone());
+                    }
+                    map.values().for_each(|value| walk(value, found));
+                }
+                Value::Array(items) => items.iter().for_each(|value| walk(value, found)),
+                _ => {}
+            }
+        }
+        walk(&reply["plan"], &mut found);
+        found
+    };
+    // Over the wire the field is accepted.
+    let wire = read(
+        &mux,
+        "classic_import.plan",
+        json!({"bundle_id": BUNDLE, "mode": "manual", "outline": true}),
+    );
+    assert!(wire["ledger"].is_string(), "{wire}");
+    let full = mux.classic_import_plan(Some(&home.places()), BUNDLE, Mode::Manual, false).unwrap();
+    let texts = scrollbacks(&full);
+    assert!(texts.contains(&json!("\u{1b}[0m$ ls\nok\u{1b}[0m\n")), "{texts:?}");
+    let outline =
+        mux.classic_import_plan(Some(&home.places()), BUNDLE, Mode::Manual, true).unwrap();
+    assert_eq!(keys(&outline), keys(&full));
+    let left = scrollbacks(&outline);
+    assert!(!left.is_empty() && left.iter().all(Value::is_null), "{left:?}");
+    let bad = send(
+        &mux,
+        "classic_import.plan",
+        json!({"bundle_id": BUNDLE, "mode": "manual", "outline": "yes"}),
+        None,
+    );
+    assert_eq!(error_code(bad), "validation.invalid");
 }
