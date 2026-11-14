@@ -21,6 +21,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var colorStyle: WorkspaceColorIndicatorStyle = .dot
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
+    /// The normalized custom title; nil retains every legacy row behavior.
+    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -121,6 +123,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
+            self.init(ws, layout: layout, now: now)
+            return
+        }
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)

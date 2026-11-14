@@ -46,7 +46,7 @@
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
     "accounts": ["accounts.refresh", "palette.mobileConnect"],
-    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"],
+    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme", "palette.openCmuxSettingsFile"],
     "machines": ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"],
     "advanced": ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"],
     "development": []

@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
+  The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
+  the settings watcher. The existing title, detail and metadata slots move together using
+  current density metrics; absent layouts preserve the current look. Quiet, by-kind and
+  by-agent variants share the native gallery, with light and dark captures. Regression:
+  `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
+  `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
+
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
 - 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:

@@ -107,9 +107,10 @@ extension WorkspaceRowView {
     /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
                                   presence: [SidebarPresence], title: String? = nil) -> String {
-        var parts = [title ?? ws.title]
+        var parts = [content.displayedTitle(title ?? ws.title)]
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
+        if let meta = content.meta { parts.append(meta) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
