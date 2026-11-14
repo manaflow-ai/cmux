@@ -379,6 +379,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
+    "agent-session/acpmux/LoopQuiet.tsx#LoopQuiet",
+    "agent-session/acpmux/loopQuiet.css",
+    "agent-session/acpmux/loopPlace.experiment.ts",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
@@ -416,7 +419,31 @@ export default agentPaneEntry({
     },
     "loop-wakeup": {
       composerLook: "claude",
-      note: 'A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer\'s column, "Checking back in 15 min.". The agent\'s wake prompt (job ids, links, steps) is only in the tooltip and behind the line itself, which opens it (no expand icon; Leo, 2026-11-12: "idk what the point of it is rn quite"). No controls: Claude stops a loop only from its own turn.',
+      note: 'A self-paced Claude Code /loop (ScheduleWakeup) in the quiet row after the mode, "Checking back in 15 min.": the stack over the composer is as tall as with no loop (Leo, 2026-11-12: "WE PROb need to start unwinding a lot of these things at the bottom"). The agent\'s wake prompt (job ids, links, steps) is only in the tooltip. No controls: Claude stops a loop only from its own turn.',
+      snapshot: loopChat({
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
+      }),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "loop-wakeup-short": {
+      composerLook: "claude",
+      note: 'The `short` arm: only the time, "in 15 min.", after the mode; the sentence and the wake prompt in the tooltip.',
+      experiments: { "composer-loop-place": "short" },
+      snapshot: loopChat({
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
+      }),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "loop-wakeup-stack": {
+      composerLook: "claude",
+      note: 'Before (the `stack` arm, cmux#38051): "Checking back in 15 min." as its own line over the composer, one more part of the bottom stack, the transcript masked behind it.',
+      experiments: { "composer-loop-place": "stack" },
       snapshot: loopChat({
         objective:
           "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
@@ -427,7 +454,8 @@ export default agentPaneEntry({
     },
     "loop-wakeup-open": {
       composerLook: "claude",
-      note: "The same loop opened by a click on its line: the prompt and reason wrap inside the column and scroll past six lines.",
+      experiments: { "composer-loop-place": "stack" },
+      note: "Before (`stack`): the same loop opened by a click on its line: the prompt and reason wrap inside the column and scroll past six lines.",
       snapshot: loopChat({
         objective:
           "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
@@ -440,7 +468,8 @@ export default agentPaneEntry({
       },
     },
     "loop-wakeup-hover": {
-      note: "The loop's line under the pointer: its words brighten as a row's do; nothing else appears.",
+      note: "Before (`stack`): the loop's line under the pointer: its words brighten as a row's do; nothing else appears.",
+      experiments: { "composer-loop-place": "stack" },
       snapshot: loopChat({
         objective: "Check background job b2mqa7gwr and post the receipt.",
         reason: "11 helpers restarted; fallback check in 25 min",

@@ -116,6 +116,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
+import { loopPlace } from "./loopPlace.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
@@ -2708,6 +2709,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
+  const [loopPlaceArm] = useState(() => experimentArm(loopPlace));
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -12014,13 +12016,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
   // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
   // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
+  // A /loop's next run is in the composer's quiet row (LoopQuiet.tsx), not a row of the stack, unless
+  // loopPlace.experiment.ts keeps its own row (`stack`).
+  const stackGoal = composerSnapshot.summary?.goal;
   const goalNode =
-    !showNewTab && composerSnapshot.summary?.goal ? (
+    !showNewTab && stackGoal && (stackGoal.kind !== "loop" || loopPlaceArm === "stack") ? (
       <TaskGoalStrip
         // Its own key: HatQuestions, its sibling in the stack, is keyed by the chat's id.
-        key={`goal:${composerSnapshot.summary.sessionId}`}
-        goal={composerSnapshot.summary.goal}
-        harness={composerSnapshot.summary.harness}
+        key={`goal:${composerSnapshot.summary?.sessionId}`}
+        goal={stackGoal}
+        harness={composerSnapshot.summary?.harness}
         command={(action, objective) =>
           callNative("chat.send", {
             text: `/goal ${action === "delete" ? "clear" : action === "edit" ? objective : action}`,

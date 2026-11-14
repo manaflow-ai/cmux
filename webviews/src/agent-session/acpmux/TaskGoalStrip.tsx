@@ -2,7 +2,6 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { Tooltip } from "../../ui/Tooltip";
 import { Clock as ClockText } from "../../ui/Typography";
-import { usePageNow } from "../../ui/pageClock";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
 import { ChevronDown, Clock, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
@@ -12,7 +11,8 @@ import { cssTimeMs } from "./conversation/fold";
 import { useNow } from "./subagents/subagentGroupModel";
 import { motionAllowed } from "./subagents/trayMotionModel";
 import "./TaskGoalStrip.css";
-import { goalUpdatedText, loopNextText } from "./taskGoalStripModel";
+import { goalUpdatedText } from "./taskGoalStripModel";
+import { useLoopLabel } from "./loopLabel";
 /** The harness's goal stays visible between turns and after reopening the chat. */
 export function TaskGoalStrip({
   goal,
@@ -34,7 +34,8 @@ export function TaskGoalStrip({
   );
 }
 
-/** A Claude Code /loop between its runs, as one quiet chip in the composer's column: when it checks
+/** A Claude Code /loop between its runs, as its own quiet line over the composer (loopPlace.experiment.ts
+ *  `stack`; the default draws it in the quiet row instead, LoopQuiet.tsx): when it checks
  *  back ("Checking back in 15 min."), or an interval loop's schedule ("Repeats every 5 minutes"). Its prompt is the agent's own wake text (a
  *  ScheduleWakeup `prompt` can be a long internal brief with job ids, links and step lists), never
  *  shown inline (cmux#38051): it reads in the chip's tooltip and, on demand, in the panel its button
@@ -42,26 +43,10 @@ export function TaskGoalStrip({
  *  its own turn (ScheduleWakeup's `stop`, CronDelete), so a button here could only ask the model, and
  *  the person can do that themselves. */
 function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
-  const t = useT();
-  const lang = usePaneLanguage();
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
-  // The page's shared second clock (ui/pageClock.ts), only while the next run is ahead: the render
-  // after that time passes stops it, as does unmounting, and a hidden page runs no timer.
-  // The caption reads the newer of the clock's sample and the time now: a render between the run
-  // time and the clock's next tick stops the clock, and its older sample would keep the countdown up.
-  const at = goal.nextRunAt;
-  const current = now();
-  const time = usePageNow(at !== undefined && current < at && !goal.schedule, now);
-  const next = at === undefined ? undefined : loopNextText(Math.max(time, current), at, lang);
-  // An interval loop says its schedule ("Repeats every 5 minutes"), a self-wake when it checks back.
-  const label = goal.schedule
-    ? t("goal.loopSchedule", { schedule: goal.schedule })
-    : next
-      ? t("goal.loopNext", { when: next })
-      : t("goal.loop");
-  const prompt = goal.autonomous ? undefined : goal.objective.trim() || undefined;
-  const tooltip = [prompt ?? t("goal.loopAutonomous"), goal.reason].filter(Boolean).join("\n\n");
+  const t = useT();
+  const { label, prompt, tooltip } = useLoopLabel(goal, now);
   const hasDetails = Boolean(prompt || goal.reason || goal.steps?.length || goal.detail);
   const copy = (
     <>
