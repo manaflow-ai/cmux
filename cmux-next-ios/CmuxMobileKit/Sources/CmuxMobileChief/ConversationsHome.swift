@@ -41,8 +41,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var query = ""
     @State private var unreadOnly = false
     @State private var homeRetries = 0
-    /// The running Try Again dials the Mac first (it was offline), else it only reads again.
-    @State private var retryReconnects = true
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -83,27 +81,36 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
 
-    /// Home's top connection bar shows (``connectionBar``): while the read failed or the
-    /// Mac is offline, and for as long as a Try Again from it runs.
-    private var showsHomeProblem: Bool { feed.problem != nil || homeIsOffline || homeRetries > 0 }
+    /// Home's list is not live (``connectionStatus``): the read failed or the Mac is offline,
+    /// and for as long as a retry runs.
+    private var showsHomeProblem: Bool { connectionStatus != nil }
 
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
         return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
     }
 
-    /// The bar at the top of Home while its list is not live (``HomeConnectionBar``).
-    private var connectionBar: HomeConnectionBar? {
-        HomeConnectionBar.make(offline: homeIsOffline, problem: feed.problem, retrying: homeRetries > 0,
-                               reconnecting: retryReconnects, hasRows: !(feed.rows ?? []).isEmpty, macName: macTag)
+    /// What Home says while its list is not live (``HomeConnectionStatus``): Workspaces' subtitle
+    /// over the kept rows, or its empty state when none are kept.
+    private var connectionStatus: HomeConnectionStatus? {
+        let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
+        return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
+                                         retrying: homeRetries > 0, macName: macTag)
     }
 
-    /// The bar's Try Again. The bar stays (its spinner turning) until the retry answers:
-    /// reconnecting clears the offline state first, and the bar leaving then would cancel
-    /// nothing but would flash.
+    /// The navigation subtitle: the status while rows show and the list is not live, else none.
+    private var homeSubtitle: String {
+        guard let status = connectionStatus, !(feed.rows ?? []).isEmpty else { return "" }
+        return status.subtitle
+    }
+
+    /// The kept rows show while the list is not live: dimmed, as Workspaces' last-known rows.
+    private var rowsAreStale: Bool { showsHomeProblem && !(feed.rows ?? []).isEmpty }
+
+    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
+    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
-        retryReconnects = homeIsOffline
         homeRetries += 1
         defer { homeRetries -= 1 }
         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
@@ -286,6 +293,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     let model = rowModel(row, stamp: stamp)
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
+                        // Last-known rows, dimmed as Workspaces' are; they still open.
+                        .opacity(rowsAreStale ? 0.55 : 1)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                         .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
@@ -303,7 +312,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if !showsHomeProblem {
+            if let status = connectionStatus, (feed.rows ?? []).isEmpty, !searching, !unreadOnly {
+                // Nothing kept: Workspaces' empty state for the same Mac.
+                if let empty = status.empty {
+                    EmptyState(symbol: empty.symbol, title: LocalizedStringKey(empty.title),
+                               message: LocalizedStringKey(empty.message),
+                               primaryTitle: empty.canRetry ? "Retry" : nil,
+                               isPrimaryLoading: status.isRetrying,
+                               primary: empty.canRetry ? { Task { await retryHome() } } : nil)
+                        .padding(.top, 80)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("home.note.problem")
+                } else {
+                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
+                }
+            } else if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
                 case .connecting:
@@ -370,29 +396,21 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.note.updating")
             }
         }
-        // The Home Mac is away or its list failed (CMUX-489): a bar at the top says so and
-        // offers Try Again. It sits above the list, never over it: the kept rows, the tab bar
-        // and every local action stay usable.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if let bar = connectionBar {
-                HomeConnectionBarView(bar: bar, retrying: homeRetries > 0, retry: retryHome)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-            }
-        }
-        .onChange(of: connectionBar?.title, initial: true) { old, title in
-            // VoiceOver hears the bar when it appears (also on arriving at Home with the Mac
-            // already away), not on each retry's title.
-            guard old == nil || old == title, let title else { return }
-            AccessibilityNotification.Announcement(title).post()
+        // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
+        // failed Mac again on a choice); the Mac's link also reconnects on its own.
+        .task(id: homeMacID) {
+            if let status = connectionStatus, status.empty?.canRetry != false, homeRetries == 0 { await retryHome() }
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)
         // No visible title (user feedback): the grid sits right under the
         // toolbar. The title still names the screen for VoiceOver and the back menu.
         .navigationTitle("Home")
+        // While the list is not live, the subtitle says so in Workspaces' words ("Offline · last
+        // known"), with the title it sits under; otherwise no visible title (user feedback).
+        .navigationSubtitle(homeSubtitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
+        .toolbar(removing: homeSubtitle.isEmpty ? .title : nil)
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {

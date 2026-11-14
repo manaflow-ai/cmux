@@ -300,54 +300,82 @@ public enum HomeListNote: Equatable, Sendable {
     }
 }
 
-/// The bar at the top of Home while the Home Mac is not connected or its list could not be
-/// read (CMUX-489). The list under it stays usable, but it is what this phone last read, not
-/// the Mac's live list. The bar says so where the person looks first: at the top, not in
-/// small gray text under the last row.
-public struct HomeConnectionBar: Equatable, Sendable {
+/// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
+/// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
+/// paradigms"). With rows on screen they stay, dimmed as Workspaces' last-known rows are, and the
+/// navigation subtitle says they are the last known; with none, Home shows Workspaces' empty
+/// state for that Mac.
+public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
-        /// The Mac's link is down.
-        case offline
+        /// The Mac is offline (its presence says so): nothing to dial.
+        case macOffline
+        /// The Mac is online, but its link is down.
+        case unreachable
         /// The link is up, but the Mac's list did not load.
         case failed
-        /// A Try Again from the bar is running.
-        case retrying
+        /// A retry runs after the link came back, before the list answers.
+        case connecting
+    }
+
+    /// The empty state when no rows show (Workspaces' `EmptyState` for the same case).
+    public struct Empty: Equatable, Sendable {
+        public let symbol: String
+        public let title: String
+        public let message: String
+        /// Offers Retry (not for an offline Mac: there is nothing to dial, as on Workspaces).
+        public let canRetry: Bool
     }
 
     public let kind: Kind
-    public let title: String
-    /// What the list under the bar is and what happens next.
-    public let detail: String
+    /// A retry runs: Retry shows its spinner and the subtitle says "Updating…".
+    public let isRetrying: Bool
+    /// The navigation subtitle while rows show.
+    public let subtitle: String
+    /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
+    public let empty: Empty?
 
-    /// The bar for Home's state, or nil while the list is live. `offline`: the Home Mac's link
-    /// is neither connected nor connecting. `problem`: why the last read failed. `retrying`: a
-    /// Try Again runs. `hasRows`: rows show under the bar (the last ones read).
-    /// `reconnecting`: the running Try Again dials the Mac first (it was offline), else it only reads again.
-    public static func make(offline: Bool, problem: String?, retrying: Bool, reconnecting: Bool = true, hasRows: Bool,
-                            macName: String?) -> HomeConnectionBar? {
+    /// Home's status, or nil while the list is live. `linkDown`: the Home Mac's link is neither
+    /// connected nor connecting. `macOnline`: the account's presence for the Mac (nil: unknown).
+    /// `failed`: the last read failed. `retrying`: a retry runs.
+    public static func make(linkDown: Bool, macOnline: Bool?, failed: Bool, retrying: Bool,
+                            macName: String?) -> HomeConnectionStatus? {
         let mac = macName ?? String(localized: "your Mac")
         let kind: Kind
-        if retrying {
-            kind = .retrying
-        } else if offline {
-            kind = .offline
-        } else if problem != nil {
+        if linkDown {
+            kind = macOnline == false ? .macOffline : .unreachable
+        } else if failed {
             kind = .failed
+        } else if retrying {
+            kind = .connecting
         } else {
             return nil
         }
-        let title: String = switch kind {
-        case .offline: String(localized: "Not connected to \(mac)")
-        case .failed: String(localized: "Couldn't load Home from \(mac)")
-        case .retrying: reconnecting ? String(localized: "Reconnecting to \(mac)…") : String(localized: "Loading Home from \(mac)…")
-        }
-        var detail: String = if hasRows {
-            String(localized: "Showing the last list from this iPhone. It updates when the Mac answers.")
+        let subtitle: String = if retrying {
+            String(localized: "Updating…")
+        } else if kind == .failed {
+            String(localized: "Couldn't refresh · last known")
         } else {
-            String(localized: "Its conversations show when the Mac answers.")
+            String(localized: "Offline · last known")
         }
-        if kind == .failed, let problem, !problem.isEmpty { detail = "\(problem) \(detail)" }
-        return HomeConnectionBar(kind: kind, title: title, detail: detail)
+        let empty: Empty? = switch kind {
+        case .macOffline:
+            Empty(symbol: "moon.zzz", title: String(localized: "\(mac) is offline"),
+                  message: String(localized: "Open cmux on it to see its conversations."), canRetry: false)
+        case .unreachable:
+            Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Can't connect to \(mac)"),
+                  message: String(localized: "\(mac) is online, but this iPhone can't reach it."), canRetry: true)
+        case .failed:
+            Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Couldn't load conversations"),
+                  message: String(localized: "\(mac) didn't answer. It tries again on its own."), canRetry: true)
+        case .connecting:
+            nil
+        }
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, subtitle: subtitle, empty: empty)
+    }
+
+    /// The connecting line when no rows show and no empty state applies.
+    public static func connectingTitle(macName: String?) -> String {
+        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
     }
 }
 
@@ -468,6 +496,9 @@ public final class MacHomeFeed {
         }, complete: true)
         self.macID = macID
     }
+
+    /// The `retry-home-failed` demo: the last read failed on a live link.
+    public func setProblemForDemo(_ text: String) { problem = text }
 
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.
