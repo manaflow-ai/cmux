@@ -25,7 +25,7 @@ fn corpus(harness: Harness) -> Vec<String> {
         r#""type":"user","uuid":"p","message":{"content":"Question"}"#,
         r#""type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"Read","input":{"path":"a"}}]}"#,
         r#""type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"output"}]}"#,
-        r#""type":"assistant","message":{"content":[{"type":"text","text":"Final reply"}],"stop_reason":"end_turn"}"#,
+        r#""type":"assistant","message":{"id":"m","content":[{"type":"text","text":"Final reply"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":10,"cache_creation_input_tokens":2}}"#,
     ].iter().map(|line|format!("{{{line},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn v1_corpus() -> Vec<String> {
@@ -40,7 +40,7 @@ fn v1_corpus() -> Vec<String> {
         update(r#"{"sessionUpdate":"tool_call","toolCallId":"t","status":"running"}"#),
         update(r#"{"sessionUpdate":"tool_call_update","toolCallId":"t","status":"completed","content":{"type":"text","text":"output"}}"#),
         update(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Final reply"}}"#),
-        r#""dir":"mux","kind":"turn_result","msg":{"turnId":"p"}"#.to_owned(),
+        r#""dir":"mux","kind":"turn_result","msg":{"turnId":"p","promptId":"p","status":"completed","inputTokens":5,"outputTokens":7,"cacheReadTokens":10,"cacheWriteTokens":2,"contextTokens":30,"modelCalls":2,"inputExcludesCache":true,"checkpointId":"c1","endCheckpointId":"c2"}"#.to_owned(),
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
@@ -67,6 +67,15 @@ fn full_state() -> State {
         );
         let _ = t(&mut state, Harness::V1, line.as_bytes());
     }
+    // And the most asks a chat holds open (decision 245).
+    for n in 0..32u64 {
+        let line = format!(
+            r#"{{"seq":{},"at":1000,"dir":"mux","kind":"permission_request","msg":{{"permissionId":"a-{n}","turnId":"p","request":{{"toolCall":{{"title":"Run step {n}"}},"options":[{{"optionId":"once","kind":"allow_once"}},{{"optionId":"no","kind":"reject_once"}}]}}}}}}"#,
+            n + 1026
+        );
+        let _ = t(&mut state, Harness::V1, line.as_bytes());
+    }
+    assert_eq!(state.counters().forced_asks, 0);
     state
 }
 fn full_state_p95(harness: Harness, lines: &[String], start: usize, queue: bool) -> u128 {
