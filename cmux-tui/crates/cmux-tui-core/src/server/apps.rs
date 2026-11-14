@@ -51,6 +51,15 @@ enum Command {
         #[serde(default)]
         brief: bool,
     },
+    /// `cmux <cli.name> <path…>`: the installed app whose manifest
+    /// `cli.name` is `name`, and its op whose `cli.path` the words start
+    /// with (apps/cli_commands.rs). The CLI then runs the op with `apps-run`.
+    #[serde(rename = "apps-cli")]
+    Cli {
+        name: String,
+        #[serde(default)]
+        words: Vec<String>,
+    },
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
@@ -436,6 +445,7 @@ pub(super) fn try_handle(
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
+        Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
