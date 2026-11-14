@@ -98,9 +98,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                          retrying: homeRetries > 0, macName: macTag)
     }
 
-    /// The kept rows show while the list is not live: dimmed, as Workspaces' last-known rows.
-    private var rowsAreStale: Bool { showsHomeProblem && keptRowsShow }
-
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
@@ -226,14 +223,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let list = list
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         List {
-            if let status = connectionStatus, keptRowsShow, !searching {
-                // Kept rows: Workspaces' Mac line over them (its offline or unreachable Mac's
-                // line), not a card. Retry dials the Mac again.
-                HomeMacStatusLine(status: status, macName: macTag, retry: retryHome)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(CmuxMobileBackdrop.listRow)
-            }
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
                 // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
@@ -243,8 +232,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     ForEach(tiles) { $0 }
                 }
                 .padding(.horizontal, 8)
-                // Last-known pins, dimmed as the rows under them.
-                .opacity(rowsAreStale ? 0.55 : 1)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(CmuxMobileBackdrop.listRow)
@@ -309,8 +296,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     let model = rowModel(row, stamp: stamp)
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
-                        // Last-known rows, dimmed as Workspaces' are; they still open.
-                        .opacity(rowsAreStale ? 0.55 : 1)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                         .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
@@ -442,7 +427,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if macs.count > 1 { macMenu }
+                // The Mac button also says when Home's Mac is not live (its badge), with Retry
+                // inside: the list itself stays exactly as normal (the user, 2026-11-13).
+                if macs.count > 1 || connectionStatus != nil { macMenu }
                 // The Mac's Unread toggle: all or unread only, the filled glyph while on.
                 Button {
                     theme.haptics.selection()
@@ -636,22 +623,40 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let entries = macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
                                                           linkStatus: store.macLinkStatus, live: store.tracksMacData,
                                                           now: MinuteClock.shared.now))
+        let status = connectionStatus
+        let statusLine = status.map { "\(macTag ?? String(localized: "Your Mac")) · \($0.detail)" }
         return Menu {
-            Section("Show Home of") {
-                ForEach(entries) { mac in
-                    Toggle(isOn: chosen(mac.id)) {
-                        Text(mac.title)
-                        Text(mac.detail)
-                        Image(systemName: "desktopcomputer")
+            if let status, let statusLine {
+                Section(statusLine) {
+                    if status.empty?.canRetry != false {
+                        Button {
+                            Task { await retryHome() }
+                        } label: {
+                            Label(status.isRetrying ? String(localized: "Updating…") : String(localized: "Retry"),
+                                  systemImage: "arrow.clockwise")
+                        }
+                        .disabled(status.isRetrying)
+                        .accessibilityIdentifier("home.mac.retry")
                     }
-                    .accessibilityIdentifier("home.mac.\(mac.id)")
+                }
+            }
+            if macs.count > 1 {
+                Section("Show Home of") {
+                    ForEach(entries) { mac in
+                        Toggle(isOn: chosen(mac.id)) {
+                            Text(mac.title)
+                            Text(mac.detail)
+                            Image(systemName: "desktopcomputer")
+                        }
+                        .accessibilityIdentifier("home.mac.\(mac.id)")
+                    }
                 }
             }
         } label: {
-            Label("Mac", systemImage: "desktopcomputer")
+            Label("Mac", systemImage: status == nil ? "desktopcomputer" : "desktopcomputer.trianglebadge.exclamationmark")
         }
         .accessibilityIdentifier("home.mac")
-        .accessibilityValue(homeMacID.flatMap { labels.macName($0) } ?? "")
+        .accessibilityValue([homeMacID.flatMap { labels.macName($0) }, status?.detail].compactMap(\.self).joined(separator: ", "))
     }
 
     private func chosen(_ id: String) -> Binding<Bool> {

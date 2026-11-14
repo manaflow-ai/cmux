@@ -302,9 +302,9 @@ public enum HomeListNote: Equatable, Sendable {
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
 /// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
-/// paradigms"). With rows on screen they stay, dimmed as Workspaces' last-known rows are, under
-/// Workspaces' Mac line ("Studio · Offline · last known", Retry); with none, Home shows
-/// Workspaces' empty state for that Mac.
+/// paradigms"). With rows on screen the list stays exactly as normal and the toolbar's Mac
+/// button carries the status (its badge; "Studio · Offline · last known" and Retry in its menu);
+/// with none, Home shows Workspaces' empty state for that Mac.
 public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// The Mac is offline (its presence says so): nothing to dial.
@@ -327,9 +327,9 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     }
 
     public let kind: Kind
-    /// A retry runs: Retry shows its spinner and the Mac line says "Updating…".
+    /// A retry runs: Retry shows its spinner and the Mac menu says "Updating…".
     public let isRetrying: Bool
-    /// What the Mac line over kept rows says after the Mac's name (Workspaces' words).
+    /// What the Mac menu says after the Mac's name (Workspaces' words).
     public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
