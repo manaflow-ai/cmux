@@ -1870,43 +1870,42 @@ button.cv-subagent > :last-child {
   transition: color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
 /* The tuck control (Leo, 2026-11-14: "the tuck away chevron clickability/visuals should be improved
-   somehow"). It was a bare 12px glyph cut by the hat's top edge that took clicks only in an 8px band
-   there. Now it is a drawn control inside the hat's top middle (the hat clips anything over its edge),
-   whose whole box takes the click: 24px tall from the edge, at least 40px wide. Its surface shows
-   while it is revealed, lights on hover and darkens while pressed; the chevron goes from muted to the
-   text colour with it. Three looks (hatTuck.experiment.ts, gallery `agent-pane.composer-hat-tuck`):
-   `tab` (picked) hangs a small tab from the edge, `pill` is the tucked hat's glass pill, `band` lights
-   a 96px band along the edge. The header keeps every other click: its sides, its foot under the box,
-   its leading icon and its trailing controls. It takes clicks only while it shows. */
+   somehow"). It was a bare 12px glyph cut by the hat's top edge, with nothing to say what to click,
+   that took clicks only in an 8px band there. Now it is a drawn control whose whole box takes the
+   click: the pull tab's 96px width (so the handle stays put between tucked and shown) and 12px down
+   from the hat's top edge, half again the old band. The hat clips anything over its edge, so the box
+   lies inside the hat, and it stops above the header's centre line: a click on the header's middle
+   still opens the hat, never tucks it. Anywhere in the box, its surface lights and its chevron takes
+   the text colour; pressed, the surface darkens. Three looks (hatTuck.experiment.ts, gallery
+   `agent-pane.composer-hat-tuck`): `tab` (picked) hangs a small tab from the edge, `pill` is the tucked
+   hat's glass pill, `band` lights the whole box. It takes clicks only while it shows. */
 .acpmux-running-tray__tuck {
   /* How strong the surface is: faint at rest once revealed, so it reads as a control before the
      pointer reaches it; lit on hover; darker while pressed. */
   --acpmux-tuck-ink: 6%;
   top: 0;
-  width: var(--ds-space-40);
-  height: var(--ds-control-compact);
+  width: calc(2 * var(--ds-space-48));
+  height: var(--ds-space-3);
   align-items: flex-start;
   opacity: 0;
   pointer-events: none;
   /* The transcript's shared hover-reveal fade (transcript-hover-fade.test.ts). */
   transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
-/* The drawn surface, under the chevron, in the box's top middle. */
+/* The drawn surface, under the chevron, in the box's middle, flush with the hat's top edge. */
 .acpmux-running-tray__tuck::before {
   content: "";
   position: absolute;
   top: 0;
   left: 50%;
-  width: var(--ds-space-6);
-  height: var(--ds-space-4);
+  width: var(--ds-space-40);
+  height: 100%;
   border-radius: 0 0 var(--ds-radius-md) var(--ds-radius-md);
   background: color-mix(in srgb, var(--agent-text) var(--acpmux-tuck-ink), transparent);
   transform: translateX(-50%);
-  transition: background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
-}
-/* The chevron, centred in the surface: whole inside the hat, under its edge. */
-.acpmux-running-tray__tuck > svg {
-  transform: translateY(calc((var(--ds-space-4) - 12px) / 2));
+  transition:
+    background-color var(--cmux-motion-micro, 120ms) var(--cv-actions-ease),
+    box-shadow var(--cmux-motion-micro, 120ms) var(--cv-actions-ease);
 }
 .acpmux-running-tray__tuck:hover {
   --acpmux-tuck-ink: 11%;
@@ -1914,15 +1913,11 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tuck:active {
   --acpmux-tuck-ink: 16%;
 }
-/* `pill`: the tucked hat's own glass control (.acpmux-tray-pull__hat), just under the edge. */
+/* `pill`: the tucked hat's own glass control (.acpmux-tray-pull__hat), on the edge. */
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck::before {
   border-radius: var(--ds-radius-control, 6px);
   background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
-  transform: translate(-50%, var(--grid-half-step, 2px));
-}
-.acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck > svg {
-  transform: translateY(calc((var(--ds-space-4) - 12px) / 2 + var(--grid-half-step, 2px)));
 }
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:hover::before {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
@@ -1930,16 +1925,9 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
-/* `band`: the old 96px band, 24px tall, lit as a whole along the edge. */
-.acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck {
-  width: calc(2 * var(--ds-space-48));
-}
+/* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {
   width: 100%;
-  height: var(--ds-space-3);
-}
-.acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck > svg {
-  transform: none;
 }
 .acpmux-running-tray:hover > .acpmux-running-tray__tuck,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,

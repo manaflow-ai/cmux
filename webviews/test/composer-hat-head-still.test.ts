@@ -98,6 +98,29 @@ await requireBrowserLane("composer-hat-head-still.test.ts", async () => {
             await page.waitForSelector(".acpmux-running-tray__open");
             const folded = await measure(page);
             expect(folded.lines.length).toBe(0);
+            // The tuck control shows with the pointer on the hat. Its click box (96 by 12px at the top
+            // middle; it was 8px tall) stops above the header's centre line, so the real click on the
+            // header's middle below still opens the hat, never tucks it (Leo, 2026-11-14: "the tuck
+            // away chevron clickability/visuals should be improved somehow").
+            await page.locator(".acpmux-running-tray__title").hover();
+            await page.waitForFunction(
+              () => getComputedStyle(document.querySelector(".acpmux-running-tray__tuck")!).opacity === "1",
+            );
+            const tuck = await page.evaluate(() => {
+              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+              const box = document.querySelector(".acpmux-running-tray__tuck")!.getBoundingClientRect();
+              return {
+                width: box.width,
+                top: box.top - tray.top,
+                height: box.height,
+                center: box.left + box.width / 2 - (tray.left + tray.width / 2),
+              };
+            });
+            expect(tuck.width).toBeGreaterThanOrEqual(96);
+            expect(tuck.height).toBeGreaterThanOrEqual(12);
+            expect(tuck.top).toBe(0);
+            expect(tuck.top + tuck.height).toBeLessThan(14);
+            expect(Math.abs(tuck.center)).toBeLessThanOrEqual(0.5);
             await openRunningTray(page);
             const open = await measure(page);
             const report = JSON.stringify({ folded, open: { ...open, lines: open.lines.length } });
