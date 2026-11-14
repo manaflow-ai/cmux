@@ -31,7 +31,7 @@ pub(super) struct History {
     #[cfg(test)]
     encoded_ops: AtomicUsize,
     #[cfg(test)]
-    raw_copies: AtomicUsize,
+    raw_copies: Arc<AtomicUsize>,
     #[cfg(test)]
     raw_copy_permit: Arc<AtomicBool>,
     #[cfg(test)]
@@ -65,6 +65,76 @@ impl RawSpan {
             checksum.write(bytes);
             checksum.finish() == entry.checksum
         })
+    }
+}
+
+/// Immutable bytes and entry metadata captured when a replay subscription
+/// opens. Replay copies use this snapshot without holding the writer's history
+/// mutex, so a raw frame cannot stall an append.
+pub(super) struct HistorySnapshot {
+    bytes: Box<[u8]>,
+    entries: Box<[Entry]>,
+    head: usize,
+    len: usize,
+    first: u64,
+    used: usize,
+    #[cfg(test)]
+    raw_copies: Arc<AtomicUsize>,
+    #[cfg(test)]
+    raw_copy_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    raw_copy_waiting: Arc<AtomicBool>,
+}
+
+impl HistorySnapshot {
+    pub(super) fn first_seq(&self) -> Option<u64> {
+        (self.len != 0).then_some(self.first)
+    }
+
+    pub(super) fn last_seq(&self) -> Option<u64> {
+        self.first_seq().and_then(|first| first.checked_add(self.len as u64 - 1))
+    }
+
+    pub(super) fn after_frame(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<RawSpan> {
+        #[cfg(test)]
+        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
+        #[cfg(test)]
+        self.raw_copies.fetch_add(1, Ordering::Release);
+        if cursor >= through {
+            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+        }
+        let first = cursor.checked_add(1)?;
+        let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
+        let available = usize::try_from(through.checked_sub(cursor)?).ok()?;
+        let count = available.min(self.len.checked_sub(offset)?);
+        if count == 0 {
+            return None;
+        }
+        let max_bytes = max_bytes.min(256 * 1024);
+        let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
+        let mut entries = Vec::with_capacity(count.min(max_bytes / MIN_OP_BYTES));
+        let mut last_seq = cursor;
+        for index in 0..count {
+            let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
+            let separator = usize::from(!out.is_empty());
+            if out.len().saturating_add(separator).saturating_add(entry.len) > max_bytes {
+                break;
+            }
+            if separator != 0 {
+                out.push(b',');
+            }
+            entries.push(Entry { start: out.len(), ..entry });
+            if !copy_entry_into(&self.bytes, entry, &mut out) {
+                return None;
+            }
+            last_seq = first.saturating_add(index as u64);
+        }
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
     }
 }
 
@@ -107,7 +177,7 @@ impl History {
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
             #[cfg(test)]
-            raw_copies: AtomicUsize::new(0),
+            raw_copies: Arc::new(AtomicUsize::new(0)),
             #[cfg(test)]
             raw_copy_permit: Arc::new(AtomicBool::new(true)),
             #[cfg(test)]
@@ -138,6 +208,23 @@ impl History {
     #[cfg(test)]
     pub(super) fn raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
         (self.raw_copy_permit.clone(), self.raw_copy_waiting.clone())
+    }
+
+    pub(super) fn snapshot(&self) -> HistorySnapshot {
+        HistorySnapshot {
+            bytes: self.bytes.clone(),
+            entries: self.entries.clone(),
+            head: self.head,
+            len: self.len,
+            first: self.first,
+            used: self.used,
+            #[cfg(test)]
+            raw_copies: self.raw_copies.clone(),
+            #[cfg(test)]
+            raw_copy_permit: self.raw_copy_permit.clone(),
+            #[cfg(test)]
+            raw_copy_waiting: self.raw_copy_waiting.clone(),
+        }
     }
 
     #[cfg(test)]
@@ -290,27 +377,27 @@ impl History {
                 out.push(b',');
             }
             entries.push(Entry { start: out.len(), ..entry });
-            if !self.copy_entry_into(entry, &mut out) {
+            if !copy_entry_into(&self.bytes, entry, &mut out) {
                 return None;
             }
             last_seq = first.saturating_add(index as u64);
         }
         (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
     }
+}
 
-    fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
-        let capacity = self.bytes.len();
-        let first_len = entry.len.min(capacity.saturating_sub(entry.start));
-        let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
-            return false;
-        };
-        out.extend_from_slice(first);
-        let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
-            return false;
-        };
-        out.extend_from_slice(second);
-        true
-    }
+fn copy_entry_into(bytes: &[u8], entry: Entry, out: &mut Vec<u8>) -> bool {
+    let capacity = bytes.len();
+    let first_len = entry.len.min(capacity.saturating_sub(entry.start));
+    let Some(first) = bytes.get(entry.start..entry.start + first_len) else {
+        return false;
+    };
+    out.extend_from_slice(first);
+    let Some(second) = bytes.get(..entry.len.saturating_sub(first_len)) else {
+        return false;
+    };
+    out.extend_from_slice(second);
+    true
 }
 
 #[cfg(test)]

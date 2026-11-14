@@ -225,6 +225,7 @@ pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    replay_snapshot: Option<Arc<history::HistorySnapshot>>,
     folders: bool,
     folder_state: Arc<Mutex<folders::FolderState>>,
     published: Arc<ArcSwap<SummaryIndex>>,
@@ -348,21 +349,32 @@ impl ListReceiver {
             }
             state.cursor
         };
-        let span = {
-            let history = self.history.lock().ok()?;
-            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
-            // A live pump consumes exactly one operation. A replay captures
-            // its target once and may consume several bounded spans.
-            let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
-            if cursor >= target {
-                return None;
-            }
-            if history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
-                None
+        let span =
+            if let (Some(through), Some(snapshot)) = (through, self.replay_snapshot.as_deref()) {
+                let target = through.min(snapshot.last_seq().unwrap_or(through));
+                if cursor >= target {
+                    return None;
+                }
+                if snapshot.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+                    None
+                } else {
+                    snapshot.after_frame(cursor, target, max_bytes)
+                }
             } else {
-                history.after_frame(cursor, target, max_bytes)
-            }
-        };
+                let history = self.history.lock().ok()?;
+                let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+                // A live pump consumes exactly one operation. A replay captures
+                // its target once and may consume several bounded spans.
+                let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
+                if cursor >= target {
+                    return None;
+                }
+                if history.first_seq().is_some_and(|seq| cursor.saturating_add(1) < seq) {
+                    None
+                } else {
+                    history.after_frame(cursor, target, max_bytes)
+                }
+            };
         let Some(span) = span.filter(history::RawSpan::is_valid) else {
             if let Ok(mut state) = self.subscriber.state.lock() {
                 state.ended = true;
@@ -867,6 +879,7 @@ impl Hub {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                replay_snapshot: None,
                 folder_state: self.folder_state.clone(),
                 folders: folders::is_folders(sub.view),
                 published: self.published.clone(),
@@ -885,12 +898,14 @@ impl Hub {
         if folders::is_folders(sub.view) {
             return Err(HubError::InvalidParams("folders always starts with a window".into()));
         }
+        let snapshot = self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot();
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
             history: self.history.clone(),
+            replay_snapshot: Some(Arc::new(snapshot)),
             folder_state: self.folder_state.clone(),
             folders: folders::is_folders(sub.view),
             published: self.published.clone(),
