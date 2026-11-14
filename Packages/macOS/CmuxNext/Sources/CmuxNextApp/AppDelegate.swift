@@ -150,9 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
-        // An agent launch must never come back by itself: without this, loginwindow reopens it at the
-        // next login (without the agent's environment, so it activates and takes the tag's socket).
-        if environment.noActivate { NSApp.disableRelaunchOnLogin() }
+        // A capture slot is disposable: without this, loginwindow reopens its tagged app after the slot ends.
+        // Normal no-activate launches are real sessions and must return after a Mac reboot.
+        if environment.captureShellHome != nil { NSApp.disableRelaunchOnLogin() }
         // A `cmux` shim outside this app runs the CLI of the app opened last (plans/cmux-next/version-skew.md).
         LastAppCLIPointer.publishAtLaunch()
         // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
