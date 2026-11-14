@@ -245,7 +245,8 @@ public struct AcpmuxSession: Hashable, Sendable {
     /// `agentSessionId`: the harness's own session id the chat resumes or watches; Toggle Terminal and
     /// Chat pairs the chat with the terminal whose agent reports it.
     public var agentSessionID: String?
-    /// `watching`: a View Only chat of a conversation another app (a terminal) runs.
+    /// `watching`: a chat of a conversation another app (a terminal) runs. One the Mac's Toggle
+    /// handed to a cmux terminal takes the Mac's prompts into it; a paired device does not (acpmux `remote.terminal_session`).
     public var watching = false
 
     /// The name a person gave the chat, or nil when it is an id the system made: the Chief's own
