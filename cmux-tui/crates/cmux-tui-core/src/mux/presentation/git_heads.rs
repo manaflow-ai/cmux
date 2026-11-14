@@ -188,6 +188,15 @@ impl Mux {
         }
     }
 
+    /// MEASURE BRANCH ONLY: forgets each cached git HEAD, so the next read of the tree reads the
+    /// HEAD of each directory again.
+    #[cfg(test)]
+    pub(crate) fn forget_git_heads_for_measure(&self) {
+        let mut cache = self.git_heads.inner.lock().recover_poison();
+        cache.heads.clear();
+        cache.queue.clear();
+    }
+
     /// Test seam: makes each cached git HEAD older than [`GIT_HEAD_TTL`]. Whether it could (a
     /// host that started less than that time ago has no older instant).
     #[cfg(test)]

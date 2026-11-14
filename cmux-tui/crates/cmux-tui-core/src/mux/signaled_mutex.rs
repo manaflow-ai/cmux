@@ -488,7 +488,9 @@ impl Drop for StateGuard<'_> {
         }
         // Record the release while the lock is still held, so the next
         // holder's record is never erased by this older unlock.
-        self.stats.released(self.site, self.acquired_at.elapsed(), self.waited);
+        let held = self.acquired_at.elapsed();
+        self.stats.released(self.site, held, self.waited);
+        crate::measure_probe::state_hold(self.site, held);
         crate::workspace_registry::registry_connection::note_state_lock(false);
     }
 }

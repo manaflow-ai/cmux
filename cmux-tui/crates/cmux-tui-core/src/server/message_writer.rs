@@ -364,7 +364,12 @@ impl MessageWriter {
         value: &T,
         deadline: Option<Instant>,
     ) -> std::io::Result<()> {
-        self.send_rendered_control(deadline, false, |render| render.serialize_control(value))
+        self.send_rendered_control(deadline, false, |render| {
+            let lap = crate::measure_probe::now();
+            let text = render.serialize_control(value);
+            crate::measure_probe::since("reply.text", lap);
+            text
+        })
     }
 
     /// [`Self::send_control`] of a message that this call owns (a v2 response). A connection
@@ -374,9 +379,20 @@ impl MessageWriter {
     pub(super) fn send_control_value(&self, mut value: Value) -> std::io::Result<()> {
         let projection = self.tab_projection();
         if !projection.is_canonical() {
+            let lap = crate::measure_probe::now();
             projection.project(&mut value);
+            crate::measure_probe::since("tabs.value_walk", lap);
         }
-        self.send_rendered_control(None, true, |render| render.serialize_control(&value))
+        let sent = self.send_rendered_control(None, true, |render| {
+            let lap = crate::measure_probe::now();
+            let text = render.serialize_control(&value);
+            crate::measure_probe::since("reply.text", lap);
+            text
+        });
+        let lap = crate::measure_probe::now();
+        drop(value);
+        crate::measure_probe::since("ss.drop_reply_value", lap);
+        sent
     }
 
     /// A `list-workspaces` reply written from its build's shared tree text:
@@ -393,9 +409,12 @@ impl MessageWriter {
         // nothing more in a tree that is projected.
         let tabs_projected = !id.is_some_and(|id| id.is_array() || id.is_object());
         self.send_rendered_control(None, tabs_projected, |render| {
-            render.write_control(tree.text.reply_bytes(), |out| {
+            let lap = crate::measure_probe::now();
+            let text = render.write_control(tree.text.reply_bytes(), |out| {
                 tree.text.write_reply(out, id, tree.lines_written_before_read)
-            })
+            });
+            crate::measure_probe::since("lw.copy", lap);
+            text
         })
     }
 
@@ -413,12 +432,17 @@ impl MessageWriter {
         }
         let result = render(&self.render_service).and_then(|text| {
             let text = if tabs_projected { text } else { self.project_conversation_tabs(text)? };
+            let lap = crate::measure_probe::now();
             let text = self.project_api_revision(text)?;
+            crate::measure_probe::since("reply.api_revision", lap);
+            let lap = crate::measure_probe::now();
             let text = self.mark_reply(text);
-            match deadline {
+            let sent = match deadline {
                 Some(deadline) => self.sink.send_control_backpressured(text, deadline),
                 None => self.sink.send_control(text),
-            }
+            };
+            crate::measure_probe::since("reply.queue", lap);
+            sent
         });
         if result.is_err() {
             self.close();

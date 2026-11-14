@@ -3119,17 +3119,29 @@ fn list_workspaces_reply_text(
     mux.tree_reply_flight.read_text(
         || list_workspaces_tree(mux),
         projection,
-        |tree| render.serialize_tree(tree),
+        |tree| {
+            let lap = crate::measure_probe::now();
+            let text = render.serialize_tree(tree);
+            crate::measure_probe::since("lw.text", lap);
+            text
+        },
     )
 }
 
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
+    let lap = crate::measure_probe::now();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    crate::measure_probe::since("lw.nodes (state lock)", lap);
+    let lap = crate::measure_probe::now();
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
     workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
+    crate::measure_probe::since("lw.registry_fields", lap);
+    let lap = crate::measure_probe::now();
+    drop(notifications);
+    crate::measure_probe::since("lw.drop_decorations", lap);
     Ok(workspaces)
 }
 
