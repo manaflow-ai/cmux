@@ -1795,11 +1795,11 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
     """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
     no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
 
-    It runs only when base..head changes a header, the baseline, the checker, the app's FFI pin, or a Swift line under Packages that
-    names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
-    Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
-    Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
-    something, and subtracts what the base already had."""
+    It runs only when base..head changes a header, the baseline, the checker, the app's FFI pin (a re-pin can make an
+    export drift), or a Swift line under Packages that names an exported-looking function (cmux_*, acpmux_*): a
+    caller is gained or lost only on such a line, so a Swift change that names none cannot move the verdict, and
+    most pushes skip both passes (each reads every Packages Swift file at its commit, about 3 s). The head pass runs
+    first; the base pass only when it found something, and subtracts what the base already had."""
     script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
