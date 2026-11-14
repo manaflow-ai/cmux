@@ -951,7 +951,7 @@ impl Log {
         };
         let mut texts: Vec<Option<Range<usize>>> = vec![None; rows.len()];
         let mut order: Vec<(usize, &RowRef)> =
-            rows.iter().enumerate().filter(|(_, row)| readable(*row)).collect();
+            rows.iter().enumerate().filter(|(_, row)| readable(row)).collect();
         order.sort_by_key(|(_, row)| (row.seg, row.off));
         let mut reads = 0u32;
         let mut rest = order.as_slice();

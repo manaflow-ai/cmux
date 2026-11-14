@@ -1466,8 +1466,8 @@ fn a_book_checkpoint_with_every_part_at_its_bound_fits_and_restores_the_queue() 
     let mut blobs = Blobs::open(home.path()).unwrap();
     let mut checkpoint = Checkpoint::new(VERSION);
     checkpoint.last_row = 64;
-    checkpoint.translator = saved.translator.clone();
-    checkpoint.prompts = saved.prompts.clone();
+    checkpoint.translator = saved.translator;
+    checkpoint.prompts = saved.prompts;
     checkpoint.cursors.push(Cursor { file: source, place: 100, stamp: 7 });
     checkpoint.summary = vec![b'x'; 2048];
     let large = format!("\"{}\"", "x".repeat(1 << 20));
@@ -1568,7 +1568,7 @@ fn the_queue_keeps_v1s_list_order_through_reorders_holds_and_requeues() {
     let restored = saved.restore().unwrap();
     assert_eq!(queue_ids(&restored), queue_ids(&state));
     // Two records for one prompt are damage.
-    let mut twice = saved.clone();
+    let mut twice = saved;
     twice.prompts.push(twice.prompts[0]);
     assert_eq!(twice.restore(), Err(Error::CheckpointInvalid));
 }
