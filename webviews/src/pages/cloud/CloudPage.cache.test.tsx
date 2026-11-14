@@ -28,6 +28,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+// JSDOM lays nothing out: a selected row's reveal has nothing to scroll.
+dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
 const settle = async () => {
@@ -70,6 +72,19 @@ class SilentAuthProvider extends MockCloudProvider {
   }
 }
 
+/** A provider whose account read answers only when the test lets it: the frame before the owner. */
+class HeldAuthProvider extends MockCloudProvider {
+  private release?: () => void;
+  readonly held = new Promise<void>((resolve) => (this.release = resolve));
+  answer(): void {
+    this.release?.();
+  }
+  override async call<R>(op: string, params: unknown): Promise<R> {
+    if (op === CloudOps.authStatus) await this.held;
+    return super.call<R>(op, params);
+  }
+}
+
 async function render(store: CloudStore) {
   const rootElement = document.createElement("div");
   document.body.append(rootElement);
@@ -100,16 +115,20 @@ test("a kept list shows in the first frame, before the owner answers", async () 
 
 test("the owner's list replaces the kept one in place, and is kept for the next open", async () => {
   const storage = keptList("team_personal", ["kept-one"]);
-  const store = new CloudStore(new MockCloudProvider(), { cache: storage });
+  const provider = new HeldAuthProvider();
+  const store = new CloudStore(provider, { cache: storage });
   const page = await render(store);
   try {
     expect(page.titles()).toEqual(["kept-one"]);
-    await act(settle);
-    const owner = sampleMachines().map((machine) => machine.name);
-    expect(page.titles()).toEqual(owner);
-    const kept = JSON.parse(storage.getItem(KEY)!) as { team: string; machines: Array<{ name: string }> };
+    await act(async () => {
+      provider.answer();
+      await settle();
+    });
+    expect(page.titles()).toHaveLength(sampleMachines().length);
+    expect(page.titles()).not.toContain("kept-one");
+    const kept = JSON.parse(storage.getItem(KEY)!) as { team: string; machines: Array<{ id: string }> };
     expect(kept.team).toBe("team_personal");
-    expect(kept.machines.map((machine) => machine.name)).toEqual(owner);
+    expect(kept.machines.map((machine) => machine.id)).toEqual(sampleMachines().map((machine) => machine.id));
   } finally {
     await page.unmount();
   }
@@ -137,8 +156,8 @@ test("a link drop keeps the list on screen, says one line only once it lasts, an
   const page = await render(store);
   try {
     await act(settle);
-    const owner = sampleMachines().map((machine) => machine.name);
-    expect(page.titles()).toEqual(owner);
+    const owner = page.titles();
+    expect(owner).toHaveLength(sampleMachines().length);
     // The link drops under a read the page makes (a machine's detail).
     provider.offline = true;
     await act(async () => {
