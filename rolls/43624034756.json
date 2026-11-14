@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43624034756",
+  "recorded_at": "2026-11-14T18:12:46Z",
+  "reason": "cmux-tui 56d89c1194bd changes the image's cmux-tui (pinned 1f92f4dc3dcd)",
+  "dry_run": false,
+  "cmux_tui": "56d89c1194bd2c274e1acd58cb41ffab07b7652a",
+  "fixes": [
+    {
+      "sha": "56d89c1194bd2c274e1acd58cb41ffab07b7652a",
+      "mergedAt": "2026-11-14T09:36:56-08:00",
+      "subject": "v2 client: chat subs in acpmux-client and its C ABI (row 6a) (#43130)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T18:12:46Z",
+    "snapshot_id": "sh-a9627985cd8a478ea0c4652977ef2bb8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43624034756): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "269bd126f73b69f4d801cb6138f78bbd91fe0d86",
+    "image": "cloud-native-auto-56d89c11-43624034756-1",
+    "revision": "ci-43624034756-1",
+    "at": "2026-11-14T18:12:46Z"
+  },
+  "rolled_back": false
+}
