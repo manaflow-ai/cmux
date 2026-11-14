@@ -15,8 +15,6 @@ import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
-import { useStableHandlers } from "./stableHandlers";
-import { memo } from "react";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -35,15 +33,7 @@ export type ComposerPlusMenuProps = {
   onOpen?(): void;
 };
 
-/// The menu, drawn again only when its rows or its plan state change: the composer passes its
-/// handlers inline, new on each of its renders (every keystroke among them), so each is held as one
-/// stable function that calls the latest (stableHandlers.ts), and a key leaves the + menu alone
-/// (CMUX-571).
-export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
-  return <PlusMenu {...useStableHandlers(props)} />;
-}
-
-const PlusMenu = memo(function PlusMenu({
+export function ComposerPlusMenu({
   entries,
   className,
   planning = false,
@@ -82,4 +72,4 @@ const PlusMenu = memo(function PlusMenu({
       {...(onOpen ? { onOpen } : {})}
     />
   );
-});
+}

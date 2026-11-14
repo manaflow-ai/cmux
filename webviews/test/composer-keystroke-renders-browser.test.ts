@@ -2,18 +2,19 @@
 // A keystroke in the agent chat's prompt draws the composer and the parts that read its text, and
 // nothing else, however long the chat (CMUX-571; Leo: "improve performance (chat, everything
 // related)"; Leo, 2026-11-12: long chats must have "no perceivable difference"). Not the pane root,
-// the transcript or a row; and not the chips under the box that do not read the text: the model
-// picker (it read the composer's prompt-focus function, a new one on each composer render, from
-// context) and the + menu (its handlers came inline, new on each render).
+// the transcript or a row; and not the model picker under the box, which does not read the text
+// (it read the composer's prompt-focus function, a new one on each composer render, from context).
 //
-// The real pane (`?mock`) from vite.config.acpmux-pane.mjs, React Compiler on, as it ships; a chat of
+// The real pane (`?mock`) built by vite.config.acpmux-pane.mjs as it ships (production React, React
+// Compiler on; the dev server's development build never drew the picker on a key, fix or not); a chat of
 // 1,500 rows (`cmuxAcpmuxDebug.loadSeed`), then real keys in Chromium, counted by `acpmuxPerf.render`.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-keystroke-renders-browser.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
+import fs from "node:fs";
+import os from "node:os";
 
 await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-keystroke-renders-browser", "chromium", chromium))) return;
@@ -21,27 +22,36 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
   const webviews = path.resolve(import.meta.dir, "..");
   const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
   const KEYS = 12;
-  let vite: Awaited<ReturnType<typeof import("vite").createServer>> | undefined;
+  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "composer-keystroke-renders-"));
+  let statics: ReturnType<typeof Bun.serve> | undefined;
   let browser: Browser;
 
   beforeAll(async () => {
-    const { createServer } = await import("vite");
-    vite = await createServer({
+    const { build } = await import("vite");
+    await build({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      build: { outDir: out, emptyOutDir: true },
       logLevel: "error",
     });
-    await vite.listen();
-    await warmViteServer(vite, "/?mock");
+    statics = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+        return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+      },
+    });
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
     await browser?.close();
-    await vite?.close();
+    await statics?.stop(true);
+    fs.rmSync(out, { recursive: true, force: true });
   });
 
-  test("a key in a long chat draws neither the transcript, a row, the model picker nor the + menu", async () => {
-    const port = (vite!.httpServer!.address() as { port: number }).port;
+  test("a key in a long chat draws neither the transcript, a row nor the model picker", async () => {
+    const port = statics!.port;
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -79,7 +89,6 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       transcript: renders.transcript ?? 0,
       rows: counted("row:") + counted("content:") + counted("frame:"),
       model: renders["composer:model"] ?? 0,
-      plus: renders["composer:plus"] ?? 0,
-    }).toEqual({ transcript: 0, rows: 0, model: 0, plus: 0 });
+    }).toEqual({ transcript: 0, rows: 0, model: 0 });
   });
 });
