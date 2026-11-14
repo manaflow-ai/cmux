@@ -173,6 +173,23 @@ class HostTests(unittest.TestCase):
     def setUp(self):
         self.host = proof.host_module()
 
+    def test_parent_exit_does_not_leave_owned_group_children(self):
+        proc = Mock(pid=123)
+        proc.poll.return_value = 0
+        with patch.object(self.host.os, "killpg") as kill, \
+                patch.object(self.host.subprocess, "run", return_value=Mock(returncode=0, stdout="123 Z\n456 S\n")):
+            self.host.stop(proc)
+        self.assertEqual([call.args[0] for call in kill.call_args_list], [123, 123])
+        self.assertEqual(proc.wait.call_count, 2)
+
+    def test_unreadable_group_state_cannot_confirm_cleanup(self):
+        proc = Mock(pid=123)
+        proc.poll.return_value = 0
+        with patch.object(self.host.os, "killpg"), \
+                patch.object(self.host.subprocess, "run", return_value=Mock(returncode=1, stdout="")):
+            with self.assertRaises(subprocess.SubprocessError):
+                self.host.stop(proc)
+
     def test_protected_whole_host_admission_rejects_gui_only_or_other_workflow(self):
         admitted = dict(GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmuxterm-hq",
                         GITHUB_WORKFLOW_REF="manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
