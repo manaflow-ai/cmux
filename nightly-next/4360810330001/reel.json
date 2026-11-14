@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4360810330001",
+  "notes": "notes/4360810330001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43090,
+      "title": "acpmux: an agent host watches its own record, not every host's (O(N) wakeups per change at scale)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43030,
+      "title": "Chat widgets are an SDK place again, for extensions only (cmux.chat.widget/1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43051,
+      "title": "Screen sharing: codec seam plus VP9 and AV1 adapters (test-only), codec-bench table",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
