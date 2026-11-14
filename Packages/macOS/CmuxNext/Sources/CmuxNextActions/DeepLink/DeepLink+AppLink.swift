@@ -107,14 +107,18 @@ extension DeepLink {
     public static func settingsAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
-        switch url.path.lowercased() {
-        case "/background": return SettingsLinkAction("appearance.changeBackground")
-        case startAgentFromAnyAppPath:
-            return SettingsLinkAction("palette.toggleSetting", arguments: ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)])
-        default: return nil
-        }
+        return settingsRoutes[url.path.lowercased()]
     }
 
     /// The settings link path that turns Start Agent from Any App on.
     public static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
+
+    /// Every settings link path the app runs, and what it runs: the one list. Home draws a link only
+    /// for a path it renders (MessagesLabHome's `URL.homeSettingsLinkPaths`), so a path added here and
+    /// not there would show as plain text; `HomeCmuxAppLinkTests` holds the two lists equal.
+    public static let settingsRoutes: [String: SettingsLinkAction] = [
+        "/background": SettingsLinkAction("appearance.changeBackground"),
+        startAgentFromAnyAppPath: SettingsLinkAction(
+            "palette.toggleSetting", arguments: ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)]),
+    ]
 }
