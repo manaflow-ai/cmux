@@ -976,6 +976,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "debug.densityOverlayPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityOverlayPlayground", "Density Overlay Playground"),
+        keywords: &["density", "overlay", "helium", "chrome", "browser", "tab bar", "omnibar", "pixel", "diff", "compare", "tune", "debug"],
+        category: "settings",
+        symbol: "square.on.square.dashed",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-overlay-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "debug.viewWindow",
         group: GROUP,
         title: t("ActionCatalog", "action.debug.viewWindow", "Open View Window"),
