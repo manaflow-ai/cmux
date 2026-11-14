@@ -72,6 +72,7 @@ core_gates() {
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
   run_core v2_pr03c_
+  run_core v2_pr04_chat_stopped_reader
 }
 run_group acpmux-core core_gates
 

@@ -112,15 +112,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "3",
-        name: "v2.pr03.chat_actor_window_resume",
-        done_when: "First window within 50 ms of sub, 1.2x. Resume from a cursor costs O(missed). RSS with the god chat subscribed within 1.2x of small. An append that waits behind a cold page read: its wait 1.2x, god against small. The actor killed mid-turn 50 times: the replay settles every row once.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
         pr: "3c",
         name: "v2.pr03c.fold_window",
         done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
@@ -133,6 +124,69 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3c",
         name: "v2.pr03c.blob_range",
         done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.window_folds",
+        done_when: "A window at the end of a chat of 100,000 folded turns, against 10: 1.2x. Window time and reads of folds.idx (one search a read, at both sizes). The same rows in the window on both sides.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.first_window",
+        done_when: "First `window` within 50 ms of `sub`, 1.2x. From `sub` on a cold chat to the window taken by the handle; cold on both sides, the book's lock free.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: Some(50_000_000.0),
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.resume_missed",
+        done_when: "Resume from a cursor costs O(missed). The same records missed on both sides; time and bytes read.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.subscribed_rss",
+        done_when: "RSS with the god chat subscribed within 1.2x of small. The same largest input on both sides, the rise read against a counter of bytes held, `malloc_trim(0)` before the baseline.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.append_behind_page",
+        done_when: "An append that waits behind a cold `page` read: its wait 1.2x. Runs of their own, alternated. The cold segment read is paid on both sides.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.queue_window",
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 100 bytes: 1.2x. Window time and bytes read of the lines.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.prompt_blob_next",
+        done_when: "The last 256 KB of a waiting prompt of 100 MB, read on by `next`, against 300 KB: 1.2x. Per request, from a `next` token; the 1 MiB scan bound is a counter test.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
@@ -249,7 +303,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "4",
         name: "v2.pr04.chat_stopped_reader",
-        done_when: "Chat stopped-reader resume is measured after PR 3c wires chat actors into the connection.",
+        done_when: "A chat stream to a stopped reader: RSS under the connection budget, and it resumes with no row lost or repeated. Peak row: small streams 16 MiB and god 1 GiB, each resets its mark before its last 8 MiB, the rise less the baseline; the two sides sample stretches of the same length.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -1036,8 +1090,7 @@ mod tests {
 
     /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
     /// two are held by plain tests of the client today and have no gate line yet.
-    const WAITS_ON_ANOTHER_PR: &[&str] =
-        &["v2.pr04.chat_stopped_reader", "v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";

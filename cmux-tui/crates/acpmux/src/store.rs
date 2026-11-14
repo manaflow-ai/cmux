@@ -2755,7 +2755,8 @@ type Crash = Box<dyn FnOnce() + Send>;
 #[cfg(test)]
 static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
 
-/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
+/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once. The hook is process-wide and tests
+/// run in parallel: `id` is a chat no other test uses, or another test's commit takes the crash.
 #[cfg(test)]
 pub(crate) fn between_segments_once(id: &str, crash: Crash) {
     BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));
