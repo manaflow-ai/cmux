@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -27,23 +27,9 @@ use serde_json::{Value, json};
 /// plus the page loads).
 const BACK_WITHIN: Duration = Duration::from_secs(30);
 
-/// The bundled host app (CEF needs its helper apps beside its framework).
-fn bundle(dir: &Path) -> PathBuf {
-    let cef = PathBuf::from(std::env::var("CEF_PATH").expect("CEF_PATH (the fleet build sets it)"));
-    let cef = if cef.join("Release").is_dir() { cef.join("Release") } else { cef };
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let app = dir.join("cmux-remote-browser-host.app");
-    let status = Command::new("/bin/bash")
-        .arg(repo.join("scripts/cmux-next/bundle-remote-browser-host.sh"))
-        .arg(env!("CARGO_BIN_EXE_cmux-remote-browser-host"))
-        .arg(&cef)
-        .arg(&app)
-        .stdout(Stdio::null())
-        .status()
-        .expect("bundle");
-    assert!(status.success(), "bundle-remote-browser-host.sh failed");
-    app.join("Contents/MacOS/cmux-remote-browser-host")
-}
+#[path = "common/bundle.rs"]
+mod common_bundle;
+use common_bundle::bundle;
 
 /// What the test page server saw: each tab's requests with their cookie.
 #[derive(Default)]
@@ -128,6 +114,8 @@ struct Sup {
     lines: mpsc::Receiver<Value>,
     /// Every host pid the supervisor started, in order.
     hosts: std::cell::RefCell<Vec<u64>>,
+    /// Lines no `next` took yet.
+    seen: std::cell::RefCell<Vec<Value>>,
 }
 
 impl Sup {
@@ -137,7 +125,14 @@ impl Sup {
         stdin.flush().unwrap();
     }
 
+    /// The first line, seen or still to come, that `pred` accepts. Lines it
+    /// skips stay for a later call: the supervisor's lines for different
+    /// tabs arrive in any order.
     fn next(&self, what: &str, within: Duration, pred: impl Fn(&Value) -> bool) -> Value {
+        let mut seen = self.seen.borrow_mut();
+        if let Some(i) = seen.iter().position(&pred) {
+            return seen.remove(i);
+        }
         let until = Instant::now() + within;
         loop {
             match self.lines.recv_timeout(until.saturating_duration_since(Instant::now())) {
@@ -148,6 +143,7 @@ impl Sup {
                     if pred(&v) {
                         return v;
                     }
+                    seen.push(v);
                 }
                 Err(_) => panic!("the supervisor never said {what}"),
             }
@@ -186,7 +182,7 @@ fn start(host: &Path, root: &Path) -> Sup {
             }
         }
     });
-    Sup { child, stdin, lines, hosts: Default::default() }
+    Sup { child, stdin, lines, hosts: Default::default(), seen: Default::default() }
 }
 
 fn hello(token: &str) -> Vec<u8> {
