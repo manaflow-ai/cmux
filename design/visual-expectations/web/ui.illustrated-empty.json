@@ -1,6 +1,6 @@
 {
   "id": "ui.illustrated-empty",
   "title": "Empty state (illustrated)",
-  "captures": [{ "state": "mascot-above", "entry": "ui.illustrated-empty", "variant": "mascot-above", "width": 560, "height": 300 }],
+  "captures": [{ "state": "no-prs", "entry": "ui.illustrated-empty", "variant": "no-prs-mascot-above", "width": 560, "height": 300 }],
   "keep": []
 }

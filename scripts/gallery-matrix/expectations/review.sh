@@ -40,10 +40,17 @@ head=$(sed -E 's/.*"head": "([0-9a-f]+)".*/\1/' "$root/meta.json")
 base=$(sed -E 's/.*"base": "([0-9a-f]+)".*/\1/' "$root/meta.json")
 
 gh pr view "$pr" -R manaflow-ai/cmux --json body --jq .body > "$work/body.md"
+# Judge against the checked-in baselines when the same renderer drew them; otherwise against the
+# base rendered live in the same run, so a browser or font update is never blamed on the PR.
+baselines="$root/base/baselines"
+if [ -d "$root/base-render" ] && ! cmp -s "$root/base/baselines/web/renderer.json" "$root/captures/web/renderer.json"; then
+  echo "checked-in web baselines missing or from another renderer: judging against the base rendered live"
+  baselines="$root/base-render"
+fi
 [ -d "$repo/scripts/gallery-matrix/node_modules" ] || (cd "$repo/scripts/gallery-matrix" && bun install --frozen-lockfile >/dev/null)
 rc=0
 bun "$gate/gate.ts" --expectations "$root/base/expectations" --head-expectations "$root/head/expectations" \
-  --baselines "$root/base/baselines" --captures "$root/captures" --body "$work/body.md" --out "$work/review" \
+  --baselines "$baselines" --captures "$root/captures" --body "$work/body.md" --out "$work/review" \
   --pr "$pr" --head-sha "$head" --base-sha "$base" \
   --media-base "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/$pr" || rc=$?
 echo "review page: $work/review/comment.md"
