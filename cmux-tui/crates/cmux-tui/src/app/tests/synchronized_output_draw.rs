@@ -74,11 +74,15 @@ fn an_update_started_after_an_expired_hold_is_held_again() {
     mux.close_surface(surface.id).unwrap();
 }
 
-/// A click on a pane while its program holds a synchronized update waits for
-/// the update, then reaches the program, as a click waiting on any repaint
-/// does; it is never dropped.
+/// A click on a pane while its program holds a synchronized update is aimed
+/// at the frame from before the update, and the terminal already holds
+/// content the user has not seen. It fails closed, as any click on changed
+/// content does (pty_mouse.rs `immediate_terminal_press_rejects_content_changed_before_surface_output`):
+/// it never reaches the program mid-update, and it is not replayed against
+/// the finished update, which the user never aimed at. The first click after
+/// the update reaches the program.
 #[test]
-fn a_click_during_a_synchronized_update_reaches_the_program_after_it() {
+fn a_click_during_a_synchronized_update_never_meets_content_the_user_did_not_see() {
     let (mux, surface) = test_mux("synchronized-output-click", None);
     surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006hBEFORE"));
     let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -91,6 +95,12 @@ fn a_click_during_a_synchronized_update_reaches_the_program_after_it() {
     let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
     assert!(screen(&mut app, &mut terminal).contains("BEFORE"));
     let content = app.pane_areas[0].content;
+    let press = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: content.x + 4,
+        row: content.y + 2,
+        modifiers: KeyModifiers::NONE,
+    };
 
     // The program starts an update; its output reaches the App and the pane
     // repaints, still showing the frame before the update.
@@ -100,13 +110,7 @@ fn a_click_during_a_synchronized_update_reaches_the_program_after_it() {
     assert!(buffer_text(terminal.backend().buffer()).contains("BEFORE"));
 
     app.encode_buf.clear();
-    app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: content.x + 4,
-        row: content.y + 2,
-        modifiers: KeyModifiers::NONE,
-    })))
-    .unwrap();
+    app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
     // The event loop replays waiting input every turn.
     app.replay_deferred_input().unwrap();
     assert!(app.encode_buf.is_empty(), "the click reached the program mid-update");
@@ -116,9 +120,13 @@ fn a_click_during_a_synchronized_update_reaches_the_program_after_it() {
     app.render_action(&mut terminal, repaint).unwrap();
     assert!(buffer_text(terminal.backend().buffer()).contains("HALFDONE"));
     app.replay_deferred_input().unwrap();
-    assert_eq!(
-        app.encode_buf, b"\x1b[<0;5;3M",
-        "a click made during a synchronized update was dropped"
+    assert!(
+        app.encode_buf.is_empty(),
+        "a click aimed at the frame before the update reached the finished update"
     );
+    assert!(app.deferred_input.is_empty());
+
+    app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+    assert_eq!(app.encode_buf, b"\x1b[<0;5;3M", "a click after the update must reach the program");
     mux.close_surface(surface.id).unwrap();
 }
