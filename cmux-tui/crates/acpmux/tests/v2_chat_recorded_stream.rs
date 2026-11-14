@@ -456,8 +456,8 @@ fn the_chat_stream_is_recorded() {
     let mut bytes = upgrade_reply(&rec.upgrade_id(), &surfaces);
     bytes.extend(hello());
     // An open row whose body is past the window's budget: the row whole, its body left out.
-    let row = raw(r#"{"id":30,"rev":1,"kind":"assistant","open":true,"body":{}}"#);
-    let open = vec![OpenRow { row, body_len: Some(OPEN_BODY.len() as u64) }];
+    let open_30 = raw(r#"{"id":30,"rev":1,"kind":"assistant","open":true,"body":{}}"#);
+    let open = vec![OpenRow { row: open_30, body_len: Some(OPEN_BODY.len() as u64) }];
     bytes.extend(window(30, 2, 21..=29, open));
     let step = rec.step("window-new-edition", bytes);
     assert_eq!(kinds(step), ["chatResumeEnd", "chatWindow"]);
