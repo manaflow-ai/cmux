@@ -84,6 +84,7 @@ impl BookTee {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn registry(&self) -> &Registry {
         &self.registry
     }

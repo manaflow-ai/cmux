@@ -145,8 +145,8 @@ async fn v2_pr03b_tee_append_added() {
         appends(&god, &chat_id(0), round);
         god_rounds.push(take_hook_samples());
     }
-    small_drain.close(Duration::from_secs(1)).await;
-    god_drain.close(Duration::from_secs(1)).await;
+    let _ = small_drain.close(Duration::from_secs(1)).await;
+    let _ = god_drain.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.tee_append_added", &small_rounds, &god_rounds, Some(2.0));
 }
 
@@ -163,7 +163,7 @@ async fn v2_pr03b_append_on_off() {
         off_rounds.push(appends(&off, &chat_id(0), round));
         on_rounds.push(appends(&on, &chat_id(0), round));
     }
-    drain_task.close(Duration::from_secs(1)).await;
+    let _ = drain_task.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.append_on_off", &off_rounds, &on_rounds, None);
 }
 
@@ -194,6 +194,6 @@ async fn v2_pr03b_catchup_ack() {
         catching_rounds.push(samples);
     }
     tee.registry().evict(&god);
-    drain_task.close(Duration::from_secs(1)).await;
+    let _ = drain_task.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.catchup_ack", &quiet_rounds, &catching_rounds, None);
 }
