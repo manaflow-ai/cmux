@@ -158,8 +158,8 @@ fn v2_pr07c_update_plan() {
             .unwrap()
     };
     let (small, god) = (gate(0), gate(11_000));
-    let small_proxy = runtime.block_on(list_daemon::counted(small.path.clone())).unwrap();
-    let god_proxy = runtime.block_on(list_daemon::counted(god.path.clone())).unwrap();
+    let small_proxy = runtime.block_on(list_daemon::counted(small.path)).unwrap();
+    let god_proxy = runtime.block_on(list_daemon::counted(god.path)).unwrap();
     let run = |proxy: &list_daemon::Counted| {
         let before = proxy.sent();
         let started = Instant::now();
