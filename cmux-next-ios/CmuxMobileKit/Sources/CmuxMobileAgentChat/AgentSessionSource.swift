@@ -20,6 +20,9 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// The signed-in account that owns the Mac's artifact read. Empty for an
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
+    /// The acpmux session the chat shows when the tab itself names none: a terminal tab's chat
+    /// face (Toggle Terminal and Chat), a View Only chat of the session its agent runs.
+    public var acpmuxSessionID: String?
 
     /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
     /// composer's model menu nests the models under it, as the Mac's does.
@@ -36,9 +39,11 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
 
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
-        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
+        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = "",
+        acpmuxSessionID: String? = nil
     ) {
         self.id = id
+        self.acpmuxSessionID = acpmuxSessionID
         self.macID = macID
         self.accountID = accountID
         self.name = name

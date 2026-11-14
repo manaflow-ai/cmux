@@ -165,6 +165,11 @@
       "what": "a turn's end under a reader scrolled up into its work (agent chat): conversation/turnEndHold.ts foldsToHold and rowsToHold decide which folds stay open and which runs stay out so no row in view moves or folds away; #41213 skipped the Worked for there and the perf cron's ui.transcript.turn_end rows went from 0 to 612 px drift and 12 rows lost (cmux#24569)",
       "bench": "cd webviews && bun bench/transcript-turn-end-shift.bench.ts 2 (Chromium and WebKit: anchor_drift_px 0, rows_lost 0, cls under 0.01), before and after",
       "owner": "agent chat transcript"
+    },
+    "ios-terminal-chat-swap": {
+      "what": "a tap on the iPhone's Chat | Terminal control (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
+      "bench": "swift test --package-path cmux-next-ios/CmuxMobileKit --filter terminal_chat_swap on an iOS simulator (CmuxMobileInstantPerfTests TerminalChatSwapPerfTests: INSTANTPERF terminal_chat_swap with p50 and p95 of each way, small vs god chat; Leo's target p95 under 100 ms)",
+      "owner": "iOS"
     }
   }
 }

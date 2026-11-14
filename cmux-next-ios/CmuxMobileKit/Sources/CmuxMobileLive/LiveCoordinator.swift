@@ -268,6 +268,10 @@ public final class LiveCoordinator {
             if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
             var scoped = summary
             scoped.accountID = self.userID
+            // A terminal tab's chat face names its acpmux session itself (Toggle Terminal and Chat).
+            if let owner, let session = summary.acpmuxSessionID {
+                return self.agentSource(owner, session: session, summary: scoped)
+            }
             let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
             // The Mac's tree has not come yet (a relaunch, the link still opening): the tab is not
             // known to be unbound. Its kept session opens at once (and catches up when the link

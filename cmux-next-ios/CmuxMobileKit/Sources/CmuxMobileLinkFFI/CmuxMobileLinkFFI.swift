@@ -3092,6 +3092,313 @@ public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) ->
 
 
 /**
+ * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
+ */
+public struct TerminalChatCandidate: Equatable, Hashable {
+    /**
+     * The acpmux session id.
+     */
+    public var sessionId: String
+    /**
+     * Its harness (`claude`, `codex`, a profile of one).
+     */
+    public var harness: String
+    /**
+     * The harness's own session id it resumes or watches (`agentSessionId`).
+     */
+    public var agentSessionId: String?
+    /**
+     * A View Only chat (`watching`): it follows the transcript the terminal writes.
+     */
+    public var watching: Bool
+    /**
+     * Its status (`closed` chats are skipped).
+     */
+    public var status: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The acpmux session id.
+         */sessionId: String, 
+        /**
+         * Its harness (`claude`, `codex`, a profile of one).
+         */harness: String, 
+        /**
+         * The harness's own session id it resumes or watches (`agentSessionId`).
+         */agentSessionId: String?, 
+        /**
+         * A View Only chat (`watching`): it follows the transcript the terminal writes.
+         */watching: Bool, 
+        /**
+         * Its status (`closed` chats are skipped).
+         */status: String) {
+        self.sessionId = sessionId
+        self.harness = harness
+        self.agentSessionId = agentSessionId
+        self.watching = watching
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatCandidate: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatCandidate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatCandidate {
+        return
+            try TerminalChatCandidate(
+                sessionId: FfiConverterString.read(from: &buf), 
+                harness: FfiConverterString.read(from: &buf), 
+                agentSessionId: FfiConverterOptionString.read(from: &buf), 
+                watching: FfiConverterBool.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatCandidate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionId, into: &buf)
+        FfiConverterString.write(value.harness, into: &buf)
+        FfiConverterOptionString.write(value.agentSessionId, into: &buf)
+        FfiConverterBool.write(value.watching, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatCandidate_lift(_ buf: RustBuffer) throws -> TerminalChatCandidate {
+    return try FfiConverterTypeTerminalChatCandidate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatCandidate_lower(_ value: TerminalChatCandidate) -> RustBuffer {
+    return FfiConverterTypeTerminalChatCandidate.lower(value)
+}
+
+
+/**
+ * What a tab offers.
+ */
+public struct TerminalChatFaces: Equatable, Hashable {
+    /**
+     * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+     */
+    public var offered: Bool
+    /**
+     * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
+     * default), else the tab's own kind.
+     */
+    public var defaultFace: TabFace
+    public var chatEnabled: Bool
+    public var terminalEnabled: Bool
+    /**
+     * Why a face is disabled, in the person's words; None when both are enabled.
+     */
+    public var disabledReason: String?
+    /**
+     * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
+     */
+    public var harness: String?
+    public var session: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The tab shows the Chat | Terminal control and its page menu's Toggle row.
+         */offered: Bool, 
+        /**
+         * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
+         * default), else the tab's own kind.
+         */defaultFace: TabFace, chatEnabled: Bool, terminalEnabled: Bool, 
+        /**
+         * Why a face is disabled, in the person's words; None when both are enabled.
+         */disabledReason: String?, 
+        /**
+         * The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
+         */harness: String?, session: String?) {
+        self.offered = offered
+        self.defaultFace = defaultFace
+        self.chatEnabled = chatEnabled
+        self.terminalEnabled = terminalEnabled
+        self.disabledReason = disabledReason
+        self.harness = harness
+        self.session = session
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatFaces: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatFaces: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatFaces {
+        return
+            try TerminalChatFaces(
+                offered: FfiConverterBool.read(from: &buf), 
+                defaultFace: FfiConverterTypeTabFace.read(from: &buf), 
+                chatEnabled: FfiConverterBool.read(from: &buf), 
+                terminalEnabled: FfiConverterBool.read(from: &buf), 
+                disabledReason: FfiConverterOptionString.read(from: &buf), 
+                harness: FfiConverterOptionString.read(from: &buf), 
+                session: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatFaces, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.offered, into: &buf)
+        FfiConverterTypeTabFace.write(value.defaultFace, into: &buf)
+        FfiConverterBool.write(value.chatEnabled, into: &buf)
+        FfiConverterBool.write(value.terminalEnabled, into: &buf)
+        FfiConverterOptionString.write(value.disabledReason, into: &buf)
+        FfiConverterOptionString.write(value.harness, into: &buf)
+        FfiConverterOptionString.write(value.session, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFaces_lift(_ buf: RustBuffer) throws -> TerminalChatFaces {
+    return try FfiConverterTypeTerminalChatFaces.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFaces_lower(_ value: TerminalChatFaces) -> RustBuffer {
+    return FfiConverterTypeTerminalChatFaces.lower(value)
+}
+
+
+/**
+ * The facts of one tab, as the phone reads them.
+ */
+public struct TerminalChatFacts: Equatable, Hashable {
+    /**
+     * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
+     * `agent_session_id`).
+     */
+    public var terminal: Bool
+    /**
+     * An agent chat tab: `agent` is its harness and `session` the harness session its
+     * acpmux chat resumes or watches (acpmux `agentSessionId`), if any.
+     */
+    public var chat: Bool
+    public var agent: String?
+    public var session: String?
+    /**
+     * A chat: a terminal tab the phone lists reports `session`.
+     */
+    public var running: Bool
+    /**
+     * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
+     * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+     * no local session). The chat face waits for a chat the Mac opens.
+     */
+    public var chatRefused: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
+         * `agent_session_id`).
+         */terminal: Bool, 
+        /**
+         * An agent chat tab: `agent` is its harness and `session` the harness session its
+         * acpmux chat resumes or watches (acpmux `agentSessionId`), if any.
+         */chat: Bool, agent: String?, session: String?, 
+        /**
+         * A chat: a terminal tab the phone lists reports `session`.
+         */running: Bool, 
+        /**
+         * A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
+         * make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
+         * no local session). The chat face waits for a chat the Mac opens.
+         */chatRefused: Bool) {
+        self.terminal = terminal
+        self.chat = chat
+        self.agent = agent
+        self.session = session
+        self.running = running
+        self.chatRefused = chatRefused
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalChatFacts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatFacts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatFacts {
+        return
+            try TerminalChatFacts(
+                terminal: FfiConverterBool.read(from: &buf), 
+                chat: FfiConverterBool.read(from: &buf), 
+                agent: FfiConverterOptionString.read(from: &buf), 
+                session: FfiConverterOptionString.read(from: &buf), 
+                running: FfiConverterBool.read(from: &buf), 
+                chatRefused: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalChatFacts, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.terminal, into: &buf)
+        FfiConverterBool.write(value.chat, into: &buf)
+        FfiConverterOptionString.write(value.agent, into: &buf)
+        FfiConverterOptionString.write(value.session, into: &buf)
+        FfiConverterBool.write(value.running, into: &buf)
+        FfiConverterBool.write(value.chatRefused, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFacts_lift(_ buf: RustBuffer) throws -> TerminalChatFacts {
+    return try FfiConverterTypeTerminalChatFacts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatFacts_lower(_ value: TerminalChatFacts) -> RustBuffer {
+    return FfiConverterTypeTerminalChatFacts.lower(value)
+}
+
+
+/**
  * One step of a dial, `millis` after `connect` was called.
  */
 public struct TimingMark: Equatable, Hashable {
@@ -3670,6 +3977,183 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * One face of a terminal and chat pair.
+ */
+
+public enum TabFace: Equatable, Hashable {
+    
+    case terminal
+    case chat
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TabFace: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabFace: FfiConverterRustBuffer {
+    typealias SwiftType = TabFace
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabFace {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .terminal
+        
+        case 2: return .chat
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TabFace, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .chat:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabFace_lift(_ buf: RustBuffer) throws -> TabFace {
+    return try FfiConverterTypeTabFace.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
+    return FfiConverterTypeTabFace.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a tap on face `to` does.
+ */
+
+public enum TerminalChatSwap: Equatable, Hashable {
+    
+    /**
+     * Nothing: that face shows already, or the tab offers no toggle.
+     */
+    case stay
+    /**
+     * The tab shows `face`. Both faces stay built, so this is a flag flip with no reload.
+     */
+    case show(face: TabFace
+    )
+    /**
+     * A chat's terminal face is the terminal tab running its session: that tab shows, on
+     * its terminal face (the Mac's Toggle reveals that terminal too).
+     */
+    case revealTerminal(harness: String, session: String
+    )
+    /**
+     * The face cannot show on the phone; `reason` says why.
+     */
+    case unavailable(reason: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TerminalChatSwap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
+    typealias SwiftType = TerminalChatSwap
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatSwap {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .stay
+        
+        case 2: return .show(face: try FfiConverterTypeTabFace.read(from: &buf)
+        )
+        
+        case 3: return .revealTerminal(harness: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .unavailable(reason: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TerminalChatSwap, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .stay:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .show(face):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeTabFace.write(face, into: &buf)
+            
+        
+        case let .revealTerminal(harness,session):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(harness, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        
+        case let .unavailable(reason):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatSwap_lift(_ buf: RustBuffer) throws -> TerminalChatSwap {
+    return try FfiConverterTypeTerminalChatSwap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatSwap_lower(_ value: TerminalChatSwap) -> RustBuffer {
+    return FfiConverterTypeTerminalChatSwap.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Settings → Connection → Transport.
  */
 
@@ -4032,6 +4516,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTerminalChatCandidate: FfiConverterRustBuffer {
+    typealias SwiftType = [TerminalChatCandidate]
+
+    public static func write(_ value: [TerminalChatCandidate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTerminalChatCandidate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TerminalChatCandidate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TerminalChatCandidate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTerminalChatCandidate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
     typealias SwiftType = [TimingMark]
 
@@ -4265,6 +4774,54 @@ public func classicCleanupVersion() -> Int64  {
     )
 })
 }
+/**
+ * The faces `facts`' tab offers.
+ */
+public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
+    return try!  FfiConverterTypeTerminalChatFaces_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_faces(
+        FfiConverterTypeTerminalChatFacts_lower(facts),$0
+    )
+})
+}
+/**
+ * The acpmux harness (`claude` or `codex`) an agent or chat harness names, a profile
+ * (`claude-cr`) as its family; None for one acpmux does not adopt.
+ */
+public func terminalChatHarness(agent: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_harness(
+        FfiConverterString.lower(agent),$0
+    )
+})
+}
+/**
+ * The chat among `chats` that already shows `harness` session `session`, if any: a View
+ * Only chat first (it follows the terminal), else one that resumed it and is not closed.
+ * acpmux would answer an adopt of the session with the same chat
+ * (`hub/adoption.rs` `adopted_session`); this spares the phone that round trip.
+ */
+public func terminalChatSession(chats: [TerminalChatCandidate], harness: String, session: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_session(
+        FfiConverterSequenceTypeTerminalChatCandidate.lower(chats),
+        FfiConverterString.lower(harness),
+        FfiConverterString.lower(session),$0
+    )
+})
+}
+/**
+ * What a tap on face `to` does on a tab showing `shown`.
+ */
+public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFace) -> TerminalChatSwap  {
+    return try!  FfiConverterTypeTerminalChatSwap_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_swap(
+        FfiConverterTypeTerminalChatFacts_lower(facts),
+        FfiConverterTypeTabFace_lower(shown),
+        FfiConverterTypeTabFace_lower(to),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4312,6 +4869,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_harness() != 55721) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
