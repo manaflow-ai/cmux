@@ -117,7 +117,10 @@
 #           (CMUX_MOBILE_LIST_*), waits for the rig's ready line in its log,
 #           then reads the app process's kernel counters once a second
 #           (proc_pid_rusage, energy_rusage.py: CPU %, wakeups/s, energy in
-#           mW, memory footprint).
+#           mW, memory footprint). The first rep of a busy case (stream,
+#           scroll) then records 15 s of `xctrace --instrument 'Time Profiler'`
+#           on each side: the main-thread top symbols go to the step log and
+#           energy/profile-RUN/ (summary.md, summary.json, time.trace.zip).
 #           Optional arguments (each one `--arg`):
 #             base=SHA     also build SHA and run every case on both apps, base
 #                          then head, on the one simulator (as listperf's base=)
@@ -1165,6 +1168,42 @@ if [[ "$mode" == energy ]]; then
     } >>"$d/probe.txt" 2>&1
     cut -c1-400 "$d/probe.txt"
   }
+  # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
+  # sampled window (first rep, each side), summarized per main-thread symbol by
+  # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
+  # never finishes saving on the fleet's hosts, as for `test profile`); attached to the app, else
+  # every process (the summary groups by process). energy/profile-RUN/ keeps the summary and the trace.
+  energy_time_profile() {
+    local run=$1 pid=$2 d="$en/profile-$1" table bytes=0
+    mkdir -p "$d"
+    perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --attach "$pid" \
+      --time-limit 15s --output "$d/time.trace" --no-prompt >"$d/record.txt" 2>&1 ||
+      echo "$run: xctrace Time Profiler --attach exited $?" >>"$d/record.txt"
+    if [[ ! -d "$d/time.trace" ]]; then
+      perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --all-processes \
+        --time-limit 15s --output "$d/time.trace" --no-prompt >>"$d/record.txt" 2>&1 ||
+        echo "$run: xctrace Time Profiler --all-processes exited $?" >>"$d/record.txt"
+    fi
+    if [[ ! -d "$d/time.trace" ]]; then
+      echo "$run: no Time Profiler trace (energy/profile-$run/record.txt): $(tail -n 1 "$d/record.txt" | cut -c1-200)"
+      return 0
+    fi
+    table="$d/time-profile.xml"
+    if perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace export --input "$d/time.trace" \
+         --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$table" >>"$d/record.txt" 2>&1 &&
+       python3 -I scripts/ci/ios_sim_time_profile.py "$table" --markdown "$d/summary.md" --json "$d/summary.json" >"$d/brief.txt" 2>&1; then
+      echo "== $run: Time Profiler, 15 s, main thread (energy/profile-$run/summary.md)"
+      cat "$d/brief.txt"
+      head -n 80 "$d/summary.md"
+    else
+      echo "$run: the Time Profiler trace exported no samples (energy/profile-$run/record.txt)"
+    fi
+    rm -f "$table"
+    ditto -c -k --keepParent "$d/time.trace" "$d/time.trace.zip" 2>/dev/null || true
+    rm -rf "$d/time.trace"
+    if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
+    if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
@@ -1232,6 +1271,7 @@ if [[ "$mode" == energy ]]; then
           ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
           label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
         fi
+        if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
         [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true

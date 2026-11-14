@@ -5,16 +5,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../../test/support/domTeardown";
 import { foldMotion, foldMs } from "./fold";
 
 const scope = globalThis as Record<string, unknown>;
-const saved = { document: scope.document, window: scope.window };
-afterEach(() => {
-  for (const [key, value] of Object.entries(saved)) {
-    if (value === undefined) delete scope[key];
-    else scope[key] = value;
-  }
-});
+const saved = (["document", "window"] as const).map((key) => [key, scope[key] !== undefined, scope[key]] as const);
+afterEach(() => teardownDom(saved));
 
 function body(motion?: string) {
   const dom = new JSDOM("<!doctype html><body><div class=cv-fold></div></body>");
