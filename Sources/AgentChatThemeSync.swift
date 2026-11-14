@@ -191,6 +191,9 @@ enum AgentChatThemeSync {
            let session = AgentChatActionInFlightGate.ownedServerSession() {
             return session.themeURL
         }
+        if agentChat.serverMode == .legacyDefaultURL, let token = AgentChatCLIToken.read() {
+            return AgentChatCLIToken.themeURL(baseURL: agentChat.url, token: token)
+        }
         return themeURL(for: agentChat.url)
     }
 
@@ -199,7 +202,7 @@ enum AgentChatThemeSync {
         if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
             return themeURL(for: store.agentChat)
         }
-        return themeURL(for: CmuxAgentChatConfiguration.default.url)
+        return themeURL(for: CmuxAgentChatConfiguration.default)
     }
 
     @MainActor
