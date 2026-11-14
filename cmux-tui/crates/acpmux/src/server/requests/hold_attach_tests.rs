@@ -202,6 +202,21 @@ async fn attach_elapsed(client: &mut Client) -> u128 {
     elapsed
 }
 
+async fn plain_attach_elapsed(client: &mut Client) -> u128 {
+    let started = Instant::now();
+    let reply = client
+        .call(
+            method::MUX_ATTACH,
+            json!({"sessionId": ID, "eventStream": true, "kinds": ["long_record"], "waitLogs": false}),
+        )
+        .await;
+    assert!(reply.get("error").is_none());
+    let elapsed = started.elapsed().as_nanos();
+    let detached = client.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
+    assert!(detached.get("error").is_none());
+    elapsed
+}
+
 fn bench_hub(records: usize) -> Arc<crate::hub::Hub> {
     let (hub, session) = hub_with_chat();
     for n in 0..records {
@@ -234,6 +249,9 @@ async fn hold_attach_gate() {
     }
     let small_p95 = small_rounds.iter().map(|round| p95(round)).min().unwrap();
     let god_p95 = god_rounds.iter().map(|round| p95(round)).min().unwrap();
+    let plain_god = plain_attach_elapsed(&mut god_client).await;
+    let hold_god = attach_elapsed(&mut god_client).await;
+    eprintln!("hold attach comparison (god): without_hold_ns={plain_god}, with_hold_ns={hold_god}");
     emit_gate("v2.pr06.hold_attach", small_p95, god_p95);
     assert!(
         god_p95.saturating_mul(100) <= small_p95.saturating_mul(120),
