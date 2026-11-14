@@ -54,6 +54,28 @@ class Rig:
 
 
 class ProofTests(unittest.TestCase):
+    def test_workspace_uses_durable_owned_lease_parent(self):
+        lease = "a" * 24
+        parent = Path("/protected-captures") / lease
+        env = {"GLAEDA_CAPTURE_LEASE_ID": lease, "GLAEDA_CAPTURE_CLEANUP_PATH": str(parent / "cleanup.json")}
+        info = Mock(st_mode=0o40700, st_uid=proof.os.getuid())
+        with patch.object(proof.Path, "lstat", return_value=info):
+            self.assertEqual(proof.workspace_parent(env), parent)
+            for override in ({"GLAEDA_CAPTURE_LEASE_ID": "b" * 24},
+                             {"GLAEDA_CAPTURE_CLEANUP_PATH": str(parent / "other.json")},
+                             {"GLAEDA_CAPTURE_CLEANUP_PATH": str(Path("/tmp") / lease / "cleanup.json")},
+                             {"RUNNER_TEMP": "/protected-captures"},
+                             {"GITHUB_WORKSPACE": "/protected-captures"},
+                             {"GLAEDA_CAPTURE_CLEANUP_PATH": "relative/cleanup.json"}):
+                with self.subTest(override=override), self.assertRaises(proof.ProofFailure):
+                    proof.workspace_parent({**env, **override})
+        for mode, uid in ((0o40722, proof.os.getuid()), (0o120700, proof.os.getuid()),
+                          (0o40700, proof.os.getuid() + 1)):
+            with self.subTest(mode=mode, uid=uid), \
+                    patch.object(proof.Path, "lstat", return_value=Mock(st_mode=mode, st_uid=uid)), \
+                    self.assertRaises(proof.ProofFailure):
+                proof.workspace_parent(env)
+
     def test_full_sequence_requires_host_input_and_stop(self):
         rig = Rig()
         receipt = rig.instance().run("Mac", "Phone", "abcxyz")
@@ -179,6 +201,7 @@ class ProofTests(unittest.TestCase):
                 out = Path(directory) / "receipt"
                 with patch.object(proof, "host_module", return_value=api), \
                         patch.object(proof, "Phone"), patch.object(proof, "ScreenProof", return_value=attempt), \
+                        patch.object(proof, "workspace_parent", return_value=work.parent), \
                         patch.object(proof.tempfile, "mkdtemp", return_value=str(work)), \
                         patch("shutil.rmtree", side_effect=remove_workspace) as remove, \
                         patch.dict(proof.os.environ, CMUX_UITEST_STACK_EMAIL="test", CMUX_UITEST_STACK_PASSWORD="test"):
@@ -318,6 +341,36 @@ class HostTests(unittest.TestCase):
         instance.lease = "a" * 24
         instance.namespace = "owned.cloud.development"
         return instance
+
+    def test_long_durable_home_uses_short_owned_socket_and_removes_it_after_exit(self):
+        with tempfile.TemporaryDirectory(prefix="ss-", dir="/tmp") as directory:
+            short_root = Path(directory) / "socket"
+            short_root.mkdir()
+            instance = self.host.Host(Path("/owned.app"),
+                                      {"CFBundleIdentifier": "owned", "CFBundleExecutable": "cmux"},
+                                      Path("/protected") / ("x" * 140), ("account", "password"))
+            env = {"HOME": str(instance.work / "home")}
+            with patch.object(self.host.tempfile, "mkdtemp", return_value=str(short_root)), \
+                    patch.object(self.host.subprocess, "Popen") as launch:
+                instance._launch(env, instance.work / "home")
+            self.assertEqual(env["HOME"], str(instance.work / "home"))
+            self.assertEqual(env["CMUX_NEXT_SOCKET_PATH"], str(short_root / "host.sock"))
+            self.assertTrue(launch.call_args.kwargs["start_new_session"])
+            with patch.object(self.host, "stop"):
+                instance.__exit__()
+            self.assertTrue(instance.cleanup_ok)
+            self.assertFalse(short_root.exists())
+
+    def test_unverified_app_exit_preserves_owned_socket_directory(self):
+        instance = self.make_host()
+        instance.owns_auth = instance.auth_prepared = instance.device_prepared = False
+        instance.remote_attempted = instance.remote_prepared = False
+        instance.socket_root = Path("/owned-socket")
+        with patch.object(self.host, "stop", side_effect=OSError("group remains")), \
+                patch.object(self.host.shutil, "rmtree") as remove:
+            instance.__exit__()
+        remove.assert_not_called()
+        self.assertFalse(instance.cleanup_ok)
 
     @staticmethod
     def capture_result(auth):

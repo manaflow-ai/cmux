@@ -12,6 +12,7 @@ import json
 import os
 import signal
 import shutil
+import stat
 import subprocess
 import tempfile
 import re
@@ -29,12 +30,32 @@ class ProofFailure(RuntimeError):
 def private_workspace(can_remove):
     # A failed remote cleanup may leave a lease marker here. Keep it on the
     # quarantined host for recovery rather than losing ownership evidence.
-    directory = tempfile.mkdtemp(prefix="cmux-ss-", dir="/tmp")
+    directory = tempfile.mkdtemp(prefix="ios-", dir=workspace_parent(os.environ))
     try:
         yield directory
     finally:
         if can_remove():
             shutil.rmtree(directory)
+
+
+def workspace_parent(env):
+    lease = env.get("GLAEDA_CAPTURE_LEASE_ID", "")
+    receipt = Path(env.get("GLAEDA_CAPTURE_CLEANUP_PATH", ""))
+    parent = receipt.parent
+    try:
+        info = parent.lstat()
+        excluded = [Path("/tmp"), Path(tempfile.gettempdir())]
+        excluded += [Path(env[key]) for key in ("RUNNER_TEMP", "GITHUB_WORKSPACE") if env.get(key)]
+        valid = (re.fullmatch(r"[0-9a-f]{24}", lease) and receipt.is_absolute()
+                 and receipt.name == "cleanup.json" and parent.name == lease
+                 and parent.resolve() == parent and stat.S_ISDIR(info.st_mode)
+                 and info.st_uid == os.getuid() and info.st_mode & 0o022 == 0
+                 and not any(parent.is_relative_to(path.resolve()) for path in excluded))
+    except OSError:
+        valid = False
+    if not valid:
+        raise ProofFailure("host_admission_unverified")
+    return parent
 
 
 ERROR_CODES = {
@@ -355,7 +376,7 @@ def main(argv=None):
         if attempt:
             receipt.update(attempt.receipt)
         code = "proof_incomplete"
-        if isinstance(error, host_api.HostFailure) and safe_error(str(error)):
+        if isinstance(error, (host_api.HostFailure, ProofFailure)) and safe_error(str(error)):
             code = str(error)
         elif attempt:
             code = next((label for phase, label in (("start", "phone_start_unverified"),

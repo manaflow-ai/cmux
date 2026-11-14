@@ -10,8 +10,10 @@ from pathlib import Path
 import plistlib
 import re
 import signal
+import shutil
 import socket
 import subprocess
+import tempfile
 import time
 
 
@@ -173,6 +175,7 @@ class Host:
         self.namespace = None
         self.lease = os.environ.get("GLAEDA_CAPTURE_LEASE_ID", "")
         self.cleanup_ok = False
+        self.socket_root = None
         self.sock = self.work / "host.sock"
         self.events_path = self.work / "input.jsonl"
 
@@ -198,6 +201,13 @@ class Host:
             raise HostFailure("host_namespace_" + phase + "_failed")
 
     def _launch(self, env, home):
+        if len(str(self.sock).encode()) > 100:
+            # Durable lease directories can exceed sockaddr_un's limit. Only
+            # this app's socket uses the short temporary directory; identities
+            # and recovery markers stay in the durable private HOME.
+            self.socket_root = Path(tempfile.mkdtemp(prefix="css-", dir="/tmp"))
+            self.sock = self.socket_root / "host.sock"
+        env["CMUX_NEXT_SOCKET_PATH"] = str(self.sock)
         self.proc = subprocess.Popen([str(self.app / "Contents/MacOS" / self.info["CFBundleExecutable"]),
                                       "--cloud-backend", "staging"],
                                      cwd=home, env=env, stdout=self.log, stderr=subprocess.STDOUT,
@@ -236,8 +246,6 @@ class Host:
         raise HostFailure("host_account_not_ready")
 
     def __enter__(self):
-        if len(str(self.sock).encode()) > 100:
-            raise HostFailure("host_socket_path_too_long")
         bundle = self.info["CFBundleIdentifier"]
         processes = command(["ps", "-axo", "command="])
         if "/" + self.app.name + "/Contents/MacOS/" in processes:
@@ -391,7 +399,15 @@ class Host:
                 failures.append("namespace")
         try:
             stop(self.proc)
-        except (OSError, subprocess.SubprocessError):
+            if self.socket_root is not None:
+                shutil.rmtree(self.socket_root)
+                try:
+                    self.socket_root.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise HostFailure("host_socket_cleanup_failed")
+        except (OSError, subprocess.SubprocessError, HostFailure):
             failures.append("app")
         if self.log:
             self.log.close()
