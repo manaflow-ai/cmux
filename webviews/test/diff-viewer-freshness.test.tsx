@@ -153,7 +153,7 @@ test("an open Cloud diff reports disconnection and clears it after reconnect wit
   expect(refreshed).toBe(0);
 });
 
-test("a session host without the fingerprint read is asked once, and each return reloads the diff", async () => {
+test("a session host without the fingerprint read gets no timer: each return asks again and reloads the diff", async () => {
   await act(async () => root.render(null));
   const intervals = spyOn(globalThis, "setInterval");
   const cleared = spyOn(globalThis, "clearInterval");
@@ -188,8 +188,9 @@ test("a session host without the fingerprint read is asked once, and each return
     dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
     await settle();
     expect(refreshed).toBe(4);
-    // Four returns and a blur: no fingerprint was asked for again, and no timer was started.
-    expect(asked).toBe(1);
+    // Four returns: each asked one time more (the host sends an older session host nothing), and
+    // no timer was started.
+    expect(asked).toBe(5);
     expect(intervals).toHaveBeenCalledTimes(1);
     expect(shown()).toBe("fresh");
 
@@ -199,12 +200,137 @@ test("a session host without the fingerprint read is asked once, and each return
     dom.window.dispatchEvent(new dom.window.Event("focus"));
     await settle();
     expect(refreshed).toBe(4);
-    expect(asked).toBe(1);
+    expect(asked).toBe(6);
     expect(shown()).toBe("fresh");
   } finally {
     await act(async () => root.render(null));
     intervals.mockRestore();
     cleared.mockRestore();
+  }
+});
+
+test("a session host that gets the fingerprint read is compared again from the next return", async () => {
+  await act(async () => root.render(null));
+  const intervals = spyOn(globalThis, "setInterval");
+  let older = true;
+  let digits = "a";
+  let asked = 0;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    asked += 1;
+    if (older) throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    return digits;
+  };
+  const comeBack = async () => {
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="replaced-host" read={read} canRefresh refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect([asked, refreshed]).toEqual([1, 0]);
+    expect(intervals).toHaveBeenCalledTimes(1);
+
+    // The session host was replaced by one with the read. The return asks, gets digits, loads the
+    // diff one time (the shown diff has no digits of its own) and starts the timer again.
+    older = false;
+    await comeBack();
+    expect([asked, refreshed]).toEqual([2, 1]);
+    expect(intervals.mock.calls.length).toBeGreaterThan(1);
+
+    // From here the digits decide: a return with the same digits loads nothing.
+    await comeBack();
+    expect([asked, refreshed]).toEqual([3, 1]);
+    digits = "b";
+    await comeBack();
+    expect([asked, refreshed]).toEqual([4, 2]);
+    expect(shown()).toBe("fresh");
+  } finally {
+    await act(async () => root.render(null));
+    intervals.mockRestore();
+  }
+});
+
+test("one return to a page of a session host without the fingerprint read loads the diff one time", async () => {
+  await act(async () => root.render(null));
+  // The window has the focus when it is asked: a return ends the time that the page was away.
+  const focused = spyOn(dom.window.document, "hasFocus").mockReturnValue(true);
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="one-return" read={read} canRefresh refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect(refreshed).toBe(0);
+
+    // One return gives two events: the page is visible again, and the window has the focus.
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(1);
+
+    // A focus event with no time away before it is no return.
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(1);
+
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(2);
+  } finally {
+    await act(async () => root.render(null));
+    focused.mockRestore();
+  }
+});
+
+/// A viewer whose load is a new generation, as the diff page's is: the freshness check starts again
+/// after each load.
+function LoadingViewer({ read, loaded }: { read: () => Promise<string | undefined>; loaded: () => void }) {
+  const [generation, setGeneration] = useState(0);
+  const stale = useDiffFreshness(
+    read,
+    generation,
+    () => true,
+    () => {
+      loaded();
+      setGeneration((now) => now + 1);
+    },
+  );
+  return <output>{stale ? "stale" : "fresh"}</output>;
+}
+
+test("five returns to a page of a session host without the fingerprint read are five loads of the diff", async () => {
+  await act(async () => root.render(null));
+  const focused = spyOn(dom.window.document, "hasFocus").mockReturnValue(true);
+  let loads = 0;
+  const read = async (): Promise<string> => {
+    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  };
+  try {
+    await act(async () => root.render(<LoadingViewer key="count" read={read} loaded={() => (loads += 1)} />));
+    await settle();
+    expect(loads).toBe(0);
+    for (let returns = 1; returns <= 5; returns += 1) {
+      dom.window.dispatchEvent(new dom.window.Event("blur"));
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+      dom.window.dispatchEvent(new dom.window.Event("focus"));
+      // The load is a new generation: its own first check and a later turn start no load.
+      await settle();
+      await settle();
+      expect(loads).toBe(returns);
+    }
+    expect(shown()).toBe("fresh");
+  } finally {
+    await act(async () => root.render(null));
+    focused.mockRestore();
   }
 });
 
