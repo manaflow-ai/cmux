@@ -11,7 +11,6 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -391,18 +390,19 @@ fn connect(options: &Options) -> Result<UnixStream, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
     // argv[0] names the host: in the multicall cmux binary (a `cmux-browser-host`
     // link) current_exe is the real `cmux`, which picks its program from argv[0].
-    std::process::Command::new(exe)
+    cmux_process::Command::new(exe)
         .arg0("cmux-browser-host")
         .args(["serve", "--socket"])
         .arg(&options.socket)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         // Its own process group: Ctrl-C in the caller's terminal must
         // not stop a host that other sessions use.
         .process_group(0)
         .spawn()
-        .map_err(|e| format!("cannot start the browser host: {e}"))?;
+        .map_err(|e| format!("cannot start the browser host: {e}"))?
+        .detach("the browser host serves every later eval; this caller exits after its own");
     wait_for(&options.socket)
         .map_err(|()| format!("the browser host did not start on {}", options.socket.display()))
 }

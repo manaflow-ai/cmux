@@ -1197,6 +1197,7 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "cmux-json",
+ "cmux-process",
  "getrandom 0.3.4",
  "hmac",
  "libc",
