@@ -206,6 +206,19 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference.column == 5)
     }
 
+    @Test func resolvesRelativePathWithGitHubLineFragment() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "src/main.swift#L42",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == nil)
+    }
+
     @Test func resolvesLocalFileURL() throws {
         let existingFile = "/Users/dev/project/src/main.swift"
         let reference = try #require(
@@ -262,6 +275,19 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let reference = try #require(
             TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
                 "report:42",
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
+
+    @Test func prefersLiteralPathBeforeInterpretingGitHubLineFragment() throws {
+        let literalPath = "/tmp/report#L42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
+                "report#L42",
                 cwd: "/tmp"
             )
         )
