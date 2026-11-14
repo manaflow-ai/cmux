@@ -252,6 +252,13 @@ describe("the counting turn", () => {
 });
 
 describe("judgeLoss on a turn a restart cut short", () => {
+  test("an interrupted turn with journal events but no counted output cannot pass", () => {
+    const j = [{ seq: 40, ks: [] }, { seq: 41, ks: [] }];
+    const v = judgeLoss({ n: 10, journal: j, client: j, interrupted: true });
+    expect(v.ok).toBe(false);
+    expect(v.text).toContain("no counting steps");
+  });
+
   test("every step up to the last one reached, and no more", () => {
     const j = turn(10).slice(0, 12); // steps 1..6 ran
     expect(judgeLoss({ n: 10, journal: j, client: j }).ok).toBe(false);
@@ -259,6 +266,25 @@ describe("judgeLoss on a turn a restart cut short", () => {
     expect(v.text).toBe("no lost output: seq 40..51 contiguous, steps 1..6 of 10 (the turn was cut short) once on both sides");
     const holed = j.filter((e) => e.seq !== 43);
     expect(judgeLoss({ n: 10, journal: j, client: holed, interrupted: true }).text).toContain("the client is missing step 2");
+  });
+});
+
+describe("judgeLoss at the fault boundary", () => {
+  test("a complete transcript does not excuse a fault outside the counting turn", () => {
+    const j = turn(10);
+    for (const injection of [
+      { step: 0, running: true },
+      { step: 3, running: true },
+      { step: 4, running: false },
+      { step: 10, running: true },
+      { step: 10, running: false },
+    ]) {
+      const v = judgeLoss({ n: 10, journal: j, client: j, injection });
+      expect(v.ok).toBe(false);
+      expect(v.text).toContain("fault was not armed during counting output");
+    }
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 4, running: true } }).ok).toBe(true);
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 9, running: true } }).ok).toBe(true);
   });
 });
 
