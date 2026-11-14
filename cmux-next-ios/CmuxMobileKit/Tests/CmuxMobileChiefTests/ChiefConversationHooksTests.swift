@@ -191,6 +191,23 @@ struct ChiefConversationHooksTests {
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
     }
 
+    /// The ••• menu morphs out of the trailing glass and back into it. iOS 26 draws that morph
+    /// from the view's corner configuration: the glass is a capsule there (a 22 pt radius on
+    /// its 44 pt circle), not a square that only the layer radius rounds.
+    @Test(.timeLimit(.minutes(1))) func headerMenuGlassIsACapsuleForTheMenuMorph() async throws {
+        guard #available(iOS 26.0, *) else { return }
+        let (controller, window) = try await loaded([])
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        controller.headerActionMenu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
+        controller.view.layoutIfNeeded()
+        let glass = controller.header.trailingGlass
+        #expect(glass.bounds.size == CGSize(width: 44, height: 44))
+        #expect(glass.cornerConfiguration == .capsule())
+        for corner in [UIRectCorner.topLeft, .topRight, .bottomLeft, .bottomRight] {
+            #expect(glass.effectiveRadius(corner: corner) == 22)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func editModeKeepsTheTrailingTapForEndingTheEdit() async throws {
         let source = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine to edit")
         let (controller, window) = try await loaded([source])
