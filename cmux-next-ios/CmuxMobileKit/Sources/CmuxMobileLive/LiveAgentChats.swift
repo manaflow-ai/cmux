@@ -241,3 +241,54 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return tab
     }
 }
+
+/// Toggle Terminal and Chat from the phone: the Mac's chats a terminal's session pairs with
+/// (read from the chats acpmux already sent, no request), and the View Only chat the Mac's
+/// Toggle opens, asked for with the same `session/new` adopt the Mac sends
+/// (`TerminalChatHandler`, `AgentPaneAdopt(watch: true)`).
+extension LiveWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] {
+        guard canManage(on: macID), let acpmux else { return [] }
+        return acpmux.sessions.values.compactMap(Self.terminalChatListing)
+    }
+
+    /// One acpmux session as a pairing candidate; nil for a peer's (another machine's) chat.
+    nonisolated static func terminalChatListing(_ session: AcpmuxSession) -> TerminalChatListing? {
+        guard session.peer == nil else { return nil }
+        return TerminalChatListing(sessionID: session.id, harness: session.harness, agentSessionID: session.agentSessionID,
+                                   watching: session.watching, status: session.status)
+    }
+
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String,
+                                 on macID: String) async throws -> TerminalChatOpen {
+        let acpmux = try readyAcpmux(macID)
+        let reply: JSONValue
+        do {
+            reply = try await acpmux.request("session/new", Self.terminalChatParams(
+                harness: harness, session: session, cwd: sync.tree?.directories[terminalTabID]), timeout: .seconds(30))
+        } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.adopt_refused" {
+            return .refused
+        } catch let error as AcpmuxConnection.RPCError {
+            throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+        guard let chat = reply["sessionId"]?.stringValue, !chat.isEmpty else {
+            throw WorkspaceCreationError("The Mac didn't open the chat")
+        }
+        return .chat(chat)
+    }
+
+    /// The Mac's adopt (`AgentPaneAdopt.reply` with `watch`), in the terminal's folder when known
+    /// (acpmux otherwise reads it from the harness's own record), under the asking policy every
+    /// chat a phone starts has.
+    nonisolated static func terminalChatParams(harness: String, session: String, cwd: String?) -> JSONValue {
+        var params: [String: JSONValue] = [
+            "mcpServers": .array([]),
+            "_meta": .object(["acpmux": .object([
+                "policy": .string("ask"),
+                "adopt": .object(["harness": .string(harness), "agentSessionId": .string(session), "watch": .bool(true)]),
+            ])]),
+        ]
+        if let cwd, cwd.hasPrefix("/") { params["cwd"] = .string(cwd) }
+        return .object(params)
+    }
+}

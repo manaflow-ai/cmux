@@ -458,6 +458,7 @@ pub(super) fn advertised_capabilities(
         crate::history_ops::CAPABILITY,
         crate::history_ops::CLEAR_UNTIL_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::FINGERPRINT_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
         crate::git_ops::PUSH_CAPABILITY,

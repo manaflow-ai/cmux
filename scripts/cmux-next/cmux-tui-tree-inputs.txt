@@ -101,6 +101,9 @@ blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
+# acpmux's v2 gate registry tests read the nightly's gate script: a marked row
+# needs a line in it.
+blob scripts/cmux-next/run-v2-gates.sh
 blob skills/cmux-acpmux/SKILL.md
 blob skills/cmux-browser/SKILL.md
 blob skills/cmux-browser/references/authentication.md

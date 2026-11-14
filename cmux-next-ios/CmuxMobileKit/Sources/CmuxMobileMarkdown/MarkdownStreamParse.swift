@@ -17,6 +17,11 @@ public struct MarkdownStreamParse: Sendable {
     public private(set) var displayed: [MarkdownBlock] = []
     /// Lines the last update parsed (the whole message, or just its tail).
     public private(set) var lastParsedLines = 0
+    /// How many of `displayed`'s first blocks the last update left as they were (their ids and
+    /// content): a reader of the blocks rebuilds only what follows them.
+    public private(set) var unchangedDisplayed = 0
+    /// Where `displayed` starts to differ from `blocks` (the tail `MarkdownStreamTail` edited).
+    private var displayedFrom = 0
     private var isStreaming = false
     /// Each block's first line and that line's UTF-8 offset in `source`.
     private var starts: [Start] = []
@@ -34,9 +39,15 @@ public struct MarkdownStreamParse: Sendable {
     }
 
     public mutating func update(_ text: String, isStreaming streaming: Bool) {
-        if streaming == isStreaming, Self.sameText(text, source) { return }
+        if streaming == isStreaming, Self.sameText(text, source) {
+            unchangedDisplayed = displayed.count
+            return
+        }
         isStreaming = streaming
         let restart = restartPoint(for: text)
+        // Blocks before `kept` are the old ones; shown as they were where neither the old nor
+        // the new display edited them.
+        let shownBefore = displayedFrom
         let tail = restart.offset == 0 ? text : String(Substring(text.utf8[text.utf8.index(text.utf8.startIndex, offsetBy: restart.offset)...]))
         let parser = MarkdownParser(text: tail)
         let parsed = parser.parseWithStarts()
@@ -63,9 +74,12 @@ public struct MarkdownStreamParse: Sendable {
             let shown = MarkdownStreamTail(region).displayed
             let regionBlocks = shown == region && from == kept ? parsed.blocks : MarkdownParser(text: shown).parse()
             displayed = Array(blocks[..<from]) + regionBlocks.enumerated().map { MarkdownBlock(id: from + $0.offset, kind: $0.element.kind) }
+            displayedFrom = from
         } else {
             displayed = blocks
+            displayedFrom = blocks.count
         }
+        unchangedDisplayed = min(kept, shownBefore, displayedFrom)
     }
 
     /// Where to parse from: the first block that `text` (the old source plus more) could
