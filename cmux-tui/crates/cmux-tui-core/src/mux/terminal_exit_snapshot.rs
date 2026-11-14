@@ -8,6 +8,12 @@ use cmux_json::JsonSet as _;
 /// the full page list without escapes ([`ghostty_vt::Terminal::plain_text`]).
 /// The scrollback budget is the window's own byte count, so no row of the
 /// bounded window is evicted before formatting.
+///
+/// The formatter trims trailing blank rows, so a window that ends on a line
+/// feed would lose it, and a client that appends each window from its
+/// `next_offset` would run the next window's first line into this one's last
+/// (`2` and `3` read `23`). The text ends with as many line feeds as the
+/// bytes did after their last printed character.
 pub(super) fn render_terminal_output_plain<'a>(
     chunks: impl Iterator<Item = &'a [u8]> + Clone,
     cols: u16,
@@ -20,10 +26,63 @@ pub(super) fn render_terminal_output_plain<'a>(
         scrollback,
         ghostty_vt::Callbacks::default(),
     )?;
+    let mut ends = TrailingLineFeeds::default();
     for chunk in chunks {
         terminal.vt_write(chunk);
+        ends.scan(chunk);
     }
-    Ok(terminal.plain_text()?)
+    let mut text = terminal.plain_text()?;
+    text.truncate(text.trim_end_matches('\n').len());
+    text.extend(std::iter::repeat_n('\n', ends.count));
+    Ok(text)
+}
+
+/// The line feeds after the last printed character of a byte stream, read
+/// across chunk boundaries. Carriage returns, spaces, tabs, other controls and
+/// escape sequences (CSI, the string sequences, two-byte) print nothing, so they neither count
+/// nor reset the count.
+#[derive(Default)]
+struct TrailingLineFeeds {
+    count: usize,
+    state: EscapeState,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum EscapeState {
+    #[default]
+    Ground,
+    Escape,
+    Csi,
+    Osc,
+}
+
+impl TrailingLineFeeds {
+    fn scan(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.state = match (self.state, b) {
+                (EscapeState::Ground, b'\n') => {
+                    self.count += 1;
+                    EscapeState::Ground
+                }
+                (_, 0x1b) => EscapeState::Escape,
+                (EscapeState::Ground, b) if b < 0x20 || b == b' ' || b == 0x7f => {
+                    EscapeState::Ground
+                }
+                (EscapeState::Ground, _) => {
+                    self.count = 0;
+                    EscapeState::Ground
+                }
+                (EscapeState::Escape, b'[') => EscapeState::Csi,
+                // OSC, DCS, SOS, PM and APC strings end at BEL or ST (ESC \).
+                (EscapeState::Escape, b']' | b'P' | b'X' | b'^' | b'_') => EscapeState::Osc,
+                (EscapeState::Escape, _) => EscapeState::Ground,
+                (EscapeState::Csi, 0x40..=0x7e) => EscapeState::Ground,
+                (EscapeState::Csi, _) => EscapeState::Csi,
+                (EscapeState::Osc, 0x07) => EscapeState::Ground,
+                (EscapeState::Osc, _) => EscapeState::Osc,
+            };
+        }
+    }
 }
 
 pub(super) fn terminal_output_read_result(
