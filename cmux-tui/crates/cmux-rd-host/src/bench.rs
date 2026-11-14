@@ -743,7 +743,6 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
-    let fps = v.frames.saturating_sub(frames) as f64 / secs.max(f64::EPSILON);
     let report = json!({
         "addr": addr.to_string(),
         "carrier": carrier,
@@ -813,6 +812,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         (bytes, frames, decode_from) = (v.bytes, v.frames, v.decode_ms.len());
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
+    let fps = v.frames.saturating_sub(frames) as f64 / secs.max(f64::EPSILON);
     let report = json!({
         "addr": addr.to_string(),
         "carrier": carrier,
