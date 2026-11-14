@@ -100,12 +100,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The navigation subtitle: the status while rows show and the list is not live, else none.
     private var homeSubtitle: String {
-        guard let status = connectionStatus, !(feed.rows ?? []).isEmpty else { return "" }
+        guard let status = connectionStatus, keptRowsShow else { return "" }
         return status.subtitle
     }
 
     /// The kept rows show while the list is not live: dimmed, as Workspaces' last-known rows.
-    private var rowsAreStale: Bool { showsHomeProblem && !(feed.rows ?? []).isEmpty }
+    private var rowsAreStale: Bool { showsHomeProblem && keptRowsShow }
+
+    /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
+    private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
+
+    /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    private func showsProblemEmptyState(searching: Bool) -> Bool {
+        connectionStatus != nil && !keptRowsShow && !searching && !unreadOnly
+    }
+
+    /// The status the arrival retry last ran for: returning to Home in the same state (from a
+    /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
+    @State private var autoRetriedFor: String?
 
     /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
     /// "Updating…" until the retry answers: reconnecting clears the offline state first.
@@ -312,11 +324,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if let status = connectionStatus, (feed.rows ?? []).isEmpty, !searching, !unreadOnly {
+            if let status = connectionStatus, showsProblemEmptyState(searching: searching) {
                 // Nothing kept: Workspaces' empty state for the same Mac.
                 if let empty = status.empty {
-                    EmptyState(symbol: empty.symbol, title: LocalizedStringKey(empty.title),
-                               message: LocalizedStringKey(empty.message),
+                    // Interpolated, so a Mac's name is shown as written (never read as Markdown).
+                    EmptyState(symbol: empty.symbol, title: "\(empty.title)", message: "\(empty.message)",
                                primaryTitle: empty.canRetry ? "Retry" : nil,
                                isPrimaryLoading: status.isRetrying,
                                primary: empty.canRetry ? { Task { await retryHome() } } : nil)
@@ -360,7 +372,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.showHidden")
             }
             // A search or Unread over the top of the list waits for the rest before it says "none".
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
+            if tiles.isEmpty, entries.isEmpty, !showsProblemEmptyState(searching: searching), feed.rows != nil || searching || unreadOnly,
                feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
@@ -399,7 +411,20 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
-            if let status = connectionStatus, status.empty?.canRetry != false, homeRetries == 0 { await retryHome() }
+            guard let status = connectionStatus, status.empty?.canRetry != false, homeRetries == 0 else { return }
+            let key = "\(homeMacID ?? "")|\(status.kind)"
+            guard autoRetriedFor != key else { return }
+            autoRetriedFor = key
+            await retryHome()
+        }
+        .onChange(of: connectionStatus == nil) { _, live in
+            if live { autoRetriedFor = nil }
+        }
+        .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
+            // VoiceOver hears that Home is not live when it stops being live (also on arriving
+            // with the Mac already away), not on each retry.
+            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying else { return }
+            AccessibilityNotification.Announcement(keptRowsShow ? status.subtitle : status.empty?.title ?? status.subtitle).post()
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
         .cmuxMobilePullDownSearch(text: $query)

@@ -339,7 +339,9 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     /// `failed`: the last read failed. `retrying`: a retry runs.
     public static func make(linkDown: Bool, macOnline: Bool?, failed: Bool, retrying: Bool,
                             macName: String?) -> HomeConnectionStatus? {
+        // The Mac's name, or "your Mac" ("Your Mac" where it starts a sentence).
         let mac = macName ?? String(localized: "your Mac")
+        let macAtStart = macName ?? String(localized: "Your Mac")
         let kind: Kind
         if linkDown {
             kind = macOnline == false ? .macOffline : .unreachable
@@ -359,14 +361,14 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         }
         let empty: Empty? = switch kind {
         case .macOffline:
-            Empty(symbol: "moon.zzz", title: String(localized: "\(mac) is offline"),
+            Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
                   message: String(localized: "Open cmux on it to see its conversations."), canRetry: false)
         case .unreachable:
             Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Can't connect to \(mac)"),
-                  message: String(localized: "\(mac) is online, but this iPhone can't reach it."), canRetry: true)
+                  message: String(localized: "\(macAtStart) is online, but this iPhone can't reach it."), canRetry: true)
         case .failed:
             Empty(symbol: "bolt.horizontal.circle", title: String(localized: "Couldn't load conversations"),
-                  message: String(localized: "\(mac) didn't answer. It tries again on its own."), canRetry: true)
+                  message: String(localized: "\(macAtStart) didn't answer. It tries again on its own."), canRetry: true)
         case .connecting:
             nil
         }

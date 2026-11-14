@@ -27,13 +27,21 @@ import Testing
         #expect(!empty.canRetry)
     }
 
-    @Test func aFailedReadNeverShowsTheRawError() throws {
-        let status = try #require(HomeConnectionStatus.make(linkDown: false, macOnline: true, failed: true, retrying: false, macName: nil))
+    @Test func aFailedReadSaysItInWorkspacesWords() throws {
+        let status = try #require(HomeConnectionStatus.make(linkDown: false, macOnline: true, failed: true, retrying: false, macName: "Studio"))
         #expect(status.kind == .failed)
         #expect(status.subtitle == "Couldn't refresh · last known")
         let empty = try #require(status.empty)
         #expect(empty.title == "Couldn't load conversations")
-        #expect(empty.message == "your Mac didn't answer. It tries again on its own." || empty.message.hasSuffix("didn't answer. It tries again on its own."))
+        #expect(empty.message == "Studio didn't answer. It tries again on its own.")
+    }
+
+    @Test func anUnnamedMacStartsASentenceCapitalized() throws {
+        let asleep = try #require(HomeConnectionStatus.make(linkDown: true, macOnline: false, failed: false, retrying: false, macName: nil))
+        #expect(asleep.empty?.title == "Your Mac is offline")
+        let unreachable = try #require(HomeConnectionStatus.make(linkDown: true, macOnline: true, failed: false, retrying: false, macName: nil))
+        #expect(unreachable.empty?.title == "Can't connect to your Mac")
+        #expect(unreachable.empty?.message == "Your Mac is online, but this iPhone can't reach it.")
     }
 
     @Test func aRetryKeepsItsStateAndSaysUpdating() throws {

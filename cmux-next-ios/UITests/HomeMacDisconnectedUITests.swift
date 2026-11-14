@@ -52,6 +52,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         let title = app.staticTexts["Can't connect to Demo Mac 1"]
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["Retry"].exists, "Retry\n\(app.debugDescription)")
+        XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
         attach(app, "4-home-unreachable-empty")
     }
 
@@ -60,6 +61,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         let app = launch("retry-home-asleep-empty")
         XCTAssertTrue(app.staticTexts["Demo Mac 1 is offline"].waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
         XCTAssertFalse(app.buttons["Retry"].exists, "nothing to dial")
+        XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
         attach(app, "5-home-asleep-empty")
     }
 
