@@ -1,0 +1,22 @@
+{
+  "name": "cmux-extension-sdk",
+  "version": "1.0.0",
+  "description": "Build cmux extensions: typed places (sidebar sections, panes), live data, workspace, agent and chat events, and the scene DSL, for code cmux runs in its extension sandbox.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manaflow-ai/cmux.git",
+    "directory": "cmux-tui/crates/cmux-extension-sdk/typescript"
+  },
+  "license": "MIT",
+  "keywords": ["cmux", "extension", "sdk"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./api.json": "./api.json",
+    "./cmux-app.schema.json": "./cmux-app.schema.json"
+  },
+  "files": ["src/", "api.json", "cmux-app.d.ts", "cmux-app.schema.json", "README.md"],
+  "engines": { "cmux": "^2.0" }
+}

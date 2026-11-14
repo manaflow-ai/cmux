@@ -1528,6 +1528,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-extension-sdk"
+version = "1.0.0"
+dependencies = [
+ "cmux-app-manifest",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
