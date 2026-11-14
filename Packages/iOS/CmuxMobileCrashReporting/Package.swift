@@ -10,7 +10,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileCrashReporting",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
