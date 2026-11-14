@@ -32,7 +32,8 @@ cmux-rd-engine = { path = "../cmux-rd-engine" }
 cmux-rd-proto = { path = "../cmux-rd-proto" }
 openh264 = { version = "=0.9.8", default-features = false, features = ["source"] }
 rav1e = { version = "0.8.1", default-features = false, features = ["threading"], optional = true }
-rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8"], optional = true }
+# rav1d's assembly references both bit depths, so both are on (8-bit streams only are decoded).
+rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"], optional = true }
 serde_json = "1"
 
 [build-dependencies]
