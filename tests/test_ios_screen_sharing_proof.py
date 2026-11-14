@@ -413,7 +413,7 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(call.call_args.args[2]["lease_id"], instance.lease)
 
     def test_credentials_wait_for_all_namespace_claims(self):
-        for refusal in (None, "auth", "device", "remote", "resume", "resume-account"):
+        for refusal in (None, "auth", "device", "remote", "resume", "resume-account", "resume-account-timeout"):
             with self.subTest(refusal=refusal), tempfile.TemporaryDirectory(prefix="ss-") as directory:
                 instance = self.host.Host(Path("/owned.app"),
                                           {"CFBundleIdentifier": "owned", "CFBundleExecutable": "cmux"},
@@ -438,7 +438,8 @@ class HostTests(unittest.TestCase):
                     if refusal == "resume":
                         raise self.host.HostFailure("host_remote_resume_failed")
                 accounts = [{"signed_in": False},
-                            {"signed_in": True, "user_id": "unexpected"} if refusal == "resume-account"
+                            self.host.HostFailure("host_account_not_ready") if refusal == "resume-account-timeout"
+                            else {"signed_in": True, "user_id": "unexpected"} if refusal == "resume-account"
                             else {"signed_in": False}]
                 with patch.object(self.host, "command", return_value=""), \
                         patch.object(self.host, "identity_service", return_value="owned.cloud.development.device-hub"), \
@@ -457,7 +458,7 @@ class HostTests(unittest.TestCase):
                         instance.__enter__()
                 if instance.log and not instance.log.closed: instance.log.close()
                 self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launches[0])
-                expected_launches = 2 if refusal in ("resume", "resume-account") else 1 if refusal else 3
+                expected_launches = 2 if refusal and refusal.startswith("resume") else 1 if refusal else 3
                 self.assertEqual(len(launches), expected_launches)
                 for launch_env in launches[:-1] if not refusal else launches:
                     self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launch_env)
@@ -465,9 +466,10 @@ class HostTests(unittest.TestCase):
                     self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "prepare-remote", "stop",
                                              "launch", "resume-remote", "stop", "launch"])
                     self.assertEqual(launches[2]["CMUX_UITEST_STACK_PASSWORD"], "password")
-                if refusal == "resume-account":
+                if refusal in ("resume-account", "resume-account-timeout"):
                     self.assertTrue(instance.account_mismatch)
                     self.assertNotIn("resume-remote", order)
+                    self.assertFalse(any(item.startswith("cleanup-") for item in order))
 
     def test_capture_rejects_incomplete_or_wrongly_typed_absence_proof(self):
         instance = self.make_host()

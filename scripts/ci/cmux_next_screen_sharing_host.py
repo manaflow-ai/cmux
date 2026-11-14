@@ -310,11 +310,12 @@ class Host:
             self.sock.unlink(missing_ok=True)  # this process's socket only
             # Preparation fences its process for its entire lifetime. Resume
             # from a fresh signed-out process, before any launch gets credentials.
+            self.account_mismatch = True  # unreadable state cannot authorize auth deletion
             self._launch(env, home)
             account = self._account()
             if account.get("signed_in") is not False or account.get("user_id"):
-                self.account_mismatch = True
                 raise HostFailure("host_namespace_has_existing_account")
+            self.account_mismatch = False
             self._remote_resume()
             stop(self.proc)
             self.proc = None
