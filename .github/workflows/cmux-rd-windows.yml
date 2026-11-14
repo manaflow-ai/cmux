@@ -73,7 +73,7 @@ jobs:
         with:
           oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
-          tags: tag:ci
+          tags: tag:e2e-backend
           hostname: cmux-rd-win-${{ github.run_id }}
 
       - name: Set up pinned Rust
@@ -125,7 +125,7 @@ jobs:
         with:
           oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
-          tags: tag:ci
+          tags: tag:e2e-backend
           hostname: cmux-rd-mac-${{ github.run_id }}
 
       - name: Set up pinned Rust
