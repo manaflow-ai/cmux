@@ -17,6 +17,7 @@ mod classic_leftovers;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
+mod terminal_stream;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
@@ -25,6 +26,7 @@ pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use terminal_stream::{TerminalStreamFacts, TerminalStreamPlan, terminal_stream_plan};
 
 uniffi::setup_scaffolding!();
 

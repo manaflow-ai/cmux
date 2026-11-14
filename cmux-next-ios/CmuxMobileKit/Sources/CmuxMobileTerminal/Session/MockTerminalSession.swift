@@ -100,11 +100,59 @@ public final class MockTerminalSession: TerminalSession {
         delivery = nil
         inFlight.removeAll()
         handler = nil
+        parked = false
+        parkedWrites.removeAll()
+        resumeParked()
+    }
+
+    // MARK: Streaming (as a Mac terminal's session does)
+
+    /// Nobody sees the page (`setStreaming(false)`): nothing reaches the
+    /// screen, as a Mac terminal's closed attach sends nothing. The shell
+    /// goes on the way the Mac's does, but a streaming command or `htop`
+    /// waits instead of ticking (the Mac's work is not the phone's), and
+    /// shown again it catches up the way the Mac's replay does: the rows
+    /// written meanwhile, the screen's worth of them.
+    private var parked = false
+    /// Output written while parked by anything but a stream (the intro, a
+    /// prompt), kept to show on return; at most `parkedWriteLimit` bytes.
+    private var parkedWrites: [String] = []
+    private static let parkedWriteLimit = 32 * 1024
+    private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
+
+    public func setStreaming(_ streaming: Bool) {
+        guard streaming == parked else { return }
+        parked = !streaming
+        guard streaming else { return }
+        let held = parkedWrites.joined()
+        parkedWrites.removeAll()
+        if !held.isEmpty { handler?(.output(Data(held.utf8))) }
+        resumeParked()
+    }
+
+    private func resumeParked() {
+        let waiters = resumeWaiters
+        resumeWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Returns at once while streaming; parked, when the page is shown again (or stopped).
+    private func waitWhileParked() async {
+        guard parked else { return }
+        await withCheckedContinuation { resumeWaiters.append($0) }
     }
 
     // MARK: Output
 
     private func write(_ text: String) {
+        guard !parked else {
+            parkedWrites.append(text)
+            var total = parkedWrites.reduce(0) { $0 + $1.utf8.count }
+            while total > Self.parkedWriteLimit, parkedWrites.count > 1 {
+                total -= parkedWrites.removeFirst().utf8.count
+            }
+            return
+        }
         handler?(.output(Data(text.utf8)))
     }
 
@@ -288,6 +336,19 @@ public final class MockTerminalSession: TerminalSession {
     private func stream(_ lines: [String], lineDelay: Int = 12, batch: Int = 1) async throws {
         var index = 0
         while index < lines.count {
+            if parked {
+                // Off screen: no tick until the page is back. The Mac's
+                // terminal went on meanwhile; its replay is the screen now,
+                // the last `rows` of the rows it wrote.
+                let since = ContinuousClock.now
+                await waitWhileParked()
+                try Task.checkCancellation()
+                let away = since.duration(to: .now) / .milliseconds(max(1, lineDelay))
+                let end = min(lines.count, index + Int(away.rounded(.down)) * batch)
+                if end > index { write(lines[max(index, end - rows)..<end].map { $0 + "\r\n" }.joined()) }
+                index = end
+                continue
+            }
             let chunk = lines[index..<min(index + batch, lines.count)]
             write(chunk.map { $0 + "\r\n" }.joined())
             index += batch
@@ -302,6 +363,9 @@ public final class MockTerminalSession: TerminalSession {
             var tick = 0
             while !Task.isCancelled {
                 guard let self, case .htop = self.program else { return }
+                // Off screen: no redraw until the page is back.
+                await self.waitWhileParked()
+                guard !Task.isCancelled, case .htop = self.program else { return }
                 self.drawHtop(tick: tick)
                 self.program = .htop(tick: tick)
                 tick += 1
