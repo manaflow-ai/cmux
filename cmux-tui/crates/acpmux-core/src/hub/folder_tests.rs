@@ -2,7 +2,7 @@ use super::*;
 use crate::wire::{
     FolderPageResult, FolderPosition, FolderWindow, ListView, Page, PageKey, PageSide,
 };
-use acpmux_book::index::folders::{FolderKey, FolderOp, FolderRow};
+use acpmux_book::index::folders::{FolderKey, FolderOp};
 
 fn row(id: &str, folder: &str, at: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -319,7 +319,7 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
                 }
             }
         }
-        assert!(hub.folder_state.lock().unwrap().tail_bytes <= 64 * 1024);
+        assert!(hub.folder_state.lock().unwrap().retained_bytes() <= 64 * 1024);
         let index = hub.snapshot();
         let mut model = BTreeMap::<FolderKey, (SortKey, RowKey, u32)>::new();
         for row in index.iter() {

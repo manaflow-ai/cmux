@@ -168,7 +168,7 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         );
         acpmux_client_bytes_free(sid);
         let mut request = Bytes { ptr: std::ptr::null_mut(), len: 0 };
-        acpmux_client_take_send(handle, &mut request);
+        assert_eq!(acpmux_client_take_send(handle, &mut request), ACPMUX_CLIENT_OK);
         acpmux_client_bytes_free(request);
 
         let window = Frame::json(
@@ -185,7 +185,8 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
             ACPMUX_CLIENT_OK
         );
         let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
-        acpmux_client_next_change(handle, &mut change);
+        assert_eq!(acpmux_client_next_change(handle, &mut change), ACPMUX_CLIENT_OK);
+        assert!(!change.ptr.is_null() && change.len > 0);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
         let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
@@ -208,7 +209,8 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
             acpmux_client_page(handle, page_bytes.as_ptr(), page_bytes.len()),
             ACPMUX_CLIENT_OK
         );
-        acpmux_client_take_send(handle, &mut request);
+        let mut request = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(acpmux_client_take_send(handle, &mut request), ACPMUX_CLIENT_OK);
         acpmux_client_bytes_free(request);
         let folder_page = Frame::json(
             FrameKind::Page,
@@ -219,7 +221,9 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         .unwrap()
         .encode();
         acpmux_client_received(handle, folder_page.as_ptr(), folder_page.len(), &mut consumed);
-        acpmux_client_next_change(handle, &mut change);
+        let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(acpmux_client_next_change(handle, &mut change), ACPMUX_CLIENT_OK);
+        assert!(!change.ptr.is_null() && change.len > 0);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
         let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
@@ -242,7 +246,9 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         .unwrap()
         .encode();
         acpmux_client_received(handle, delta.as_ptr(), delta.len(), &mut consumed);
-        acpmux_client_next_change(handle, &mut change);
+        let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(acpmux_client_next_change(handle, &mut change), ACPMUX_CLIENT_OK);
+        assert!(!change.ptr.is_null() && change.len > 0);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
         let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
@@ -250,7 +256,9 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         assert_eq!(value.get("kind"), Some(&serde_json::Value::String("folder".into())));
         assert_eq!(value.get("seq"), Some(&serde_json::Value::from(2u64)));
         acpmux_client_bytes_free(change);
-        acpmux_client_next_change(handle, &mut change);
+        let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        assert_eq!(acpmux_client_next_change(handle, &mut change), ACPMUX_CLIENT_OK);
+        assert!(!change.ptr.is_null() && change.len > 0);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
         let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
