@@ -86,6 +86,9 @@ acpmux_lib_gates() {
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off
   run_acpmux_lib v2_pr03b_catchup_ack
+  # Row 7b: rows by key, and the CLI and MCP list callers.
+  run_acpmux_lib v2_pr07b_info_rows
+  run_acpmux_lib v2_pr07b_callers
 }
 run_group acpmux-lib acpmux_lib_gates
 

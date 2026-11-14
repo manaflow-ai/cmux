@@ -67,8 +67,11 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     if conn.origin != Origin::Local {
         return Err(RpcError::invalid_params("sessionIds is read on this machine's socket only"));
     }
-    if params.get("sessionId").is_some_and(|id| !id.is_null()) {
-        return Err(RpcError::invalid_params("sessionIds and sessionId cannot both be given"));
+    if let Some(one) = ["sessionId", "session", "name"]
+        .into_iter()
+        .find(|key| params.get(key).is_some_and(|id| !id.is_null()))
+    {
+        return Err(RpcError::invalid_params(format!("sessionIds and {one} cannot both be given")));
     }
     if params.get(crate::server::peer_forward::ROW_WILL_DO).and_then(Value::as_bool) != Some(true) {
         return Err(RpcError::invalid_params("sessionIds reads the list's rows: send row: true"));
