@@ -2224,6 +2224,7 @@
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
           "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
           "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
+          "codexLaunchCommand": "Prefixo do comando para terminais Codex novos e restaurados, por exemplo subcodex. Comandos de shell são executados no shell de login interativo do usuário; arquivos executáveis são executados diretamente. Os argumentos do Codex são passados separadamente. Se estiver vazio, usa a busca normal de executáveis. Aplica-se a terminais recém-abertos ou restaurados.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

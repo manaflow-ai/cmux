@@ -172,6 +172,17 @@ struct AgentIntegrationSettingsStoreTests {
         #expect(store.customClaudePath == "/usr/local/bin/claude")
     }
 
+    /// Treats unset or whitespace-only launcher settings as absent and trims a configured prefix.
+    @Test func codexLaunchCommandTrimsAndNilsEmpty() {
+        let defaults = makeScratchDefaults()
+        let store = AgentIntegrationSettingsStore(defaults: defaults)
+        #expect(store.codexLaunchCommand == nil)
+        defaults.set("  \n", forKey: "codexLaunchCommand")
+        #expect(store.codexLaunchCommand == nil)
+        defaults.set("  subcodex \n", forKey: "codexLaunchCommand")
+        #expect(store.codexLaunchCommand == "subcodex")
+    }
+
     @Test func kiroNotificationLevelParsesAndFallsBackToStandard() {
         let defaults = makeScratchDefaults()
         let store = AgentIntegrationSettingsStore(defaults: defaults)

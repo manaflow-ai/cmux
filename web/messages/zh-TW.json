@@ -2224,6 +2224,7 @@
           "workspaceAutoNaming": "可選的 AI 自動命名：根據代理對話內容自動命名工作區與分頁。啟用後，cmux 會使用各受支援代理自己的二進位檔將工作階段摘要為簡短標題；手動重新命名永遠優先。",
           "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。",
           "agentAutoResume": "當 cmux 啟動的代理因可重試的上游錯誤（模型容量已滿、過載或連線中斷）結束回合時，依退避策略向其傳送 `continue`。等待人工輸入的回合永遠不會被恢復。",
+          "codexLaunchCommand": "用於新建與還原的 Codex 終端機的指令前綴，例如 subcodex。shell 指令透過使用者的互動式登入 shell 執行；執行檔則直接執行。Codex 引數會分別傳遞。留空時使用一般的執行檔搜尋方式。適用於新開啟或還原的終端機。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

@@ -2224,6 +2224,7 @@
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
           "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
           "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
+          "codexLaunchCommand": "Kommandopræfiks for nye og gendannede Codex-terminaler, for eksempel subcodex. Shellkommandoer køres i brugerens interaktive login-shell; eksekverbare filer køres direkte. Codex-argumenter videregives separat. En tom værdi bruger den normale søgning efter eksekverbare filer. Gælder for nyåbnede eller gendannede terminaler.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

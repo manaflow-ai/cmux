@@ -5,8 +5,9 @@ Regression tests for Codex Feed hook wiring and decision output.
 
 from __future__ import annotations
 
-import json
+import base64
 import hashlib
+import json
 import os
 import shutil
 import socket
@@ -14,6 +15,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1002,6 +1005,136 @@ def codex_hook_commands(hooks: dict) -> list[str]:
                 if isinstance(command, str):
                     commands.append(command)
     return commands
+
+
+def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
+    """Check published resume bindings against recorded and explicit permission policies.
+
+    Isolated transcripts and socket fixtures cover Boolean-only network evidence,
+    config/flag precedence, independent field recovery and monitor-free teardown.
+    """
+    cases = [
+        (True, None, "split", []), (False, None, "split", []),
+        (None, None, "split", []), (1, None, "split", []),
+        ("true", None, "split", []), (True, False, "split", []),
+        (True, False, "compact", []), (False, True, "compact", []),
+        (True, None, "split", ["-a", "never", "-s", "workspace-write"]),
+        (False, None, "split", ["-a", "never", "-s", "workspace-write"]),
+        (True, None, "split", ["-anever", "-sworkspace-write"]),
+        (False, None, "split", ["-anever", "-sworkspace-write"]),
+        (True, None, "split", ["-s=workspace-write"]),
+        (False, None, "split", ["-s=workspace-write"]),
+        (True, False, "split", ["-s", "workspace-write"]),
+        (True, False, "compact", ["-s", "workspace-write"]),
+        (False, True, "split", ["-s", "workspace-write"]),
+        (False, True, "compact", ["-s", "workspace-write"]),
+        (True, False, "table", ["-s", "workspace-write"]),
+        (False, True, "table", ["-s", "workspace-write"]),
+        (True, False, "table", []),
+        (False, True, "table", []),
+    ]
+    cases = [(*case, case[0]) for case in cases]
+    cases += [
+        (True, None, "split", ["-s", "read-only", "-c", 'sandbox_mode="workspace-write"'], None),
+        (True, None, "split", ["-c", 'sandbox_mode="workspace-write"', "-s", "read-only"], None),
+        (True, None, "split", ["-s", "workspace-write", "-c", 'sandbox_mode="read-only"'], True),
+        (True, None, "split", ["-c", 'sandbox_mode="read-only"', "-s", "workspace-write"], True),
+    ]
+    for index, (recorded_network, explicit_network, override_form, permission_args, inferred_network) in enumerate(cases):
+        case = root / f"codex-network-policy-{index}"
+        home, state, codex_home = case / "home", case / "state", case / "codex"
+        for directory in (home, state, codex_home):
+            directory.mkdir(parents=True)
+        session_id = str(uuid.uuid4())
+        captured_at = time.time() - 10
+        # The current turn can postdate a preserved launch record. It is still
+        # earlier than the hook observation that repairs the resume binding.
+        evidence_time = captured_at + 1 if permission_args else captured_at - 1
+        timestamp = datetime.fromtimestamp(evidence_time, timezone.utc).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z")
+        sandbox = {"type": "workspace-write"}
+        if recorded_network is not None:
+            sandbox["network_access"] = recorded_network
+        transcript = case / "rollout.jsonl"
+        transcript.write_text("\n".join(json.dumps(value) for value in [
+            {"type": "session_meta", "payload": {"id": session_id, "source": "cli", "originator": "codex-tui"}},
+            {"timestamp": timestamp, "type": "turn_context", "payload": {"approval_policy": "never", "sandbox_policy": sandbox}},
+        ]) + "\n", encoding="utf-8")
+        arguments = ["codex", "resume", session_id]
+        arguments += permission_args
+        if explicit_network is not None:
+            override = f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"
+            if override_form == "table":
+                override = f"sandbox_workspace_write={{network_access={str(explicit_network).lower()}}}"
+            arguments += [f"-c{override}"] if override_form == "compact" else ["-c", override]
+        record = {
+            "sessionId": session_id, "workspaceId": FAKE_WORKSPACE_ID, "surfaceId": FAKE_SURFACE_ID,
+            "cwd": str(case), "transcriptPath": str(transcript), "startedAt": captured_at,
+            "updatedAt": captured_at, "launchCommand": {
+                "launcher": "codex", "arguments": arguments, "environment": {"CODEX_HOME": str(codex_home)},
+                "capturedAt": captured_at, "source": "process",
+            },
+        }
+        (state / "codex-hook-sessions.json").write_text(
+            json.dumps({"version": 1, "sessions": {session_id: record}}), encoding="utf-8"
+        )
+        env = {key: value for key, value in os.environ.items() if not key.startswith(("CMUX_", "GHOSTTY_"))}
+        env.update({
+            "HOME": str(home), "CFFIXED_USER_HOME": str(home), "CODEX_HOME": str(codex_home),
+            "CMUX_WORKSPACE_ID": FAKE_WORKSPACE_ID, "CMUX_SURFACE_ID": FAKE_SURFACE_ID,
+            "CMUX_AGENT_HOOK_STATE_DIR": str(state), "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CODEX_HOOK_PID": "2", "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude", "CMUX_AGENT_LAUNCH_CWD": str(case),
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64.b64encode(b"/usr/local/bin/claude\0--resume\0wrong\0").decode(),
+        })
+        # SessionStart publishes the same repaired resume binding without starting
+        # a turn monitor that could recreate the fixture during tempfile cleanup.
+        socket_path = case / "c.sock"
+        env["CMUX_SOCKET_PATH"] = str(socket_path)
+        with FakeCmuxSocket(socket_path, None, surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)) as fake:
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "session-start"],
+                input=json.dumps({"session_id": session_id, "turn_id": "turn-network-policy", "cwd": str(case),
+                                  "transcript_path": str(transcript), "hook_event_name": "SessionStart"}),
+                env=env, capture_output=True, text=True, timeout=15,
+            )
+            if list((state / "codex-monitor-leases").glob("*.json")):
+                raise AssertionError("permission fixture left a transcript monitor lease active during teardown")
+        if result.returncode:
+            raise AssertionError(f"network-policy hook failed: {result.stderr}")
+        publications = [frame["params"] for frame in fake.frames if frame.get("method") == "surface.resume.set"]
+        if not publications:
+            raise AssertionError("network-policy fixture published no resume binding")
+        published = publications[-1]
+        actual = published.get("launch_command", {}).get("arguments", [])
+        network_args = [
+            arg.removeprefix("-c") for arg in actual
+            if arg.removeprefix("-c").startswith(("sandbox_workspace_write.network_access=", "sandbox_workspace_write="))
+        ]
+        effective = explicit_network if explicit_network is not None else inferred_network
+        expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
+        if explicit_network is not None:
+            expected = [override]
+        if network_args != expected:
+            raise AssertionError(f"recorded network policy {recorded_network!r}, explicit {explicit_network!r}: expected {expected}, got {network_args}")
+        # Every fixture records approval=never and a sandbox. A network-only
+        # override must not hide those other fields; compact explicit options
+        # must also stay single instead of gaining duplicate split options.
+        if "-anever" in arguments:
+            if actual.count("-a") != 0 or "-anever" not in actual:
+                raise AssertionError("explicit compact approval was duplicated or lost")
+        elif actual.count("-a") != 1 or actual[actual.index("-a") + 1] != "never":
+            raise AssertionError(f"recorded approval policy was lost or duplicated: {actual}")
+        compact_sandbox = any(arg.startswith(("-sworkspace-write", "-s=")) for arg in arguments)
+        if actual.count("-s") != (0 if compact_sandbox else 1):
+            raise AssertionError(f"recorded sandbox policy was lost or duplicated: {actual}")
+        if not permission_args and actual[actual.index("-s") + 1] != "workspace-write":
+            raise AssertionError("network-only override changed the recorded sandbox")
+        if any(argument not in actual for argument in permission_args):
+            raise AssertionError("explicit permission arguments were not preserved")
+        if expected and expected[0] not in published.get("command", ""):
+            raise AssertionError("network override missing from rendered resume command")
 
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
@@ -4195,6 +4328,7 @@ def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root:
 
 
 def main() -> int:
+    """Run the native-CLI hook regressions and return a failing status on setup or assertion errors."""
     try:
         cli_path = resolve_cmux_cli()
     except Exception as exc:
@@ -4204,6 +4338,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
+            test_codex_resume_retains_recorded_network_policy(cli_path, root)
             test_feed_completion_preserves_full_text(cli_path, root)
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)

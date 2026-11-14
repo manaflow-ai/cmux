@@ -3457,6 +3457,7 @@
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
           "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
+          "codexLaunchCommand": "Command prefix for new and restored Codex terminals, for example subcodex. Shell commands run through the user's interactive login shell; executable files run directly. Codex arguments are forwarded separately. Empty uses normal executable resolution. Applies to newly opened or restored terminals.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

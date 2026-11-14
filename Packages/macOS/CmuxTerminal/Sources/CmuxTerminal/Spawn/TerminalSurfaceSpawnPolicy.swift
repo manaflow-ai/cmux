@@ -24,6 +24,9 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// (`CMUX_CUSTOM_CLAUDE_PATH`), if set.
     public var customClaudePath: String?
 
+    /// A shell command prefix for Codex (`CMUX_CODEX_LAUNCH_COMMAND`), if set.
+    public var codexLaunchCommand: String?
+
     /// Agent command shims enabled for this spawn.
     ///
     /// Claude's integration toggle controls command interception entirely;
@@ -82,6 +85,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         claudeHooksEnabled: Bool,
         codexHooksEnabled: Bool = true,
         customClaudePath: String?,
+        codexLaunchCommand: String? = nil,
         subagentNotificationEnvironmentKey: String,
         suppressSubagentNotifications: Bool,
         cursorHooksEnabled: Bool,
@@ -100,6 +104,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.codexHooksEnabled = codexHooksEnabled
         self.piHooksEnabled = piHooksEnabled
         self.customClaudePath = customClaudePath
+        self.codexLaunchCommand = codexLaunchCommand
         self.subagentNotificationEnvironmentKey = subagentNotificationEnvironmentKey
         self.suppressSubagentNotifications = suppressSubagentNotifications
         self.cursorHooksEnabled = cursorHooksEnabled

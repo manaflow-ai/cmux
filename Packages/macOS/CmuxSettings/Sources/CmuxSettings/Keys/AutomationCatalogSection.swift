@@ -25,6 +25,14 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "claudeCodeCustomClaudePath"
     )
 
+    /// A shell command prefix for Codex terminal launches and session restore.
+    /// Empty values preserve normal executable resolution.
+    public let codexLaunchCommand = DefaultsKey<String>(
+        id: "automation.codexLaunchCommand",
+        defaultValue: "",
+        userDefaultsKey: "codexLaunchCommand"
+    )
+
     public let piIntegration = DefaultsKey<Bool>(
         id: "automation.piIntegration",
         defaultValue: true,
