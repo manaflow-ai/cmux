@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43619559495",
+  "recorded_at": "2026-11-14T17:21:11Z",
+  "reason": "cmux-tui db01e9cf4994 changes the image's cmux-tui (pinned 92a6db1d38a2)",
+  "dry_run": false,
+  "cmux_tui": "db01e9cf4994d3924467c1e82b0d93097669ec90",
+  "fixes": [
+    {
+      "sha": "db01e9cf4994d3924467c1e82b0d93097669ec90",
+      "mergedAt": "2026-11-14T08:47:41-08:00",
+      "subject": "cmux-tui: a git branch switch moves tree_revision, so an old known never answers unchanged (#43134)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T17:21:11Z",
+    "snapshot_id": "sh-379d5d64309c488e9e91ee4695a491cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43619559495): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "847d9867a9eb485a37311bac06a1d3e2897b5921",
+    "image": "cloud-native-auto-db01e9cf-43619559495-1",
+    "revision": "ci-43619559495-1",
+    "at": "2026-11-14T17:21:11Z"
+  },
+  "rolled_back": false
+}
