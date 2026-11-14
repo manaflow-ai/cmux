@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43628891883",
+  "recorded_at": "2026-11-14T19:07:21Z",
+  "reason": "cmux-tui 8496df824bae changes the image's cmux-tui (pinned b93853a46a58)",
+  "dry_run": false,
+  "cmux_tui": "8496df824baee0e15a79de9cb87b8fe9f010648a",
+  "fixes": [
+    {
+      "sha": "8496df824baee0e15a79de9cb87b8fe9f010648a",
+      "mergedAt": "2026-11-14T10:29:07-08:00",
+      "subject": "Themes as files, part 2: cmux theme export, set, reset, check and schema (#43000)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T19:07:21Z",
+    "snapshot_id": "sh-d53bbedfed084786b2b7a2ac48350fb8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43628891883): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "75c9b21ed0e5625834fe9aba68901adb1aa73207",
+    "image": "cloud-native-auto-8496df82-43628891883-1",
+    "revision": "ci-43628891883-1",
+    "at": "2026-11-14T19:07:21Z"
+  },
+  "rolled_back": false
+}
