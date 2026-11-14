@@ -16,8 +16,16 @@
 set -euo pipefail
 next_head() { gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha 2>/dev/null || true; }
 # The wait reads the ref with git ls-remote against the public repository: no API budget
-# (tests/test_ci_no_github_token_polling.py).
-poll_head() { git ls-remote "${NIGHTLY_NEXT_REMOTE:-https://github.com/$REPOSITORY}" refs/heads/nightly-next 2>/dev/null | cut -f1 || true; }
+# (tests/test_ci_no_github_token_polling.py). It reads through origin-net.sh's remote_refs, one try per poll
+# (the loop is the retry): a remote that does not answer is named and reads as "not moved yet", never as a ref.
+# shellcheck source=scripts/cmux-next/lib/origin-net.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/lib/origin-net.sh"
+poll_head() {
+  local refs
+  if refs="$(ORIGIN_NET_TRIES=1 remote_refs . "${NIGHTLY_NEXT_REMOTE:-https://github.com/$REPOSITORY}" refs/heads/nightly-next)"; then
+    printf '%s\n' "$refs" | cut -f1
+  fi
+}
 moved() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != "$TIP_SHA" ]]; }
 leave() {
   echo "superseded=true" >> "$GITHUB_OUTPUT"
