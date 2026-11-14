@@ -387,7 +387,9 @@ extension DockSplitStore {
                         isRemoteTerminal: transfer?.isRemoteTerminal == true
                     )
                     : nil,
-                restoreRecovery: terminal.restoreRecovery.sessionSnapshot
+                restoreRecovery: terminal.restoreRecovery.sessionSnapshot,
+                // A switched pane moved into the Dock keeps its Claude account across a relaunch.
+                claudeAccountEnvironment: terminal.claudeAccountEnvironment
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil

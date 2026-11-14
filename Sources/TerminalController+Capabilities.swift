@@ -320,6 +320,7 @@ extension TerminalController {
             "agent.restore.release",
             "agent.hibernate",
             "agent.wake",
+            "claude_account.switch",
             "agent.message.send",
             "agent.message.list",
             "agent.message.claim",
