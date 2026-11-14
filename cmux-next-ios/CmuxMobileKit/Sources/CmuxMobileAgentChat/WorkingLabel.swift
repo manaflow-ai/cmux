@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import os
 import SwiftUI
 
 /// SPEC 4.5: label2 text with a highlight band sweeping left to right (1.6 s), elapsed time after 5 s.
@@ -22,6 +23,7 @@ public struct WorkingLabel: View {
             }
             if let since {
                 TimelineView(Self.elapsedSchedule(since: since)) { context in
+                    let _ = Self.noteRedraw()
                     if let elapsed = Self.elapsedText(since: since, at: context.date) {
                         Text(elapsed)
                             .font(.footnote.monospacedDigit())
@@ -46,6 +48,19 @@ public struct WorkingLabel: View {
     static func elapsedSchedule(since: Date) -> ElapsedTextSchedule {
         ElapsedTextSchedule(since: since, quietSeconds: 5)
     }
+
+    /// DEBUG and Demo: in the list rig's running chat (`CMUX_MOBILE_LIST_HOLD_TURN=1`), one
+    /// `FRAMELOG list-stress label-tick` line per redraw of the time; the energy bench counts
+    /// them, so it shows whether the time still redraws off screen or in the background.
+    static func noteRedraw() {
+        #if DEBUG
+        if ListStressSettings.shared.logsLabelTicks { tickLog.notice("FRAMELOG list-stress label-tick") }
+        #endif
+    }
+
+    #if DEBUG
+    private static let tickLog = Logger(subsystem: "dev.cmux.mobile", category: "frames")
+    #endif
 }
 
 /// Text shimmer: label2 base, a 40% band of label sweeping across every 1.6 s. The band's

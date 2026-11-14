@@ -117,15 +117,25 @@
 #           (CMUX_MOBILE_LIST_*), waits for the rig's ready line in its log,
 #           then reads the app process's kernel counters once a second
 #           (proc_pid_rusage, energy_rusage.py: CPU %, wakeups/s, energy in
-#           mW, memory footprint).
+#           mW, memory footprint). The first rep of a busy case (stream,
+#           scroll) then records 15 s of `xctrace --instrument 'Time Profiler'`
+#           on each side: the main-thread top symbols go to the step log and
+#           energy/profile-RUN/ (summary.md, summary.json, time.trace.zip).
 #           Optional arguments (each one `--arg`):
 #             base=SHA     also build SHA and run every case on both apps, base
 #                          then head, on the one simulator (as listperf's base=)
 #             reps=N       repetitions of every case (1-5, default 1)
 #             seconds=S    seconds sampled per case (10-1800, default 30)
-#             cases=A,B    cases by label (default: every case but drift-30m):
+#             cases=A,B    cases by label (default: every case but drift-30m,
+#                          hidden-terminals-4 and the running-chat ones):
 #                          idle-home idle-home-5000 idle-chat-400 tabs-10
 #                          scroll-chat-200 stream-chat background-home drift-30m
+#                          hidden-terminals-4 (4 warm terminal tabs streaming,
+#                          hidden behind the workspaces list)
+#                          idle-chat-40 working-chat working-chat-away working-chat-bg
+#                          (a chat with one running turn, its elapsed time live: on screen,
+#                          scrolled away, the app in the background; each counts the
+#                          time's redraws, `label ticks` in SUMMARY.md)
 #           SUMMARY.md gets one row per run; the artifact keeps energy/.
 #
 # Isolation: the step makes its own simulator device set under its checkout
@@ -232,10 +242,15 @@ energy_table=(
   "idle-home-5000   home    idle        -     LIST_COUNT=5000 LIST_PASSES=0"
   "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
   "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
+  "hidden-terminals-4 terminals stream -    LIST_COUNT=4 LIST_STREAM=1 LIST_PASSES=0"
   "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
   "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
   "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
   "drift-30m        home    idle        1800  LIST_COUNT=20 LIST_PASSES=0"
+  "idle-chat-40      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0"
+  "working-chat      chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
+  "working-chat-away chat    idle        -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1"
+  "working-chat-bg   chat    background  -     LIST_COUNT=40 LIST_PASSES=0 LIST_SEND=1 LIST_HOLD_TURN=1 LIST_LEAVE_NEWEST=0"
 )
 energy_reps=1 energy_seconds=30
 energy_cases=(idle-home idle-home-5000 idle-chat-400 tabs-10 scroll-chat-200 stream-chat background-home)
@@ -1110,6 +1125,7 @@ if [[ "$mode" == energy ]]; then
   en="$out/energy"
   mkdir -p "$en"
   sides=(head)
+  label_ticks=()
   [[ -z "$base_app" ]] || sides=(base head)
   rusage=cmux-next-ios/verify/energy_rusage.py
   # Every way this Mac has to read a process's wakeups and energy, over one window, side by side:
@@ -1154,6 +1170,42 @@ if [[ "$mode" == energy ]]; then
       fi
     } >>"$d/probe.txt" 2>&1
     cut -c1-400 "$d/probe.txt"
+  }
+  # Where a busy case's CPU goes: a 15 s CPU stack-sampling recording of the app right after its
+  # sampled window (first rep, each side), summarized per main-thread symbol by
+  # ios_sim_time_profile.py. The instrument, not the 'Time Profiler' template (its os_log source
+  # never finishes saving on the fleet's hosts, as for `test profile`); attached to the app, else
+  # every process (the summary groups by process). energy/profile-RUN/ keeps the summary and the trace.
+  energy_time_profile() {
+    local run=$1 pid=$2 d="$en/profile-$1" table bytes=0
+    mkdir -p "$d"
+    perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --attach "$pid" \
+      --time-limit 15s --output "$d/time.trace" --no-prompt >"$d/record.txt" 2>&1 ||
+      echo "$run: xctrace Time Profiler --attach exited $?" >>"$d/record.txt"
+    if [[ ! -d "$d/time.trace" ]]; then
+      perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace record --instrument 'Time Profiler' --all-processes \
+        --time-limit 15s --output "$d/time.trace" --no-prompt >>"$d/record.txt" 2>&1 ||
+        echo "$run: xctrace Time Profiler --all-processes exited $?" >>"$d/record.txt"
+    fi
+    if [[ ! -d "$d/time.trace" ]]; then
+      echo "$run: no Time Profiler trace (energy/profile-$run/record.txt): $(tail -n 1 "$d/record.txt" | cut -c1-200)"
+      return 0
+    fi
+    table="$d/time-profile.xml"
+    if perl -e 'alarm shift; exec @ARGV' 600 xcrun xctrace export --input "$d/time.trace" \
+         --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' --output "$table" >>"$d/record.txt" 2>&1 &&
+       python3 -I scripts/ci/ios_sim_time_profile.py "$table" --markdown "$d/summary.md" --json "$d/summary.json" >"$d/brief.txt" 2>&1; then
+      echo "== $run: Time Profiler, 15 s, main thread (energy/profile-$run/summary.md)"
+      cat "$d/brief.txt"
+      head -n 80 "$d/summary.md"
+    else
+      echo "$run: the Time Profiler trace exported no samples (energy/profile-$run/record.txt)"
+    fi
+    rm -f "$table"
+    ditto -c -k --keepParent "$d/time.trace" "$d/time.trace.zip" 2>/dev/null || true
+    rm -rf "$d/time.trace"
+    if [[ -f "$d/time.trace.zip" ]]; then bytes=$(wc -c < "$d/time.trace.zip"); fi
+    if (( bytes > 536870912 )); then rm -f "$d/time.trace.zip"; echo "$run: trace over 512 MiB zipped, dropped (the summary stays)"; fi
   }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
@@ -1214,8 +1266,15 @@ if [[ "$mode" == energy ]]; then
         # One kernel reading a second for case_seconds (energy_rusage.py); top beside it as a cross-check.
         top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 &
         top_pid=$!
+        # A running chat (LIST_HOLD_TURN=1) logs each redraw of its elapsed time: count those in the sample.
+        ticks_before="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
         python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
         wait "$top_pid" 2>/dev/null || true
+        if [[ " $settings " == *" LIST_HOLD_TURN=1 "* ]]; then
+          ticks_after="$(grep -cF -- "FRAMELOG list-stress label-tick" "$logf" || true)"
+          label_ticks+=("- $run: label ticks $(( ticks_after - ticks_before )) in $case_seconds s (elapsed-time redraws while sampled)")
+        fi
+        if [[ "$rep" == 1 && ( "$phase" == stream || "$phase" == scroll ) ]]; then energy_time_profile "$run" "$pid"; fi
         [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
@@ -1227,6 +1286,7 @@ if [[ "$mode" == energy ]]; then
     done
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  for line in ${label_ticks[@]+"${label_ticks[@]}"}; do note "$line"; done
   note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples and probes: energy/"
   [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi

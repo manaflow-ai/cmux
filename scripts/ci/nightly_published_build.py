@@ -72,6 +72,11 @@ def record(needs: dict, run_id: str, attempt: str, sha: str, sign_stage: str = "
         outputs = (needs.get(job) or {}).get("outputs") or {}
         for name in names:
             out[prefix + name] = str(outputs.get(name) or "")
+    # nightly-next-one's notes start from the live feed's published commit (publish-prepare-release-notes.sh):
+    # the next run's decide can read the release body before the previous run's tail rewrote it.
+    from_feed = str(((needs.get("publish-nightly") or {}).get("outputs") or {}).get("published_sha") or "")
+    if SHA.fullmatch(from_feed):
+        out["published_sha"] = from_feed
     return out
 
 

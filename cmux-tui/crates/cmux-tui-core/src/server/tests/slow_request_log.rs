@@ -16,9 +16,14 @@ struct Logged {
 
 impl Logged {
     fn new() -> Self {
+        Self::with_clock(crate::startup_timings::unix_now_ms)
+    }
+
+    /// A session whose slow request log has `clock` as its wall clock.
+    fn with_clock(clock: crate::diagnostics::request_log::Clock) -> Self {
         let mux = test_mux();
         let dir = cmux_unix_socket::short_test_dir("srl-server");
-        mux.open_slow_request_log(dir.path(), None);
+        mux.open_slow_request_log(dir.path(), None, clock);
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
@@ -147,4 +152,70 @@ fn the_start_line_says_what_the_session_holds() {
     assert!(start["workspaces"].is_u64() && start["surfaces"].is_u64(), "{text}");
     assert_eq!(start["slow_ms"], 100);
     assert_eq!(start["file_bytes"], 1_048_576);
+}
+
+/// What a reader of the file depends on for the session's journal plugin: the kind word `plugin`
+/// and the error code, in the first record of a run, which is on disk at once. The daemon sets
+/// the connection's kind at accept (`line_connection.rs`); here the test makes the same call,
+/// and no plugin process runs.
+#[test]
+fn a_refused_request_of_the_plugin_connection_has_the_kind_word_plugin() {
+    let logged = Logged::new();
+    logged.writer.kind.registered(
+        logged.mux.connection_stats().commands(),
+        crate::diagnostics::ClientKind::Plugin,
+    );
+    let refused =
+        json!({"id": 1, "cmd": "set-divider-visible", "split": 999_999, "visible": false})
+            .to_string();
+    let reply = logged.request(&refused, Duration::ZERO);
+    assert_eq!(reply["ok"], false, "{reply}");
+
+    let (text, records) = logged.records();
+    assert_eq!(records.len(), 1, "the first refused request is written at once: {text}");
+    assert_eq!(records[0]["client_kind"], "plugin", "{text}");
+    assert_eq!(records[0]["error"], "layout-ratio-target-missing", "{text}");
+    assert!(records[0].get("repeats").is_none(), "a first record has no count: {text}");
+}
+
+#[test]
+fn equal_refused_requests_of_one_connection_write_one_line() {
+    const REQUESTS: usize = 50;
+    // The log's clock says 0 for the whole test. A record's time is the clock less the request's
+    // own length, never below 0: each record has the time 0, the window of the run never ends,
+    // and the count does not depend on how long the test takes.
+    let logged = Logged::with_clock(|| 0);
+    let refused =
+        json!({"id": 1, "cmd": "set-divider-visible", "split": 999_999, "visible": false})
+            .to_string();
+    for _ in 0..REQUESTS {
+        let reply = logged.request(&refused, Duration::ZERO);
+        assert_eq!(reply["ok"], false, "{reply}");
+    }
+
+    // The writer's thread counts the 49 that follow the first one; their count is due at the
+    // end of the run's window, which the clock of this test never reaches.
+    let (text, records) = logged.records();
+    assert_eq!(records.len(), 1, "{REQUESTS} equal refused requests: {text}");
+    assert_eq!(records[0]["error"], "layout-ratio-target-missing", "{text}");
+    assert!(records[0].get("repeats").is_none(), "a first record has no count: {text}");
+    // A connection that is not the plugin's and declared nothing has no kind word.
+    assert!(records[0].get("client_kind").is_none(), "{text}");
+}
+
+#[test]
+fn a_restart_of_the_journal_plugin_gives_one_line_with_its_numbers() {
+    let logged = Logged::new();
+    logged.mux.record_journal_plugin_restart(crate::journal_plugin::JournalPluginRestart {
+        restarts: 3,
+        failures: 2,
+        delay: Duration::from_secs(2),
+    });
+
+    let (text, records) = logged.records();
+    assert_eq!(records.len(), 1, "one line for the restart: {text}");
+    assert_eq!(records[0]["kind"], "plugin_restart");
+    assert_eq!(records[0]["restarts"], 3);
+    assert_eq!(records[0]["failures"], 2);
+    assert_eq!(records[0]["delay_ms"], 2_000);
 }
