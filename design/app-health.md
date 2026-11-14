@@ -66,6 +66,14 @@ count, and keeps its scroll position and focused draft in sessionStorage, so a r
 returns the person to where they were. The agent chat composer keeps its own draft
 (`composerDraft.ts`) and is left alone.
 
+A page with nothing happening in it rests (CMUX-571, idle wakeups: a beat is several app wakeups, so
+open pages woke the app every 2 s forever). After 5 quiet beats (10 s: no key, press, wheel, scroll or
+input, and no unsaved edits) it sends one `{rest: true}` beat and arms no timer until something happens.
+The model stops timing a resting page's silence; input the host sends it is still owed an answer, so a
+page that hangs while resting reads as stuck once someone types or clicks in it. The page rests only
+when its last beat was answered `{rest: true}`: the host says so only when the linked health model
+takes rests (`CMUX_HEALTH_ABI_VERSION` 2), so an older pinned model keeps the 2 s beat.
+
 ## Treatment
 
 Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
