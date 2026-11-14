@@ -698,7 +698,8 @@ fn deterministic_translation_failure_is_counted_five_times_without_advancing_raw
     actor.join();
     let saved = log::saved_checkpoint(home.path()).unwrap().unwrap();
     let checkpoint = Checkpoint::from_recovered(&saved).unwrap();
-    assert!(checkpoint.cursors.is_empty());
+    // The source is named from the first checkpoint; its cursor never moved past the line.
+    assert!(checkpoint.cursors.iter().all(|cursor| cursor.place == 0));
     assert_eq!(checkpoint.last_row, 0);
 }
 

@@ -120,6 +120,15 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Signing in enrolls this machine on the hub; signing out leaves only that join
+    // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
+    Capability {
+        id: "machine-enroll-v1",
+        wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
+    // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
+    // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
+    Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {

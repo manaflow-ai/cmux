@@ -122,7 +122,7 @@ fn killed_across_the_largest_record() {
         assert!(log.row(4).is_none(), "a row whose record was cut off has not settled");
         assert_eq!(log.append_settled(4, 1, RawRange::NONE, &large).unwrap(), 4, "cut {cut}");
         if cut.is_multiple_of(5) {
-            let window = log.window(Anchor::End, 400, 1 << 20);
+            let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
             assert_eq!(ids(&window.rows), vec![1, 2, 3, 4]);
             assert!(texts(&mut log, &window.rows).0[3] == large);
         }
@@ -778,7 +778,7 @@ fn resume_missing_segment_is_damage_not_retryable_io() {
     log.append_settled(1, 1, RawRange::NONE, &[b'x'; 50]).unwrap();
     log.append_settled(2, 1, RawRange::NONE, &[b'y'; 50]).unwrap();
     fs::remove_file(segment(home.path())).unwrap();
-    assert!(matches!(log.since(0, 1024), Err(Error::Corrupt(_))));
+    assert!(log.since(0, 1024).unwrap().stopped_on_refusal);
 }
 
 #[test]
