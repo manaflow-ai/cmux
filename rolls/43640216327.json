@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43640216327",
+  "recorded_at": "2026-11-14T21:20:12Z",
+  "reason": "cmux-tui 2a23032128d0 changes the image's cmux-tui (pinned 912f943bcacd)",
+  "dry_run": false,
+  "cmux_tui": "2a23032128d0c25413ef267299fe84844fcce344",
+  "fixes": [
+    {
+      "sha": "2a23032128d0c25413ef267299fe84844fcce344",
+      "mergedAt": "2026-11-14T12:35:38-08:00",
+      "subject": "Browser host: a crashed shared headless Chromium comes back with its tabs (#43211)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T21:20:12Z",
+    "snapshot_id": "sh-fbcab4190a9943e88eeafce7cb8666a1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43640216327): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b411fb2231e3015c17e42a65b053b24274401ae7",
+    "image": "cloud-native-auto-2a230321-43640216327-1",
+    "revision": "ci-43640216327-1",
+    "at": "2026-11-14T21:20:12Z"
+  },
+  "rolled_back": false
+}
