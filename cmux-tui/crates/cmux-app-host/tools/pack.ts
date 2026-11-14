@@ -14,7 +14,7 @@ export async function pack(dir: string): Promise<string> {
     const out = await Bun.build({ entrypoints: [wrapper], format: "iife", target: "browser", minify: false, root: dir })
     if (!out.success) throw new Error(out.logs.map(String).join("\n"))
     if (!existsSync(entry)) throw new Error(`${entry} not found`)
-    const body = (await out.outputs[0]!.text()).replace(/^\s*\/\/ \S+\.ts\n/gm, "")
+    const body = (await out.outputs[0]!.text()).replace(/^\s*\/\/ \S+\.(ts|json)\n/gm, "")
     return `// Built by cmux app pack from src/main.ts. Do not edit.\n${body}`
   } finally {
     rmSync(wrapper, { force: true })

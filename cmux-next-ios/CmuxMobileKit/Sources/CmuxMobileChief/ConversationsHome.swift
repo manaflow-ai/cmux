@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxConversationCore
+import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -31,14 +33,14 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
     let selectMac: ((String) -> Void)?
     let reconnect: ((String) async -> Void)?
+    /// New Message's "Invite … to <team>": invites the email to the active team.
+    let inviteToTeam: ((String) -> Void)?
     @State private var macText = MacFilterMemo()
     /// The filtered list, built once per change of the rows, search or toggle.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
     @State private var unreadOnly = false
     @State private var homeRetries = 0
-    /// The running Try Again dials the Mac first (it was offline), else it only reads again.
-    @State private var retryReconnects = true
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -51,6 +53,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
                 reconnect: ((String) async -> Void)? = nil,
                 selectMac: ((String) -> Void)? = nil,
+                inviteToTeam: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
@@ -59,6 +62,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.macFilter = macFilter
         self.selectMac = selectMac
         self.reconnect = reconnect
+        self.inviteToTeam = inviteToTeam
         self.open = open
         self.leading = leading()
     }
@@ -77,27 +81,52 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
 
-    /// Home's top connection bar shows (``connectionBar``): while the read failed or the
-    /// Mac is offline, and for as long as a Try Again from it runs.
-    private var showsHomeProblem: Bool { feed.problem != nil || homeIsOffline || homeRetries > 0 }
+    /// Home's list is not live (``connectionStatus``): the read failed or the Mac is offline,
+    /// and for as long as a retry runs.
+    private var showsHomeProblem: Bool { connectionStatus != nil }
 
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
         return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
     }
 
-    /// The bar at the top of Home while its list is not live (``HomeConnectionBar``).
-    private var connectionBar: HomeConnectionBar? {
-        HomeConnectionBar.make(offline: homeIsOffline, problem: feed.problem, retrying: homeRetries > 0,
-                               reconnecting: retryReconnects, hasRows: !(feed.rows ?? []).isEmpty, macName: macTag)
+    /// What Home says while its list is not live (``HomeConnectionStatus``): Workspaces' subtitle
+    /// over the kept rows, or its empty state when none are kept.
+    private var connectionStatus: HomeConnectionStatus? {
+        let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
+        return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
+                                         retrying: homeRetries > 0, macName: macTag)
     }
 
-    /// The bar's Try Again. The bar stays (its spinner turning) until the retry answers:
-    /// reconnecting clears the offline state first, and the bar leaving then would cancel
-    /// nothing but would flash.
+    /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
+    private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
+
+    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    private var homeBanner: ConnectionBannerState? {
+        guard let status = connectionStatus, keptRowsShow else { return nil }
+        let mac = macTag ?? String(localized: "your Mac")
+        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        switch status.kind {
+        case .macOffline: return .macOffline(mac, identity: homeMacID)
+        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .failed: return .refreshFailed(identity: homeMacID)
+        case .connecting: return .connecting(to: mac, identity: homeMacID)
+        }
+    }
+
+    /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    private func showsProblemEmptyState(searching: Bool) -> Bool {
+        connectionStatus != nil && !keptRowsShow && !searching && !unreadOnly
+    }
+
+    /// The status the arrival retry last ran for: returning to Home in the same state (from a
+    /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
+    @State private var autoRetriedFor: String?
+
+    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
+    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
-        retryReconnects = homeIsOffline
         homeRetries += 1
         defer { homeRetries -= 1 }
         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
@@ -218,7 +247,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
             }
             // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
             // never answers would otherwise sit silent on a phone with no Mac).
@@ -241,7 +270,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
             } else if !unreadOnly, !searching, let status = sources.cloudStatus {
                 // The Cloud Chief could not take the pin: say why.
@@ -257,7 +286,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
             } else if !unreadOnly, !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
@@ -268,7 +297,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.bottom, 8)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(CmuxMobileBackdrop.listRow)
+                    .listRowBackground(theme.colors.bg.color)
                     .accessibilityIdentifier("home.chief.changeError")
             }
             let entries = entries(list)
@@ -281,7 +310,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                        .listRowBackground(CmuxMobileBackdrop.listRow)
+                        .listRowBackground(theme.colors.bg.color)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
                         // team drawer, and while these are open it closes them instead
                         // (SidebarContainer finds the slid List row, RowSwipeActions).
@@ -297,7 +326,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if !showsHomeProblem {
+            if let status = connectionStatus, showsProblemEmptyState(searching: searching) {
+                // Nothing kept: Workspaces' empty state for the same Mac.
+                if let empty = status.empty {
+                    // Interpolated, so a Mac's name is shown as written (never read as Markdown).
+                    EmptyState(symbol: empty.symbol, title: "\(empty.title)", message: "\(empty.message)",
+                               primaryTitle: empty.canRetry ? "Retry" : nil,
+                               isPrimaryLoading: status.isRetrying,
+                               primary: empty.canRetry ? { Task { await retryHome() } } : nil)
+                        .padding(.top, 80)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(theme.colors.bg.color)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("home.note.problem")
+                } else {
+                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
+                }
+            } else if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
                 case .connecting:
@@ -324,11 +370,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.vertical, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
                 .accessibilityIdentifier("home.showHidden")
             }
             // A search or Unread over the top of the list waits for the rest before it says "none".
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
+            if tiles.isEmpty, entries.isEmpty, !showsProblemEmptyState(searching: searching), feed.rows != nil || searching || unreadOnly,
                feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
@@ -338,13 +384,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.top, 120)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(CmuxMobileBackdrop.listRow)
+                    .listRowBackground(theme.colors.bg.color)
                     .accessibilityIdentifier("home.empty")
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        .background(theme.colors.bg.color.ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
         // list (no row moves when it goes).
         .overlay(alignment: .bottom) {
@@ -364,20 +410,28 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.note.updating")
             }
         }
-        // The Home Mac is away or its list failed (CMUX-489): a bar at the top says so and
-        // offers Try Again. It sits above the list, never over it: the kept rows, the tab bar
-        // and every local action stay usable.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if let bar = connectionBar {
-                HomeConnectionBarView(bar: bar, retrying: homeRetries > 0, retry: retryHome)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-            }
+        // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
+        // failed Mac again on a choice); the Mac's link also reconnects on its own.
+        .task(id: homeMacID) {
+            guard let status = connectionStatus, status.empty?.canRetry != false, homeRetries == 0 else { return }
+            let key = "\(homeMacID ?? "")|\(status.kind)"
+            guard autoRetriedFor != key else { return }
+            autoRetriedFor = key
+            await retryHome()
         }
-        .onChange(of: connectionBar?.title, initial: true) { old, title in
-            // VoiceOver hears the bar when it appears (also on arriving at Home with the Mac
-            // already away), not on each retry's title.
-            guard old == nil || old == title, let title else { return }
+        .onChange(of: connectionStatus == nil) { _, live in
+            if live { autoRetriedFor = nil }
+        }
+        // Kept rows while the Mac is not live: Workspaces' connection toast over them (the user,
+        // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
+        // swipe hides it. With nothing kept, the empty state says it instead.
+        .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
+            // VoiceOver hears that Home is not live when it stops being live (also on arriving
+            // with the Mac already away), not on each retry.
+            // (The toast over kept rows announces itself.)
+            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying, !keptRowsShow,
+                  let title = status.empty?.title else { return }
             AccessibilityNotification.Announcement(title).post()
         }
         // The Mac's search field, as the native drawer revealed by a pull-down.
@@ -400,18 +454,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 }
                 .accessibilityIdentifier("home.unread")
                 .accessibilityValue(unreadOnly ? "On" : "Off")
-                // Compose opens the Chief conversation with the keyboard up
-                // (SPEC 1.4): the phone starts no conversations.
-                Button("New Message to Chief", systemImage: "square.and.pencil") {
-                    open(.chiefComposing(sources.primaryPlace))
+                // Compose is the Mac's New Message (user direction 2026-11-11), as
+                // Messages' New Message sheet: To: with the Chiefs and the team.
+                Button("New Message", systemImage: "square.and.pencil") {
+                    newMessage().present()
                 }
                 .accessibilityIdentifier("home.compose")
             }
         }
         .navigationDestination(for: ChiefRoute.self) { route in
             let chief = sources.session(for: route.place)
-            ChiefConversationScreen(session: chief, compose: ChiefComposer(store: store, session: chief, open: open),
-                                    focusesComposer: route.focusesComposer)
+            ChiefConversationScreen(session: chief, compose: chiefComposer(chief), focusesComposer: route.focusesComposer)
+        }
+        .navigationDestination(for: CloudConversationRoute.self) { route in
+            if let session = sources.cloudConversation(route) {
+                ChiefConversationScreen(session: session, options: route.chief == nil ? .people(route.title) : .chief)
+            } else {
+                ContentUnavailableView(String(localized: "Sign in to see this conversation."), systemImage: "cloud")
+            }
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
@@ -439,22 +499,31 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .task {
             sources.recheck()
             feed.refresh()
+            // After Home's first frames: New Message's views, so the compose tap only presents.
+            await Task.yield()
+            HomeNewMessage.prewarm()
         }
-        .alert("New Chief", isPresented: $namingChief) {
-            TextField("Name", text: $newChiefName)
-                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityIdentifier("home.chief.newName")
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                let name = newChiefName
-                Task { await sources.createChief(named: name) }
-            }
-            .accessibilityIdentifier("home.chief.newCreate")
-                .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("A new Cloud Chief with its own conversation and memory.")
+        // The system's own alert look (blue Create, white text): Home's neutral tint made the
+        // prominent button's text dark.
+        .background {
+            Color.clear
+                .alert("New Chief", isPresented: $namingChief) {
+                    TextField("Name", text: $newChiefName)
+                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("home.chief.newName")
+                    Button("Cancel", role: .cancel) {}
+                    Button("Create") {
+                        let name = newChiefName
+                        Task { await sources.createChief(named: name) }
+                    }
+                    .accessibilityIdentifier("home.chief.newCreate")
+                    .keyboardShortcut(.defaultAction)
+                } message: {
+                    Text("A new Cloud Chief with its own conversation and memory.")
+                }
+                .tint(nil)
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
@@ -497,7 +566,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(CmuxMobileBackdrop.listRow)
+        .listRowBackground(theme.colors.bg.color)
         // Trailing only, as every Home row (the drawer keeps the rightward swipe).
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if chief.conversationID != nil {
@@ -558,7 +627,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .padding(.vertical, 8)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
-        .listRowBackground(CmuxMobileBackdrop.listRow)
+        .listRowBackground(theme.colors.bg.color)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(identifier)
     }
@@ -597,6 +666,82 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { macFilter.select(.mac(id), in: team.id) }
         // The chosen Mac is linked and focused: its Chief and its Home show.
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
+    }
+
+    /// The Chief conversation's composer: Forward opens Home's New Message.
+    private func chiefComposer(_ chief: ChiefSession) -> ChiefComposer {
+        let composer = ChiefComposer(store: store, session: chief, open: open)
+        composer.newMessage = { newMessage() }
+        return composer
+    }
+
+    /// Home's New Message over Home's people now (``newMessageSnapshot()``).
+    private func newMessage() -> HomeNewMessage {
+        HomeNewMessage(context: HomeNewMessage.Context(
+            store: store, sources: sources, feed: feed, open: open,
+            snapshot: { newMessageSnapshot() }, newChief: newChiefAction, inviteToTeam: inviteToTeam
+        ))
+    }
+
+    /// Who New Message lists, as the Mac's list draws them: the Chiefs, main
+    /// first (the Cloud Chief when there is one, else this Mac's), each tagged
+    /// "Chief · Main · Cloud" or "Chief · <Mac>"; the agent chats of the
+    /// active workspaces for typed text. The team is read by New Message.
+    private func newMessageSnapshot() -> HomeRecipientSnapshot {
+        let chiefWord = String(localized: "Chief")
+        func line(_ tag: String?) -> String { [chiefWord, tag].compactMap { $0 }.joined(separator: " \u{00B7} ") }
+        func entry(_ id: String, _ name: String, _ avatar: String, _ detail: String,
+                   _ kind: HomeRecipientEntry.Kind, _ activity: Date?) -> HomeRecipientEntry {
+            HomeRecipientEntry(contact: ConversationContact(id: id, name: name, initials: avatar, colorHex: "#636366",
+                                                            handles: [HomeNewMessageDirectory.cmuxHandle], detail: detail),
+                               kind: kind, activity: activity)
+        }
+        var chiefs: [HomeRecipientEntry] = []
+        var macChief: HomeRecipientEntry?
+        if sources.isCloudReady {
+            chiefs.append(entry("chief:cloud", primaryName, sources.cloud.avatar, line(chiefTag(main: true, place: String(localized: "Cloud"))),
+                                .chief(.cloud), sources.cloud.lastMessage?.sentAt))
+            for other in sources.cloudChiefs where other.id != sources.cloudChief?.id {
+                guard let conversation = other.mainConversation else { continue }
+                let name = other.displayName.isEmpty ? chiefWord : other.displayName
+                chiefs.append(entry("chief:cloud:\(other.id)", name, homeInitials(name), line(chiefTag(main: false, place: String(localized: "Cloud"))),
+                                    .cloudChief(agentID: other.id, conversation: conversation), nil))
+            }
+        }
+        for row in hiddenRows.visible(feed.rows ?? []) where row.kind == .chief {
+            if isMacChief(row) {
+                macChief = entry("chief:mac", row.title, sources.mac.avatar, line(tag(row)), .chief(.mac), row.activityAt)
+            } else {
+                chiefs.append(entry("chief:mac:\(row.id)", row.title, homeInitials(row.title), line(tag(row)),
+                                    .macChief(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title)), row.activityAt))
+            }
+        }
+        if macChief == nil, feed.rows == nil, sources.mac.macName != nil || !sources.isCloudReady {
+            // The Mac's list is not in yet: its Chief stays reachable, as on Home.
+            macChief = entry("chief:mac", chiefWord, sources.mac.avatar, line(chiefTag(main: !sources.isCloudReady, place: macTag)),
+                             .chief(.mac), sources.mac.lastMessage?.sentAt)
+        }
+        if let macChief {
+            // The main Chief leads (the Mac's `HomeChiefRoster.mainFirst`): this Mac's when there is no Cloud Chief.
+            if sources.isCloudReady { chiefs.insert(macChief, at: min(1, chiefs.count)) } else { chiefs.insert(macChief, at: 0) }
+        }
+        var tabs: [HomeRecipientEntry] = []
+        for workspace in store.activeWorkspaces {
+            for tab in workspace.tabs where tab.kind == .agent {
+                // The line under it says where it runs; the name is the tab's own.
+                let name = tab.title
+                tabs.append(entry("tab:\(tab.id)", name, tab.harness == "codex" ? "CX" : String(tab.title.prefix(2)).uppercased(),
+                                  [tab.harness?.capitalized ?? String(localized: "Agent"), workspace.title].joined(separator: " \u{00B7} "),
+                                  .agentTab(AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)), nil))
+            }
+        }
+        let team = store.activeTeam
+        return HomeRecipientSnapshot(
+            chiefs: HomeNewMessageDirectory.withLines(chiefs), team: [], agentTabs: tabs,
+            teamName: inviteToTeam == nil ? nil : team.flatMap { $0.id.hasPrefix("personal-") ? nil : $0.name },
+            canCreateChief: newChiefAction != nil, canInvite: true,
+            openCloudChiefAgent: sources.cloudChief?.id
+        )
     }
 
     /// The first pin's name: the Cloud Chief's own name once it is the default.
@@ -914,19 +1059,10 @@ struct MacConversationScreen: View {
     var body: some View {
         Group {
             // One branch for the kept and the live session: the screen stays as it goes live.
+            // A failed first open shows the conversation too (its title, what this phone kept and
+            // the composer) under its bar's "Not connected" and Try Again, never a full-screen error.
             if let session = loader.session ?? shownKept {
                 ChiefConversationScreen(session: session)
-            } else if loader.failed {
-                ContentUnavailableView {
-                    Label(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
-                } description: {
-                    Text(RecoveryMessage.conversation.text)
-                } actions: {
-                    RetryButton {
-                        await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
-                    }
-                    .accessibilityIdentifier("home.conversation.retry")
-                }
             } else {
                 CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
@@ -934,23 +1070,14 @@ struct MacConversationScreen: View {
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
         .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
                              hasRows: feed.rows != nil, homeProblem: feed.problem)) {
-            if loader.session == nil { kept = feed.keptSession(for: route) }
+            if loader.session == nil { kept = feed.keptSession(for: route, orEmpty: true) }
             // A dropped link keeps the open conversation on screen with its bar's Try Again
             // (CMUX-30), never a full-screen error over the transcript and the composer.
-            await loader.load({ try await feed.session(for: route) }, tryAgain: { [loader, feed, macID, reconnect] in
+            await loader.load({ try await feed.session(for: route) }, fallback: kept, tryAgain: { [loader, feed, macID, reconnect] in
                 Task { @MainActor in
                     await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
                 }
             })
-        }
-        // A first open that failed over kept messages: they stay, marked as not live, with Try Again.
-        .onChange(of: loader.failed) { _, failed in
-            guard failed, loader.session == nil, let kept = shownKept else { return }
-            MacConversationLoader.markStale(kept) { [loader, feed, macID, reconnect] in
-                Task { @MainActor in
-                    await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
-                }
-            }
         }
         .onChange(of: loader.isStale) { _, stale in
             guard stale else { return }

@@ -153,7 +153,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
 
     private func refresh() {
         layer?.backgroundColor = fill.cgColor
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         alphaValue = isEnabled ? 1 : 0.45
         let color = foreground
         if symbol != nil {
@@ -383,13 +383,13 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
     private func applyState() {
         let size = bounds.size == .zero ? Self.size : bounds.size
         track.frame = CGRect(origin: .zero, size: size)
-        track.cornerRadius = size.height / 2
+        track.cornerRadius = size.height / 2 // radius-allow: the system switch's capsule track, not a button face
         let inset: CGFloat = 2
         // The system switch's knob: a capsule 1.6 times as wide as it is tall (32 × 20 in a 54 × 24 track).
         let knobHeight = size.height - inset * 2
         let knobWidth = min(size.width - inset * 2, (knobHeight * 1.6).rounded())
         knob.frame = CGRect(x: isOn ? size.width - inset - knobWidth : inset, y: inset, width: knobWidth, height: knobHeight)
-        knob.cornerRadius = knobHeight / 2
+        knob.cornerRadius = knobHeight / 2 // radius-allow: the switch knob, a capsule
         // Off, the system switch's track is the ink at 10% (light gray on light, a lift on dark) and its knob is
         // a light gray in dark mode; on, the track is the theme's focus color.
         track.backgroundColor = (isOn ? colors.focus : colors.primary.withAlphaComponent(0.1)).cgColor

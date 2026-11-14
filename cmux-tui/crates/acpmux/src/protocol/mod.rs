@@ -186,6 +186,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // First-request transport upgrade, answered before framed v2 traffic.
+        untyped(method::MUX_V2, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
@@ -213,6 +215,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -487,6 +490,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_remove", Request),
         keyed::<params::PeerSnapshotParams>("_acpmux/peer_snapshot", Request),
         untyped("_acpmux/peer_snapshots_clear", Request),
+        untyped("_acpmux/journal_restore", Request),
+        untyped("_acpmux/attachments_held", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -515,6 +520,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
+        untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]

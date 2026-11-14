@@ -452,7 +452,7 @@ jobs:
       # run 42381345286). Only feat-cmux-next pushes write it, and only when the
       # key changes; a miss or a failed restore is a cold build, never a failure.
       - name: Restore the Linux cargo cache
-        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
+        if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && inputs.lto != 'thin'
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -460,6 +460,51 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
+      # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
+      # scripts/ci/machine-channel-warm-target.sh in the build step gives unchanged sources
+      # their recorded mtimes, so only changed crates rebuild. The rust-cache entry these legs
+      # restored held dependency builds only (all 138 workspace crates built every time), and
+      # was stale or evicted on 12 of 16 legs (2026-11-13). Only feat-cmux-next pushes write
+      # the disk the machines' binaries build from; every other ref gets its own pair of
+      # disks. A failed mount is a cold build, never a failure. The build step's log says which:
+      # "warm target: hit, built from <sha>" or "warm target: miss (...)".
+      - name: Mount the warm machine-channel target (feat-cmux-next, x86_64)
+        if: inputs.lto == 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'x86_64-unknown-linux-musl' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: machine-channel-warm-v1-next-x86_64
+          path: /home/runner/machine-channel-warm
+          commit: on-change
+
+      - name: Mount the warm machine-channel target (feat-cmux-next, aarch64)
+        if: inputs.lto == 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'aarch64-unknown-linux-musl' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: machine-channel-warm-v1-next-aarch64
+          path: /home/runner/machine-channel-warm
+          commit: on-change
+
+      - name: Mount the warm machine-channel target (other refs, x86_64)
+        if: inputs.lto == 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'x86_64-unknown-linux-musl' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: machine-channel-warm-v1-lanes-x86_64
+          path: /home/runner/machine-channel-warm
+          commit: on-change
+
+      - name: Mount the warm machine-channel target (other refs, aarch64)
+        if: inputs.lto == 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'aarch64-unknown-linux-musl' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: machine-channel-warm-v1-lanes-aarch64
+          path: /home/runner/machine-channel-warm
+          commit: on-change
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
@@ -480,15 +525,21 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          # lto=thin (the Cloud machine channel's legs only): the profile #41963 measured as its
-          # thin control, release LTO thin and 16 codegen units for the three crates on the critical
-          # path. lto=fat changes nothing: cmux-tui/Cargo.toml's release profile applies.
+          # lto=thin (the Cloud machine channel's legs only): release LTO off and 16 codegen units
+          # for the three crates on the critical path. Real thin LTO left every crate's machine code
+          # to the final link: the cmux-tui and acpmux "bin" units took 107-175 s each, last on
+          # both groups (cargo timings, runs 43445027590 and 43447122933); with LTO off each crate
+          # compiles its own code in parallel and the link only links. lto=fat changes nothing:
+          # cmux-tui/Cargo.toml's release profile applies.
+          # --timings (thin only): cargo-groups.sh prints each group's slowest and last units, so a
+          # slow leg says where its time went.
           profile=""
           if [[ "$LTO" == thin ]]; then
-            export CARGO_PROFILE_RELEASE_LTO=thin
+            export CARGO_PROFILE_RELEASE_LTO=off
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
+            profile+=" --timings"
           fi
           # One cargo per package, all at once, each in its own target directory
           # (building them in one cargo would unify their features). The
@@ -501,13 +552,24 @@ jobs:
           # cargo-zigbuild writes its zig wrapper scripts in place (truncate,
           # then write) when they are missing: each group gets its own copy.
           zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
+          # lto=thin: start from the mounted warm target, and record it after the build, also
+          # a failed one (the recorded mtimes only ever describe built content).
+          if [[ "$LTO" == thin ]]; then
+            warm() { ../scripts/ci/machine-channel-warm-target.sh "$1" /home/runner/machine-channel-warm "$t"; }
+            warm restore || echo "warning: warm target restore failed; building as is" >&2
+            trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux" "$(zb 5) -p acpmux --bin acpmux" \
+            "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone" \
             "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
+          # acpmux-standalone is the acpmux program with its build id stamped in the binary
+          # only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s
+          # of a warm leg (run 43497362002). "Stage binary" reads it as acpmux.
+          cp "target/$t/release/acpmux-standalone" "target/$t/release/acpmux"
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'

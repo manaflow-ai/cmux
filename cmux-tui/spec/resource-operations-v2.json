@@ -8063,6 +8063,81 @@
       },
       "extra": false
     },
+    "SettingsEdit": {
+      "kind": "object",
+      "fields": {
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "set",
+              "set_unset",
+              "reset",
+              "reset_unchanged"
+            ]
+          },
+          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+        },
+        "key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+        },
+        "path": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key path, for keys that contain dots."
+        },
+        "value": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+        }
+      },
+      "extra": false
+    },
+    "SettingsEditChange": {
+      "kind": "object",
+      "fields": {
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        },
+        "applied": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Indexes of the edits that applied, in order; a conditional edit whose condition did not hold is left out."
+        }
+      },
+      "extra": false
+    },
     "KeybindingEntry": {
       "kind": "object",
       "fields": {
@@ -9936,6 +10011,34 @@
             "max_items": 500
           },
           "description": "The ids removed, in store order."
+        }
+      },
+      "extra": false
+    },
+    "DiffCommentsSendResult": {
+      "kind": "object",
+      "fields": {
+        "sent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many comments the prompt carried: the length of ids."
+        },
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "The ids removed, in store order; a comment edited since the caller read it, or unknown, is not among them."
         }
       },
       "extra": false
@@ -14661,7 +14764,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}); null with manual."
+          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}; skip reasons include classic_running and declined); null with manual."
         },
         "source": {
           "required": true,
@@ -14683,7 +14786,7 @@
               "name": "string"
             }
           },
-          "description": "The file read, then the other candidates: what begin backs up."
+          "description": "The file read, then its channel's other candidates (another channel's files are left): what begin backs up."
         },
         "error": {
           "required": true,
@@ -14696,6 +14799,14 @@
           },
           "description": "Why the only session file did not read, or why a manual run has no plan."
         },
+        "classic_running": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the classic app that saved source is open now (its socket lock, or its launch sentinel and a recent save); false when nothing is read."
+        },
         "plan": {
           "required": true,
           "type": {
@@ -14705,7 +14816,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start."
+          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start. Each tab's scrollback is the read-only text its new shell prints, null when nothing printable is left or with outline."
         },
         "preview": {
           "required": true,
@@ -14760,6 +14871,87 @@
             "name": "boolean"
           },
           "description": "Whether the ledger exists after this step."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The reader's result: bookmarks, history entries, tabs, extensions, a search engine, a path, a bool or a setting, in the app's Codable shapes (dates as seconds since 2001); null when there is none."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserImportReadError"
+          },
+          "description": "Why the source did not read."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportSearchEngine": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "keyword": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "search": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The search address; {searchTerms} marks the typed text."
+        },
+        "suggest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadError": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "read, notBookmarks, open, query, copy, syntax, shape or tooLarge."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       },
       "extra": false
@@ -14985,6 +15177,508 @@
             "name": "uint32"
           },
           "description": "Pages that are not http(s) URLs, or repeat a URL of their group."
+        }
+      },
+      "extra": false
+    },
+    "ThemeScheme": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The scheme's own name, when the file has one."
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The scheme's author, when the file has one."
+        },
+        "background": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "foreground": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "cursor": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb, or null when the cursor follows the cell."
+        },
+        "cursorText": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "selectionBackground": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "selectionForeground": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "palette": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            },
+            "max_items": 16
+          },
+          "description": "ANSI 0-15, #rrggbb."
+        },
+        "accent": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "The theme's own chrome accent (# cmux-accent), #rrggbb or null."
+        },
+        "base16": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            },
+            "max_items": 16
+          },
+          "description": "base00-base0F: the file's own for base16, else derived from the terminal colors."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeText": {
+      "kind": "object",
+      "fields": {
+        "from": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "enum",
+              "values": [
+                "ghostty",
+                "base16",
+                "iterm2",
+                "windows-terminal"
+              ]
+            }
+          },
+          "description": "The format the text was read as (convert only)."
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The theme's name (export only)."
+        },
+        "format": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "ghostty",
+              "base16",
+              "iterm2",
+              "windows-terminal"
+            ]
+          },
+          "description": "The format text is written in."
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The scheme file."
+        },
+        "scheme": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ThemeScheme"
+          },
+          "description": "The colors read."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeSwatch": {
+      "kind": "object",
+      "fields": {
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "share": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Part of the sampled image, 0-1."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeFromImageResult": {
+      "kind": "object",
+      "fields": {
+        "appearance": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "dark",
+              "light"
+            ]
+          },
+          "description": "The scheme's appearance."
+        },
+        "accent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "The chrome accent, #rrggbb."
+        },
+        "glassTint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "The window's glass tint ThemeTokens.derive makes from the scheme, #rrggbbaa."
+        },
+        "swatches": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ThemeSchemeSwatch"
+            },
+            "max_items": 16
+          },
+          "description": "The image's colors, most of the image first."
+        },
+        "format": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "ghostty",
+              "base16",
+              "iterm2",
+              "windows-terminal"
+            ]
+          },
+          "description": "The format text is written in."
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The scheme file."
+        },
+        "scheme": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ThemeScheme"
+          },
+          "description": "The colors."
+        }
+      },
+      "extra": false
+    },
+    "ChatState": {
+      "kind": "enum",
+      "values": [
+        "working",
+        "input",
+        "idle",
+        "failed",
+        "lost"
+      ]
+    },
+    "ChatSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "acpmux's id of the chat; chat.mark_read and chat.pin take it."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The chat's title, else its latest prompt, one line, secrets masked."
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The harness that runs it (claude, codex, ...), when known."
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ChatState"
+          },
+          "description": "What it does: working, input (waits for the person: a question or a permission), idle, failed (its last turn failed) or lost (its agent went away mid-turn)."
+        },
+        "unread": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "A turn ended while no client showed the chat, and nobody has seen or marked it read since."
+        },
+        "unread_turns": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Turns that ended unseen since a person last showed it."
+        },
+        "pinned": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The person pinned it (chat.pin). Kept by acpmux, so every window and device sees the same pin."
+        },
+        "ci_failing": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "description": "Whether the checks of a pull request it opened fail; null while cmux does not know."
+        },
+        "machine": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The acpmux peer that runs it; null for a chat of this machine."
+        },
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chat's folder."
+        },
+        "project": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The folder's name (the last part of cwd)."
+        },
+        "workspace": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The workspace of a tab that shows the chat, when one does."
+        },
+        "parent": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chat whose agent started this one; null for a chat a person or the app started."
+        },
+        "step": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "What it does now, one line, secrets masked."
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The failed or lost turn's error, secrets masked."
+        },
+        "since_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Unix ms it entered state; null when acpmux does not know."
+        },
+        "updated_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Unix ms of its last output. Not a change signal: chat.changed does not fire for it alone."
+        },
+        "created_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Unix ms it started."
+        },
+        "pull_requests": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The pull request URLs it opened, oldest first."
         }
       },
       "extra": false
@@ -17988,6 +18682,337 @@
         "validation.invalid"
       ]
     },
+    "browser_import.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "reader": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "chromium.bookmarks",
+                "chromium.history",
+                "chromium.session_file",
+                "chromium.latest_session_file",
+                "chromium.session",
+                "chromium.search_engine",
+                "chromium.extensions",
+                "arc.bookmarks",
+                "firefox.bookmarks",
+                "firefox.history",
+                "firefox.session_file",
+                "firefox.session",
+                "firefox.search_engine",
+                "safari.bookmarks",
+                "safari.history",
+                "safari.search_engine",
+                "exported_history.looks_like",
+                "exported_history.parse",
+                "search_engine.setting",
+                "upload.append",
+                "upload.drop"
+              ]
+            },
+            "description": "The reader to run (the cmux-browser-import crate's ops::OPS), or upload.append / upload.drop (ops::UPLOAD_OPS), which hold and forget the bytes of files the app read from a folder macOS protects."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history); with upload, the file's name in the upload."
+          },
+          "base64": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The file's bytes instead of path, for the readers of a file's bytes; for upload.append, the next chunk of the file name names."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the profile folder (session_file, search_engine, extensions); with upload, a folder in it (. is its top)."
+          },
+          "sessions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file); with upload, the folder's name in it."
+          },
+          "upload": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "An upload the app chose the id of (letters, digits and -): the files it sent from a folder macOS protects, held in the daemon's memory only. The reader reads its names instead of paths."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The relative name of the file upload.append adds to (Sessions/Session_1, History.db-wal)."
+          },
+          "profileDirectory": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Arc's profile folder name, whose spaces arc.bookmarks reads."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Most history entries, newest first (default 5000)."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 0,
+              "max_length": 65536
+            },
+            "description": "The first bytes of a file, as text (exported_history.looks_like)."
+          },
+          "services": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The Mac's NSPreferredWebServices (safari.search_engine)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserImportSearchEngine"
+            },
+            "description": "An imported search engine (search_engine.setting)."
+          },
+          "builtIn": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The built-in engines, id to search template (search_engine.setting)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read another browser's files by path. Any other origin is refused with origin.forbidden.",
+          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app reads what a reader needs there itself and sends the bytes into an upload.",
+          "Every database on disk is read from a private copy; no source file is written. An upload is held in memory and never written to disk: a database in it is opened in memory with its WAL's committed frames applied.",
+          "An upload holds at most 256 MiB, all uploads together 512 MiB; an append past either drops the upload and answers {error: {kind: tooLarge}}. An upload idle for 5 minutes is dropped, and a read of a dropped one answers {error: {kind: read}}. A name in an upload that is absolute or climbs with .. is refused with validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserImportReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "chat.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ChatSummary"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
+        "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
+        "Empty while acpmux is not running."
+      ]
+    },
+    "chat.mark_read": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chat": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The chat: its id from chat.list."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChatSummary"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Clears unread and unread_turns, as showing the chat does, without moving where the person left off.",
+        "The chat is one chat.list lists.",
+        "acpmux keeps the change, so every window and device sees it; repeating it changes nothing more, so a replayed key does it again harmlessly.",
+        "From an app it runs only with a live gesture token (a tap), so automation never changes what the person has seen or pinned.",
+        "operation.failed details.reason is not_found (chat.list lists no such chat), unavailable (acpmux is not running here or did not answer) or refused (acpmux, or the chat's peer, refused it; extra.message says why)."
+      ]
+    },
+    "chat.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chat": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The chat: its id from chat.list."
+          },
+          "pinned": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true pins the chat, false unpins it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChatSummary"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The pin is the acpmux session tag pinned.",
+        "The chat is one chat.list lists.",
+        "acpmux keeps the change, so every window and device sees it; repeating it changes nothing more, so a replayed key does it again harmlessly.",
+        "From an app it runs only with a live gesture token (a tap), so automation never changes what the person has seen or pinned.",
+        "operation.failed details.reason is not_found (chat.list lists no such chat), unavailable (acpmux is not running here or did not answer) or refused (acpmux, or the chat's peer, refused it; extra.message says why)."
+      ]
+    },
     "chief.continue": {
       "class": "mutation",
       "idempotency": "required",
@@ -19199,11 +20224,20 @@
               ]
             },
             "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
+          },
+          "outline": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "True leaves every tab's scrollback out of plan (null), for a caller that only counts workspaces or lists folders."
           }
         },
         "extra": false,
         "constraints": [
-          "Reads classic's session files under the daemon's HOME, never a path from the caller: the classic channel matching bundle_id, else the one saved last, trying its session file, -previous copy and newest archive in turn.",
+          "Reads classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
           "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
           "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
         ]
@@ -19254,10 +20288,11 @@
                 "begin",
                 "workspace",
                 "group",
+                "decline",
                 "finish"
               ]
             },
-            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; finish completes the run."
+            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
           },
           "source": {
             "required": false,
@@ -19265,7 +20300,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read."
+            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read; with decline it is recorded when the ledger names none yet."
           },
           "backups": {
             "required": false,
@@ -25740,6 +26775,103 @@
         "A stored comment is at most 64 KiB serialized (validation.invalid comment_too_large), and a root keeps at most 500 (operation.failed too_many_comments).",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments), too_many_comments or store_failed; extra.message explains it."
+      ]
+    },
+    "diff.comments.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "acp_session": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The acpmux session id of a chat on this machine that gets the prompt: 1 to 128 visible ASCII characters."
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 262144
+            },
+            "description": "The prompt the agent reads: every sent comment's block (file and line, the quoted lines, the comment), as the diff page writes it. Not blank, at most 256 KiB."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "min_items": 1,
+              "max_items": 500
+            },
+            "description": "The ids of the comments the prompt carries, 1 to 500; they are removed once the agent's session takes it."
+          },
+          "versions": {
+            "required": true,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The text goes to the acpmux session acp_session of this machine's acpmux as one prompt whose acpmux promptId is the idempotency key, queued behind a running turn and never steered into it; acpmux runs a prompt id once, so a retry under the same key never gives the agent the review twice.",
+        "Once acpmux takes the prompt, the named comments still at their versions are removed under the root's lock, as diff.comments.delete removes them; the root's lock is not held while acpmux takes the prompt. A refused send keeps every comment.",
+        "A replayed key returns the first result with replayed true and sends nothing; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_session (acpmux is not running, runs no such session, or moves it to another machine; nothing was sent), send_failed (acpmux refused the prompt), send_unsettled (the prompt went out and acpmux did not answer in time: the agent may have it, and a retry with the same key runs it once), no_state_directory or store_failed; extra.message explains it."
       ]
     },
     "frontend_projection.get": {
@@ -34095,6 +35227,88 @@
         "validation.invalid"
       ]
     },
+    "settings.edit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "edits": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "SettingsEdit"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The edits, applied in order to the file text and published once."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Applies every edit in order to the settings file text and publishes it once, with one revision and one settings-changed event (Swift CmuxConfigFile.apply). Each edit passes the checks of settings.set or settings.reset (schema kind, managed keys, agent policy, removed keys, the object-overlap rule); a refused edit refuses the whole op and writes nothing. A set_unset or reset_unchanged edit reads the file as the edits before it left it; when its condition does not hold it writes nothing and is not checked. A file that does not parse is never rewritten. Apps never get settings.edit."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsEditChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
     "settings.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -39283,6 +40497,254 @@
         "A timeout returns the pending result variant and is not an error.",
         "The exited result is reconnect-safe and uses the terminal registry's durable exit record.",
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
+      ]
+    },
+    "theme.scheme.convert": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 262144
+            },
+            "description": "The scheme file's text (at most 256 KiB)."
+          },
+          "file": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 1024
+              }
+            },
+            "description": "The file's name: errors name it, and its extension picks the format when from is absent."
+          },
+          "from": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default ghostty)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s.",
+          "A file that does not parse is validation.invalid whose message is FILE:LINE: what is wrong.",
+          "base16 maps base00 to the background, base05 to the foreground and cursor, base02 to the selection, and ANSI 0-15 as base16-shell does."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeText"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.scheme.export": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "An installed theme's name (a Ghostty theme file in one of Ghostty's theme folders), never a path."
+          },
+          "format": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default base16)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeText"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.scheme.from_image": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "width": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "description": "Pixels per row."
+          },
+          "height": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "description": "Rows."
+          },
+          "channels": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 3,
+              "maximum": 4
+            },
+            "description": "3 (RGB) or 4 (RGBA; fully transparent pixels are skipped)."
+          },
+          "pixels": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 349528
+            },
+            "description": "The decoded 8-bit sRGB pixels, row by row, base64 (at most 256 x 256 pixels: downsample first)."
+          },
+          "appearance": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "dark",
+                  "light"
+                ]
+              }
+            },
+            "description": "Dark or light; absent picks from the image's average lightness."
+          },
+          "format": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default ghostty)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s.",
+          "Deterministic: median cut over a 64 x 64 sample grid.",
+          "The accent, cursor and ANSI 1-15 reach the spec's minimumMarkContrast and the foreground its minimumTextContrast on the background (ThemeTokens.derive's floors)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeFromImageResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "window_record.delete": {

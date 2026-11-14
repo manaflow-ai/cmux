@@ -134,6 +134,8 @@ mod agent_session_attach;
 #[cfg(unix)]
 mod mobile_chat;
 #[cfg(unix)]
+pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
+#[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
@@ -2887,7 +2889,7 @@ pub use listen::{
     serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
 #[cfg(all(test, unix))]
 use listen::still_at_path;
 #[cfg(test)]
@@ -3227,3 +3229,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

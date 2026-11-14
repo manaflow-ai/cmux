@@ -93,26 +93,30 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
 }
 
 /// Classifies one accepted local peer while its kernel PID evidence is live.
+///
+/// The peer's terminal comes from the terminals' seats
+/// (`diagnostics/terminal_seats.rs`), as the peer's lane does
+/// (`terminal_admission`), and not from the session state: a terminal has
+/// its seat before it is in that state, and the host that starts a terminal
+/// has one before the terminal's first process runs. A host that an earlier
+/// daemon started has one from this daemon's start to the end of its
+/// adoption, when the daemon read its start and knew that it lives. So a
+/// process of such a terminal is that terminal's from its first connection,
+/// and never the local user by the order of two events. `parent_of`: the
+/// parent of a process (`ConnectionStats::seated_terminal`).
 fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,
     session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
 ) -> LocalPeer {
     let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
     let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
-    let terminal = mux.with_state(|state| {
-        state
-            .surfaces
-            .values()
-            .chain(state.terminal_catalog.values())
-            .find(|surface| surface.process_id() == Some(session))
-            .and_then(|surface| surface.terminal_public_id())
-            .map(|terminal| terminal.as_str().to_string())
-    });
-    if let Some(terminal) = terminal {
-        return LocalPeer::Terminal(terminal);
+    let seated = mux.connection_stats().seated_terminal(session, parent_of);
+    match seated.and_then(|terminal| terminal.id) {
+        Some(terminal) => LocalPeer::Terminal(terminal.to_string()),
+        None => LocalPeer::Other,
     }
-    LocalPeer::Other
 }
 
 pub(super) fn peer_pid(key: &str) -> Option<u32> {
@@ -409,7 +413,8 @@ pub(super) fn set_peer_identity_at_accept(
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 ) -> crate::diagnostics::ClientKind {
     use crate::diagnostics::ClientKind;
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let parent_of = terminal_admission::parent_process;
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id, parent_of);
     // What the peer is for the request counters, before it declares a kind.
     let kind = match &local_peer {
         LocalPeer::Terminal(_) => ClientKind::Terminal,

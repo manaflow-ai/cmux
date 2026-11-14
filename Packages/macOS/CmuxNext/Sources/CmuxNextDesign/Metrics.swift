@@ -55,9 +55,26 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
             let strip = MetricTunables.tabStripHeight
-            return strip.explicitValue != nil ? strip.value : strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
+            // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
+            if strip.tunable.override != nil || strip.key.flatMap({ DesignSettings.shared.overrides[$0] }) != nil { return strip.value }
+            // A density with a browser row gap (Helium's 3 pt at Default): that gap above the pill and under it, the pane
+            // padding above the strip counting toward the first (`browserRowGap`).
+            if let gap = browserRowGap { return tabHeight + 2 * gap - min(stripTopOutset, gap) }
+            // The density's own strip (Compact 26, Default 36) grows when the sidebar's density or text size makes the
+            // row taller than the density's, so a row-tall tab is never clipped.
+            if strip.explicitValue != nil { return strip.value + max(0, tabHeight - densityRowHeight) }
+            return strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
         }
         return tabHeight + 2 * scale(padding) + stripTopOutset
+    }
+
+    /// The density's one gap around the browser chrome's rows (`browserRowGap`: Helium's 3 pt at Default, Chrome's 6 at
+    /// Spacious): above the tab pills, between them and the omnibar, and under the omnibar. Nil for a density without one,
+    /// which keeps its strip token, or when `layout.panePadding` is set (the person's padding sizes the gaps).
+    public static var browserRowGap: CGFloat? {
+        guard DesignSettings.shared.paneChrome.padding == nil,
+              let gap = BrowserChromeTuning.override(.rowGap) ?? tokens.tokens["browserRowGap"].map({ CGFloat($0) }) else { return nil }
+        return scale(gap)
     }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
@@ -81,6 +98,12 @@ public struct Metrics {
         // From the row's own inputs, not `SidebarRowTokens.current`: its corner radius reads the
         // tab strip's inset, which reads the tab height, which reads this.
         let sections = DesignSettings.shared.sidebarSections
+        // A density's own browser row (Helium's 28 pt at Default; Lawrence 2026-11-13, density thread), grown by the sidebar's
+        // density and text size as a row is, without the sidebar list's Codex fill.
+        if let row = BrowserChromeTuning.override(.rowHeight) ?? tokens.tokens["browserRowHeight"].map({ CGFloat($0) }), MetricTunables.sidebarRowHeight.tunable.override == nil,
+           DesignSettings.shared.overrides[.sidebarRowHeight] == nil {
+            return scale(row) + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
+        }
         // The row as drawn: at Default the list row's fill takes the gap under it (``SidebarRowTokens/listRowHeight``).
         return sidebarRowHeight + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
             + SidebarRowTokens.listFillGain(isCodexDensity: tokens.id == DensityPreset.cozy.rawValue, density: sections.density, space1: space1)
@@ -413,11 +436,14 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles use the density's body size less one point, times the user's text scale.
+    /// Tab titles: the density's body size less two points (Helium's and Chrome's 12 pt at Default's 14 pt body, their
+    /// 14 pt omnibar; Lawrence 2026-11-13, density thread), times the user's text scale. Never under Chrome's 12 pt
+    /// (Lawrence 2026-11-07, #39418), so the compact densities keep 12 pt titles (Lawrence 2026-11-13: "pls change
+    /// compact density back to how it was originally").
     /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
         guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
-            return system(.default, size: (Metrics.tokens.bodySize - 1) * scale, weight: .regular)
+            return system(.default, size: max(12, Metrics.tokens.bodySize - 2) * scale, weight: .regular)
         }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }

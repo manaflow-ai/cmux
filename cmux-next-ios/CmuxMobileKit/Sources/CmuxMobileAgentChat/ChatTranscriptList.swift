@@ -802,7 +802,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 self.observe()
                 // Held (the page is a card on the tab grid): no reload per token;
                 // the release or a held refresh reloads once with what arrived.
-                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh { return }
+                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh {
+                    surface.noteHeldChange()
+                    return
+                }
                 self.appliedHeldRefresh = surface.heldRefresh
                 self.reload()
             }

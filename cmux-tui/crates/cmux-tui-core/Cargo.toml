@@ -39,7 +39,10 @@ cmux-conversation.workspace = true
 cmux-git.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
+# Another browser's files for the app's browser import (resource_router/browser_import.rs).
+cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
+cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true

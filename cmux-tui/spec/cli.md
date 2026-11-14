@@ -115,6 +115,12 @@ is per answer, so only the dial's `carrier.routes` line reports it. The probe ac
 `CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
 that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
 the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
+Once the gates pass, the drill starts the chat without its prompt (a promptless `start-chat`
+answer carries `daemon_tab`, the chat tab's number on the machine's daemon), dials the machine
+once over the Cloud carrier, attaches to that tab's event stream on the relay, sends the prompt,
+kills the relay inside that session after N events and resumes the stream over ssh after the
+last seq it had, all inside one `--timeout`. A drill that reached the turn's last event answers
+the record under `drill`.
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,

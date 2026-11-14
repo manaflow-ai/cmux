@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "dc8d4faf6df7106f39ca87ef904e9b0b826f0e26df9d43e3bcba00f005d38839",
+  "catalog_sha256": "436889bc90070591dfc3f2e394d8be018da6f23dd4a3f006b737f388c23ca247",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,18 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"
@@ -341,6 +353,9 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -730,6 +745,9 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
       "class": "read"
     },
@@ -974,6 +992,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

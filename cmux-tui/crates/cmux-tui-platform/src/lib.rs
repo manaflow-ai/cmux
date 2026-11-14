@@ -2,9 +2,11 @@
 //! users and peers ([`platform`]), the terminal-host executable
 //! ([`host_exe`]), process identity and resource sampling, the Unix process
 //! scope, the Windows process queries, and file birth times ([`file_birth`]). cmux-tui-core re-exports each
-//! module at its old path (`cmux_tui_core::platform`, ...).
+//! module at its old path (`cmux_tui_core::platform`, ...). [`ended_children`]
+//! says if this process keeps the process ids of its ended children.
 
 pub mod codex_config_lock;
+pub mod ended_children;
 pub mod file_birth;
 #[cfg(unix)]
 pub mod host_exe;

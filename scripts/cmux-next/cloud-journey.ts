@@ -110,7 +110,7 @@ import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chaosProbeRow, countingTurnScript, runChaos } from "./cloud-chaos.ts";
+import { chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -328,6 +328,235 @@ class Api {
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
     return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
   }
+}
+
+export type PreclaimClaimSplit = {
+  claim_answer_ms: number | null;
+  join_ms: number | null;
+  guest_bind_ms: number | null;
+  connect_info_ms: number | null;
+  bound_ms: number | null;
+};
+
+export type PreclaimClaimRecord = {
+  claim: number;
+  machine: string | null;
+  spare: string | null;
+  lease_hit: boolean | null;
+  claim_to_bound: PreclaimClaimSplit;
+  post_bind_login: "receipt" | "missing" | "not_checked";
+};
+
+type WireEvent = { t?: string; event?: string; stream?: string; data?: Record<string, unknown>; spares_needing_login?: unknown };
+
+/** The claim answer's explicit lease evidence. Text is accepted only for the broker's named lease field. */
+export function classifyLeaseHit(answer: unknown, brokerLog = ""): boolean | null {
+  const row = answer && typeof answer === "object" ? answer as Record<string, unknown> : {};
+  for (const key of ["lease_hit", "leaseHit", "spare_hit", "spareHit"]) {
+    if (typeof row[key] === "boolean") return row[key] as boolean;
+  }
+  for (const key of ["source", "claim_source", "claimSource", "allocation_source"]) {
+    if (typeof row[key] === "string" && /^(spare|warm|lease)$/i.test(row[key] as string)) return true;
+    if (typeof row[key] === "string" && /^(cold|create)$/i.test(row[key] as string)) return false;
+  }
+  const explicit = /(?:^|\s)lease[_-]?hit=(yes|no)\b/i.exec(brokerLog);
+  return explicit ? explicit[1].toLowerCase() === "yes" : null;
+}
+
+/** Convert the broker's ordered stage timings into the named claim-to-bound split. */
+export function claimToBoundSplit(stages: unknown): PreclaimClaimSplit {
+  const out: PreclaimClaimSplit = { claim_answer_ms: null, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: null };
+  const entries: unknown[] = Array.isArray(stages)
+    ? stages
+    : stages && typeof stages === "object" && Array.isArray((stages as Record<string, unknown>).steps)
+      ? (stages as Record<string, unknown>).steps as unknown[]
+      : [];
+  let total = 0;
+  for (const stage of entries) {
+    if (!stage || typeof stage !== "object" || typeof (stage as any).ms !== "number") continue;
+    total += Number((stage as any).ms);
+    const name = String((stage as any).step ?? (stage as any).name ?? "");
+    const key = name === "machine" || name === "claim" || name === "claim_answer" ? "claim_answer_ms"
+      : name === "join" ? "join_ms"
+      : name === "guest_bind" || name === "bind" ? "guest_bind_ms"
+      : name === "connect_info" || name === "connect" ? "connect_info_ms"
+      : name === "bound" ? "bound_ms" : null;
+    if (key) out[key] = Math.round(total);
+  }
+  return out;
+}
+
+export function preclaimClaimRecord(input: {
+  claim: number;
+  machine?: unknown;
+  spare?: unknown;
+  answer?: unknown;
+  brokerLog?: string;
+  leaseHit?: boolean | null;
+  postBindLogin?: "receipt" | "missing" | "not_checked";
+}): PreclaimClaimRecord {
+  const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
+  const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
+  const spare = typeof input.spare === "string" ? input.spare : null;
+  return {
+    claim: input.claim,
+    machine,
+    spare,
+    lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
+    claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
+    post_bind_login: input.postBindLogin ?? "not_checked",
+  };
+}
+
+function normalizedWireValue(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const row = value as Record<string, unknown>;
+  const nested = row.data;
+  if (nested && typeof nested === "object" && (nested as Record<string, unknown>).event === "cloud.spare.ready") return nested as Record<string, unknown>;
+  return row;
+}
+
+/** Accept only the owner's cloud stream and the named spare; snapshots are replayed on subscribe. */
+export function cloudSpareReadyFrame(value: unknown, machine: string, team?: string): boolean {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  if (row.t === "snapshot") {
+    const stream = typeof row.stream === "string" ? row.stream : "";
+    const wanted = team ? `cloud:${team}` : "cloud";
+    const ids = Array.isArray(row.spares_needing_login) ? row.spares_needing_login : [];
+    return stream === wanted && ids.includes(machine);
+  }
+  const event = normalizedWireValue(value);
+  const stream = typeof event.stream === "string" ? event.stream : "";
+  const wanted = team ? `cloud:${team}` : "cloud";
+  const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : event;
+  return event.event === "cloud.spare.ready"
+    && (stream === wanted || (!team && stream === "cloud"))
+    && data.machine === machine
+    && (!team || data.team === undefined || data.team === team);
+}
+
+/** Wait for the creator's cloud.spare.ready push; the wire replays committed events from sequence zero. */
+export function waitForCloudSpareReady(api: Pick<Api, "origin" | "bearer" | "team">, machine: string, budgetMs = 120_000): Promise<WireEvent> {
+  const url = `${api.origin.replace(/^http/, "ws")}/v1/wire/cloud`;
+  return new Promise((resolve, reject) => {
+    const protocols = ["cmux.wire.v1", ...(api.team ? [`team.${api.team}`] : [])];
+    const ws = new (globalThis as any).WebSocket(url, { protocols, headers: { authorization: `Bearer ${api.bearer}` } });
+    const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error(`cloud.spare.ready did not arrive for ${machine} within ${budgetMs} ms`)); }, budgetMs);
+    const done = (error?: Error, event?: WireEvent) => { clearTimeout(timer); try { ws.close(); } catch {} error ? reject(error) : resolve(event!); };
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "subscribe", after_seq: 0, pending: [] })));
+    ws.addEventListener("error", () => done(new Error("cloud wire did not open")), { once: true });
+    ws.addEventListener("message", (message: any) => {
+      let value: any;
+      try { value = JSON.parse(String(message.data)); } catch { return; }
+      if (!cloudSpareReadyFrame(value, machine, api.team)) return;
+      done(undefined, value as WireEvent);
+    });
+  });
+}
+
+async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, stateDir: string, installToken: string, request: Record<string, unknown>): Promise<Record<string, any>> {
+  const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const args = ["link", "start-chat", "warm-spare", "--request", JSON.stringify(request), ...(api.team ? ["--team", api.team] : [])];
+  const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => stdout += chunk);
+    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => stderr += chunk);
+    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error("warm-spare timed out")); }, 120_000);
+    child.on("error", reject);
+    child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+    child.stdin!.end(`${api.bearer}\n${installToken}\n`);
+  });
+  if (result.code !== 0) throw new Error(`warm-spare refused (exit ${result.code})`);
+  for (const line of [result.stdout, ...result.stdout.split("\n").reverse()]) {
+    try { const value = JSON.parse(line); if (value && typeof value === "object") return value.value ?? value; } catch {}
+  }
+  throw new Error("warm-spare returned no JSON answer");
+}
+
+async function runPreclaimBurst(args: {
+  backend: Backend;
+  api: Api;
+  cmux: string;
+  install: { id: string; token: string; team?: string };
+  account: string;
+  login: string;
+  claims: number;
+  tag: string;
+  journey: Journey;
+  outDir: string | null;
+  team?: string;
+  user: any;
+}): Promise<number> {
+  if (!args.cmux) throw new Error("--preclaim needs --cmux PATH so the shipped Rust warm/ready path is exercised");
+  if (!validLogin("claude", args.login)) throw new Error("--preclaim needs a valid Claude setup-token login (or --model stub)");
+  if (!Number.isInteger(args.claims) || args.claims < 1 || args.claims > 20) throw new Error("--claims must be 1..20");
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-"));
+  const rows: PreclaimClaimRecord[] = [];
+  const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
+  const wireTeam = scopeTeam || args.api.team;
+  const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
+  const account = args.account;
+  const writeOutput = () => {
+    if (!args.outDir) return;
+    mkdirSync(args.outDir, { recursive: true });
+    const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+    const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, claim_to_bound_p90_ms: p90 };
+    writeFileSync(path.join(args.outDir, "preclaim.json"), `${JSON.stringify({ backend: args.backend.name, summary, claims: rows }, null, 2)}\n`);
+    writeFileSync(path.join(args.outDir, "summary.md"), ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease hit | spare | machine | claim answer | join | guest bind | connect_info | bound | receipt |", "|---:|:---:|---|---|---:|---:|---:|---:|---:|:---|", ...rows.map((r) => `| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.spare ?? "-"} | ${r.machine ?? "-"} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} |`)].join("\n") + "\n");
+  };
+  try {
+    for (let index = 0; index < args.claims; index++) {
+      const request = { platform: args.backend.api, account, scope, currentScope: scope };
+      const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
+      const spare = typeof warm.machine === "string" ? warm.machine : null;
+      let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
+      if (spare) {
+        await waitForCloudSpareReady({ ...args.api, team: wireTeam }, spare);
+        const ready = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
+        if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
+        const exec = directExec(args.api, spare, args.journey);
+        await waitMachine(args.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        await waitPreflight(exec, programs.preflight, args.team ? "owner or team" : "owner");
+        const folder = "/home/cmux/.cmux/credential-transfer";
+        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+        try {
+          const wrote = await args.api.raw("POST", `/v1/cloud/machines/${spare}/fs/write`, { path: file, dataBase64: Buffer.from(args.login).toString("base64"), mode: 0o644 });
+          if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
+          const installed = await exec(programs.install(file));
+          if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+        } finally {
+          await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+        }
+        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+        if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${index}: guest receipt missing before claim`);
+        if (copy.generation) await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, installed: spare, generation: copy.generation });
+      }
+      const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
+      const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+      const explicitLease = classifyLeaseHit(answer);
+      const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
+      if (typeof machine === "string") {
+        await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+      }
+      const receipt: Record<string, unknown> = copy.generation && typeof machine === "string"
+        ? await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({}))
+        : {};
+      const record = preclaimClaimRecord({ claim: index, machine, spare, answer, leaseHit, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
+      rows.push(record);
+      if (typeof machine === "string") {
+        await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+      }
+      writeOutput();
+    }
+  } finally {
+    writeOutput();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+  return rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt") ? 1 : 0;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -815,8 +1044,9 @@ export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
 /**
  * An empty viewer feedback datagram: the 16-byte header (cmux-rd-proto datagram.rs: version 1 in the high nibble, kind
  * 7 Feedback, the rest 0), then feedback.rs's payload with nothing acked, no recovery, no arrivals and no NACKs. The
- * host ends a session after 3 s without feedback (cmux-rd-host stream.rs LIVENESS_NS), sooner than a link through NAT
- * may come up.
+ * host keeps a session alive for a bounded 90 s without feedback
+ * (cmux-rd-host stream.rs REATTACH_GRACE_NS), so a viewer can reattach after
+ * a full network drop before the abandoned session is ended.
  */
 export const RD_FEEDBACK = Buffer.concat([Buffer.from([0x10, 7]), Buffer.alloc(14), Buffer.alloc(12)]);
 
@@ -1130,7 +1360,7 @@ export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript()],
 };
 
 /** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
@@ -1896,8 +2126,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (outDir) mkdirSync(outDir, { recursive: true });
   const credFile = argValue("--credentials", argv);
   const creds: Record<string, string> = { ...(credFile ? readEnvFile(readFileSync(credFile, "utf8")) : {}) };
-  const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
-  const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
+  const email = process.env.CMUX_STAGING_STACK_EMAIL ?? process.env.CMUX_DOGFOOD_STACK_EMAIL ??
+    creds.CMUX_STAGING_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
+  const password = process.env.CMUX_STAGING_STACK_PASSWORD ?? process.env.CMUX_DOGFOOD_STACK_PASSWORD ??
+    creds.CMUX_STAGING_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
@@ -1912,6 +2144,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
   const cmux = argValue("--cmux", argv);
+  const preclaim = argv.includes("--preclaim");
+  const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
@@ -2083,10 +2317,32 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined }, detail: `install ${inst.id}` };
     });
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+
+    if (preclaim) {
+      const userId = String(user?.id ?? user?.user?.id ?? "");
+      const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
+      const account = `${userId}/${accountTeam}`;
+      if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      const status = await runPreclaimBurst({
+        backend,
+        api,
+        cmux: cmux!,
+        install,
+        account,
+        login: claudeLogin,
+        claims: preclaimClaims,
+        tag,
+        journey: J,
+        outDir,
+        team,
+        user,
+      });
+      return status;
+    }
 
     if (gatewayAny) {
       gatewayApi = installApi;
