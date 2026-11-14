@@ -127,6 +127,7 @@ import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { hatTuckLook } from "./hatTuck.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
@@ -299,6 +300,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
+  const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
   const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
@@ -484,9 +486,11 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // What runs by name, newest first: computed when the items change (an event), never per tick.
   // The width the list's scrollbar takes, if it takes any (a classic, always-shown scrollbar): the
-  // header's panel button and chevron move in by it too, so they stay over the lines' Stop and chevron
-  // columns (Leo, 2026-11-03: "all that alignment can be done better ... the chevrons with the stop
-  // symbols"). One observer on the list while it is mounted; it disconnects with the list.
+  // lines give it their end inset (subagents.css `--acpmux-tray-inset-end`), so their Stop and chevron
+  // columns stay under the header's (Leo, 2026-11-03: "all that alignment can be done better ... the
+  // chevrons with the stop symbols"), and the header never moves as the hat opens or folds (Leo,
+  // 2026-11-14: "don't do that for the composer hat"). One observer on the list while it is mounted;
+  // it disconnects with the list.
   const [gutter, setGutter] = useState(0);
   const listRef = useCallback((node: HTMLUListElement | null) => {
     if (!node) return undefined;
@@ -704,6 +708,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
+      data-tuck-look={onTuck ? tuckLook : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
       data-sized={(resizes && hatHeight !== undefined) || undefined}

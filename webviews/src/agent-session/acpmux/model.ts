@@ -2784,7 +2784,9 @@ function measuredRowHeight(
     const { lineHeight } = metrics();
     const text = message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const whole = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
+    // A notice of a title alone opens to its title (agentNotice.ts `openedNoticeText`).
+    const shown = text || (message.notice?.title ?? "");
+    const whole = shown ? textHeight(shown, Math.max(80, width - 44), receivedPrepared) : lineHeight;
     const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
     const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
     const details = opened && message.raw.trim() !== text ? 24 : 0;

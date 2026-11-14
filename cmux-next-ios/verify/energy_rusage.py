@@ -3,7 +3,6 @@
 
     energy_rusage.py sample PID SECONDS OUT.jsonl   one proc_pid_rusage reading a second, SECONDS+1 lines
     energy_rusage.py once PID                       one reading, as JSON (a diagnostic)
-    energy_rusage.py xctrace-rows XML PID           the rows of an `xctrace export` table that name PID
 
 `proc_pid_rusage` (libproc, RUSAGE_INFO_V6, else V4) needs no root for a process of the caller's
 own user, and the simulator's app is one. Its counters only grow, so a window's rates are the
@@ -22,7 +21,6 @@ import ctypes
 import json
 import sys
 import time
-import xml.etree.ElementTree as ET
 
 U64 = ctypes.c_uint64
 
@@ -101,34 +99,6 @@ def sample(pid, seconds, out):
     return 0
 
 
-def xctrace_rows(path, pid):
-    """An `xctrace export --xpath` table: its column mnemonics, then each row naming PID (refs resolved)."""
-    root = ET.parse(path).getroot()
-    ids = {}
-    for el in root.iter():
-        if "id" in el.attrib:
-            ids[el.attrib["id"]] = el.attrib.get("fmt") or (el.text or "").strip()
-    for node in root.iter("node"):
-        schema = node.find("schema")
-        if schema is None:
-            continue
-        cols = [c.findtext("mnemonic") or "?" for c in schema.findall("col")]
-        print(f"schema {schema.attrib.get('name')}: {' | '.join(cols)}")
-        shown = 0
-        for row in node.iter("row"):
-            values = []
-            for el in row:
-                if "ref" in el.attrib:
-                    values.append(ids.get(el.attrib["ref"], "?"))
-                else:
-                    values.append(el.attrib.get("fmt") or (el.text or "").strip())
-            if any(f"({pid})" in v or v == str(pid) for v in values):
-                print("  " + " | ".join(f"{c}={v}" for c, v in zip(cols, values)))
-                shown += 1
-        print(f"  ({shown} rows for pid {pid})")
-    return 0
-
-
 def main(argv):
     if argv[:1] == ["sample"] and len(argv) == 4:
         return sample(int(argv[1]), int(argv[2]), argv[3])
@@ -136,8 +106,6 @@ def main(argv):
         row = read(int(argv[1]))
         print(json.dumps(row) if row else "null")
         return 0 if row else 1
-    if argv[:1] == ["xctrace-rows"] and len(argv) == 3:
-        return xctrace_rows(argv[1], argv[2])
     print(__doc__, file=sys.stderr)
     return 2
 
