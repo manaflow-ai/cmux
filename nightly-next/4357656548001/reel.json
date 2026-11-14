@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4357656548001",
+  "notes": "notes/4357656548001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 40494,
+      "title": "cmux-tui: hold the carrier drill's deadline past the async boundary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42888,
+      "title": "docs: config and theme ideas compared with cmux NEXT, with edit-to-repaint numbers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42887,
+      "title": "fix(acpmux): settle streamed text turns for cloud chaos",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42871,
+      "title": "ios-review-gate: every app PR walks the reviewer path and fails on a new App Review blocker (succeeds #41363)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42925,
+      "title": "tests: shell_tree oracle fails closed on env -S splits, orphans, row errors (succeeds #41925)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41501,
+      "title": "Agent chat: no stuck spinners, dimmed cards or stale notices after their cause is gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42919,
+      "title": "live_apply: root examples/ and design gallery pages are no-app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42907,
+      "title": "nightly-next: a stale run waits at the slot for the newest buildable commit (latest wins)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42873,
+      "title": "Agent chat: a god chat left open holds a short chat's memory; tool calls within 1.2x",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42898,
+      "title": "ci: shorten debug artifact retention",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42879,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-754dadbe74d3a7904671d89804a82e4896085075",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42915,
+      "title": "fix(sidebar): preserve reorder slot during multi-view grouping suppression",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41582,
+      "title": "App Store: chat.list, chat.changed, chat.mark_read and chat.pin, answered in Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42924,
+      "title": "CMUX-570: measure combined CEF and CLI installed savings",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
