@@ -1483,6 +1483,7 @@ impl Engine {
                 return;
             }
         };
+        mark_no_visible_change(&mut out.body, shot.body["unchanged"] == json!(true));
         let mut state = shot.body.clone();
         state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
@@ -1796,6 +1797,27 @@ mod focus;
 
 #[path = "engine_menus.rs"]
 mod menus_glue;
+
+/// The text a `delivered` result gets when the window looked the same after
+/// the action as in the agent's last capture of it.
+pub(crate) const NO_VISIBLE_CHANGE_NOTE: &str = "the window looks exactly as it did in your last screenshot of it, after waiting for it to redraw: if this action should have changed what it shows, it did not take effect. Try another way (an element_id instead of a point, a different point, set_value, a menu item) instead of repeating it or reporting it done. An action with no visible effect (copy, save) may still have worked.";
+
+/// A result the route only delivered (nothing read back confirms it) whose
+/// settled capture is unchanged from the agent's last one reports that, so
+/// an agent does not take the input for done when nothing happened. Only
+/// when the engine saw it: no prior capture, a redraw or a confirmed route
+/// leave the result as it is.
+fn mark_no_visible_change(body: &mut Value, unchanged: bool) {
+    if !unchanged || body.get("evidence") != Some(&json!("delivered")) {
+        return;
+    }
+    body["evidence"] = json!("no_visible_change");
+    let note = match body.get("note").and_then(Value::as_str) {
+        Some(n) if !n.is_empty() => format!("{n}; {NO_VISIBLE_CHANGE_NOTE}"),
+        _ => NO_VISIBLE_CHANGE_NOTE.to_string(),
+    };
+    body["note"] = json!(note);
+}
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

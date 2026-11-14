@@ -6,6 +6,41 @@ use super::*;
 use crate::desktop::{Button, MenuGuard, Point, Rect};
 use crate::keys::{Key, KeyCombo, Modifier};
 
+/// A pid-routed mouse event names its window and carries the point inside
+/// it: global (72, 174) in a window at (60, 80) is (12, 94) there. Before the
+/// fix only fields 91/92 were set and AppKit dropped every click, scroll and
+/// drag posted to a background window.
+#[test]
+fn pid_mouse_events_name_the_window_and_its_local_point() {
+    let stamp = roles::pid_mouse_stamp(290, Point { x: 72.0, y: 174.0 }, Some(Point { x: 60.0, y: 80.0 }));
+    assert_eq!(stamp.window_number, 290);
+    assert_eq!(stamp.local, Some(Point { x: 12.0, y: 94.0 }));
+    // A window whose origin cannot be read still gets its number.
+    let unknown = roles::pid_mouse_stamp(7, Point { x: 1.0, y: 2.0 }, None);
+    assert_eq!(unknown, roles::PidMouseStamp { window_number: 7, local: None });
+}
+
+/// Bugs 1 and 4: a plain background click presses a control through AX,
+/// selects the row of a list item with no press (Finder's file name, a text
+/// field with only AXConfirm/AXOpen), and posts events for everything else.
+#[test]
+fn background_click_on_a_hit_element() {
+    use roles::{HitClick, hit_click};
+    assert_eq!(hit_click("AXButton", true, false), HitClick::Press);
+    assert_eq!(hit_click("AXCheckBox", true, true), HitClick::Press);
+    assert_eq!(hit_click("AXLink", true, false), HitClick::Press);
+    // Finder list view: the name field in a row, no AXPress.
+    assert_eq!(hit_click("AXTextField", false, true), HitClick::Select);
+    assert_eq!(hit_click("AXStaticText", false, true), HitClick::Select);
+    // A text area takes the caret from events; a button without AXPress too.
+    assert_eq!(hit_click("AXTextArea", false, false), HitClick::Events);
+    assert_eq!(hit_click("AXButton", false, false), HitClick::Events);
+    // A web area or group that happens to advertise a press is not a control.
+    assert_eq!(hit_click("AXWebArea", true, false), HitClick::Events);
+    assert_eq!(hit_click("AXGroup", true, false), HitClick::Events);
+    assert!(roles::is_label_role("AXStaticText") && !roles::is_label_role("AXButton"));
+}
+
 #[test]
 fn modifier_flags() {
     assert_eq!(keymap::flags(&[]), 0);

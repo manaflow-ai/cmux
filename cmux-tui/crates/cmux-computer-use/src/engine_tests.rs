@@ -232,6 +232,36 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
+/// Bug 5: input the route only delivered, after which the window looked
+/// exactly as in the agent's last screenshot, says so instead of
+/// `delivered` (agents reported unchanged state as done, 31 of 70 trials).
+#[test]
+fn a_delivered_action_with_no_visible_change_says_so() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["state"]["unchanged"], true);
+    assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
+    assert!(out.body["note"].as_str().unwrap().contains("did not take effect"));
+}
+
+/// The rule claims only what the engine saw: a redraw, or no capture before
+/// the action to compare with, leaves `delivered`.
+#[test]
+fn a_redraw_or_no_earlier_capture_keeps_delivered() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    let first = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(first.body["state"]["unchanged"], false);
+    assert_eq!(first.body["evidence"], "delivered");
+    *d.repaint_from.lock().unwrap() = Some((*d.captures.lock().unwrap() + 2, 91));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert_eq!(out.body["evidence"], "delivered");
+}
+
 #[test]
 fn observe_false_skips_the_state() {
     let d = Arc::new(FakeDesktop::standard());

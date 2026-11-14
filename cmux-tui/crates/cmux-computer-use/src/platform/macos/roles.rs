@@ -223,6 +223,71 @@ pub fn clamp_into(r: &Rect, p: Point) -> Point {
     }
 }
 
+/// Roles a plain click presses: what AXPress does is what the click does.
+/// Pop-ups, menu buttons and combo boxes open menus (handled before), text
+/// inputs take a caret, and containers hold what was meant.
+const PRESS_ROLES: &[&str] = &[
+    "AXButton",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXLink",
+    "AXDisclosureTriangle",
+    "AXSwitch",
+    "AXToggle",
+    "AXMenuItem",
+    "AXTab",
+];
+
+pub fn is_press_role(role: &str) -> bool {
+    PRESS_ROLES.contains(&role)
+}
+
+/// A label or picture inside a control: the click is the control's.
+pub fn is_label_role(role: &str) -> bool {
+    matches!(role, "AXStaticText" | "AXImage")
+}
+
+/// How a plain background click on the element the point hits is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HitClick {
+    /// AXPress on it.
+    Press,
+    /// Select its row (a list, table or outline row with no press).
+    Select,
+    /// Post the mouse events (text, canvas, web content, anything else).
+    Events,
+}
+
+/// A text field in a row counts as the row: a click in a row selects it
+/// first (Finder's file name is a text field; AppKit tables edit a cell only
+/// on a click in a row already selected).
+pub fn hit_click(role: &str, has_press: bool, in_selectable_row: bool) -> HitClick {
+    if has_press && is_press_role(role) {
+        HitClick::Press
+    } else if !has_press && in_selectable_row {
+        HitClick::Select
+    } else {
+        HitClick::Events
+    }
+}
+
+/// What a pid-routed mouse event carries to reach its window: the window
+/// number (field 51) and the point inside the window (top-left origin),
+/// when the window's origin is known. AppKit drops a posted mouse event
+/// without both.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PidMouseStamp {
+    pub window_number: i64,
+    pub local: Option<Point>,
+}
+
+pub fn pid_mouse_stamp(window: u32, at: Point, origin: Option<Point>) -> PidMouseStamp {
+    PidMouseStamp {
+        window_number: i64::from(window),
+        local: origin.map(|o| Point { x: at.x - o.x, y: at.y - o.y }),
+    }
+}
+
 /// Points along a drag, excluding `from` and including `to`: one per ~8
 /// points of distance, at least 4 and at most 60.
 pub fn drag_path(from: Point, to: Point) -> Vec<Point> {

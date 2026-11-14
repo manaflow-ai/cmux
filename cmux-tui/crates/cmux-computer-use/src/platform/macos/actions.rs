@@ -438,9 +438,83 @@ fn click_point(
     {
         return d.open_menu_of(t, &el, &format!("at ({:.0}, {:.0})", at.x, at.y));
     }
+    // A plain background click on a control or a list row: what the point
+    // hits is pressed or selected through accessibility, as cua-driver
+    // does. A background window takes no first click on a control that does
+    // not accept first mouse (Finder's list selects nothing), and AX needs no
+    // pointer. Anything else (text, canvas, web content) gets the events.
+    if spec.delivery == Delivery::Background
+        && spec.button == Button::Left
+        && spec.count <= 1
+        && spec.modifiers.is_empty()
+        && let Some(out) = ax_click_at(d, t, at)?
+    {
+        return Ok(out);
+    }
     let route = d.pointer_route(t, spec.delivery)?;
     input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
+}
+
+/// The element a background click at `at` acts on through accessibility:
+/// the app's hit test at the point, kept only when it is inside the target
+/// window. A label or image inside a control counts as the control.
+fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOutcome>> {
+    let Ok((app, win)) = d.ax_window(t) else { return Ok(None) };
+    let Some(hit) = app.element_at(at.x, at.y) else { return Ok(None) };
+    if !hit.element("AXWindow").is_some_and(|w| w.same(&win)) {
+        return Ok(None);
+    }
+    let mut el = hit.clone();
+    for _ in 0..2 {
+        let role = el.string("AXRole").unwrap_or_default();
+        if !roles::is_label_role(&role) {
+            break;
+        }
+        match el.element("AXParent") {
+            Some(parent) if roles::is_press_role(&parent.string("AXRole").unwrap_or_default()) => {
+                el = parent
+            }
+            _ => break,
+        }
+    }
+    let role = el.string("AXRole").unwrap_or_default();
+    let actions = el.actions();
+    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), selectable(&el).is_some())
+    {
+        roles::HitClick::Press => {
+            d.refuse_denied_item(&el)?;
+            d.refuse_submenu_open(&el)?;
+            let before = el.value_text();
+            el.perform("AXPress").map_err(|e| ax_error(e, "pressing the element at the point"))?;
+            let mut out = outcome_after("ax_hit_press", before, &el);
+            out.cursor_at = Some(at);
+            Ok(Some(out))
+        }
+        roles::HitClick::Select => {
+            let Some(row) = selectable(&el) else { return Ok(None) };
+            if !select_only(&row) {
+                return Ok(None);
+            }
+            let mut out = select_outcome(&row);
+            out.cursor_at = Some(at);
+            Ok(Some(out))
+        }
+        roles::HitClick::Events => Ok(None),
+    }
+}
+
+/// `confirmed` when the row reads back as the only selected one.
+fn select_outcome(row: &Ax) -> ActionOutcome {
+    let mut out = if row.bool("AXSelected") == Some(true) && only_selected(row) {
+        ActionOutcome::confirmed("ax_select")
+    } else {
+        ActionOutcome::delivered("ax_select")
+    };
+    if let Some(frame) = row.frame() {
+        out = out.at(roles::center(&frame));
+    }
+    out
 }
 
 pub(super) fn click(
@@ -498,31 +572,32 @@ pub(super) fn click(
     let semantic = (spec.delivery == Delivery::Background || in_menu_bar)
         && spec.modifiers.is_empty()
         && spec.count <= 1;
-    if semantic {
-        let available = el.actions();
-        if let Some(action) =
-            press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
-        {
-            let before = el.value_text();
-            el.perform(action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
-            return Ok(outcome_after(&route_name(action), before, &el));
-        }
-    }
-    // A row or cell with no press action (System Settings' sidebar, Finder
-    // lists, tables): select it through accessibility. A background window
-    // drops pid-posted mouse events, so its center click did nothing.
+    let available = if semantic { el.actions() } else { Vec::new() };
+    // An element in a row or cell that has no press action (a Finder file
+    // name, System Settings' sidebar, table cells): a plain click selects
+    // its row, so the row is selected through accessibility. Before the
+    // element's own AXConfirm or AXOpen: those confirm an edit or open the
+    // item, which a single click does not (Finder's AXConfirm on a name did
+    // nothing at all).
     if semantic
         && spec.button == Button::Left
+        && !available.iter().any(|a| a == "AXPress")
         && let Some(row) = selectable(&el)
         && select_only(&row)
     {
-        let mut out = if row.bool("AXSelected") == Some(true) && only_selected(&row) {
-            ActionOutcome::confirmed("ax_select")
-        } else {
-            ActionOutcome::delivered("ax_select")
-        };
-        if let Some(frame) = row.frame() {
-            out = out.at(roles::center(&frame));
+        return Ok(select_outcome(&row));
+    }
+    if semantic
+        && let Some(action) =
+            press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
+    {
+        let before = el.value_text();
+        el.perform(action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
+        let mut out = outcome_after(&route_name(action), before, &el);
+        // A menu bar item's frame while its menu is closed is off screen
+        // (Safari's View items report y 900): no cursor there.
+        if in_menu_bar {
+            out.cursor_at = None;
         }
         return Ok(out);
     }
