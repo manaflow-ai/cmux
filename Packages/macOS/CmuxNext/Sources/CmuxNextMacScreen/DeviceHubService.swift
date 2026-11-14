@@ -88,6 +88,11 @@ public final class DeviceHubService {
         self.loginKeychain = loginKeychain
         self.bundleIdentifier = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         settingsModel = MacScreenDevicesSettings(pages: pages)
+        pages.captureCleanup = { [weak self] phase, leaseID, bundleID in
+            guard let self else { return .failure(.hubNotQuiescent) }
+            return await self.captureCleanup(phase: phase, leaseID: leaseID,
+                                             requestedBundleIdentifier: bundleID)
+        }
         settingsModel.canSignIn = { [weak self] in self?.leftHub ?? false }
         settingsModel.signIn = { [weak self] in
             guard let self else { return }
@@ -176,7 +181,6 @@ public final class DeviceHubService {
     }
 
     private func install(_ hub: DeviceHub, url: URL, user: String) {
-        pages.captureHub = hub
         self.hub = hub
         running = (url, user)
         pages.hub = hub
@@ -220,7 +224,6 @@ public final class DeviceHubService {
         hubStartCompletions.removeAll()
         for completion in stopCompletions.values.map(\.completion) { await completion.value }
         stopCompletions.removeAll()
-        await pages.captureHub?.freezeForCapture()
         loading = nil
         loadingFor = nil
         guard hub == nil, loading == nil else { return .failure(.hubNotQuiescent) }
@@ -262,7 +265,6 @@ public final class DeviceHubService {
             return
         }
         self.hub = nil
-        pages.captureHub = hub
         running = nil
         hubChanged?(nil, nil, nil)
         if removed { pages.endHubSessions(reason: "device_removed:viewer") }
@@ -270,6 +272,7 @@ public final class DeviceHubService {
         pages.hub = nil
         guard endingSessions else {
             trackStop(Task {
+                await hub.freezeForCapture()
                 for start in starts { await start.completion.value }
                 await hub.stopAndWait()
             })
@@ -278,6 +281,7 @@ public final class DeviceHubService {
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
         let completion = Task {
+            await hub.freezeForCapture()
             for start in starts { await start.completion.value }
             do { try await hub.signOutDevice() } catch {
                 await withTaskGroup(of: Void.self) { group in

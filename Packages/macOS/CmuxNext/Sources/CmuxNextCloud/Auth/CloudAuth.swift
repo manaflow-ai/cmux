@@ -23,6 +23,7 @@ public final class CloudAuth {
     @ObservationIgnored public let browserSignIn: HostBrowserSignInFlow
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
     @ObservationIgnored private let usesCaptureFixture: Bool
+    @ObservationIgnored private var captureTokenStore: CaptureFencedTokenStore?
     /// Prevents a new auth writer while a protected capture proves stores
     /// absent. Existing token readers are joined before deletion.
     @ObservationIgnored private var captureCleanupActive = false
@@ -196,18 +197,22 @@ public final class CloudAuth {
         } else {
             let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
                                                   memoryOnly: signIn.memoryOnly)
-            tokenStore = productionStore
+            let fencedStore = CaptureFencedTokenStore(base: productionStore)
+            captureTokenStore = fencedStore
+            tokenStore = fencedStore
             authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
-            client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
+            client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         }
         #else
         let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
                                               memoryOnly: signIn.memoryOnly)
-        tokenStore = productionStore
+        let fencedStore = CaptureFencedTokenStore(base: productionStore)
+        captureTokenStore = fencedStore
+        tokenStore = fencedStore
         // A memory-only launch keeps its cached user and team off the defaults too, so the next launch
         // never shows the file's account over the session in the Keychain.
         authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
-        client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
+        client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         #endif
         let sessionStore = tokenStore
         storedSession = {
@@ -324,6 +329,11 @@ public final class CloudAuth {
             keepsServerSession = { (refreshToken: String) async -> Bool in
                 await importing.isShared(refreshToken: refreshToken)
             }
+        } else if let fenced = tokenStore as? CaptureFencedTokenStore,
+                  let importing = fenced.base as? ImportingTokenStore {
+            keepsServerSession = { (refreshToken: String) async -> Bool in
+                await importing.isShared(refreshToken: refreshToken)
+            }
         }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
                                baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
@@ -407,9 +417,11 @@ public final class CloudAuth {
             for waiter in waiters { waiter.resume() }
         }
         await waitForCaptureTokenReaders()
+        await captureTokenStore?.captureAwaitIdle()
         guard !browserSignIn.isSigningIn, !coordinator.isLoading, !coordinator.isRestoringSession else {
             return .failure(.authNotQuiescent)
         }
+        if phase == .cleanup { await captureTokenStore?.freezeForCapture() }
         let configuration = configuration
         return await Task.detached(priority: .utility) {
             CaptureAuthPersistence().run(configuration: configuration, phase: phase, leaseID: leaseID,

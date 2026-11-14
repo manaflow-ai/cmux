@@ -57,14 +57,13 @@ extension MacScreenPages {
                         "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
                         "hub_quiescent": .bool(false)]
             }
-            guard let captureHub else {
+            guard let captureCleanup else {
                 return ["ok": .bool(false), "code": .string("capture_cleanup_unavailable"),
                         "identity_removed": .number(0), "relays_removed": .number(0), "verified_absent": .bool(false),
                         "hub_quiescent": .bool(false)]
             }
             let phase: DeviceHubCaptureCleanupPhase = action == "capture_prepare" ? .prepare : .cleanup
-            let result = await captureHub.captureCleanup(phase: phase, leaseID: leaseID,
-                                                         requestedBundleIdentifier: bundleID)
+            let result = await captureCleanup(phase, leaseID, bundleID)
             return ["ok": .bool(result.ok), "code": .string(result.code.rawValue),
                     "identity_removed": .number(Double(result.identityRemoved)),
                     "relays_removed": .number(Double(result.relaysRemoved)),
