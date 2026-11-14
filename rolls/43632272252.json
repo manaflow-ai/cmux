@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43632272252",
+  "recorded_at": "2026-11-14T19:34:08Z",
+  "reason": "cmux-tui d84d1529df8e changes the image's cmux-tui (pinned c4c6c11a215f)",
+  "dry_run": false,
+  "cmux_tui": "d84d1529df8e5cfb7f58674ca51dfeaf32c2fd7a",
+  "fixes": [
+    {
+      "sha": "d84d1529df8e5cfb7f58674ca51dfeaf32c2fd7a",
+      "mergedAt": "2026-11-14T11:06:23-08:00",
+      "subject": "holder: a tab respawned after a logout runs on the holder, not a host process of its own (#43207)"
+    },
+    {
+      "sha": "2e490ca54a94b611478beef066ad486449197bf3",
+      "mergedAt": "2026-11-14T11:06:06-08:00",
+      "subject": "fix(daemon): report stream serialization overflow for replay (#43171)"
+    },
+    {
+      "sha": "9ed38eca867cec8e7d6d0670d424fa04d91c8892",
+      "mergedAt": "2026-11-14T11:04:24-08:00",
+      "subject": "fix(remote): keep string-ID attach replies on the output lane (#43167)"
+    },
+    {
+      "sha": "29e19a4b015ff1dccb7df64d2497891ddf8efcf0",
+      "mergedAt": "2026-11-14T11:00:59-08:00",
+      "subject": "acpmux-book: a page of a chat's turns (v2 row 3d, part one) (#43181)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T19:34:08Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
