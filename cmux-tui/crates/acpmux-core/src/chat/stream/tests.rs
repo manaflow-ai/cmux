@@ -330,6 +330,10 @@ fn three_mebibytes_of_live_text_in_one_coalesce_reach_a_subscriber_whole_in_smal
                 text.len(),
                 consumed
             );
+            if frame.encoded_len() < 2000 || largest == 0 {
+                let payload = String::from_utf8_lossy(frame.payload());
+                eprintln!("DEBUG payload {}", payload.chars().take(700).collect::<String>());
+            }
             assert_ne!(frame.kind, FrameKind::Dropped, "a live subscriber was dropped");
             if frame.kind == FrameKind::Delta {
                 largest = largest.max(frame.encoded_len());
