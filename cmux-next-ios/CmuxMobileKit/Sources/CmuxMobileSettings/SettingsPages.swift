@@ -28,7 +28,8 @@ struct AccountPage: View {
     @State private var confirmsDeletion = false
     /// Apple's subscription page while the App Store warning is up.
     @State private var renewingSubscription: URL?
-    /// Delete Account was tapped and the pre-delete check is in flight.
+    /// Delete Account was tapped and the pre-delete check is in flight; its
+    /// task runs from `.task(id:)`, so leaving the page cancels it.
     @State private var checkingDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
@@ -91,7 +92,9 @@ struct AccountPage: View {
             }
             Section {
                 Button(role: .destructive) {
-                    Task { await askBeforeDeleting() }
+                    // Set here, before the next render, so a second tap
+                    // cannot start a second check.
+                    checkingDeletion = true
                 } label: {
                     HStack {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
@@ -109,6 +112,7 @@ struct AccountPage: View {
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
+        .task(id: checkingDeletion) { if checkingDeletion { await askBeforeDeleting() } }
         // An alert, not a confirmation dialog: on iOS 26 a confirmation
         // dialog opens as a popover with no Cancel button, closed only by a
         // tap outside it. Account deletion (Guideline 5.1.1(v)) shows Cancel
@@ -147,8 +151,8 @@ struct AccountPage: View {
     /// subscription will keep renewing, then shows the App Store warning or
     /// the plain confirmation (``AccountDeletionPrompt``).
     private func askBeforeDeleting() async {
-        checkingDeletion = true
         let check = await auth.accountDeletionCheck()
+        guard !Task.isCancelled else { return }
         checkingDeletion = false
         switch AccountDeletionPrompt(check: check) {
         case .appStoreSubscriptionWarning(let manageURL): renewingSubscription = manageURL

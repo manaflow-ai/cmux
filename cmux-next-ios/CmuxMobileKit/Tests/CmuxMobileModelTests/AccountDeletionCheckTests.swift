@@ -50,6 +50,25 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
     }
 
+    /// The same URL `DELETE /api/account` builds from the origin, with or
+    /// without a trailing slash or a path.
+    @Test func clientBuildsTheCheckURLFromAnyOriginForm() async throws {
+        for (origin, expected) in [
+            ("https://cmux.example/", "https://cmux.example/api/account/deletion-check"),
+            ("https://cmux.example/base", "https://cmux.example/base/api/account/deletion-check"),
+            ("http://localhost:3000", "http://localhost:3000/api/account/deletion-check"),
+        ] {
+            let seen = RequestBox()
+            let client = AccountDeletionCheckClient(origin: URL(string: origin)!) { request in
+                await seen.set(request)
+                return (Data(#"{"appStoreSubscriptionRenews":false}"#.utf8),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            #expect(try await client.check(accessToken: "a", refreshToken: "r") == .nothingToWarn)
+            #expect(await seen.request?.url?.absoluteString == expected)
+        }
+    }
+
     @Test func clientMapsFailedAnswers() async {
         for (status, expected) in [(401, AccountDeletionCheckError.unauthorized), (503, .status(503))] {
             let client = AccountDeletionCheckClient(origin: URL(string: "https://cmux.example/")!) { request in

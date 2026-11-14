@@ -68,15 +68,19 @@ final class AccountDeletionAppStoreUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         alert.buttons["Manage Subscription"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5), "Manage Subscription must close the warning")
-        // StoreKit's sheet in the app, or Safari with Apple's page.
+        // StoreKit's own sheet over the app (on a simulator without an App
+        // Store account it says Cannot Connect, then asks to sign in), or
+        // Safari with Apple's subscriptions page (the fallback).
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        let handedOff = safari.wait(for: .runningForeground, timeout: 8) || app.sheets.firstMatch.exists || app.otherElements["ManageSubscriptions"].exists
+        let storeKitSheet = app.otherElements.containing(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Cannot Connect", "Apple Account")).firstMatch
+        let handedOff = storeKitSheet.waitForExistence(timeout: 10)
+            || app.staticTexts["Cannot Connect"].exists
+            || app.staticTexts["Apple Account Sign in Requested"].exists
+            || safari.state == .runningForeground
+            // A full-screen system sheet over the page: Delete Account is covered.
+            || !app.buttons["settings.deleteAccount"].isHittable
         capture("manage-subscription", .light)
-        if !handedOff {
-            // A simulator without an App Store account may show nothing from
-            // StoreKit; the page fallback is what the capture shows then.
-            XCTContext.runActivity(named: "manage-subscription: no visible hand-off; see capture") { _ in }
-        }
+        XCTAssertTrue(handedOff, "Manage Subscription must open Apple's subscription management; on screen: \(app.debugDescription.prefix(800))")
         if safari.state != .notRunning { safari.terminate() }
         app.activate()
         XCTAssertTrue(app.buttons["settings.deleteAccount"].waitForExistence(timeout: 10), "managing the subscription must leave the account in place")
