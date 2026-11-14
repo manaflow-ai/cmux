@@ -1,14 +1,36 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import CmuxSidebar
 import Foundation
 
 @MainActor
 extension Workspace {
+    /// Indexes the agent-chat session registry once for one custom-sidebar
+    /// data-context build. Pass the result to every workspace's
+    /// ``customSidebarWorkspaceSnapshot(index:selectedId:unreadCount:agentIndex:)``
+    /// in that build, so the registry is fetched, sorted and scanned once per
+    /// build instead of once per workspace.
+    static func customSidebarAgentBindingIndex() -> CustomSidebarAgentBindingIndex<AgentChatSessionRecord> {
+        guard let service = TerminalController.shared.agentChatTranscriptService else {
+            return CustomSidebarAgentBindingIndex()
+        }
+        return CustomSidebarAgentBindingIndex(records: service.sessionRecords(workspaceID: nil)) { record in
+            if let panelId = record.surfaceID.flatMap(UUID.init(uuidString:)) {
+                return .panel(panelId)
+            }
+            return record.workspaceID.map { .workspace($0) } ?? .unbound
+        }
+    }
+
     /// Projects live workspace state into the custom-sidebar interpreter input snapshot.
+    ///
+    /// - Parameter agentIndex: The registry index from
+    ///   ``customSidebarAgentBindingIndex()``, built once per data-context build.
     func customSidebarWorkspaceSnapshot(
         index: Int,
         selectedId: UUID?,
-        unreadCount: Int
+        unreadCount: Int,
+        agentIndex: CustomSidebarAgentBindingIndex<AgentChatSessionRecord>
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
         let displayTitle = customTitle ?? title
@@ -46,7 +68,7 @@ extension Workspace {
             latestSubmittedMessage: latestSubmittedMessage,
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
-            agents: customSidebarAgentSnapshots(),
+            agents: customSidebarAgentSnapshots(agentIndex: agentIndex),
             groupId: groupId,
             taskStatus: effectiveTaskStatus.rawValue,
             emoji: Self.customSidebarLeadingEmoji(in: displayTitle)
@@ -77,10 +99,9 @@ extension Workspace {
     /// to a panel that lives elsewhere (or was closed) are excluded even when
     /// their stored workspace id matches, because that stored id goes stale
     /// across relaunches while the panel binding stays authoritative.
-    private func customSidebarAgentSnapshots() -> [CustomSidebarAgentSnapshot] {
-        guard let service = TerminalController.shared.agentChatTranscriptService else { return [] }
-        let records = service.sessionRecords(workspaceID: nil)
-        guard !records.isEmpty else { return [] }
+    private func customSidebarAgentSnapshots(
+        agentIndex: CustomSidebarAgentBindingIndex<AgentChatSessionRecord>
+    ) -> [CustomSidebarAgentSnapshot] {
         var surfaceIdByPanelId: [UUID: UUID] = [:]
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
@@ -88,15 +109,16 @@ extension Workspace {
                 surfaceIdByPanelId[panelId] = tab.id.uuid
             }
         }
-        let workspaceIdString = id.uuidString
+        let matches = agentIndex.records(
+            panelIds: surfaceIdByPanelId.keys,
+            workspaceId: id.uuidString,
+            limit: Self.customSidebarAgentLimit
+        )
         var agents: [CustomSidebarAgentSnapshot] = []
-        for record in records {
-            let panelId = record.surfaceID.flatMap(UUID.init(uuidString:))
-            if let panelId {
-                guard surfaceIdByPanelId[panelId] != nil else { continue }
-            } else {
-                guard record.workspaceID == workspaceIdString else { continue }
-            }
+        agents.reserveCapacity(matches.count)
+        for match in matches {
+            let record = match.record
+            let panelId = match.panelId
             let status: String
             let stateSince: Date?
             switch record.state {
@@ -138,7 +160,6 @@ extension Workspace {
                     }
                 )
             )
-            if agents.count >= Self.customSidebarAgentLimit { break }
         }
         return agents
     }
