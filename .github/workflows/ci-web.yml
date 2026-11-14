@@ -472,7 +472,7 @@ jobs:
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
       # menu-gutter, layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
       # run and only warn. The type check, the browser test-lane check, the protocol codegen
-      # check and the string catalog key check fail, through fast_gate_webviews_checks.py: each
+      # check, the string catalog key check and the user-facing strings gate fail, through fast_gate_webviews_checks.py: each
       # runs on its own, and on a pull request only errors the base (the merge parent) lacks
       # fail, per error (file, code, message); the base's errors are warnings. A push charges
       # every red. Elsewhere every piece of `bun run check` (its `check:pieces` list) runs and gates, none stopping the next.
@@ -501,6 +501,16 @@ jobs:
           ./node_modules/.bin/vp fmt --check || echo "::warning title=webviews format (warn-only)::vp fmt --check found unformatted files; see the step log"
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
+
+      # The user-facing strings gate's own tests (scripts/cmux-next/check-user-facing-strings.py): each rule and the
+      # shrink-only ratchet on fixtures. The gate itself is check:user-facing-strings, one of
+      # fast_gate_webviews_checks.py's CHECKS in the step above, so it fails a feat-cmux-next pull request too
+      # (cmuxterm-hq docs/handbook/user-facing-state-contradicts-or-dead-ends.md).
+      - name: Check user-facing strings
+        id: user-facing-strings
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-user-facing-strings.py --self-test
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
@@ -658,6 +668,7 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          USER_FACING_STRINGS: ${{ steps.user-facing-strings.outcome }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
@@ -683,7 +694,8 @@ jobs:
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
-            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            "PR_SCOPED_RULES|Check PR-scoped webview rules" \
+            "USER_FACING_STRINGS|Check user-facing strings"; do
             var="${gate%%|*}"
             if [ "${!var}" = "failure" ]; then
               if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
