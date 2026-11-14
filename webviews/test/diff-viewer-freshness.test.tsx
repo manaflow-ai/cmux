@@ -470,6 +470,118 @@ test("while the reader stays in the page, a machine without the fingerprint read
   }
 });
 
+test("a machine without the fingerprint read that does not answer is asked again each 4 s with the focus and each 30 s without it, and never from a hidden page", async () => {
+  await act(async () => root.render(null));
+  let focused = true;
+  let visibility = "visible";
+  const focus = spyOn(document, "hasFocus").mockImplementation(() => focused);
+  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  let clock = 0;
+  let nextId = 0;
+  let wakeups = 0;
+  const timers = new Map<number, { callback: () => void; delay: number; due: number }>();
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, delay = 0) => {
+    const id = ++nextId;
+    timers.set(id, { callback, delay, due: clock + delay });
+    return id;
+  }) as unknown as typeof setInterval);
+  const clear = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
+    timers.delete(id as unknown as number);
+  });
+  const advance = async (ms: number) => {
+    const end = clock + ms;
+    for (;;) {
+      const next = Array.from(timers.values()).sort((a, b) => a.due - b.due)[0];
+      if (!next || next.due > end) break;
+      clock = next.due;
+      next.due += next.delay;
+      wakeups++;
+      await act(async () => next.callback());
+    }
+    clock = end;
+  };
+  const delays = () => Array.from(timers.values(), (timer) => timer.delay);
+  const offline = "Build VM is offline. Reconnect to see its diff.";
+  const older = Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  const away = Object.assign(new Error(offline), { code: "cmux.diff.machine_offline" });
+  let failure = older;
+  let reads = 0;
+  let refreshed = 0;
+  // A read that waits for the machine: the test ends it by hand.
+  let late: ((error: Error) => void) | undefined;
+  let waits = false;
+  const read = (): Promise<string> => {
+    reads++;
+    if (!waits) return Promise.reject(failure);
+    return new Promise<string>((_resolve, reject) => {
+      late = reject;
+    });
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="older-machine-intervals" read={read} canRefresh refresh={() => refreshed++} />),
+    );
+    await settle();
+    // A session host without the read whose machine answers: no timer.
+    expect([reads, delays()]).toEqual([1, []]);
+
+    // The machine is not connected at a return: the page asks again each 4 s.
+    failure = away;
+    await act(async () => window.dispatchEvent(new dom.window.Event("focus")));
+    await settle();
+    expect([reason(), reads, delays()]).toEqual([offline, 2, [4000]]);
+    await advance(8_000);
+    expect(reads).toBe(4);
+
+    // Without the focus: each 30 s.
+    focused = false;
+    await act(async () => window.dispatchEvent(new dom.window.Event("blur")));
+    expect(delays()).toEqual([30_000]);
+    await advance(60_000);
+    expect(reads).toBe(6);
+
+    // The reader comes back and hides the page before the machine's answer is there.
+    focused = true;
+    waits = true;
+    await act(async () => window.dispatchEvent(new dom.window.Event("focus")));
+    expect(reads).toBe(7);
+    visibility = "hidden";
+    await act(async () => document.dispatchEvent(new dom.window.Event("visibilitychange")));
+    expect(delays()).toEqual([]);
+    waits = false;
+    await act(async () => late?.(away));
+    await settle();
+    // The late answer starts nothing in a hidden page.
+    expect(delays()).toEqual([]);
+    const beforeHidden = wakeups;
+    await advance(60_000);
+    expect([wakeups, reads]).toEqual([beforeHidden, 7]);
+
+    // The page is shown again and the machine is still not connected: the page asks again.
+    visibility = "visible";
+    await act(async () => document.dispatchEvent(new dom.window.Event("visibilitychange")));
+    await settle();
+    expect([reason(), reads, delays()]).toEqual([offline, 8, [4000]]);
+
+    // The machine answers: the reason and the timer end, and the diff of the return loads one time.
+    failure = older;
+    await advance(4_000);
+    await settle();
+    expect([reason(), reads, delays(), refreshed]).toEqual(["", 9, [], 1]);
+    const afterAnswer = wakeups;
+    await advance(60_000);
+    expect([wakeups, reads, refreshed]).toEqual([afterAnswer, 9, 1]);
+  } finally {
+    await act(async () => root.render(null));
+    interval.mockRestore();
+    clear.mockRestore();
+    focus.mockRestore();
+    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+  }
+});
+
 test("a replaced source ignores a late offline failure from the old machine", async () => {
   let refuse: ((error: Error) => void) | undefined;
   const oldRead = () =>
