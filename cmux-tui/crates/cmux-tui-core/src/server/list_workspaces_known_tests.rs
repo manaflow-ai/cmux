@@ -165,3 +165,105 @@ fn known_is_advertised() {
     );
     mux.shutdown();
 }
+
+/// cmux#42895: a branch switched in a tab's directory sends no event, so a phone that holds the
+/// tree from before it must get the whole tree with the new branch, never `unchanged`.
+#[test]
+fn a_branch_switch_with_no_event_gets_the_whole_tree() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-known-branch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    let mux = Mux::new_for_test("known-branch", SurfaceOptions::default());
+    let spawn = crate::TerminalSpawnOptions {
+        cwd: Some(root.to_string_lossy().into_owned()),
+        // A program that draws nothing, so nothing else moves the tree while the test reads.
+        argv: Some(vec!["/bin/sleep".into(), "600".into()]),
+        ..crate::TerminalSpawnOptions::default()
+    };
+    mux.new_workspace_with_spawn_as(
+        &crate::Actor::Daemon,
+        Some("repo".into()),
+        spawn,
+        Some((80, 24)),
+    )
+    .unwrap();
+    let branch = |reply: &Value| {
+        reply["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["git_branch"].clone()
+    };
+
+    // The terminal settles (its start, its size) before the tree is held.
+    let mut held = list_since(&mux, &json!({}));
+    for _ in 0..100 {
+        let again = list_since(&mux, &known_of(&held));
+        if again["unchanged"] == json!(true) {
+            break;
+        }
+        held = again;
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(branch(&held), json!("main"), "{held}");
+    let known = known_of(&held);
+    assert_unchanged(&list_since(&mux, &known), &known);
+
+    // `git switch feature`: HEAD changes, no event. Within the HEAD cache's lifetime (2 s,
+    // presentation.rs) the old answer may stand; after it, the whole tree must come back.
+    std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(6);
+    let switched = loop {
+        let reply = list_since(&mux, &known);
+        if reply.get("unchanged").is_none() || Instant::now() > deadline {
+            break reply;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(is_whole(&switched), "a branch switch kept the old tree: {switched}");
+    assert_eq!(branch(&switched), json!("feature"), "{switched}");
+    let known = known_of(&switched);
+    assert_unchanged(&list_since(&mux, &known), &known);
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// hq#10926: a `known` from before a daemon restart, on the same registry, gets the whole tree
+/// once, never `unchanged` (the revision's boot part is per process, mux/tree_revision.rs).
+#[test]
+fn a_known_from_before_a_restart_gets_the_whole_tree() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-known-restart-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let open = || {
+        let registry =
+            crate::workspace_registry::WorkspaceRegistry::open(&root, "known-restart").unwrap();
+        Mux::from_workspace_registry(
+            "known-restart".to_string(),
+            SurfaceOptions::default(),
+            registry,
+            crate::mux::ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    };
+    let mux = open();
+    mux.create_empty_workspace(Some("one".into()), None, None).unwrap();
+    let known = known_of(&list_since(&mux, &json!({})));
+    assert_unchanged(&list_since(&mux, &known), &known);
+    mux.shutdown();
+    drop(mux);
+
+    let mux = open();
+    let after = list_since(&mux, &known);
+    assert!(is_whole(&after), "an old known matched after a restart: {after}");
+    assert_eq!(after["registry_id"], known["registry_id"], "not the same registry: {after}");
+    assert_ne!(after["tree_revision"], known["tree_revision"]);
+    let known = known_of(&after);
+    assert_unchanged(&list_since(&mux, &known), &known);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
