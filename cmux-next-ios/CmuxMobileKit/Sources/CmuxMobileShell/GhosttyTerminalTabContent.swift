@@ -337,7 +337,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
-        // A tapped web link opens beside the terminal, in this workspace (the Mac's Cmd-click).
+        // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
+        // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
         return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
     }
