@@ -255,19 +255,19 @@ pub(super) async fn dispatch(
         return None;
     }
     if m == method::MUX_PAIR_FULL_ACCESS_APPROVE {
-        let phone = conn
-            .device
-            .as_deref()
-            .filter(|id| conn.auth == ConnAuth::Device && hub.pairing.is_phone(id));
-        if conn.origin != Origin::Web || phone.is_none() {
+        if conn.origin != Origin::Web || conn.auth != ConnAuth::Device {
             return Some(Err(RpcError::new(
                 -32003,
                 "Full access can be approved only by the paired iPhone",
             )
             .with_data(json!({"reason": "pair.full_access_phone_required"}))));
         }
-        let Some(phone) = phone else {
-            unreachable!("the phone credential was checked above");
+        let Some(phone) = conn.device.as_deref().filter(|id| hub.pairing.is_phone(id)) else {
+            return Some(Err(RpcError::new(
+                -32003,
+                "Full access can be approved only by the paired iPhone",
+            )
+            .with_data(json!({"reason": "pair.full_access_phone_required"}))));
         };
         return Some(approve_full_access(hub, phone, params).await);
     }
