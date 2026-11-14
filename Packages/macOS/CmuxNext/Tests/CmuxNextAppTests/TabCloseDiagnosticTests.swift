@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import Testing
 
