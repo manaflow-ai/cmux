@@ -9,6 +9,9 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
     /// `nil` accepts every top-level domain.
     var publicTopLevelDomains: Set<String>?
+    /// `true` models the app's browser resolver, which navigates web URLs
+    /// only: a link with another scheme (`sms:`, `obsidian:`) is not navigable.
+    var navigatesOnlyWebSchemes = false
 
     func normalizedHost(_ rawHost: String) -> String? {
         guard !rejectsEveryHost else { return nil }
@@ -21,7 +24,10 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     func navigableWebURL(_ input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
-        if URL(string: trimmed)?.scheme != nil { return URL(string: trimmed) }
+        if let scheme = URL(string: trimmed)?.scheme?.lowercased() {
+            guard !navigatesOnlyWebSchemes || scheme == "http" || scheme == "https" else { return nil }
+            return URL(string: trimmed)
+        }
         guard trimmed.contains(".") || trimmed.lowercased().hasPrefix("localhost") else { return nil }
         return URL(string: "https://\(trimmed)")
     }
@@ -136,6 +142,52 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     @Test func schemelessPublicHostStaysALink() throws {
         let tlds = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(publicTopLevelDomains: ["com"]))
         #expect(try #require(tlds.resolveOpenURLTarget("example.com/docs")).url.host == "example.com")
+    }
+
+    /// An app link that mixes raw Unicode and `%2F` opens with the escape
+    /// intact, not double-encoded to `%252F` (manaflow-ai/cmux#40300).
+    @Test func customSchemeLinkKeepsPercentEscapesNextToRawUnicode() throws {
+        let target = try #require(
+            router.resolveOpenURLTarget("obsidian://open?vault=メモ&file=2026%2F11%2F5")
+        )
+        guard case let .external(url) = target else {
+            Issue.record("Expected a custom-scheme link to open externally")
+            return
+        }
+        #expect(url.absoluteString == "obsidian://open?vault=%E3%83%A1%E3%83%A2&file=2026%2F11%2F5")
+    }
+
+    /// A link whose scheme is followed by a digit (`sms:090…`) reads as
+    /// `host:port` to the web-host check, but Foundation parses it as a
+    /// scheme, so it needs its escapes kept like any other link with one.
+    @Test func schemeLinkStartingWithADigitKeepsPercentEscapesNextToRawUnicode() {
+        let router = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(navigatesOnlyWebSchemes: true))
+        let links = [
+            (
+                "sms:0901234567?body=こんにちは%20世界",
+                "sms:0901234567?body=%E3%81%93%E3%82%93%E3%81%AB%E3%81%A1%E3%81%AF%20%E4%B8%96%E7%95%8C"
+            ),
+            ("obsidian:2026%2F11メモ", "obsidian:2026%2F11%E3%83%A1%E3%83%A2")
+        ]
+        for (text, expected) in links {
+            guard case let .external(url)? = router.resolveOpenURLTarget(text) else {
+                Issue.record("Expected \(text) to open externally")
+                continue
+            }
+            #expect(url.absoluteString == expected)
+        }
+    }
+
+    /// Scheme-less text the browser cannot navigate resolves exactly as
+    /// Foundation parses it as written. Encoding it first changes whether
+    /// Foundation parses it at all, so terminal output such as
+    /// `エラー:見つかりません` became a link on one Foundation and
+    /// `[javascript:本^` stopped being one on another. The expectation is
+    /// Foundation's own answer because that answer differs between OS versions.
+    @Test func schemeLessTextTheBrowserCannotNavigateResolvesAsWritten() {
+        for text in ["エラー:見つかりません", "日本語:8080", "[javascript:本^"] {
+            #expect(router.resolveOpenURLTarget(text)?.url == URL(string: text), "\(text)")
+        }
     }
 
     @Test func emptyTextResolvesToNil() {
