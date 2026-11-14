@@ -2,10 +2,10 @@ use std::ffi::OsString;
 use std::io::{self, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_process::{Command, OwnedChild, Stdio};
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::server::PROTOCOL_VERSION;
 use serde_json::Value;
@@ -112,7 +112,9 @@ impl CloudConnector for SshCloudConnector {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()?;
+            // ssh and anything it starts (a ProxyCommand) die with this
+            // process, even by SIGKILL, and with the connection.
+            .spawn_owned()?;
         let writer =
             child.stdin.take().ok_or_else(|| io::Error::other("OpenSSH did not expose stdin"))?;
         let reader =
@@ -134,15 +136,15 @@ fn validate_ssh_component(label: &str, value: &str) -> anyhow::Result<()> {
 }
 
 struct ChildConnectionControl {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<OwnedChild>>,
 }
 
 impl ConnectionControl for ChildConnectionControl {
     fn close(&self) {
         let Ok(mut child) = self.child.lock() else { return };
         if let Some(mut child) = child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            // No grace: a closed link ends ssh at once, as before.
+            child.shutdown(Duration::ZERO);
         }
     }
 }

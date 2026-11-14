@@ -1296,6 +1296,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "cmux-process",
  "futures-util",
  "libc",
  "serde_json",
@@ -1630,6 +1631,7 @@ dependencies = [
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
  "cmux-unix-socket",
