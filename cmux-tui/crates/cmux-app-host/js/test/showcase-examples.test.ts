@@ -1,8 +1,8 @@
 // The showcase example extensions (examples/extensions/{weather,recent-prs,agent-pet,
-// agent-standup,workspace-notes}) in the fake host. Each imports nothing but cmux-extension-sdk;
-// the committed dist/main.js is what Settings installs, so these tests mount that file and
-// check it is the one src/main.ts packs to.
-import { describe, expect, test } from "bun:test"
+// agent-standup,workspace-notes}) in the fake host. Each imports nothing but cmux-extension-sdk.
+// Their dist/ is build output (gitignored): `cmux ext dev` packs src/main.ts the same way, so
+// these tests pack each one here and mount the result.
+import { beforeAll, describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { pack } from "../../tools/pack.ts"
@@ -12,10 +12,15 @@ const root = join(import.meta.dir, "../../../../..")
 const dir = (name: string) => join(root, "examples/extensions", name)
 const ok = (value: unknown) => ({ ok: true, body: { value } })
 const fail = (code: string, message = code) => ({ ok: false, body: { code, message, retryable: false } })
+const NAMES = ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes"]
+const built = new Map<string, string>()
+beforeAll(async () => {
+  for (const name of NAMES) built.set(name, await pack(dir(name)))
+})
 
 function host(name: string, settings: Record<string, unknown> = {}) {
-  const manifest = JSON.parse(readFileSync(join(dir(name), "cmux-app.v2.json"), "utf8"))
-  return new FakeHost(readFileSync(join(dir(name), "dist/main.js"), "utf8"), { app: { id: manifest.id, version: "1.0.0" }, settings, apiVersion: "1.0.0" })
+  const manifest = JSON.parse(readFileSync(join(dir(name), "cmux-app.json"), "utf8"))
+  return new FakeHost(built.get(name)!, { app: { id: manifest.id, version: "1.0.0" }, settings, apiVersion: "1.0.0" })
 }
 
 // Rows and texts in drawn order (the tree from its root).
@@ -36,12 +41,14 @@ const texts = (h: FakeHost, m: string) => drawn(h, m).filter((n) => n.type === "
 const empty = (h: FakeHost, m: string) => drawn(h, m).find((n) => n.type === "EmptyState")?.props
 
 describe("showcase examples are built only on cmux-extension-sdk", () => {
-  for (const name of ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes"]) {
-    test(`${name}: imports nothing else, and dist/main.js is what src/main.ts packs to`, async () => {
+  for (const name of NAMES) {
+    test(`${name}: imports nothing else, and its manifest names exports the bundle defines`, () => {
       const src = readFileSync(join(dir(name), "src/main.ts"), "utf8")
       expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
       expect(src).not.toContain("<reference")
-      expect(readFileSync(join(dir(name), "dist/main.js"), "utf8")).toBe(await pack(dir(name)))
+      const manifest = JSON.parse(readFileSync(join(dir(name), "cmux-app.json"), "utf8"))
+      expect(manifest.runtime.main).toBe("dist/main.js")
+      for (const impl of Object.values(manifest.implements as Record<string, { export: string }>)) expect(built.get(name)).toContain(`function ${impl.export}(`)
     })
   }
 })

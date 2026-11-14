@@ -20,7 +20,8 @@ cd examples/extensions/weather
 cmux ext dev            # loads it into the running cmux; every save reloads it
 ```
 
-`dist/main.js` is committed, because Settings installs that file: rebuild it with
-`bun examples/extensions/build.ts` after you change `src/main.ts`. Tests:
-`cmux-tui/crates/cmux-app-host/js/test/showcase-examples.test.ts` (fake host) and
-`cmux-tui/crates/cmux-app-host/tests/examples.rs` (the QuickJS host cmux runs extensions in).
+`cmux ext dev` packs `src/main.ts` into `dist/main.js` (build output, not committed). Outside
+this repository, copy the folder and run `npm install` first; inside it, `tsconfig.json` points
+the import at the SDK's source. Tests:
+`cmux-tui/crates/cmux-app-host/js/test/showcase-examples.test.ts` packs each sample and runs it
+in the fake host.

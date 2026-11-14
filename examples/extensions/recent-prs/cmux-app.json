@@ -1,5 +1,5 @@
 {
-  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
   "manifestVersion": 2,
   "id": "local/showcase-recent-prs",
   "name": { "en": "Recent PRs" },
