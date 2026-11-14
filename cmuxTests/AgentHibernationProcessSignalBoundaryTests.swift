@@ -105,6 +105,128 @@ struct AgentHibernationProcessSignalBoundaryTests {
         #expect(signaledTargets.withLock { $0 }.isEmpty)
     }
 
+    private nonisolated static let agentIdentity = AgentPIDProcessIdentity(
+        pid: 101,
+        startSeconds: 10,
+        startMicroseconds: 1
+    )
+    private nonisolated static let helperIdentity = AgentPIDProcessIdentity(
+        pid: 202,
+        startSeconds: 20,
+        startMicroseconds: 2
+    )
+    /// `cmux hooks claude inbox-wait`, detached by Claude Code into its own
+    /// process group with no terminal.
+    private nonisolated static let helperArguments = CmuxTopProcessArguments(
+        arguments: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "hooks", "claude", "inbox-wait"],
+        environment: signalScopeArguments.environment
+    )
+    private nonisolated static let agentAndHelperTerminations: [AgentHibernationController.ScopedProcessTermination] = [
+        .init(processID: 101, processIdentity: agentIdentity, processGroupID: 101, ttyDevice: 123),
+        .init(processID: 202, processIdentity: helperIdentity, processGroupID: 202, ttyDevice: nil, isCmuxHelper: true),
+    ]
+
+    /// Signals the agent's own group and the helper's, and nothing else.
+    private func terminateAgentAndHelper(
+        _ terminations: [AgentHibernationController.ScopedProcessTermination] =
+            AgentHibernationProcessSignalBoundaryTests.agentAndHelperTerminations,
+        helperArguments: CmuxTopProcessArguments =
+            AgentHibernationProcessSignalBoundaryTests.helperArguments,
+        helperTTYDevice: Int64? = nil,
+        signaledTargets: OSAllocatedUnfairLock<[pid_t]>
+    ) async -> AgentHibernationController.ScopedProcessTerminationResult {
+        await AgentHibernationController.terminateScopedProcessesForHibernation(
+            terminations,
+            processScopeKey: Self.signalScopeKey,
+            currentProcessID: 999,
+            currentProcessGroupID: 999,
+            processIdentityProvider: { $0 == 101 ? Self.agentIdentity : Self.helperIdentity },
+            processGroupProvider: { $0 },
+            processArgumentsProvider: { $0 == 101 ? Self.signalScopeArguments : helperArguments },
+            processTTYDeviceProvider: { $0 == 101 ? 123 : helperTTYDevice },
+            signalErrorProvider: { target, _ in
+                signaledTargets.withLock { $0.append(target) }
+                return nil
+            }
+        )
+    }
+
+    @MainActor
+    @Test
+    func signalsARegisteredHelperBesideItsAgent() async {
+        let signaledTargets = OSAllocatedUnfairLock(initialState: [pid_t]())
+
+        let result = await terminateAgentAndHelper(signaledTargets: signaledTargets)
+
+        #expect(result == .committedAwaitingExit)
+        #expect(signaledTargets.withLock { $0 } == [-101, -202])
+        #expect(
+            AgentHibernationController.commonTTYDevice(in: Self.agentAndHelperTerminations) == 123
+        )
+    }
+
+    @MainActor
+    @Test
+    func rejectsAHelperWhoseOwnershipEvidenceChanged() async {
+        let signaledTargets = OSAllocatedUnfairLock(initialState: [pid_t]())
+        let otherCommand = CmuxTopProcessArguments(
+            arguments: ["/usr/bin/python3", "-m", "http.server"],
+            environment: Self.signalScopeArguments.environment
+        )
+        let otherSurface = CmuxTopProcessArguments(
+            arguments: Self.helperArguments.arguments,
+            environment: [
+                "CMUX_WORKSPACE_ID": Self.signalScopeKey.workspaceId.uuidString,
+                "CMUX_SURFACE_ID": UUID().uuidString,
+            ]
+        )
+        // Detached work that was never scoped as a helper.
+        let unregistered: [AgentHibernationController.ScopedProcessTermination] = [
+            Self.agentAndHelperTerminations[0],
+            .init(processID: 202, processIdentity: Self.helperIdentity, processGroupID: 202, ttyDevice: nil),
+        ]
+
+        let changedCommand = await terminateAgentAndHelper(
+            helperArguments: otherCommand,
+            signaledTargets: signaledTargets
+        )
+        let changedSurface = await terminateAgentAndHelper(
+            helperArguments: otherSurface,
+            signaledTargets: signaledTargets
+        )
+        let gainedTerminal = await terminateAgentAndHelper(
+            helperTTYDevice: 123,
+            signaledTargets: signaledTargets
+        )
+        let neverScoped = await terminateAgentAndHelper(
+            unregistered,
+            signaledTargets: signaledTargets
+        )
+
+        #expect(changedCommand == .rejected)
+        #expect(changedSurface == .rejected)
+        #expect(gainedTerminal == .rejected)
+        #expect(neverScoped == .rejected)
+        #expect(signaledTargets.withLock { $0 }.isEmpty)
+    }
+
+    @Test
+    func helperScopeCarriesIntoValidatedTerminations() {
+        let terminations = AgentHibernationController.validatedScopedProcessTerminations(
+            for: .init(
+                key: Self.signalScopeKey,
+                processIDs: [101, 202],
+                processIdentities: [101: Self.agentIdentity, 202: Self.helperIdentity],
+                cmuxHelperProcessIDs: [202]
+            ),
+            processIdentityProvider: { $0 == 101 ? Self.agentIdentity : Self.helperIdentity },
+            processGroupProvider: { pid_t($0) },
+            processTTYDeviceProvider: { $0 == 101 ? 123 : nil }
+        )
+
+        #expect(terminations == Self.agentAndHelperTerminations.sorted { $0.processID > $1.processID })
+    }
+
     @MainActor
     @Test
     func rejectsTTYChangeBeforeFinalCommit() async {

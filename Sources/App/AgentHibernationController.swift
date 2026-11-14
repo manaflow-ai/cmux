@@ -22,6 +22,8 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
+    /// Registered cmux helpers among `processIDs`, terminated without a terminal.
+    let cmuxHelperProcessIDs: Set<Int>
     private(set) var processLiveness: RestorableAgentProcessLiveness = .unknown
     init(
         key: AgentHibernationPanelKey,
@@ -37,6 +39,7 @@ struct AgentHibernationRecord {
         panelProcessIDs: Set<Int>,
         processIDs: Set<Int>,
         processIdentities: [Int: AgentPIDProcessIdentity],
+        cmuxHelperProcessIDs: Set<Int> = [],
         processLiveness: RestorableAgentProcessLiveness = .unknown
     ) {
         self.key = key
@@ -52,6 +55,7 @@ struct AgentHibernationRecord {
         self.panelProcessIDs = panelProcessIDs
         self.processIDs = processIDs
         self.processIdentities = processIdentities
+        self.cmuxHelperProcessIDs = cmuxHelperProcessIDs
         self.processLiveness = processLiveness
     }
 }
