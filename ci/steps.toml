@@ -19,8 +19,10 @@
 # only go down; the target is `target_pr_jobs`. Lower it when a change removes jobs.
 [budget]
 # 362 since #42337 (12 webview test shards in 2 matrices of ci-web.yml, 8 more jobs than the 354 that
-# #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2).
-pr_jobs = 353
+# #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2);
+# 355 since #42997 (Leo's ask: the iOS review gate walks iPhone, iPad and Duo side by side, 3 matrix legs
+# instead of one job), as #42489 counted the webview shards. cmux-rd-windows.yml runs on no pull request.
+pr_jobs = 355
 target_pr_jobs = 8
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.

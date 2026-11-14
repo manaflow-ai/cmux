@@ -56,6 +56,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         on(macID)?.unavailableTabKinds(on: macID) ?? []
     }
     public func agentCatalog(on macID: String) async throws -> AgentCatalog { try await backend(macID).agentCatalog(on: macID) }
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        try backend(workspace.macID).sendTask(task, in: workspace, failed: failed)
+    }
     public func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).createTab(kind, in: workspace)
     }

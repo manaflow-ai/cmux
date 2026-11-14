@@ -249,6 +249,7 @@ exclude = [
     "vendor/smoltcp",
     "crates/cmux-rd-host",
     "crates/cmux-cellgrid-bench",
+    "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
 ]
 

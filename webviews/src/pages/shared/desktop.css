@@ -268,6 +268,14 @@ body {
   white-space: pre-line;
 }
 
+/* A wrapped tooltip's lines come out even, never a word or two alone on the last line, and the box
+   then narrows to its widest line (ui/tooltipFit.ts; Leo, 2026-11-07: "why is this even so wide in
+   the first place?"). A hover card's own text keeps its layout. */
+.ui-tooltip:not(.ui-card),
+.ui-title-tooltip {
+  text-wrap: balance;
+}
+
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
 .ui-tooltip-detail {
   display: block;
