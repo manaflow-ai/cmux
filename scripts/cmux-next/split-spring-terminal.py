@@ -75,6 +75,11 @@ if "--suite=premain" in sys.argv:
 if "--suite=command-pan" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=command-pan"])
+# `--suite=sidebar-scroll-feel`: real trackpad flicks over the sidebar, quiet, with the main thread stalled and with agent
+# status ticks; rows shown empty (`blank_rows`), frames and first rows after a relaunch (scripts/cmux-next/sidebar-scroll-feel.py).
+if "--suite=sidebar-scroll-feel" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-scroll-feel.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-scroll-feel"])
 # `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
