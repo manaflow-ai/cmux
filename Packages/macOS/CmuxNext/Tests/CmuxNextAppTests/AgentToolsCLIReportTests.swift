@@ -3,10 +3,10 @@ import CmuxNextAgentIntegrations
 import Foundation
 import Testing
 
-/// The report `cmux setup mcp` prints in a DEV build (the fixture a cmux-tui test checks against
-/// the real CLI's output, `cmux_setup_mcp_report_matches_the_apps_fixture`) read the way the app
-/// reads it: both agents get cmux's tools in this build's terminals, Claude Code still has an old
-/// DEV entry, and the cmux Tools step's yes is neither failed nor "nothing added".
+/// The report `cmux setup mcp` prints (the fixture a cmux-tui test checks against the real CLI's
+/// output, `cmux_setup_mcp_report_matches_the_apps_fixture`) read the way the app reads it: both
+/// agents get cmux's tools in cmux, and the cmux Tools step's yes is neither failed nor "nothing
+/// added".
 @MainActor @Suite(.serialized) struct AgentToolsCLIReportTests {
     static func fixture() throws -> Data {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -24,14 +24,13 @@ import Testing
             return true
         }
         func agentToolsAgents() async -> [AgentToolsAgent] { agents }
-        func applyAgentTools(remove: Bool) async -> [AgentToolsAgent]? { agents }
     }
 
-    @Test func theCLIsDevBuildReportReadsAsAgentsWithCmuxToolsInTerminals() async throws {
+    @Test func theCLIsReportReadsAsAgentsWithCmuxToolsInCmux() async throws {
         let agents = try #require(AgentToolsAgent.agents(setupReport: try Self.fixture()))
         #expect(agents.map(\.id) == ["claude", "codex"])
         #expect(agents.map(\.state) == [.terminals, .terminals])
-        #expect(agents.map(\.stale) == [true, false])
+        #expect(AgentToolsAgent.manualCommands(setupReport: try Self.fixture()).isEmpty, "the fixture keeps only their count")
 
         let model = AgentToolsStepModel(source: Source(agents: agents))
         model.start()

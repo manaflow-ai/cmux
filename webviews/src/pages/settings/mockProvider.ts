@@ -606,15 +606,13 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.run": (params) => {
         const run = params as AgentToolsCardRun;
         if (run.action === "refresh") return this.agentTools;
-        // Like the host: Add sets the choice to on and adds to every ready agent; Remove takes cmux's own
-        // entry out; a server of the person's (conflict) stays either way.
+        // Like the host: Turn On sets the choice to on; every agent found then gets cmux's tools in cmux.
         this.agentToolsRuns.push(run);
-        const from = run.action === "add" ? "ready" : "added";
-        const to = run.action === "add" ? "added" : "ready";
-        if (run.action === "add") this.values.set("agents.cmuxMcp", "on");
+        this.values.set("agents.cmuxMcp", "on");
         this.agentTools = {
           ...this.agentTools,
-          rows: this.agentTools.rows.map((row) => (row.state === from ? { ...row, state: to } : row)),
+          choice: "on",
+          rows: this.agentTools.rows.map((row) => (row.state === "ready" ? { ...row, state: "terminals" } : row)),
         };
         return this.agentTools;
       },
@@ -1155,17 +1153,22 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
-  /** `cmux setup mcp --dry-run` as the app serves it (`SettingsAgentTools.state`). */
+  /** `cmux setup mcp` as the app serves it (`SettingsAgentTools.state`). */
   agentTools: AgentToolsCardState = {
     loaded: true,
     applying: false,
     failed: false,
+    choice: "ask",
     rows: [
-      { id: "claude", name: "Claude Code", state: "added" },
+      { id: "claude", name: "Claude Code", state: "ready" },
       { id: "codex", name: "Codex", state: "ready" },
     ],
+    manual: [
+      "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+      "codex mcp add cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+    ],
   };
-  /** Agents with cmux Tools gestures the page sent (add, remove). */
+  /** Agents on This Mac gestures the page sent (turnOn). */
   readonly agentToolsRuns: AgentToolsCardRun[] = [];
 
   /** Agent integrations gestures the page sent (install, repair, remove). */

@@ -156,19 +156,20 @@ describe("computer use", () => {
 });
 
 describe("cmux tools", () => {
-  const settingsPlace = "You can change this later in Settings > Agents > cmux Tools in Your Coding Agents.";
-  test("asks before adding anything: the question, Claude Code and Codex found, Not Now and Add to My Agents", () => {
+  const settingsPlace = "You can change this later in Settings > Agents.";
+  test("asks before giving anything: the question, Claude Code and Codex found, Not Now and Turn On", () => {
     const html = render(agentToolsState("found"));
     const words = text(html);
-    expect(words).toContain("Add cmux Tools to Your Agents?");
-    expect(words).toContain("Computer Use included");
+    expect(words).toContain("Use cmux Tools in Your Agents?");
+    expect(words).toContain("Agents you start in cmux get cmux’s tools, Computer Use included");
+    expect(words).toContain("cmux never changes your agents’ own settings.");
     expect(html).toContain('data-agent="claude"');
     expect(html).toContain('data-agent="codex"');
     expect(html.match(/data-tools="ready"/g)?.length).toBe(2);
     expect(words).toContain("Found on this Mac");
     expect(words).toContain("Not Now");
     expect(html).toMatch(/data-primary="addTools"/);
-    expect(words).toContain("Add to My Agents");
+    expect(words).toContain("Turn On");
     expect(words).toContain(settingsPlace);
   });
   test("none found and still checking say so, and still name the place in Settings", () => {
@@ -177,25 +178,21 @@ describe("cmux tools", () => {
     expect(none).toContain(settingsPlace);
     expect(text(render(agentToolsState("checking")))).toContain("Checking…");
   });
-  test("one already has cmux's tools; a server of the person's named cmux is left alone", () => {
-    expect(text(render(agentToolsState("oneAdded")))).toContain("Has cmux’s tools");
-    const conflict = render(agentToolsState("conflict"));
-    expect(conflict).toContain('data-tools="conflict"');
-    expect(text(conflict)).toContain("Has another server named cmux");
-  });
-  test("while Add runs the primary waits; added, declined and failed answers end on Done with no Not Now", () => {
+  test("while Turn On runs the primary waits; on, declined and failed answers end on Done with no Not Now", () => {
     const adding = render(agentToolsState("adding"));
-    expect(text(adding)).toContain("Adding…");
+    expect(text(adding)).toContain("Turning on…");
     expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
     const added = render(agentToolsState("added"));
-    expect(text(added)).toContain("Done. Your agents get cmux’s tools when they next start.");
+    expect(text(added)).toContain("Done. Agents you start in cmux get cmux’s tools.");
+    expect(added.match(/data-tools="terminals"/g)?.length).toBe(2);
+    expect(text(added)).toContain("Gets cmux’s tools in cmux");
     expect(added).toMatch(/data-primary="done"/);
     expect(text(added)).not.toContain("Not Now");
     const declined = text(render(agentToolsState("declined")));
-    expect(declined).toContain("cmux won’t add its tools to your agents.");
-    expect(declined).toContain("Not added");
+    expect(declined).toContain("Agents you start in cmux won’t get cmux’s tools.");
+    expect(declined).toContain("Off in cmux");
     expect(text(render(agentToolsState("failed")))).toContain(
-      "Some agents couldn’t be set up. You can try again in Settings.",
+      "Couldn’t save your choice. You can try again in Settings.",
     );
   });
   test("Add and Not Now are the footer's two gestures: next and skip", async () => {

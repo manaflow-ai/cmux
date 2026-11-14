@@ -36,11 +36,20 @@
 //!   terminal gets the same through its shim (cmux-tui `agent_computer_use.rs`).
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`.
-//!   A missing binary leaves its server out. Every agent chat gets `cmux mcp serve`
-//!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
-//!   cmux MCP tools by default"), so it controls cmux without a shell
-//!   command its sandbox may refuse; the settings file's `"mcp":
-//!   {"enabled": false}` turns it off (`cmux mcp serve` refuses then too).
+//!   A missing binary leaves its server out.
+//! - The `cmux` server (`cmux mcp serve`, [`cmux_server`]): one definition for
+//!   every agent cmux starts, built by [`cmux_server`] for these sessions and
+//!   for a Claude Code or Codex typed into a cmux terminal (cmux-tui
+//!   `agent_computer_use.rs`), so the two cannot drift: the name `cmux`, the
+//!   CLI, `mcp serve`, and the settings file the app runs on
+//!   (`CMUX_NEXT_CONFIG_FILE`). A session gets it once the person said yes to
+//!   cmux's tools in agents started in cmux (`agents.cmuxMcp` is `on`,
+//!   [`agents_get_cmux`]; Aziz, 2026-11-14), the same answer the terminal
+//!   shims follow; a Chief turn (a preset with its own cmux tool list,
+//!   [`MCP_TOOLS_ENV`]) keeps it either way, being cmux's own orchestrator.
+//!   The settings file's `"mcp": {"enabled": false}` turns it off too (`cmux
+//!   mcp serve` refuses then). Without it the session's other servers stay
+//!   standalone (`folded`). cmux never writes an agent's own config for it.
 //! - Left out (`left_out`): remote-origin sessions (`remote_sandbox.rs`
 //!   keeps their MCP config empty on purpose), a profile or preset whose env
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
@@ -134,6 +143,43 @@ pub const ASKING_RULE: &str = "Asking the person: Full access already permits ha
 /// independent item in this one response" step is the published fix for that. Concise
 /// reporting is left to the harness prompt and the recap guidance (`agent_guidance.rs`).
 pub const CONCURRENT_WORK_RULE: &str = "Before each tool step, privately list what you need next, then request every read, search and command that does not depend on another's result in that one response, starting with the first: the files and instructions the task names or implies. Run long builds, tests and waits in the background when the tool allows it, and check the result before relying on it.";
+
+/// The cmux MCP server's name in every agent cmux starts ([`cmux_server`]).
+pub const CMUX_SERVER: &str = "cmux";
+
+/// The person's answer to "should agents you start in cmux get cmux's tools?".
+pub const AGENTS_CMUX_MCP_KEY: &str = "agents.cmuxMcp";
+
+/// Whether agents cmux starts get the `cmux` server: the settings text says
+/// `agents.cmuxMcp` is `on` (nested or flat, JSONC). No file, no key, `ask`,
+/// `off`, another value or a file that does not parse: no. cmux-tui's
+/// `AgentsCmuxMcp` reads the same key for the terminal shims.
+pub fn agents_get_cmux(settings: Option<&str>) -> bool {
+    settings
+        .and_then(crate::user_settings::document)
+        .and_then(|doc| crate::user_settings::value(&doc, AGENTS_CMUX_MCP_KEY))
+        .is_some_and(|value| value == Value::String("on".into()))
+}
+
+/// The `cmux` server every agent cmux starts gets: this cmux CLI's `mcp
+/// serve` (`--all-tools` lists every tool instead of code mode) under the
+/// name [`CMUX_SERVER`], with `settings_file` (`CMUX_NEXT_CONFIG_FILE` of the
+/// launch) in its env, so the server reads the settings the app runs on even
+/// where the harness passes a stdio server no env of its own (Codex). The
+/// one definition for acpmux's sessions and cmux-tui's terminal shims; each
+/// adds only its own routing env.
+pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: Option<&str>) -> McpServer {
+    let mut args = vec!["mcp".to_owned(), "serve".to_owned()];
+    if all_tools {
+        args.push("--all-tools".to_owned());
+    }
+    let env = settings_file
+        .filter(|file| !file.is_empty())
+        .map(|file| (crate::user_settings::CONFIG_OVERRIDE.to_owned(), file.to_owned()))
+        .into_iter()
+        .collect();
+    McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
+}
 
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
@@ -241,6 +287,9 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
     /// Computer Use server out.
     pub displays: Option<PathBuf>,
+    /// The person said yes to cmux's tools in agents started in cmux
+    /// ([`agents_get_cmux`]): [`AgentTools::scoped`] keeps the `cmux` server.
+    pub cmux_for_agents: bool,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -632,12 +681,8 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
-        servers.push(McpServer {
-            name: "cmux".into(),
-            command: cmux,
-            args: vec!["mcp".into(), "serve".into()],
-            env: vec![],
-        });
+        let settings_file = std::env::var(crate::user_settings::CONFIG_OVERRIDE).ok();
+        servers.push(cmux_server(&cmux, false, settings_file.as_deref()));
     }
     if let Some(chief) = executable("optchat-chief")
         && inputs.cmux_json.as_deref().is_some_and(memory_enabled)
@@ -660,7 +705,13 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
             }
         };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
-    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
+    AgentTools {
+        servers,
+        plugin_dir,
+        user_plugin_dir,
+        displays: inputs.displays.clone(),
+        cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
+    }
 }
 
 impl AgentTools {
@@ -671,6 +722,11 @@ impl AgentTools {
     /// server (fail closed: the worker drives the machine's desktop, never
     /// the session's own display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
+        // No `cmux` server without the person's yes ([`agents_get_cmux`]),
+        // except for a Chief turn, whose preset names its own cmux tools.
+        if !self.cmux_for_agents && !session_env.contains_key(MCP_TOOLS_ENV) {
+            self.servers.retain(|s| s.name != CMUX_SERVER);
+        }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {
             let keep: Vec<&str> = keep.split(',').map(str::trim).collect();

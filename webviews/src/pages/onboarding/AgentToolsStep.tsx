@@ -1,9 +1,9 @@
-// cmux Tools: whether cmux may add its MCP server (Computer Use included) to the person's own coding
-// agents. A row per coding agent found on this Mac (its mark, name and what its config holds), in the
-// Agents step's list look; one line under the list (Checking…, none found, Adding…, what the answer
-// did); and the place in Settings to change it later. The footer's Not Now answers no and writes
-// nothing; Add to My Agents answers yes and runs `cmux setup mcp` for the agents found, then the
-// footer says Done. The host does both (CmuxNextOnboarding AgentToolsStepModel).
+// cmux Tools: whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP
+// server, Computer Use included. A row per coding agent found on this Mac (its mark, name and whether
+// it gets cmux's tools in cmux), in the Agents step's list look; one line under the list (Checking…,
+// none found, Turning on…, what the answer did); and the place in Settings to change it later. The
+// footer's Not Now answers no; Turn On answers yes, then the footer says Done. Neither writes an
+// agent's own settings. The host does both (CmuxNextOnboarding AgentToolsStepModel).
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { cx } from "../../ui/cx";
@@ -32,7 +32,7 @@ export function AgentToolsStep({ tools }: { tools: AgentToolsState | null | unde
                   </span>
                 </span>
                 <span className="onb-agent-trailing" aria-hidden="true">
-                  {(row.state === "added" || row.state === "terminals" || row.state === "failed") && (
+                  {(row.state === "terminals" || row.state === "failed") && (
                     <StatusGlyph name={row.state === "failed" ? "error" : "done"} size={16} />
                   )}
                 </span>

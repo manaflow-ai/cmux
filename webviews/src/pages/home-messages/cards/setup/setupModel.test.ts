@@ -57,16 +57,16 @@ describe("setupSteps", () => {
       detail: "Computer Use and more for Claude Code, Codex",
       done: false,
     });
-    expect(steps[1]?.action).toEqual({ label: "Add", run: { kind: "addTools" } });
+    expect(steps[1]?.action).toEqual({ label: "Turn On", run: { kind: "addTools" } });
     expect(steps[1]?.secondary).toEqual({ label: "Not Now", run: { kind: "declineTools" } });
     const adding = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on", applying: true } }, strings)[1]!;
     expect([adding.busy, adding.done, adding.action]).toEqual([true, false, undefined]);
     const added = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on" } }, strings)[1]!;
-    expect([added.done, added.detail, added.action]).toEqual([true, "Added to your agents", undefined]);
+    expect([added.done, added.detail, added.action]).toEqual([true, "On for agents you start in cmux", undefined]);
     const declined = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "off" } }, strings)[1]!;
     expect([declined.done, declined.detail, declined.secondary]).toEqual([
       true,
-      "Not added: Settings > Agents",
+      "Off: Settings > Agents",
       undefined,
     ]);
     // Nothing to ask: no row.

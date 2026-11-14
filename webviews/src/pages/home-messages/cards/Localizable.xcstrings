@@ -13945,127 +13945,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "إضافة"
+            "value" : "تشغيل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dodaj"
+            "value" : "Uključi"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tilføj"
+            "value" : "Slå til"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hinzufügen"
+            "value" : "Einschalten"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add"
+            "value" : "Turn On"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añadir"
+            "value" : "Activar"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajouter"
+            "value" : "Activer"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aggiungi"
+            "value" : "Attiva"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "追加"
+            "value" : "オンにする"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បន្ថែម"
+            "value" : "បើក"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "추가"
+            "value" : "켜기"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Legg til"
+            "value" : "Slå på"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dodaj"
+            "value" : "Włącz"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Adicionar"
+            "value" : "Ativar"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Добавить"
+            "value" : "Включить"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "เพิ่ม"
+            "value" : "เปิด"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ekle"
+            "value" : "Aç"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Додати"
+            "value" : "Увімкнути"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Thêm"
+            "value" : "Bật"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "添加"
+            "value" : "开启"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "加入"
+            "value" : "開啟"
           }
         }
       }
@@ -14077,127 +14077,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "أُضيفت إلى وكلائك"
+            "value" : "مفعّل للوكلاء التي تشغّلها في cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dodano vašim agentima"
+            "value" : "Uključeno za agente koje pokreneš u cmuxu"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Føjet til dine agenter"
+            "value" : "Slået til for agenter, du starter i cmux"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zu deinen Agenten hinzugefügt"
+            "value" : "An für Agenten, die du in cmux startest"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Added to your agents"
+            "value" : "On for agents you start in cmux"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añadidas a tus agentes"
+            "value" : "Activado para los agentes que inicias en cmux"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutés à vos agents"
+            "value" : "Activé pour les agents que vous lancez dans cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aggiunti ai tuoi agenti"
+            "value" : "Attivo per gli agenti che avvii in cmux"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エージェントに追加しました"
+            "value" : "cmux で起動したエージェントでオン"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បានបន្ថែមទៅភ្នាក់ងាររបស់អ្នក"
+            "value" : "បើកសម្រាប់ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "에이전트에 추가됨"
+            "value" : "cmux에서 시작한 에이전트에 켜짐"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lagt til i agentene dine"
+            "value" : "På for agenter du starter i cmux"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dodano do Twoich agentów"
+            "value" : "Włączone dla agentów uruchamianych w cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Adicionadas aos seus agentes"
+            "value" : "Ativado para os agentes que você inicia no cmux"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Добавлены вашим агентам"
+            "value" : "Включено для агентов, запущенных в cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "เพิ่มให้เอเจนต์แล้ว"
+            "value" : "เปิดสำหรับเอเจนต์ที่คุณเริ่มใน cmux"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajanlarınıza eklendi"
+            "value" : "cmux’ta başlattığın ajanlar için açık"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Додано вашим агентам"
+            "value" : "Увімкнено для агентів, запущених у cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đã thêm vào tác tử của bạn"
+            "value" : "Đã bật cho các tác tử bạn khởi chạy trong cmux"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已添加到你的智能体"
+            "value" : "已为你在 cmux 中启动的智能体开启"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已加入你的代理程式"
+            "value" : "已為你在 cmux 中啟動的智慧代理開啟"
           }
         }
       }
@@ -14209,127 +14209,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "لم تُضف: الإعدادات > الوكلاء"
+            "value" : "متوقف: الإعدادات > الوكلاء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nije dodano: Postavke > Agenti"
+            "value" : "Isključeno: Postavke > Agenti"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ikke tilføjet: Indstillinger > Agenter"
+            "value" : "Slået fra: Indstillinger > Agenter"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nicht hinzugefügt: Einstellungen > Agenten"
+            "value" : "Aus: Einstellungen > Agenten"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Not added: Settings > Agents"
+            "value" : "Off: Settings > Agents"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No añadidas: Ajustes > Agentes"
+            "value" : "Desactivado: Ajustes > Agentes"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Non ajoutés: Réglages > Agents"
+            "value" : "Désactivé : Réglages > Agents"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Non aggiunti: Impostazioni > Agenti"
+            "value" : "Disattivato: Impostazioni > Agenti"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "追加していません: 設定 > エージェント"
+            "value" : "オフ: 設定 > エージェント"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "មិនបានបន្ថែម: ការកំណត់ > ភ្នាក់ងារ"
+            "value" : "បិទ៖ ការកំណត់ > ភ្នាក់ងារ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "추가 안 됨: 설정 > 에이전트"
+            "value" : "꺼짐: 설정 > 에이전트"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ikke lagt til: Innstillinger > Agenter"
+            "value" : "Av: Innstillinger > Agenter"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nie dodano: Ustawienia > Agenci"
+            "value" : "Wyłączone: Ustawienia > Agenci"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Não adicionadas: Ajustes > Agentes"
+            "value" : "Desativado: Ajustes > Agentes"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не добавлены: Настройки > Агенты"
+            "value" : "Выключено: «Настройки» > «Агенты»"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ยังไม่ได้เพิ่ม: การตั้งค่า > เอเจนต์"
+            "value" : "ปิด: การตั้งค่า > เอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eklenmedi: Ayarlar > Ajanlar"
+            "value" : "Kapalı: Ayarlar > Ajanlar"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не додано: Налаштування > Агенти"
+            "value" : "Вимкнено: «Налаштування» > «Агенти»"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chưa thêm: Cài đặt > Tác tử"
+            "value" : "Tắt: Cài đặt > Tác tử"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未添加: 设置 > 智能体"
+            "value" : "已关闭：设置 > 智能体"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未加入: 設定 > 代理"
+            "value" : "已關閉：設定 > 代理"
           }
         }
       }

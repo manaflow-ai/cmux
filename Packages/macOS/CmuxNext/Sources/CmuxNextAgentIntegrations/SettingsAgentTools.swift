@@ -2,16 +2,17 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
 
-/// Settings > Agents > Agents with cmux Tools: each coding agent found on this Mac and whether its
-/// own config gives it cmux's MCP server, beside the `agents.cmuxMcp` choice row (the onboarding
-/// step's question). Add Now is the person's yes: it sets the choice to `on` and runs `cmux setup
-/// mcp` for the agents found; Remove runs `cmux setup mcp --remove`, which takes out only cmux's own
-/// entry and leaves the choice as it is. Both run only on the person's own click or key in the page.
-/// Reading runs `cmux setup mcp --dry-run`, which writes nothing.
+/// Settings > Agents > cmux Tools for Agents in cmux: each coding agent found on this Mac and
+/// whether it gets cmux's MCP server when cmux starts it, beside the `agents.cmuxMcp` choice row
+/// (the onboarding step's question), and the manual lines a person runs themselves to use cmux's
+/// tools in agents started elsewhere (`cmux setup mcp`'s `manual`; cmux never runs them). Turn On is
+/// the person's yes: it sets the choice to `on`, only on their own click or key in the page.
+/// Reading runs `cmux setup mcp`, which writes nothing.
 @MainActor
 final class SettingsAgentTools: PageProvider {
     private let source: any AgentToolsSource
     private var rows: [AgentToolsAgent] = []
+    private var manual: [String] = []
     private var loaded = false
     private var applying = false
     private var failed = false
@@ -34,43 +35,44 @@ final class SettingsAgentTools: PageProvider {
     var state: JSONValue {
         [
             "loaded": .bool(loaded), "applying": .bool(applying), "failed": .bool(failed),
-            "rows": .array(rows.map {
-                ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue), "stale": .bool($0.stale)]
-            }),
+            "choice": .string(source.agentToolsChoice().rawValue),
+            "rows": .array(rows.map { ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state.rawValue)] }),
+            "manual": .array(manual.map { .string($0) }),
         ]
     }
 
-    /// `refresh` reads (a page may ask); `add` and `remove` change the person's agent configs and run
-    /// only on their own click or key (`context.userGesture`) or a call they approved.
+    /// `refresh` reads (a page may ask); `turnOn` writes the person's answer and runs only on their
+    /// own click or key (`context.userGesture`) or a call they approved.
     func run(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         switch action {
         case "refresh":
-            generation += 1
-            let mine = generation
-            let found = await source.agentToolsAgents()
-            guard mine == generation else { return state }
-            rows = found
-            loaded = true
-        case "add", "remove":
+            await read()
+        case "turnOn":
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) needs a click in the page")
             }
             guard !applying else { return state }
             applying = true
-            generation += 1
             defer { applying = false }
-            if action == "add", !(await source.setAgentToolsChoice(.on)) {
-                failed = true
-                return state
-            }
-            let result = await source.applyAgentTools(remove: action == "remove")
-            if let result { rows = result }
-            loaded = true
-            failed = result == nil || result?.contains { $0.state == .failed } == true
+            failed = !(await source.setAgentToolsChoice(.on))
+            await read()
         default:
             throw PageError.invalidParams("unknown agent tools action \(action)")
         }
         return state
+    }
+
+    /// Reads the agents and the manual lines; only the newest read lands.
+    private func read() async {
+        generation += 1
+        let mine = generation
+        async let found = source.agentToolsAgents()
+        async let lines = source.agentToolsManualCommands()
+        let (agents, commands) = await (found, lines)
+        guard mine == generation else { return }
+        rows = agents
+        manual = commands
+        loaded = true
     }
 }

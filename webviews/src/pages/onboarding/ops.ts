@@ -212,7 +212,8 @@ export interface AgentToolsRow {
   id: string;
   /** The product's own name ("Claude Code"): never translated. */
   name: string;
-  state: "ready" | "added" | "terminals" | "conflict" | "kept" | "failed";
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  state: "ready" | "terminals" | "failed";
 }
 
 export interface AgentToolsState {
@@ -222,9 +223,9 @@ export interface AgentToolsState {
   loaded: boolean;
   /** `agents.cmuxMcp` now: `ask` until the person answers. */
   choice: "ask" | "on" | "off";
-  /** Add to My Agents runs `cmux setup mcp`. */
+  /** Turn On writes the answer and reads the agents again. */
   applying: boolean;
-  /** The run could not set up every agent. */
+  /** The answer could not be saved. */
   failed: boolean;
   /** The person answered in this window. */
   answered: boolean;
@@ -249,7 +250,7 @@ export interface OnboardingOps {
   /** The page gained focus: back from a Sign In, the host checks the sign-ins again. A read, so it
    * needs no click or key (the page engine keys its own child window, not the onboarding window). */
   "cmux.onboarding.focused": [Record<string, never>, unknown];
-  /** The footer's filled button, or Return (cmux Tools: Add to My Agents, then Done). */
+  /** The footer's filled button, or Return (cmux Tools: Turn On, then Done). */
   "cmux.onboarding.next": [Record<string, never>, unknown];
   /** Skip / Skip Importing / Not Now, or Escape (cmux Tools' Not Now answers no). */
   "cmux.onboarding.skip": [Record<string, never>, unknown];

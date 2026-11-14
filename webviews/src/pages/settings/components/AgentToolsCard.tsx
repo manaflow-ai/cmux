@@ -1,8 +1,9 @@
-// Settings > Agents > Agents with cmux Tools, under the `agents.cmuxMcp` choice row (the onboarding
-// step's question): each coding agent found on this Mac and whether its own config gives it cmux's
-// MCP server, read with `cmux setup mcp --dry-run` (nothing is written). Add Now answers yes (the
-// choice turns to Add to My Agents) and runs `cmux setup mcp`; Remove runs `cmux setup mcp --remove`,
-// which takes out only cmux's own entry. Both run only on a click (the host refuses a page script).
+// Settings > Agents > Agents on This Mac, under the `agents.cmuxMcp` choice row (the onboarding step's
+// question): each coding agent found on this Mac and whether it gets cmux's MCP server when cmux starts
+// it (its terminals and agent chats), read with `cmux setup mcp` (nothing is written). Turn On answers
+// yes, only on a click (the host refuses a page script). Below, the manual lines a person runs
+// themselves to use cmux's tools in agents started elsewhere, each with Copy: cmux never runs them and
+// never changes an agent's own settings.
 import { useCallback, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
@@ -14,7 +15,7 @@ export function AgentToolsCard() {
   const store = useStore();
   const [state, setState] = useState<AgentToolsCardState | null>(null);
   const [busy, setBusy] = useState(false);
-  // One read when the card first mounts (a dry run: it writes nothing).
+  // One read when the card first mounts (it writes nothing).
   const read = useRef(false);
   const mounted = useCallback(
     (node: HTMLElement | null) => {
@@ -24,19 +25,18 @@ export function AgentToolsCard() {
     },
     [store],
   );
-  const run = async (action: "add" | "remove") => {
+  const turnOn = async () => {
     setBusy(true);
     try {
-      const next = await store.runAgentTools({ action });
+      const next = await store.runAgentTools({ action: "turnOn" });
       if (next) setState(next);
     } finally {
       setBusy(false);
     }
   };
   const rows = state?.rows ?? [];
-  // A DEV build's Remove takes out only entries a development build left (`stale`).
-  const added = rows.some((row) => row.state === "added" || row.stale === true);
-  const addable = rows.some((row) => row.state === "ready");
+  const manual = state?.manual ?? [];
+  const on = state?.choice === "on";
   const working = busy || (state?.applying ?? false);
   return (
     <section className="group" data-card="agentTools" ref={mounted}>
@@ -60,20 +60,9 @@ export function AgentToolsCard() {
                 </span>
                 <div className="row-label">
                   <div className="row-title">{row.name}</div>
-                  {row.stale === true && (
-                    <div className="row-help" data-agent-tools-stale="">
-                      {t("settingsWindow.agentTools.stale")}
-                    </div>
-                  )}
                 </div>
                 <div className="row-control">
-                  <span
-                    className={
-                      row.state === "failed" || row.state === "conflict" || row.state === "kept"
-                        ? "badge badge-warning"
-                        : "badge"
-                    }
-                  >
+                  <span className={row.state === "failed" ? "badge badge-warning" : "badge"}>
                     {t(`settingsWindow.agentTools.state.${row.state}`)}
                   </span>
                 </div>
@@ -83,26 +72,46 @@ export function AgentToolsCard() {
         </div>
       )}
       {state?.failed && <div className="row-error">{t("settingsWindow.agentTools.failed")}</div>}
-      <div className="accounts-header">
-        <Button
-          type="button"
-          className="button"
-          data-agent-tools-action="add"
-          disabled={working || !addable}
-          onClick={() => void run("add")}
-        >
-          {t("settingsWindow.agentTools.add")}
-        </Button>
-        <Button
-          type="button"
-          className="button"
-          data-agent-tools-action="remove"
-          disabled={working || !added}
-          onClick={() => void run("remove")}
-        >
-          {t("settingsWindow.agentTools.remove")}
-        </Button>
-      </div>
+      {!on && (
+        <div className="accounts-header">
+          <Button
+            type="button"
+            className="button"
+            data-agent-tools-action="turnOn"
+            disabled={working || state === null}
+            onClick={() => void turnOn()}
+          >
+            {t("settingsWindow.agentTools.add")}
+          </Button>
+        </div>
+      )}
+      {manual.length > 0 && (
+        <div className="rows" data-agent-tools-manual="">
+          <div className="row-title">{t("settingsWindow.agentTools.manual.title")}</div>
+          <div className="row-help">{t("settingsWindow.agentTools.manual.help")}</div>
+          {manual.map((line) => (
+            <div key={line} className="row">
+              <div className="row-main">
+                <div className="row-label row-help selectable">
+                  <code className="font-mono" data-agent-tools-manual-line="">
+                    {line}
+                  </code>
+                </div>
+                <div className="row-control">
+                  <Button
+                    type="button"
+                    className="button"
+                    data-agent-tools-action="copy"
+                    onClick={() => void store.copy(line)}
+                  >
+                    {t("settingsWindow.agentTools.manual.copy")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

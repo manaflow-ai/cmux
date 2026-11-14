@@ -17,7 +17,7 @@ extension AgentDefaultsSettingsSchema {
 }
 
 extension AgentDefaultsSettingsSchema {
-    /// `agents.cmuxMcp`: Whether cmux adds its cmux MCP server (cmux mcp serve, which carries cmux Computer Use) to the person's own coding agents, Claude Code and Codex: both the server the claude and codex shims pass to an agent started in a cmux terminal (cmux-tui agent_mcp_choice.rs) and the entries cmux setup mcp writes into the agents' config files (cli/setup/mcp.rs). ask (unset) is no answer yet: the shims pass no server and nothing is written, and the app asks at launch (OnboardingWindowPresenter.askAgentToolsOnce); on is the person's opt-in (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off passes and writes nothing, and the onboarding step's Not Now takes out cmux's own entry where one is already there. cmux's own agent chats keep their tools either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.
+    /// `agents.cmuxMcp`: Whether agents cmux starts get its cmux MCP server (cmux mcp serve, which carries cmux Computer Use): a Claude Code or Codex typed into a cmux terminal (the claude and codex shims, cmux-tui agent_mcp_choice.rs) and the app's agent chats (acpmux agent_tools.rs agents_get_cmux), all with one server definition named cmux (acpmux agent_tools::cmux_server) and the app's settings file. Only through the launch: cmux never writes an agent's own config; cmux setup mcp reports which agents get it and the manual lines a person runs to use it elsewhere. ask (unset) is no answer yet: no server, and the app asks at launch (OnboardingWindowPresenter.askAgentToolsOnce); on is the person's yes (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off gives none. A Chief turn keeps its own cmux tool list either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.
     nonisolated static let cmuxMcpPath = ["agents", "cmuxMcp"]
     nonisolated static let cmuxMcpDefault = "ask"
     nonisolated static let cmuxMcpValues = ["ask", "on", "off"]
@@ -82,12 +82,12 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 AgentDefaultsSettingsSchema.cmuxMcpPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.agents.cmuxMcp", "Add cmux Tools to Your Coding Agents"),
-                help: SettingsText.keyed("settings.agents.cmuxMcp.help", "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone."),
-                summary: SettingsText.keyed("settings.agents.cmuxMcp.summary", "Whether your coding agents get cmux's tools"),
+                title: SettingsText.keyed("settings.agents.cmuxMcp", "cmux Tools for Agents in cmux"),
+                help: SettingsText.keyed("settings.agents.cmuxMcp.help", "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."),
+                summary: SettingsText.keyed("settings.agents.cmuxMcp.summary", "Whether agents you start in cmux get cmux’s tools"),
                 kind: .choice([
                     SettingChoice("ask", SettingsText.keyed("settings.agents.cmuxMcp.ask", "Ask")),
-                    SettingChoice("on", SettingsText.keyed("settings.agents.cmuxMcp.on", "Add to My Agents")),
+                    SettingChoice("on", SettingsText.keyed("settings.agents.cmuxMcp.on", "On")),
                     SettingChoice("off", SettingsText.keyed("settings.agents.cmuxMcp.off", "Off")),
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.cmuxMcpDefault),

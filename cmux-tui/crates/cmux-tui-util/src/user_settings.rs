@@ -226,28 +226,25 @@ pub fn ultra_mode() -> bool {
     }
 }
 
-/// Settings-file `agents.cmuxMcp` ("cmux Tools in Coding Agents"): whether
-/// cmux adds its `cmux` MCP server (which carries cmux Computer Use) to the
-/// person's own coding agents, Claude Code and Codex. It governs both ways
-/// cmux does that: the server the `claude` and `codex` shims pass to an agent
-/// started in a cmux terminal (each launch), and the entries `cmux setup mcp`
-/// writes into the agents' own config files. The onboarding step asks, and
-/// Settings > Agents keeps the answer. cmux's own agent chats always have
-/// their tools; this is about the person's agents.
+/// Settings-file `agents.cmuxMcp` ("cmux Tools for Agents in cmux"): whether
+/// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
+/// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
+/// `codex` shims, each launch) and the app's agent chats (acpmux, which reads
+/// the same key: `acpmux::agent_tools::agents_get_cmux`). Only through the
+/// launch: cmux never writes an agent's own config. The onboarding step asks,
+/// and Settings > Agents keeps the answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AgentsCmuxMcp {
-    /// Not answered yet (no value, `"ask"`, or anything else): cmux gives the
-    /// person's agents nothing until they answer. The shims pass no server and
-    /// `cmux setup mcp` writes nothing (whatever `mcp.enabled` says). The app asks at
-    /// launch (the cmux Tools step), so this lasts until the person answers.
+    /// Not answered yet (no value, `"ask"`, or anything else): agents cmux
+    /// starts get no `cmux` server until the person answers (whatever
+    /// `mcp.enabled` says). The app asks at launch (the cmux Tools step).
     #[default]
     Ask,
-    /// The person said yes: the shims pass the server, `cmux setup mcp`
-    /// writes, and the server serves these agents outside cmux's chats (as
-    /// `"mcp": {"enabled": true}` does, unless that key says otherwise).
+    /// The person said yes: agents cmux starts get the server, and it serves
+    /// them (as `"mcp": {"enabled": true}` does, unless that key says
+    /// otherwise).
     On,
-    /// The person said no: the shims pass no MCP server and `cmux setup mcp`
-    /// writes nothing (removing cmux's own entries still works).
+    /// The person said no: agents cmux starts get no `cmux` server.
     Off,
 }
 

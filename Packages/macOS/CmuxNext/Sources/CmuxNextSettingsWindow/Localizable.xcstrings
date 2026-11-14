@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents with cmux Tools"
+            "value": "Agents on This Mac"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الوكلاء الذين لديهم أدوات cmux"
+            "value": "الوكلاء على هذا الـ Mac"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti sa cmux alatima"
+            "value": "Agenti na ovom Macu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter med cmux-værktøjer"
+            "value": "Agenter på denne Mac"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenten mit cmux-Werkzeugen"
+            "value": "Agenten auf diesem Mac"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentes con herramientas de cmux"
+            "value": "Agentes en este Mac"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents avec les outils cmux"
+            "value": "Agents sur ce Mac"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenti con gli strumenti di cmux"
+            "value": "Agenti su questo Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ツールを持つエージェント"
+            "value": "この Mac のエージェント"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារដែលមានឧបករណ៍ cmux"
+            "value": "ភ្នាក់ងារនៅលើ Mac នេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 도구가 있는 에이전트"
+            "value": "이 Mac의 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenter med cmux-verktøy"
+            "value": "Agenter på denne Macen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenci z narzędziami cmux"
+            "value": "Agenci na tym Macu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentes com ferramentas do cmux"
+            "value": "Agentes neste Mac"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты с инструментами cmux"
+            "value": "Агенты на этом Mac"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ที่มีเครื่องมือ cmux"
+            "value": "เอเจนต์บน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux araçlı ajanlar"
+            "value": "Bu Mac’teki ajanlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенти з інструментами cmux"
+            "value": "Агенти на цьому Mac"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tác tử có công cụ cmux"
+            "value": "Tác tử trên máy Mac này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "拥有 cmux 工具的智能体"
+            "value": "此 Mac 上的智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "擁有 cmux 工具的代理程式"
+            "value": "這台 Mac 上的代理"
           }
         }
       }
@@ -140,127 +140,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What each coding agent's own settings hold. Add Now puts cmux's server in them; Remove takes it out."
+            "value": "Agents you start in cmux get cmux’s tools. cmux never changes your agents’ own settings."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما تحتويه إعدادات كل وكيل برمجة. «أضف الآن» يضع خادم cmux فيها، و«إزالة» يخرجه منها."
+            "value": "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Šta sadrže postavke svakog agenta. Dodaj sada stavlja cmux server u njih; Ukloni ga vadi."
+            "value": "Agenti koje pokreneš u cmuxu dobijaju cmux alate. cmux nikad ne mijenja vlastite postavke tvojih agenata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad hver kodeagents egne indstillinger indeholder. Tilføj nu lægger cmux' server i dem; Fjern tager den ud."
+            "value": "Agenter, du starter i cmux, får cmux’ værktøjer. cmux ændrer aldrig dine agenters egne indstillinger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was die Einstellungen jedes Coding-Agenten enthalten. Jetzt hinzufügen trägt den Server von cmux ein, Entfernen nimmt ihn heraus."
+            "value": "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux. cmux ändert nie die eigenen Einstellungen deiner Agenten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que contienen los ajustes de cada agente. Añadir ahora pone el servidor de cmux en ellos; Eliminar lo quita."
+            "value": "Los agentes que inicias en cmux reciben las herramientas de cmux. cmux nunca cambia los ajustes propios de tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce que contiennent les réglages de chaque agent. Ajouter maintenant y place le serveur cmux ; Supprimer le retire."
+            "value": "Les agents que vous lancez dans cmux reçoivent les outils de cmux. cmux ne modifie jamais les réglages propres de vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cosa contengono le impostazioni di ogni agente. Aggiungi ora vi inserisce il server di cmux; Rimuovi lo toglie."
+            "value": "Gli agenti che avvii in cmux ricevono gli strumenti di cmux. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各エージェント自身の設定の内容です。「今すぐ追加」で cmux のサーバーを入れ、「削除」で取り除きます。"
+            "value": "cmux で起動したエージェントは cmux のツールを使えます。cmux がエージェント自身の設定を変更することはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្វីដែលការកំណត់ផ្ទាល់របស់ភ្នាក់ងារនីមួយៗមាន។ «បន្ថែមឥឡូវ» ដាក់ម៉ាស៊ីនមេ cmux ចូល «លុប» ដកវាចេញ។"
+            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 코딩 에이전트 설정에 들어 있는 내용입니다. '지금 추가'는 cmux 서버를 넣고 '제거'는 뺍니다."
+            "value": "cmux에서 시작한 에이전트는 cmux 도구를 사용합니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva hver kodeagents egne innstillinger inneholder. Legg til nå setter inn cmux sin server; Fjern tar den ut."
+            "value": "Agenter du starter i cmux, får cmux-verktøyene. cmux endrer aldri agentenes egne innstillinger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Co zawierają ustawienia każdego agenta. Dodaj teraz wstawia do nich serwer cmux, Usuń go usuwa."
+            "value": "Agenci uruchamiani w cmux dostają narzędzia cmux. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O que os ajustes de cada agente contêm. Adicionar agora coloca o servidor do cmux neles; Remover o tira."
+            "value": "Os agentes que você inicia no cmux recebem as ferramentas do cmux. O cmux nunca altera as configurações dos seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Что хранят настройки каждого агента. «Добавить сейчас» вносит в них сервер cmux, «Удалить» убирает его."
+            "value": "Агенты, которых вы запускаете в cmux, получают инструменты cmux. cmux никогда не меняет собственные настройки ваших агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สิ่งที่อยู่ในการตั้งค่าของเอเจนต์แต่ละตัว เพิ่มตอนนี้ จะใส่เซิร์ฟเวอร์ cmux ส่วน เอาออก จะนำออก"
+            "value": "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her ajanın kendi ayarlarında ne olduğu. Şimdi ekle cmux sunucusunu ekler; Kaldır onu çıkarır."
+            "value": "cmux’ta başlattığın ajanlar cmux araçlarını alır. cmux ajanlarının kendi ayarlarını asla değiştirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Що містять налаштування кожного агента. «Додати зараз» вносить сервер cmux, «Вилучити» прибирає його."
+            "value": "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux. cmux ніколи не змінює власні налаштування ваших агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nội dung trong cài đặt riêng của từng tác tử. Thêm ngay đưa máy chủ cmux vào; Gỡ bỏ lấy nó ra."
+            "value": "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每个编程智能体自身设置中的内容。“立即添加”放入 cmux 服务器，“移除”将其取出。"
+            "value": "你在 cmux 中启动的智能体会获得 cmux 的工具。cmux 绝不会更改你的智能体自己的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每個程式設計代理程式自身設定中的內容。「立即加入」放入 cmux 伺服器，「移除」將其取出。"
+            "value": "你在 cmux 中啟動的智慧代理會取得 cmux 的工具。cmux 絕不會更改你的智慧代理本身的設定。"
           }
         }
       }
@@ -272,259 +272,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Now"
+            "value": "Turn On"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أضف الآن"
+            "value": "تشغيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj sada"
+            "value": "Uključi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilføj nu"
+            "value": "Slå til"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jetzt hinzufügen"
+            "value": "Einschalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir ahora"
+            "value": "Activar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter maintenant"
+            "value": "Activer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi ora"
+            "value": "Attiva"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今すぐ追加"
+            "value": "オンにする"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមឥឡូវ"
+            "value": "បើក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 추가"
+            "value": "켜기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legg til nå"
+            "value": "Slå på"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj teraz"
+            "value": "Włącz"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar agora"
+            "value": "Ativar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавить сейчас"
+            "value": "Включить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มตอนนี้"
+            "value": "เปิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Şimdi ekle"
+            "value": "Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додати зараз"
+            "value": "Увімкнути"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm ngay"
+            "value": "Bật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "立即添加"
+            "value": "开启"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "立即加入"
-          }
-        }
-      }
-    },
-    "settingsWindow.agentTools.remove": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إزالة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ukloni"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fjern"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entfernen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "លុប"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제거"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fjern"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usuń"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remover"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอาออก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaldır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вилучити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gỡ bỏ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除"
+            "value": "開啟"
           }
         }
       }
@@ -536,259 +404,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not added"
+            "value": "Off in cmux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم تُضف"
+            "value": "متوقف في cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije dodano"
+            "value": "Isključeno u cmuxu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke tilføjet"
+            "value": "Slået fra i cmux"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht hinzugefügt"
+            "value": "In cmux aus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No añadidas"
+            "value": "Desactivado en cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non ajoutés"
+            "value": "Désactivé dans cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non aggiunti"
+            "value": "Disattivato in cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加していません"
+            "value": "cmux ではオフ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនបានបន្ថែម"
+            "value": "បិទក្នុង cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "추가 안 됨"
+            "value": "cmux에서 꺼짐"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke lagt til"
+            "value": "Av i cmux"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie dodano"
+            "value": "Wyłączone w cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não adicionadas"
+            "value": "Desativado no cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не добавлены"
+            "value": "Выключено в cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่ได้เพิ่ม"
+            "value": "ปิดใน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eklenmedi"
+            "value": "cmux’ta kapalı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не додано"
+            "value": "Вимкнено в cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa thêm"
+            "value": "Tắt trong cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未添加"
+            "value": "在 cmux 中已关闭"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未加入"
-          }
-        }
-      }
-    },
-    "settingsWindow.agentTools.state.added": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Added"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مضاف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilføjet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinzugefügt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añadidas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajoutés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiunti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加済み"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានបន្ថែម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "추가됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lagt til"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodano"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adicionadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавлены"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เพิ่มแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eklendi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Додано"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã thêm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已添加"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已加入"
+            "value": "在 cmux 中已關閉"
           }
         }
       }
@@ -800,523 +536,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Available in cmux terminals"
+            "value": "Gets cmux’s tools in cmux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "متاح في طرفيات cmux"
+            "value": "يحصل على أدوات cmux داخل cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dostupno u cmux terminalima"
+            "value": "Dobija cmux alate u cmuxu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilgængelig i cmux-terminaler"
+            "value": "Får cmux’ værktøjer i cmux"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In cmux-Terminals verfügbar"
+            "value": "Bekommt die Werkzeuge von cmux in cmux"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disponible en terminales de cmux"
+            "value": "Recibe las herramientas de cmux en cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disponible dans les terminaux cmux"
+            "value": "Reçoit les outils de cmux dans cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disponibile nei terminali cmux"
+            "value": "Riceve gli strumenti di cmux in cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のターミナルで利用可能"
+            "value": "cmux 内で cmux のツールを使用"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មាននៅក្នុងទែមីណាល់ cmux"
+            "value": "ទទួលបានឧបករណ៍ cmux ក្នុង cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 터미널에서 사용 가능"
+            "value": "cmux에서 cmux 도구 사용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilgjengelig i cmux-terminaler"
+            "value": "Får cmux-verktøyene i cmux"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dostępne w terminalach cmux"
+            "value": "Dostaje narzędzia cmux w cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disponível nos terminais do cmux"
+            "value": "Recebe as ferramentas do cmux no cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Доступно в терминалах cmux"
+            "value": "Получает инструменты cmux в cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้ได้ในเทอร์มินัล cmux"
+            "value": "ได้เครื่องมือของ cmux ใน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux terminallerinde kullanılabilir"
+            "value": "cmux içinde cmux araçlarını alır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Доступно в терміналах cmux"
+            "value": "Отримує інструменти cmux у cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Có sẵn trong terminal cmux"
+            "value": "Nhận công cụ cmux trong cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "可在 cmux 终端中使用"
+            "value": "在 cmux 中获得 cmux 的工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "可在 cmux 終端機中使用"
-          }
-        }
-      }
-    },
-    "settingsWindow.agentTools.stale": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Has an old entry from a cmux development build"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحتوي على إدخال قديم من إصدار تطوير لـ cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ima stari unos iz razvojne verzije cmuxa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har en gammel post fra en cmux-udviklingsversion"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hat einen alten Eintrag aus einer cmux-Entwicklungsversion"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiene una entrada antigua de una versión de desarrollo de cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contient une ancienne entrée d’une version de développement de cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ha una vecchia voce di una build di sviluppo di cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux の開発ビルドの古い設定があります"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានធាតុចាស់ពីកំណែអភិវឌ្ឍន៍ cmux"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 개발 빌드의 오래된 항목이 있음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har en gammel oppføring fra en cmux-utviklingsversjon"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ma stary wpis z wersji deweloperskiej cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tem uma entrada antiga de uma versão de desenvolvimento do cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Есть старая запись из сборки cmux для разработки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "มีรายการเก่าจากบิลด์สำหรับพัฒนาของ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux geliştirme sürümünden kalma eski bir kayıt var"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Має старий запис зі збірки cmux для розробки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Có mục cũ từ bản phát triển cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有来自 cmux 开发版本的旧条目"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有來自 cmux 開發版本的舊項目"
-          }
-        }
-      }
-    },
-    "settingsWindow.agentTools.state.conflict": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Has another server named cmux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لديه خادم آخر باسم cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ima drugi server nazvan cmux"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har en anden server ved navn cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hat einen anderen Server namens cmux"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiene otro servidor llamado cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A un autre serveur nommé cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ha un altro server chiamato cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別の cmux という名前のサーバーあり"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានម៉ាស៊ីនមេផ្សេងឈ្មោះ cmux"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux라는 다른 서버 있음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har en annen server kalt cmux"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ma inny serwer o nazwie cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tem outro servidor chamado cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Есть другой сервер с именем cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "มีเซิร์ฟเวอร์อื่นชื่อ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux adlı başka bir sunucusu var"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Має інший сервер з назвою cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Có máy chủ khác tên cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已有另一个名为 cmux 的服务器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已有另一個名為 cmux 的伺服器"
-          }
-        }
-      }
-    },
-    "settingsWindow.agentTools.state.kept": {
-      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: the card listing each coding agent and whether its own settings hold cmux's server, with Add Now and Remove",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Has its own cmux settings, left as is"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لديه إعدادات cmux خاصة به، تُركت كما هي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ima vlastite cmux postavke, ostavljene kakve jesu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har sine egne cmux-indstillinger, uændrede"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hat eigene cmux-Einstellungen, unverändert gelassen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tiene su propia configuración de cmux; se dejó igual"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A ses propres réglages cmux, laissés tels quels"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ha impostazioni cmux proprie, lasciate invariate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "独自の cmux 設定があるため、そのままにしました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានការកំណត់ cmux ផ្ទាល់ខ្លួន ទុកដដែល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자체 cmux 설정이 있어 그대로 둠"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Har egne cmux-innstillinger, uendret"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ma własne ustawienia cmux, pozostawione bez zmian"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tem configurações próprias do cmux, mantidas como estão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Есть собственные настройки cmux, оставлены как есть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "มีการตั้งค่า cmux ของตัวเอง จึงปล่อยไว้ตามเดิม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kendi cmux ayarları var, olduğu gibi bırakıldı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Має власні налаштування cmux, залишено як є"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Có cài đặt cmux riêng, giữ nguyên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有自己的 cmux 设置，已保持不变"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有自己的 cmux 設定，已保持不變"
+            "value": "在 cmux 中取得 cmux 的工具"
           }
         }
       }
@@ -1724,127 +1064,523 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Some agents couldn’t be changed."
+            "value": "Couldn’t save your choice."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تغيير بعض الوكلاء."
+            "value": "تعذّر حفظ اختيارك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neki agenti se nisu mogli promijeniti."
+            "value": "Izbor nije sačuvan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nogle agenter kunne ikke ændres."
+            "value": "Dit valg kunne ikke gemmes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Einige Agenten konnten nicht geändert werden."
+            "value": "Deine Auswahl konnte nicht gespeichert werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron cambiar algunos agentes."
+            "value": "No se pudo guardar tu elección."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Certains agents n’ont pas pu être modifiés."
+            "value": "Impossible d’enregistrer votre choix."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non è stato possibile modificare alcuni agenti."
+            "value": "Impossibile salvare la scelta."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一部のエージェントを変更できませんでした。"
+            "value": "選択を保存できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចប្ដូរភ្នាក់ងារមួយចំនួនបានទេ។"
+            "value": "មិនអាចរក្សាទុកជម្រើសរបស់អ្នកបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일부 에이전트를 변경하지 못했습니다."
+            "value": "선택을 저장하지 못했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noen agenter kunne ikke endres."
+            "value": "Kunne ikke lagre valget ditt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się zmienić niektórych agentów."
+            "value": "Nie udało się zapisać wyboru."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível alterar alguns agentes."
+            "value": "Não foi possível salvar sua escolha."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось изменить некоторых агентов."
+            "value": "Не удалось сохранить ваш выбор."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนเอเจนต์บางตัวไม่ได้"
+            "value": "บันทึกตัวเลือกของคุณไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bazı ajanlar değiştirilemedi."
+            "value": "Seçimin kaydedilemedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося змінити деяких агентів."
+            "value": "Не вдалося зберегти ваш вибір."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thay đổi được một số tác tử."
+            "value": "Không thể lưu lựa chọn của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "部分智能体无法更改。"
+            "value": "无法保存你的选择。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "部分代理程式無法變更。"
+            "value": "無法儲存你的選擇。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentTools.manual.title": {
+      "comment": "Settings > Agents > Agents on This Mac: heading of the manual lines a person runs themselves to give agents started outside cmux cmux's tools (cmux never runs them)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use cmux Tools Outside cmux (Manual)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام أدوات cmux خارج cmux (يدويًا)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korištenje cmux alata izvan cmuxa (ručno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug cmux-værktøjer uden for cmux (manuelt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Werkzeuge außerhalb von cmux nutzen (manuell)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar las herramientas de cmux fuera de cmux (manual)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les outils cmux hors de cmux (manuel)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usare gli strumenti di cmux fuori da cmux (manuale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の外で cmux のツールを使う（手動）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឧបករណ៍ cmux នៅក្រៅ cmux (ដោយដៃ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 밖에서 cmux 도구 사용(수동)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk cmux-verktøy utenfor cmux (manuelt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia cmux poza cmux (ręcznie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar as ferramentas do cmux fora do cmux (manual)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты cmux вне cmux (вручную)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เครื่องมือของ cmux นอก cmux (ด้วยตนเอง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux araçlarını cmux dışında kullan (elle)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти cmux поза cmux (вручну)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng công cụ cmux bên ngoài cmux (thủ công)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 之外使用 cmux 工具（手动）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 之外使用 cmux 工具（手動）"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentTools.manual.help": {
+      "comment": "Settings > Agents > Agents on This Mac: explains the manual lines (claude mcp add / codex mcp add) the person runs themselves; cmux never runs them",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To give an agent you start elsewhere cmux’s tools, run its line in a terminal yourself. cmux never runs these lines or changes your agents’ settings."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لمنح وكيل تشغّله في مكان آخر أدوات cmux، شغّل سطره في طرفية بنفسك. لا يشغّل cmux هذه الأسطر أبدًا ولا يغيّر إعدادات وكلائك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da agentu kojeg pokrećeš negdje drugdje daš cmux alate, sam pokreni njegov red u terminalu. cmux nikad ne pokreće ove redove niti mijenja postavke tvojih agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kør selv agentens linje i en terminal for at give en agent, du starter et andet sted, cmux’ værktøjer. cmux kører aldrig disse linjer og ændrer ikke dine agenters indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um einem Agenten, den du woanders startest, die Werkzeuge von cmux zu geben, führe seine Zeile selbst in einem Terminal aus. cmux führt diese Zeilen nie aus und ändert die Einstellungen deiner Agenten nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para dar las herramientas de cmux a un agente que inicias en otro lugar, ejecuta tú mismo su línea en una terminal. cmux nunca ejecuta estas líneas ni cambia los ajustes de tus agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour donner les outils de cmux à un agent que vous lancez ailleurs, exécutez vous-même sa ligne dans un terminal. cmux n’exécute jamais ces lignes et ne modifie pas les réglages de vos agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per dare gli strumenti di cmux a un agente che avvii altrove, esegui tu la sua riga in un terminale. cmux non esegue mai queste righe e non cambia le impostazioni dei tuoi agenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の外で起動するエージェントに cmux のツールを使わせるには、その行をご自身でターミナルで実行してください。cmux がこれらの行を実行したり、エージェントの設定を変更したりすることはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីផ្ដល់ឧបករណ៍ cmux ដល់ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមនៅកន្លែងផ្សេង សូមដំណើរការបន្ទាត់របស់វាក្នុងស្ថានីយដោយខ្លួនឯង។ cmux មិនដែលដំណើរការបន្ទាត់ទាំងនេះ ឬផ្លាស់ប្ដូរការកំណត់ភ្នាក់ងាររបស់អ្នកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 곳에서 시작하는 에이전트에 cmux 도구를 주려면 해당 줄을 터미널에서 직접 실행하세요. cmux는 이 줄을 실행하거나 에이전트 설정을 바꾸지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For å gi en agent du starter et annet sted cmux-verktøyene, kjører du linjen dens selv i en terminal. cmux kjører aldri disse linjene eller endrer agentenes innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby dać narzędzia cmux agentowi uruchamianemu gdzie indziej, sam uruchom jego wiersz w terminalu. cmux nigdy nie uruchamia tych wierszy ani nie zmienia ustawień Twoich agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para dar as ferramentas do cmux a um agente que você inicia em outro lugar, execute você mesmo a linha dele em um terminal. O cmux nunca executa essas linhas nem altera as configurações dos seus agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы дать инструменты cmux агенту, которого вы запускаете в другом месте, выполните его строку в терминале сами. cmux никогда не выполняет эти строки и не меняет настройки ваших агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หากต้องการให้เอเจนต์ที่คุณเริ่มที่อื่นได้เครื่องมือของ cmux ให้รันบรรทัดของเอเจนต์นั้นในเทอร์มินัลด้วยตนเอง cmux ไม่รันบรรทัดเหล่านี้และไม่เปลี่ยนการตั้งค่าเอเจนต์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka yerde başlattığın bir ajana cmux araçlarını vermek için onun satırını bir terminalde kendin çalıştır. cmux bu satırları asla çalıştırmaz ve ajanlarının ayarlarını değiştirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб дати інструменти cmux агенту, якого ви запускаєте деінде, виконайте його рядок у терміналі самі. cmux ніколи не виконує ці рядки й не змінює налаштування ваших агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để cấp công cụ cmux cho tác tử bạn khởi chạy ở nơi khác, hãy tự chạy dòng của nó trong terminal. cmux không bao giờ chạy các dòng này hay thay đổi cài đặt của các tác tử của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要让你在别处启动的智能体使用 cmux 的工具，请自己在终端中运行它对应的那一行。cmux 绝不会运行这些命令，也不会更改你的智能体设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要讓你在其他地方啟動的智慧代理使用 cmux 的工具，請自己在終端機中執行它對應的那一行。cmux 絕不會執行這些命令，也不會更改你的代理設定。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentTools.manual.copy": {
+      "comment": "Settings > Agents > Agents on This Mac: copies one manual line to the clipboard",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝"
           }
         }
       }

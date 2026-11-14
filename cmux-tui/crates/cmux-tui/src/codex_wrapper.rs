@@ -51,8 +51,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
-        let resolver_path = path_without_shims(&path, shim_dir.as_deref());
-        match prepare_hooks(args, &codex, &resolver_path) {
+        match prepare_hooks(args) {
             Ok(Some(injected)) => {
                 launch_args = injected;
                 command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
@@ -71,11 +70,7 @@ fn current_executable() -> anyhow::Result<PathBuf> {
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
-fn prepare_hooks(
-    args: &[OsString],
-    codex: &Path,
-    path: &OsStr,
-) -> anyhow::Result<Option<Vec<OsString>>> {
+fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     // A tool command of a Codex session in the shared daemon has the
     // daemon's inherited environment, which names some other terminal.
     if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
@@ -94,18 +89,14 @@ fn prepare_hooks(
         launch.push(OsString::from("-c"));
         launch.push(OsString::from(setting));
     }
-    // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
-    // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
+    // cmux's server, Computer Use behind it (agent_computer_use.rs), once the
+    // person said yes to cmux's tools in agents started in cmux
+    // (agent_mcp_choice.rs).
     let cwd = std::env::current_dir().unwrap_or_default();
-    let resolve = |codex: &Path, path: &OsStr, cwd: &Path, config: &ConfigArgs| {
-        crate::codex_mcp_entry::resolve(codex, path, cwd, config, crate::codex_mcp_entry::TIMEOUT)
-    };
     let settings = mcp_settings(
-        &McpLaunch { args, codex, path, cwd: &cwd, executable: &executable, socket: &socket },
+        &McpLaunch { args, cwd: &cwd, executable: &executable, socket: &socket },
         cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
-        &resolve,
         &|name| std::env::var_os(name),
-        &mut |line| eprintln!("{line}"),
     );
     for setting in settings {
         launch.push(OsString::from("-c"));
@@ -115,64 +106,35 @@ fn prepare_hooks(
     Ok(Some(launch))
 }
 
-use crate::agent_computer_use::CodexEntry;
-use crate::codex_mcp_entry::ConfigArgs;
-
 /// What [`mcp_settings`] needs of the launch: the person's Codex arguments,
-/// the real Codex, the shim-free `PATH`, the launch folder, this build's CLI
-/// and the pane's daemon socket.
+/// the launch folder, this build's CLI and the pane's daemon socket.
 struct McpLaunch<'a> {
     args: &'a [OsString],
-    codex: &'a Path,
-    path: &'a OsStr,
     cwd: &'a Path,
     executable: &'a Path,
     socket: &'a Path,
 }
 
-/// The `-c` values that add cmux's server to this launch
-/// (agent_computer_use.rs), when the person said yes to cmux's tools in their
-/// agents (`choice`; nothing otherwise). Only then is Codex asked for its
-/// `cmux` entry (`resolve`, codex_mcp_entry.rs), with the shim-free `PATH`
-/// and the person's config arguments; an answer it could not get is said on
-/// `warn`, and nothing is turned off.
+/// The `-c` values that give this launch this build's server as `cmux`
+/// (agent_computer_use.rs) when the person said yes to cmux's tools in agents
+/// started in cmux (`choice`), unless a config Codex may load has the
+/// person's own HTTP server named `cmux`, which this build's command cannot
+/// merge into (codex_cmux_entry.rs): then none, and nothing is said.
 fn mcp_settings(
     launch: &McpLaunch<'_>,
     choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
-    resolve: &dyn Fn(&Path, &OsStr, &Path, &ConfigArgs) -> CodexEntry,
     getenv: &dyn Fn(&str) -> Option<OsString>,
-    warn: &mut dyn FnMut(&str),
 ) -> Vec<OsString> {
-    if !choice.injects() {
+    if !choice.injects()
+        || crate::codex_cmux_entry::http_cmux_entry(launch.args, launch.cwd, getenv)
+    {
         return Vec::new();
     }
-    // Codex is asked only for a launch its answer describes: a new
-    // non-interactive session (`exec`, `review`; codex_mcp_entry.rs
-    // `probe_matches_launch`) where no project config
-    // could define `cmux` (`project_config_names_cmux`: such an entry would
-    // merge with the off switch, trusted or not). Any other launch turns
-    // nothing off, quietly. A line is said only when Codex was asked and could
-    // not answer.
-    let config = crate::codex_mcp_entry::config_args(launch.args);
-    let home = crate::codex_mcp_entry::home_dir(getenv);
-    let folder =
-        crate::codex_mcp_entry::launch_folder(launch.cwd, config.cd.as_deref(), home.as_deref());
-    let probed = crate::codex_mcp_entry::probe_matches_launch(launch.args)
-        && !crate::codex_mcp_entry::project_config_names_cmux(&folder, getenv);
-    let existing = if probed {
-        let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
-        if existing == CodexEntry::Unknown {
-            warn(crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
-        }
-        existing
-    } else {
-        CodexEntry::Unknown
-    };
     crate::agent_mcp_choice::codex_settings(
         choice,
         launch.executable,
         launch.socket,
-        &existing,
+        launch.cwd,
         getenv,
     )
 }
@@ -407,131 +369,50 @@ mod launch_classification {
 mod tests {
     use super::*;
     use cmux_tui_core::user_settings::AgentsCmuxMcp;
-    use std::cell::RefCell;
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
     }
 
-    /// One resolver call: the Codex, PATH, folder and config arguments.
-    type Call = (PathBuf, OsString, PathBuf, Vec<OsString>);
-
-    /// The settings one launch gets, the resolver's calls, and what was said.
-    fn launch(
-        choice: AgentsCmuxMcp,
-        args: &[&str],
-        answer: CodexEntry,
-    ) -> (Vec<String>, Vec<Call>, Vec<String>) {
-        let calls = RefCell::new(Vec::new());
-        let resolve = |codex: &Path, path: &OsStr, cwd: &Path, config: &ConfigArgs| {
-            calls.borrow_mut().push((
-                codex.to_owned(),
-                path.to_owned(),
-                cwd.to_owned(),
-                config.args.clone(),
-            ));
-            answer.clone()
-        };
+    /// The settings one launch in `/work` gets.
+    fn launch(choice: AgentsCmuxMcp, args: &[&str]) -> Vec<String> {
         let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
-        let mut said = Vec::new();
         let args = os(args);
         let settings = mcp_settings(
             &McpLaunch {
                 args: &args,
-                codex: Path::new("/real/codex"),
-                path: OsStr::new("/usr/bin:/bin"),
                 cwd: Path::new("/work"),
                 executable: Path::new("/A/cmux"),
                 socket: Path::new("/tmp/s.sock"),
             },
             choice,
-            &resolve,
             &pane,
-            &mut |line| said.push(line.to_owned()),
         );
-        let settings = settings.iter().map(|s| s.to_string_lossy().into_owned()).collect();
-        (settings, calls.into_inner(), said)
+        settings.iter().map(|s| s.to_string_lossy().into_owned()).collect()
     }
 
-    fn found(command: &str) -> CodexEntry {
-        CodexEntry::Found(serde_json::json!({
-            "name": "cmux", "enabled": true,
-            "transport": {"type": "stdio", "command": command, "args": ["mcp", "serve"]},
-        }))
-    }
-
-    /// Codex is asked only when the server goes in, with the shim-free PATH,
-    /// the launch folder and the person's config arguments.
+    /// The server goes in only with the person's yes, under the name `cmux`, for every kind of
+    /// session: interactive, with a prompt, exec, review, resumed, forked, in a worktree.
     #[test]
-    fn codex_is_asked_only_when_the_server_goes_in() {
+    fn the_server_goes_in_as_cmux_only_with_the_persons_yes() {
         for choice in [AgentsCmuxMcp::Ask, AgentsCmuxMcp::Off] {
-            let (settings, calls, said) = launch(choice, &["-p", "work"], found("/opt/cmux"));
-            assert!(settings.is_empty() && calls.is_empty() && said.is_empty(), "{choice:?}");
+            assert!(launch(choice, &["exec", "hi there"]).is_empty(), "{choice:?}");
         }
-        let (settings, calls, said) = launch(
-            AgentsCmuxMcp::On,
-            &["-pwork", "-c", "x=1", "exec", "say hi"],
-            CodexEntry::Absent,
-        );
-        assert_eq!(calls.len(), 1);
-        let (codex, path, cwd, config) = &calls[0];
-        assert_eq!(
-            (codex.as_path(), path.as_os_str(), cwd.as_path()),
-            (Path::new("/real/codex"), OsStr::new("/usr/bin:/bin"), Path::new("/work"))
-        );
-        assert_eq!(config, &os(&["--profile", "work", "-c", "x=1"]));
-        assert!(said.is_empty());
-        assert!(
-            settings.iter().all(|s| s.starts_with("mcp_servers.cmux_terminal.")),
-            "{settings:?}"
-        );
-    }
-
-    /// A launch whose session Codex's answer does not describe (a new
-    /// worktree: untrusted, no project layer; a resumed or forked session):
-    /// Codex is not asked and nothing is turned off, which would otherwise
-    /// fail Codex with "invalid transport".
-    #[test]
-    fn a_worktree_or_resumed_session_turns_nothing_off() {
         for args in [
-            &["--worktree"][..],
-            &["exec", "--worktree", "hi"],
+            &[][..],
+            &["fix the bug"],
+            &["exec", "fix the bug"],
+            &["review", "--uncommitted"],
             &["resume", "--last"],
-            &["exec", "resume", "--last"],
             &["fork", "--last"],
-            // A skip flag after the prompt (reproduced with Codex 0.169).
-            &["exec", "hi", "--worktree"],
-            &["exec", "hi", "--ignore-user-config"],
-            &["hi", "--remote", "ws://127.0.0.1:1"],
-            &["resume"],
-            &["hi"],
-            &["exec", "--trust", "fix the bug"],
+            &["--worktree"],
+            &["agents"],
         ] {
-            let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
-            // Quiet: not asked, nothing said, whether or not the person has
-            // a cmux entry at all.
-            assert!(calls.is_empty(), "{args:?}");
-            assert!(said.is_empty(), "{args:?}: {said:?}");
-            assert!(
-                !settings.iter().any(|s| s.contains("enabled=false")),
-                "{args:?}: {settings:?}"
-            );
-            assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
-        }
-    }
-
-    /// Interactive Codex, with or without a prompt, can `/cd`, `/resume`
-    /// into another session's folder or make a worktree mid-session, each
-    /// rebuilding config with the shim's settings: it gets this build's
-    /// server and nothing is asked or turned off (two servers at worst, never
-    /// a replaced one).
-    #[test]
-    fn interactive_codex_turns_nothing_off() {
-        for args in [&[][..], &["fix the bug"], &["-m", "o3", "fix the bug"], &["--", "hi"]] {
-            let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
-            assert!(calls.is_empty() && said.is_empty(), "{args:?}: {calls:?} {said:?}");
-            assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
-            assert!(!settings.iter().any(|s| s.contains("enabled=false")), "{settings:?}");
+            let settings = launch(AgentsCmuxMcp::On, args);
+            assert!(settings.iter().all(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
+            assert!(settings.contains(&"mcp_servers.cmux.command=\"/A/cmux\"".to_owned()));
+            assert!(settings.contains(&"mcp_servers.cmux.enabled=true".to_owned()), "{args:?}");
+            assert!(settings.contains(&"mcp_servers.cmux.cwd=\"/work\"".to_owned()), "{args:?}");
         }
     }
 
@@ -578,10 +459,8 @@ mod tests {
         }
     }
 
-    /// `codex agents` opens the agent command center, which can switch to
-    /// sessions recorded elsewhere: this build's server goes in, nothing is
-    /// asked or turned off. `codex review` is a new session in the launch
-    /// folder (`exec review`): Codex is asked, another cmux's entry turned off.
+    /// `codex agents` (the agent command center) and `codex review` start agent sessions: they get
+    /// the hooks and the server; a command that starts no session gets neither.
     #[test]
     fn agents_and_review_get_the_server() {
         let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
@@ -591,110 +470,5 @@ mod tests {
         for args in [&["a"][..], &["apply"], &["mcp", "list"], &["git-credential", "get"]] {
             assert!(!should_inject(&os(args), pane), "{args:?}");
         }
-        let (settings, calls, said) = launch(AgentsCmuxMcp::On, &["agents"], found("/opt/cmux"));
-        assert!(calls.is_empty() && said.is_empty(), "{calls:?} {said:?}");
-        assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
-        assert!(!settings.iter().any(|s| s.contains("enabled=false")), "{settings:?}");
-        let (settings, calls, _) =
-            launch(AgentsCmuxMcp::On, &["review", "--uncommitted"], found("/opt/cmux"));
-        assert_eq!(calls.len(), 1);
-        assert!(settings.iter().any(|s| s == "mcp_servers.cmux.enabled=false"), "{settings:?}");
-    }
-
-    /// Where a project config (the launch folder, `-C` applied, or above)
-    /// defines `cmux`, Codex is not asked and nothing is turned off or said;
-    /// a project config without `cmux` changes nothing.
-    #[test]
-    fn a_project_config_naming_cmux_turns_nothing_off_quietly() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let (home, project, other) = (root.join("codex"), root.join("proj"), root.join("other"));
-        for folder in [project.join(".codex"), other.clone(), home.clone()] {
-            fs::create_dir_all(folder).unwrap();
-        }
-        let asked = RefCell::new(0);
-        let resolve = |_: &Path, _: &OsStr, _: &Path, _: &ConfigArgs| {
-            *asked.borrow_mut() += 1;
-            found("/opt/cmux")
-        };
-        let getenv = |name: &str| match name {
-            "CODEX_HOME" => Some(home.clone().into_os_string()),
-            "CMUX_TUI_TERMINAL_ID" => Some(OsString::from("term_1")),
-            _ => None,
-        };
-        let launch = |cwd: &Path, args: &[&str], said: &mut Vec<String>| {
-            let args = os(args);
-            let settings = mcp_settings(
-                &McpLaunch {
-                    args: &args,
-                    codex: Path::new("/real/codex"),
-                    path: OsStr::new("/usr/bin:/bin"),
-                    cwd,
-                    executable: Path::new("/A/cmux"),
-                    socket: Path::new("/tmp/s.sock"),
-                },
-                AgentsCmuxMcp::On,
-                &resolve,
-                &getenv,
-                &mut |line| said.push(line.to_owned()),
-            );
-            settings.iter().any(|s| s.to_string_lossy() == "mcp_servers.cmux.enabled=false")
-        };
-        let mut said = Vec::new();
-        // A project config without cmux: asked, another cmux's entry turned off.
-        fs::write(project.join(".codex/config.toml"), "model = \"o3\"\n").unwrap();
-        assert!(launch(&project, &["exec", "fix the bug"], &mut said));
-        assert_eq!(*asked.borrow(), 1);
-        // One that defines cmux: not asked, nothing off, nothing said.
-        fs::write(project.join(".codex/config.toml"), "[mcp_servers.cmux]\ncwd = \"/w\"\n")
-            .unwrap();
-        assert!(!launch(&project, &["exec", "fix the bug"], &mut said));
-        assert_eq!(*asked.borrow(), 1);
-        assert!(said.is_empty(), "{said:?}");
-        // `-C` into it from a folder without one: the same.
-        let to_project = project.to_str().unwrap();
-        assert!(!launch(&other, &["exec", "-C", to_project, "fix the bug"], &mut said));
-        assert_eq!(*asked.borrow(), 1);
-        // `-C` through a symlink out of it: Codex walks the path as written,
-        // under the project; not asked either.
-        std::os::unix::fs::symlink(&other, project.join("link")).unwrap();
-        let link = project.join("link");
-        assert!(!launch(&other, &["exec", "-C", link.to_str().unwrap(), "fix the bug"], &mut said));
-        assert!(!launch(&project, &["exec", "-C", "link/../link", "fix the bug"], &mut said));
-        assert_eq!(*asked.borrow(), 1);
-        // And `-C` out of it: asked again.
-        let to_other = other.to_str().unwrap();
-        assert!(launch(&project, &["exec", "-C", to_other, "fix the bug"], &mut said));
-        assert_eq!(*asked.borrow(), 2);
-        assert!(said.is_empty(), "{said:?}");
-    }
-
-    /// An entry with a url is never turned off, and nothing is said: it is
-    /// no cmux CLI, so it counts as the person's own.
-    #[test]
-    fn a_url_entry_is_kept_quietly() {
-        let http = CodexEntry::Found(serde_json::json!({
-            "name": "cmux", "enabled": true,
-            "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
-        }));
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], http);
-        assert!(!settings.iter().any(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
-        assert!(said.is_empty(), "{said:?}");
-    }
-
-    /// `enabled=false` only for another cmux's entry Codex reported; an
-    /// answer it could not get is said once, and nothing is turned off.
-    #[test]
-    fn only_another_cmuxs_entry_is_turned_off() {
-        let off = "mcp_servers.cmux.enabled=false".to_owned();
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], found("/opt/cmux"));
-        assert!(settings.contains(&off) && said.is_empty(), "{settings:?}");
-        let (settings, _, _) = launch(AgentsCmuxMcp::On, &["exec"], found("/usr/bin/my-tool"));
-        assert!(!settings.contains(&off), "{settings:?}");
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], CodexEntry::Unknown);
-        assert!(!settings.contains(&off), "{settings:?}");
-        // The one line for a probe without an answer, the catalog's own.
-        assert_eq!(said, [crate::localization::catalog().agent_wrapper.codex_mcp_unknown]);
-        assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
     }
 }

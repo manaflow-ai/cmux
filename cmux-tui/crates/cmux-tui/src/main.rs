@@ -45,7 +45,7 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
-mod codex_mcp_entry;
+mod codex_cmux_entry;
 #[cfg(unix)]
 mod codex_wrapper;
 #[cfg(not(target_os = "macos"))]

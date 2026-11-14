@@ -478,3 +478,79 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
     assert!(super::resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
+/// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
+/// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A
+/// Chief turn (a preset naming its cmux tools) keeps it either way.
+#[test]
+fn the_cmux_server_goes_only_with_the_persons_yes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let cmux = root.path().join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
+    let inputs = |json: Option<&str>| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), Vec::new())),
+        ..memory_inputs(root.path(), json)
+    };
+    let names = |json: Option<&str>, env: &std::collections::BTreeMap<String, String>| {
+        super::resolve(&inputs(json))
+            .scoped(env)
+            .servers
+            .into_iter()
+            .map(|s| s.name)
+            .collect::<Vec<_>>()
+    };
+    let none = std::collections::BTreeMap::new();
+    for json in [
+        None,
+        Some("{}"),
+        Some(r#"{"agents": {"cmuxMcp": "ask"}}"#),
+        Some(r#"{"agents": {"cmuxMcp": "off"}}"#),
+        Some(r#"{"agents.cmuxMcp": "yes"}"#),
+        Some("{"),
+    ] {
+        let names = names(json, &none);
+        assert!(!names.contains(&"cmux".to_owned()), "{json:?}: {names:?}");
+        assert!(names.contains(&crate::acpmux_mcp::SERVER_NAME.to_owned()), "{json:?}: {names:?}");
+        let chief = std::collections::BTreeMap::from([(
+            super::MCP_TOOLS_ENV.to_owned(),
+            super::CHIEF_TURN_TOOLS.to_owned(),
+        )]);
+        assert!(
+            super::resolve(&inputs(json)).scoped(&chief).servers.iter().any(|s| s.name == "cmux")
+        );
+    }
+    for json in [r#"{"agents": {"cmuxMcp": "on"}}"#, "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}"] {
+        let tools = super::resolve(&inputs(Some(json))).scoped(&none);
+        let server =
+            tools.servers.iter().find(|s| s.name == "cmux").unwrap_or_else(|| panic!("{json}"));
+        assert_eq!(server.command, cmux);
+        assert_eq!(server.args, ["mcp", "serve"]);
+        // Folded: one server, `cmux`, the others behind it.
+        let folded = tools.for_session("s-1").folded();
+        assert_eq!(folded.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["cmux"]);
+    }
+    // MCP off in the settings file: no `cmux` server even with the yes.
+    let off = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
+    assert!(!names(Some(off), &none).contains(&"cmux".to_owned()));
+}
+
+#[test]
+fn the_cmux_server_definition_names_the_settings_file() {
+    let server =
+        super::cmux_server(std::path::Path::new("/A/cmux"), false, Some("/h/cmux-next-x.json"));
+    assert_eq!(server.name, "cmux");
+    assert_eq!(server.command, std::path::PathBuf::from("/A/cmux"));
+    assert_eq!(server.args, ["mcp", "serve"]);
+    assert_eq!(
+        server.env,
+        [("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned())]
+    );
+    let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, None);
+    assert_eq!(all.args, ["mcp", "serve", "--all-tools"]);
+    assert!(all.env.is_empty());
+    assert!(super::cmux_server(std::path::Path::new("/A/cmux"), false, Some("")).env.is_empty());
+}

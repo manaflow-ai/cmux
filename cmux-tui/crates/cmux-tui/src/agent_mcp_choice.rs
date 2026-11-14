@@ -1,10 +1,11 @@
-//! The person's answer to "may cmux add its tools to your coding agents?"
-//! (`agents.cmuxMcp`, the onboarding step and Settings > Agents) applied to
-//! the `claude` and `codex` shims: the MCP server they pass to an agent
-//! started in a cmux terminal (agent_computer_use.rs) goes only once the
-//! answer is `on`. Unanswered (`ask`) and `off` pass none: cmux does not add
-//! its tools to the person's agents until they approve (the app asks at
-//! launch). The hooks are not MCP and are passed either way.
+//! The person's answer to "should agents you start in cmux get cmux's
+//! tools?" (`agents.cmuxMcp`, the onboarding step and Settings > Agents)
+//! applied to the `claude` and `codex` shims: the MCP server they pass to an
+//! agent started in a cmux terminal (agent_computer_use.rs) goes only once
+//! the answer is `on`. Unanswered (`ask`) and `off` pass none (the app asks
+//! at launch). The hooks are not MCP and are passed either way. The answer
+//! never writes the person's own agent configs: only `cmux setup mcp
+//! --global`, which they run, does (cli/setup/mcp.rs).
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -24,21 +25,20 @@ pub(crate) fn claude_mcp_config(
     crate::agent_computer_use::claude_mcp_config(executable, socket)
 }
 
-/// Codex `-c` overrides for this launch; none until the person said yes to
-/// cmux's tools in their agents. `existing` is the `cmux` entry Codex
-/// reported; `getenv` reads the pane's environment.
+/// Codex `-c` overrides for this launch in `cwd`; none until the person said
+/// yes to cmux's tools in agents started in cmux. `getenv` reads the pane's
+/// environment.
 pub(crate) fn codex_settings(
     choice: AgentsCmuxMcp,
     executable: &Path,
     socket: &Path,
-    existing: &crate::agent_computer_use::CodexEntry,
+    cwd: &Path,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<OsString> {
     if !choice.injects() {
         return Vec::new();
     }
-    crate::agent_computer_use::codex_settings(executable, socket, existing, getenv)
-        .unwrap_or_default()
+    crate::agent_computer_use::codex_settings(executable, socket, cwd, getenv).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -48,8 +48,7 @@ mod tests {
     const EXE: &str = "/A/cmux";
     const SOCKET: &str = "/tmp/s.sock";
 
-    const ABSENT: crate::agent_computer_use::CodexEntry =
-        crate::agent_computer_use::CodexEntry::Absent;
+    const CWD: &str = "/w";
 
     /// An environment with nothing set.
     fn no_env(_: &str) -> Option<OsString> {
@@ -70,7 +69,7 @@ mod tests {
             let unset = choice(text);
             assert_eq!(claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
             assert!(
-                codex_settings(unset, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env)
+                codex_settings(unset, Path::new(EXE), Path::new(SOCKET), Path::new(CWD), &no_env)
                     .is_empty(),
                 "{text}"
             );
@@ -86,10 +85,35 @@ mod tests {
         assert_eq!(servers.len(), 1, "{value}");
         assert!(servers.contains_key(crate::agent_computer_use::SERVER), "{value}");
         // An empty pane environment: nothing of this machine is read.
-        let codex = codex_settings(on, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env);
+        let codex = codex_settings(on, Path::new(EXE), Path::new(SOCKET), Path::new(CWD), &no_env);
         assert!(!codex.is_empty());
-        let prefix = format!("mcp_servers.{}.", crate::agent_computer_use::CODEX_TERMINAL_SERVER);
+        let prefix = format!("mcp_servers.{}.", crate::agent_computer_use::SERVER);
         assert!(codex.iter().all(|s| s.to_str().unwrap().starts_with(&prefix)), "{codex:?}");
+    }
+
+    /// The terminal shims and acpmux's sessions read the person's answer the same way, so the
+    /// terminal and the agent pane never disagree on whether an agent gets cmux's tools.
+    #[test]
+    fn the_shims_and_acpmux_read_the_answer_alike() {
+        for text in [
+            "",
+            "{}",
+            "{",
+            r#"{"agents": {"cmuxMcp": "on"}}"#,
+            r#"{"agents.cmuxMcp": "on"}"#,
+            r#"{"agents": {"cmuxMcp": "off"}}"#,
+            r#"{"agents": {"cmuxMcp": "ask"}}"#,
+            r#"{"agents": {"cmuxMcp": "maybe"}}"#,
+            r#"{"agents": {"cmuxMcp": true}}"#,
+            "{\n// mine\n\"agents.cmuxMcp\": \"on\",\n}",
+        ] {
+            assert_eq!(
+                choice(text).injects(),
+                acpmux::agent_tools::agents_get_cmux(Some(text)),
+                "{text}"
+            );
+        }
+        assert!(!acpmux::agent_tools::agents_get_cmux(None));
     }
 
     #[test]
@@ -98,7 +122,8 @@ mod tests {
             let off = choice(text);
             assert_eq!(claude_mcp_config(off, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
             assert!(
-                codex_settings(off, Path::new(EXE), Path::new(SOCKET), &ABSENT, &no_env).is_empty(),
+                codex_settings(off, Path::new(EXE), Path::new(SOCKET), Path::new(CWD), &no_env)
+                    .is_empty(),
                 "{text}"
             );
         }

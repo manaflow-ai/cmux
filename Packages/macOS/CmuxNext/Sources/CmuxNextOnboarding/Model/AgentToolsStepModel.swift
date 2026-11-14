@@ -2,11 +2,12 @@ public import CmuxNextAgentIntegrations
 import Foundation
 public import Observation
 
-/// The cmux Tools step (and Settings > Agents' row): asks whether cmux may add its MCP server,
-/// Computer Use included, to the person's coding agents, lists the agents found, and keeps the
-/// answer. Add to My Agents sets `on` and runs `cmux setup mcp` for the agents found; Not Now sets
-/// `off`, adds nothing, and takes out cmux's own entry where one is already there. Nothing runs until the person answers (Aziz, 2026-11-10: "prevent
-/// overstepping on a user's setup").
+/// The cmux Tools step (and the setup card's row): asks whether agents the person starts in cmux
+/// (its terminals, agent chats) get cmux's MCP server, Computer Use included, lists the agents
+/// found, and keeps the answer. Turn On sets `on`; Not Now sets `off`. Either only writes the
+/// answer: cmux gives its server through each agent's launch and never writes an agent's own
+/// config. Nothing is written until the person answers (Aziz, 2026-11-10: "prevent overstepping on
+/// a user's setup").
 @MainActor
 @Observable
 public final class AgentToolsStepModel {
@@ -52,7 +53,7 @@ public final class AgentToolsStepModel {
     public func refresh() {
         guard let source else { return }
         read?.cancel()
-        // task-owner: one read of `cmux setup mcp --dry-run`; the next read or stop() cancels it.
+        // task-owner: one read of `cmux setup mcp`; the next read or stop() cancels it.
         read = Task { [weak self] in
             let found = await source.agentToolsAgents()
             guard let self, !Task.isCancelled else { return }
@@ -61,42 +62,18 @@ public final class AgentToolsStepModel {
         }
     }
 
-    /// Add to My Agents: the answer is yes, then cmux's server goes into each agent found.
+    /// Turn On: the answer is yes; the agents are read again to show it.
     public func add() {
         guard !applying else { return }
         answered = true
-        apply(choice: .on, remove: false)
+        apply(choice: .on)
     }
 
-    /// Not Now: the answer is no. Nothing is added; an agent that already has cmux's server (added
-    /// before the question, by Add, or by `cmux setup mcp`) gets it taken out (`--remove`, cmux's own
-    /// entry only), so no means no cmux tools in the person's agents. Once the read shows none there, no
-    /// config is touched.
+    /// Not Now: the answer is no. Nothing else changes.
     public func decline() {
         guard !applying else { return }
         answered = true
-        localChoice = .off
-        failed = false
-        guard let source else { return }
-        // Before the read lands, an entry may be there unseen: take cmux's out anyway (`--remove`
-        // touches nothing when there is none).
-        if !loaded || agents.contains(where: { $0.state == .added }) {
-            apply(choice: .off, remove: true)
-            return
-        }
-        run?.cancel()
-        // task-owner: one settings write the person asked for; a refused write shows as failed.
-        run = Task { [weak self] in
-            let written = await source.setAgentToolsChoice(.off)
-            self?.failed = !written
-        }
-    }
-
-    /// Settings' Remove from My Agents: cmux's own entries come out of the agents' configs; the
-    /// answer stays as it is (Remove alone writes no answer).
-    public func remove() {
-        guard !applying else { return }
-        apply(choice: nil, remove: true)
+        apply(choice: .off)
     }
 
     /// Sets the answer without running anything (Settings' choice row).
@@ -107,8 +84,8 @@ public final class AgentToolsStepModel {
         Task { _ = await source.setAgentToolsChoice(next) }
     }
 
-    private func apply(choice next: AgentToolsChoice?, remove: Bool) {
-        if let next { localChoice = next }
+    private func apply(choice next: AgentToolsChoice) {
+        localChoice = next
         guard let source else {
             failed = true
             return
@@ -117,33 +94,23 @@ public final class AgentToolsStepModel {
         failed = false
         run?.cancel()
         read?.cancel()
-        // task-owner: one run the person asked for: the answer reaches the settings file first,
-        // since `cmux setup mcp` reads it; then the CLI writes the agents' configs.
+        // task-owner: one settings write the person asked for, then (a yes) one read of the agents.
         run = Task { [weak self] in
-            // A refused answer stops here: `cmux setup mcp` would not see it and would write nothing.
-            if let next, !(await source.setAgentToolsChoice(next)) {
-                guard let self else { return }
-                applying = false
-                failed = true
-                return
-            }
-            let result = await source.applyAgentTools(remove: remove)
+            let written = await source.setAgentToolsChoice(next)
+            // A yes reads the agents again, to show them getting cmux's tools; a no changes none.
+            let found = written && next == .on ? await source.agentToolsAgents() : nil
             guard let self, !Task.isCancelled else { return }
             applying = false
             loaded = true
-            if let result { agents = result }
-            // An Add that left an agent without cmux's server (refused by the CLI, a server of the
-            // person's named cmux, a config it could not read) did not do what the person asked.
-            failed = result == nil || result?.contains { $0.state == .failed || (!remove && !$0.state.givesTools) } == true
+            if let found { agents = found }
+            failed = !written
         }
     }
 
-    /// The agents that have cmux's tools after the run (in their own config, or in this build's
-    /// terminals).
+    /// The agents that get cmux's tools when cmux starts them.
     public var addedCount: Int { agents.filter(\.state.givesTools).count }
 
-    /// The window closed: reads stop. A run the person started finishes (it writes their configs
-    /// and is short), so a closed window never leaves a config half written.
+    /// The window closed: reads stop. A run the person started finishes (it writes their answer).
     public func stop() {
         read?.cancel()
     }

@@ -142,32 +142,24 @@ export function skipLabels(strings: Strings, step: OnboardingStep): string[] {
 
 const TOOLS_STATE_KEYS: Record<AgentToolsRow["state"], string> = {
   ready: "onboarding.agentTools.state.ready",
-  added: "onboarding.agentTools.state.added",
   terminals: "onboarding.agentTools.state.terminals",
-  conflict: "onboarding.agentTools.state.conflict",
-  kept: "onboarding.agentTools.state.kept",
   failed: "onboarding.agentTools.state.failed",
 };
 
-/** The line under a coding agent's name: found, has cmux's tools, keeps the person's own server
- * named cmux, or could not be read; after Not Now a found agent says Not added. */
+/** The line under a coding agent's name: found, gets cmux's tools in cmux, or could not be read;
+ * after Not Now a found agent says Off in cmux. */
 export function agentToolsDetail(strings: Strings, row: AgentToolsRow, tools: AgentToolsState): string {
   if (row.state === "ready" && tools.choice === "off") return strings.t("onboarding.agentTools.state.notAdded");
   return strings.t(TOOLS_STATE_KEYS[row.state] ?? TOOLS_STATE_KEYS.ready);
 }
 
-/** The line under the cmux Tools list, or null for none: Checking…, none found, Adding…, what the
- * answer did, or that some agent could not be set up. */
+/** The line under the cmux Tools list, or null for none: Checking…, none found, Turning on…, what the
+ * answer did, or that it could not be saved. */
 export function agentToolsStatus(strings: Strings, tools: AgentToolsState | null | undefined): string | null {
   if (tools == null || !tools.loaded) return strings.t("onboarding.agents.checking");
   if (tools.applying) return strings.t("onboarding.agentTools.adding");
   if (tools.answered && tools.failed) return strings.t("onboarding.agentTools.failed");
-  if (tools.answered && tools.choice === "on")
-    return strings.t(
-      tools.rows.some((row) => row.state === "terminals")
-        ? "onboarding.agentTools.addedTerminals"
-        : "onboarding.agentTools.added",
-    );
+  if (tools.answered && tools.choice === "on") return strings.t("onboarding.agentTools.addedTerminals");
   if (tools.answered && tools.choice === "off") return strings.t("onboarding.agentTools.declined");
   if (tools.rows.length === 0) return strings.t("onboarding.agentTools.none");
   return null;
