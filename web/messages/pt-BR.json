@@ -979,7 +979,12 @@
         "deleteConfirmBody": "Esta ação é irreversível e exclui todos os dados associados à sua conta.",
         "deleteAcknowledge": "Entendo que minha conta e seus dados serão excluídos permanentemente.",
         "deleteConfirm": "Excluir conta",
-        "deleteError": "Não foi possível excluir a conta. Tente novamente."
+        "deleteError": "Não foi possível excluir a conta. Tente novamente.",
+        "deleteErrorPending": "Sua conta já está sendo excluída. Tente novamente em instantes.",
+        "deleteErrorRetryable": "Não foi possível concluir a exclusão da conta. Verifique sua conexão e tente novamente.",
+        "deleteAppStoreTitle": "Sua assinatura da App Store continuará sendo renovada",
+        "deleteAppStoreBody": "Excluir sua conta do cmux não cancela sua assinatura da App Store. A Apple continuará cobrando até você cancelá-la na App Store.",
+        "deleteAppStoreManage": "Gerenciar assinatura na App Store"
       }
     },
     "teams": {

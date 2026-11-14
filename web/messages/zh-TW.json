@@ -979,7 +979,12 @@
         "deleteConfirmBody": "此操作無法復原，將刪除與你帳號相關的所有資料。",
         "deleteAcknowledge": "我了解我的帳號及其資料將被永久刪除。",
         "deleteConfirm": "刪除帳號",
-        "deleteError": "無法刪除帳號，請再試一次。"
+        "deleteError": "無法刪除帳號，請再試一次。",
+        "deleteErrorPending": "你的帳號正在刪除中。請稍後再試。",
+        "deleteErrorRetryable": "無法完成帳號刪除。請檢查網路連線後再試一次。",
+        "deleteAppStoreTitle": "你的 App Store 訂閱將繼續續訂",
+        "deleteAppStoreBody": "刪除 cmux 帳號不會取消你的 App Store 訂閱。在你於 App Store 中取消之前，Apple 會繼續向你收費。",
+        "deleteAppStoreManage": "在 App Store 中管理訂閱"
       }
     },
     "teams": {

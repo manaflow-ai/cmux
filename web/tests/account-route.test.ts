@@ -6,6 +6,9 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  appleAccountTokens,
+  appleSubscriptions,
+  appleTransactions,
   coderouterHandoffLeases,
   coderouterRouteTokens,
   cloudOrganizations,
@@ -930,6 +933,7 @@ describe("account deletion route", () => {
     expect(deletedTables).toContain(cloudOrganizations);
     expect(updatedRows.filter(({ table }) => table === cloudOrganizations)).toHaveLength(2);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
+      table !== appleTransactions &&
       table !== stripeSubscriptions &&
       table !== stripeCustomers &&
       table !== coderouterHandoffLeases &&
@@ -949,6 +953,7 @@ describe("account deletion route", () => {
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
     for (const update of updatedRows.filter(({ table }) =>
+      table !== appleTransactions &&
       table !== coderouterHandoffLeases &&
       table !== coderouterRouteTokens &&
       table !== cloudOrganizations
@@ -2544,6 +2549,51 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("drops the account's link to its App Store subscriptions and keeps the transaction ledger", async () => {
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    // The token and the subscription state go: a later App Store
+    // notification for that subscription is skipped as unlinked instead of
+    // granting a plan to the deleted account.
+    const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);
+    expect(conditionColumnNames(tokenDelete?.condition)).toEqual(["user_id"]);
+    expect(conditionParamValues(tokenDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    const subscriptionDelete = deletedWhere.find((entry) => entry.table === appleSubscriptions);
+    expect(conditionColumnNames(subscriptionDelete?.condition)).toEqual(["user_id"]);
+    expect(conditionParamValues(subscriptionDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    // The revenue ledger stays, attributed to the deleted-account placeholder.
+    expect(deletedTables).not.toContain(appleTransactions);
+    // The cmux-row cleanup runs again after the Stack delete; both passes
+    // write the same placeholder.
+    const ledgerUpdates = updatedRows.filter(({ table }) => table === appleTransactions).map(({ values }) => values);
+    expect(ledgerUpdates.length).toBeGreaterThan(0);
+    for (const values of ledgerUpdates) expect(values).toEqual({ userId: "deleted-account" });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("the dashboard's delete action runs this route: cmux cleanup, the App Store unlink, then the Stack delete", async () => {
+    const { deleteAccountThroughCmux } = await import("../dashboard-app/lib/delete-account");
+    const browserSession = {
+      getAuthJson: async () => ({ accessToken: "access-token", refreshToken: "refresh-token" }),
+    };
+    // The browser's fetch, served by this route handler.
+    await deleteAccountThroughCmux(browserSession, async (url, init) =>
+      await DELETE(new Request(new URL(url, "https://cmux.test"), init)));
+
+    // The browser's session tokens are what the route authenticated with.
+    expect(getUser).toHaveBeenCalledWith({ tokenStore: { accessToken: "access-token", refreshToken: "refresh-token" } });
+    expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(deletedTables).toContain(devices);
+    const tokenDelete = deletedWhere.find((entry) => entry.table === appleAccountTokens);
+    expect(conditionParamValues(tokenDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    const subscriptionDelete = deletedWhere.find((entry) => entry.table === appleSubscriptions);
+    expect(conditionParamValues(subscriptionDelete?.condition)).toEqual([ACCOUNT_USER_ID]);
+    expect(updatedRows.filter(({ table }) => table === appleTransactions).map(({ values }) => values))
+      .toContainEqual({ userId: "deleted-account" });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("deletes owned team and shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
@@ -3029,6 +3079,22 @@ function stripUpdatedAt(values: unknown): Record<string, unknown> {
   const copy = { ...(values as Record<string, unknown>) };
   delete copy.updatedAt;
   return copy;
+}
+
+/** The bound values of a Drizzle condition (its `Param` chunks), in order. */
+function conditionParamValues(condition: unknown): unknown[] {
+  const values: unknown[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (value.constructor?.name === "Param") {
+      values.push((value as { readonly value: unknown }).value);
+      return;
+    }
+    const chunks = (value as { readonly queryChunks?: readonly unknown[] }).queryChunks;
+    if (Array.isArray(chunks)) for (const chunk of chunks) visit(chunk);
+  };
+  visit(condition);
+  return values;
 }
 
 function conditionColumnNames(condition: unknown): string[] {

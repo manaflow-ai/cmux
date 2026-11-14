@@ -979,7 +979,12 @@
         "deleteConfirmBody": "Dette kan ikke angres og sletter alle data som er knyttet til kontoen din.",
         "deleteAcknowledge": "Jeg forstår at kontoen min og dataene i den slettes permanent.",
         "deleteConfirm": "Slett konto",
-        "deleteError": "Kunne ikke slette kontoen. Prøv igjen."
+        "deleteError": "Kunne ikke slette kontoen. Prøv igjen.",
+        "deleteErrorPending": "Kontoen din blir allerede slettet. Prøv igjen om et øyeblikk.",
+        "deleteErrorRetryable": "Slettingen av kontoen kunne ikke fullføres. Sjekk tilkoblingen og prøv igjen.",
+        "deleteAppStoreTitle": "App Store-abonnementet ditt fortsetter å fornyes",
+        "deleteAppStoreBody": "Sletting av cmux-kontoen din sier ikke opp App Store-abonnementet ditt. Apple fortsetter å belaste deg til du sier det opp i App Store.",
+        "deleteAppStoreManage": "Administrer abonnementet i App Store"
       }
     },
     "teams": {

@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { rpc } from "../lib/rpc";
 
 export type {
+  SettingsAccountDeletion,
   SettingsApiKey,
   SettingsEmail,
   SettingsNotificationCategory,
@@ -21,6 +22,9 @@ export const settingsSessionsQuery = rpc.settings.sessions.queryOptions({ staleT
 export const settingsApiKeysQuery = rpc.settings.apiKeys.queryOptions();
 
 export const settingsOAuthProvidersQuery = rpc.settings.oauthProviders.queryOptions();
+
+/** Read when the delete-account dialog opens, so a subscription cancelled a moment ago is not warned about. */
+export const settingsAccountDeletionQuery = rpc.settings.accountDeletion.queryOptions({ staleTime: 0 });
 
 /**
  * Settings writes run on the Hexclave client SDK with the user's own session

@@ -979,7 +979,12 @@
         "deleteConfirmBody": "Ovo je nepovratno i briše sve podatke povezane s vašim računom.",
         "deleteAcknowledge": "Razumijem da će moj račun i njegovi podaci biti trajno izbrisani.",
         "deleteConfirm": "Izbriši račun",
-        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo."
+        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo.",
+        "deleteErrorPending": "Vaš račun se već briše. Pokušajte ponovo za trenutak.",
+        "deleteErrorRetryable": "Brisanje računa nije dovršeno. Provjerite vezu i pokušajte ponovo.",
+        "deleteAppStoreTitle": "Vaša App Store pretplata će se i dalje obnavljati",
+        "deleteAppStoreBody": "Brisanje vašeg cmux računa ne otkazuje vašu App Store pretplatu. Apple vam nastavlja naplaćivati dok je ne otkažete u App Storeu.",
+        "deleteAppStoreManage": "Upravljaj pretplatom u App Storeu"
       }
     },
     "teams": {
