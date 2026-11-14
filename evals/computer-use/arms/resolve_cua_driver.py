@@ -105,7 +105,17 @@ def fetch(key: str, dest: str) -> int:
             z.extractall(out)
     else:
         with tarfile.open(archive) as t:
-            t.extractall(out, filter="data")
+            if hasattr(tarfile, "data_filter"):
+                t.extractall(out, filter="data")
+            else:
+                # Python < 3.12 without the filter backport (macOS's system python3 is 3.9): the same checks
+                # by hand, then a plain extract of regular files and directories only.
+                safe = []
+                for m in t.getmembers():
+                    if m.name.startswith("/") or ".." in m.name.split("/") or not (m.isfile() or m.isdir()):
+                        raise SystemExit(f"unsafe member {m.name}")
+                    safe.append(m)
+                t.extractall(out, members=safe)
     if not os.path.exists(bin_path):
         for root, _, files in os.walk(out):
             if asset["bin"] in files:

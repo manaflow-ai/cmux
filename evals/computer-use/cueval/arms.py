@@ -41,7 +41,7 @@ def server_command(arm: dict) -> list[str]:
     override = mcp.get("command_env") and os.environ.get(mcp["command_env"])
     if override:
         return json.loads(override)
-    cmd = list(mcp["command"])
+    cmd = list(mcp.get(f"command_{penv.platform_name()}") or mcp["command"])
     if any("{cua_driver_bin}" in c for c in cmd):
         binary = os.environ.get("CUEVAL_CUA_DRIVER_BIN")
         if not binary:
@@ -98,7 +98,12 @@ def apply_policy(arm: dict, task: dict, fake: bool = False) -> dict[str, str]:
             denied = default_denied_apps()
         if plat == "macos":
             cmd = [c.replace("{denied_json}", json.dumps(denied)) for c in pol["macos_command"]]
-            subprocess.run(cmd, check=True)
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode != 0:
+                # computerUse.deniedApps is a person-only setting: cmux refuses it from an agent context
+                # ("userOnly"), correctly. On the disposable eval VM the harness is the person: write the
+                # settings file the Settings page writes, then wait until cmux reports the list.
+                _write_macos_settings(pol, denied, r.stderr or r.stdout)
             return {}
         path = pol["paths"][plat]
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -106,6 +111,32 @@ def apply_policy(arm: dict, task: dict, fake: bool = False) -> dict[str, str]:
             json.dump({**pol["base"], "deniedApps": denied}, f, indent=2)
         return {}
     raise SystemExit(f"unknown policy method {method}")
+
+
+def _write_macos_settings(pol: dict, denied: list[str], why: str) -> None:
+    import time
+    path = os.path.expanduser(pol.get("macos_settings_file", "~/.config/cmux/cmux-next.json"))
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    cfg.setdefault("computerUse", {})["deniedApps"] = denied
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, path)
+    status = [pol["macos_command"][0], "computer-use", "status", "--json"]
+    for _ in range(50):
+        try:
+            d = json.loads(subprocess.run(status, capture_output=True, text=True, timeout=10).stdout or "{}")
+            if sorted(d.get("denied_apps", d.get("deniedApps", [])) or []) == sorted(denied):
+                return
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        time.sleep(0.2)
+    raise SystemExit(f"cmux refused the deny list ({why.strip()[:200]}) and did not pick up {path}")
 
 
 # ---------------------------------------------------------------- tool-tier adapters

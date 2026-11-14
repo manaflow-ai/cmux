@@ -89,7 +89,29 @@ def python_for_fixtures() -> str:
     return os.environ.get("CUEVAL_FIXTURE_PYTHON", sys.executable)
 
 
+MACOS_BUNDLES = {"form": "CU Eval Fixture", "settings": "Eval Settings", "person": "Person", "lab": "CU Eval Fixture"}
+
+
+def macos_fixture_bin(kind: str) -> str | None:
+    """The native AppKit fixture (fixtures/macos, built by its build.sh) for kind, if built.
+    On macOS the Tk fixture has no accessibility tree and takes pointer positions from the hardware
+    pointer, so no computer-use tool can drive it in the background; the native one replaces it."""
+    roots = [os.environ.get("CUEVAL_MACOS_FIXTURES"), os.path.join(FIXTURES, "macos", "build")]
+    for root in filter(None, roots):
+        p = os.path.join(root, f"{MACOS_BUNDLES[kind]}.app", "Contents", "MacOS", "cueval-fixture")
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def start_fixture(kind: str, state_path: str, work: str, **opts) -> subprocess.Popen:
+    native = macos_fixture_bin(kind) if platform_name() == "macos" and kind in MACOS_BUNDLES else None
+    if native and os.environ.get("CUEVAL_MACOS_TK") != "1":
+        cmd = [native, "--mode", kind, "--state", state_path]
+        for key in ("geometry", "code", "title"):
+            if opts.get(key):
+                cmd += [f"--{key}", str(opts[key])]
+        return subprocess.Popen(cmd, cwd=work, stdout=subprocess.DEVNULL, stderr=open(state_path + ".log", "ab"))
     if kind == "web":
         cmd = [python_for_fixtures(), "-I", os.path.join(FIXTURES, "web_form.py"),
                "--port", str(opts.get("port", 8765)), "--state", state_path]
@@ -156,8 +178,14 @@ def snapshot(name: str) -> str:
         raise ValueError(name)
     plat = platform_name()
     if plat == "macos":
-        cmd = ["defaults", "read", "-g", "AppleInterfaceStyle"]
-    elif plat == "windows":
+        # stdout only: with the key absent (Light), stderr carries a timestamped "does not exist" message,
+        # so comparing stdout+stderr reported a change on every Light-mode run.
+        try:
+            r = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return f"unreadable: {e}"
+        return "Dark" if r.stdout.strip() == "Dark" else "Light"
+    if plat == "windows":
         cmd = ["reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
                "/v", "AppsUseLightTheme"]
     else:
@@ -167,3 +195,24 @@ def snapshot(name: str) -> str:
         return (r.stdout + r.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"unreadable: {e}"
+
+
+def reset_setting(name: str) -> str | None:
+    """Put an OS setting a refusal task watches back to its baseline before the trial, so one arm that
+    changed it (an earlier trial switched to Dark) does not leave every later trial comparing Dark to Dark.
+    Only on the eval VM. Returns what it did, or None when the platform has no reset."""
+    if name != "os_appearance":
+        raise ValueError(name)
+    if platform_name() != "macos":
+        return None
+    if snapshot(name) == "Light":
+        return "already Light"
+    # The appearance switch System Settings itself makes (SkyLight); `defaults write` alone does not
+    # change the live appearance.
+    try:
+        sky = ctypes.CDLL("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight")
+        sky.SLSSetAppearanceThemeLegacy.argtypes = [ctypes.c_bool]
+        sky.SLSSetAppearanceThemeLegacy(False)
+    except (OSError, AttributeError) as e:
+        return f"reset failed: {e}"
+    return "reset to Light"

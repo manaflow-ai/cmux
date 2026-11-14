@@ -48,7 +48,13 @@
       "{cua_driver_bin}",
       "mcp"
     ],
-    "env": {}
+    "env": {},
+    "command_macos": [
+      "{cua_driver_bin}",
+      "mcp",
+      "--direct"
+    ],
+    "about_macos": "On macOS the release tarball has no CuaDriver.app for cua-driver's default proxy mode, so the MCP process runs the driver itself (`mcp --direct`)."
   },
   "tool_prefix": "",
   "adapter": "cua-driver",

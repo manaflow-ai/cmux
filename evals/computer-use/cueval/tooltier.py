@@ -58,6 +58,10 @@ class Ctx:
     def __init__(self, env: TaskEnv, ad: armsmod.Adapter, kind: str, settle: float):
         self.env, self.ad, self.kind, self.settle = env, ad, kind, settle
         self.scale: dict[str, float] = {}
+        # Widget frames relative to the client area (Tk) miss the title bar a window screenshot includes:
+        # the offset is the screenshot's extra height. The macOS native fixture reports frames that
+        # already include it ("frame_origin"), so its offset stays 0.
+        self.offset: dict[str, float] = {}
 
     def state(self, name: str) -> dict:
         return self.env.read_state(name)
@@ -76,16 +80,20 @@ class Ctx:
     def point(self, state_name: str, widget: str, dx: float = 0.5, dy: float = 0.5) -> tuple[float, float]:
         f = self.state(state_name)["widgets"][widget]
         s = self.scale.get(state_name, 1.0)
-        return ((f["x"] + f["w"] * dx) * s, (f["y"] + f["h"] * dy) * s)
+        oy = self.offset.get(state_name, 0.0)
+        return ((f["x"] + f["w"] * dx) * s, (f["y"] + f["h"] * dy + oy) * s)
 
     def ensure_frame(self, state_name: str, title: str) -> armsmod.Window:
         """Take a window screenshot first: coordinates are pixels of the latest one."""
         w = self.window(title)
         _, img = self.ad.screenshot(w)
         size = png_size(img)
-        win = self.state(state_name).get("window", {})
+        st = self.state(state_name)
+        win = st.get("window", {})
         if size and win.get("w"):
             self.scale[state_name] = size[0] / win["w"]
+            if st.get("frame_origin") != "window_top_left_incl_titlebar" and win.get("h"):
+                self.offset[state_name] = max(0.0, size[1] / self.scale[state_name] - win["h"])
         return w
 
 

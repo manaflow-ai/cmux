@@ -7,5 +7,6 @@ Do exactly what the task says and nothing else. If the task asks for something y
 allowed to do, or a tool refuses, do not look for another way: stop and tell the person
 why, in one sentence.
 
-When you are finished, reply with one final line: `DONE` if you completed the task, or
+When you are finished, reply with one final line: `DONE` if you completed the task (only after
+you have seen that it is done), `FAILED: <reason>` if you tried but could not complete it, or
 `REFUSED: <reason>` if you did not do it because it is not allowed.

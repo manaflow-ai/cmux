@@ -18,6 +18,7 @@ import time
 import uuid
 
 from . import arms as armsmod
+from . import claims
 from . import platform_env as penv
 from .mcp import McpClient
 from .tasks import ROOT, TaskEnv, Transcript, load_tasks, task_set_digest
@@ -133,16 +134,36 @@ def parse_codex_stream(lines: list[str]) -> Transcript:
     return tr
 
 
+def _codex_mode_args() -> list[str]:
+    """`--sandbox read-only` with approval_policy=never makes codex refuse every MCP tool call ("requires
+    approval, but approval is unavailable"), so the computer-use server could never act. Run without the
+    sandbox and approvals instead, and turn off everything else that could act (shell, patching, web search,
+    Codex's own Computer Use plugin): the computer-use server stays the only way to act.
+    CUEVAL_CODEX_SANDBOX=read-only restores the old flag."""
+    if os.environ.get("CUEVAL_CODEX_SANDBOX") == "read-only":
+        return ["--sandbox", "read-only"]
+    return ["--dangerously-bypass-approvals-and-sandbox",
+            "--disable", "shell_tool", "--disable", "unified_exec", "--disable", "computer_use",
+            "-c", 'plugins."computer-use@openai-bundled".enabled=false',
+            "-c", 'plugins."unified-computer-use@openai-bundled".enabled=false',
+            "-c", "include_apply_patch_tool=false", "-c", 'web_search="disabled"', "-c", "notify=[]"]
+
+
 def run_codex(arm: dict, env_vars: dict, instruction: str, model: str, max_turns: int, timeout: float, log: str) -> Transcript:
     cfg = armsmod.mcp_config(arm, env_vars)["mcpServers"][arm["mcp"]["server_name"]]
     name = arm["mcp"]["server_name"].replace("-", "_")
     toml = lambda v: json.dumps(v)  # noqa: E731  JSON strings and arrays are valid TOML values
     cmd = [os.environ.get("CUEVAL_CODEX", "codex"), "exec", "--json", "--skip-git-repo-check",
-           "--sandbox", "read-only", "-m", model,
+           *_codex_mode_args(), "-m", model,
            "-c", f"mcp_servers.{name}.command={toml(cfg['command'])}",
            "-c", f"mcp_servers.{name}.args={toml(cfg['args'])}"]
-    for k, v in cfg["env"].items():
+    env = dict(cfg["env"])
+    # codex gives MCP servers a minimal environment; pass cmux's socket through when the harness has one
+    if arm.get("adapter") == "cmux" and os.environ.get("CMUX_TUI_SOCKET"):
+        env.setdefault("CMUX_TUI_SOCKET", os.environ["CMUX_TUI_SOCKET"])
+    for k, v in env.items():
         cmd += ["-c", f"mcp_servers.{name}.env.{k}={toml(v)}"]
+    cmd += ["-c", f"mcp_servers.{name}.tool_timeout_sec=120", "-c", f"mcp_servers.{name}.startup_timeout_sec=60"]
     cmd += [prompt_text() + "\n\nTask: " + instruction]
     tr = _run_and_parse(cmd, timeout, log, parse_codex_stream)
     if len(tr.tool_calls) > max_turns and tr.error is None:
@@ -262,6 +283,7 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
             "output_tokens": tr.output_tokens, "cost_usd": tr.cost_usd, "wall_s": round(wall, 2),
             "error": tr.error, "final_text": (tr.final_text or "")[-500:], "prereg": reg["digest"],
         }
+        row.update(claims.label_row(row))
         with open(results, "a") as f:
             f.write(json.dumps(row) + "\n")
         mark = "PASS" if row["success"] else "FAIL"

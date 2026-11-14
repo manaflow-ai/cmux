@@ -60,6 +60,9 @@ def main(argv=None) -> int:
         for t in load_tasks(split=a.split):
             print(f"{t['id']:28} {t['split']:8} {','.join(t['platforms']):20} {t['title']}")
         return 0
+    if a.cmd == "report":
+        print(f"report: {report.render(a.out)}")
+        return 0
     arms = a.arms.split(",")
     ids = a.tasks.split(",") if a.tasks else None
     if a.cmd == "prereg":

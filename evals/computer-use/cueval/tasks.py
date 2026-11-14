@@ -162,6 +162,8 @@ class TaskEnv:
                         opts["port"] = int(self.vars["web_port"])
                     self.procs.append(penv.start_fixture(step["fixture"], state, self.work, **opts))
             elif "snapshot" in step:
+                if not self.fake:
+                    self.vars["reset_" + step["snapshot"]] = str(penv.reset_setting(step["snapshot"]))
                 self.snapshots[step["snapshot"]] = "fake" if self.fake else penv.snapshot(step["snapshot"])
         if start_processes:
             self._wait_for_states()
