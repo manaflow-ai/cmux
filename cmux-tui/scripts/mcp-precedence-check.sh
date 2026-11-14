@@ -137,7 +137,7 @@ entry = json.load(sys.stdin)
 value = entry
 for part in sys.argv[1].split("."):
     value = value.get(part) if isinstance(value, dict) else None
-print(value)' "$field"
+print(value)' "$field" 2>/dev/null # no answer (Codex refused its config): empty
 }
 P=$D/proj; mkdir -p "$P/sub" "$P/.codex" "$D/.codex"; git -C "$P" init -q
 printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
@@ -188,17 +188,19 @@ if [ -n "$CMUX" ]; then
   # as cmux (not); the agent's own server never gets the layer's cwd.
   shim_case() {
     local name=$1 at=$2 loaded=$3; shift 3
+    # Empty arrays are expanded as ${a[@]+"${a[@]}"}: macOS's bash 3.2 calls
+    # "${a[@]}" of an empty array unbound under set -u.
     local verify=() shim=() effective=$at
     while [ $# -gt 0 ] && [ "$1" != -- ]; do verify+=("$1"); shift; done; shift
-    shim=("$@")
+    shim=(${1+"$@"})
     for ((k = 0; k < ${#shim[@]}; k++)); do
       if [ "${shim[$k]}" = -C ]; then
         case "${shim[$((k + 1))]}" in /*) effective=${shim[$((k + 1))]} ;; *) effective=$at/${shim[$((k + 1))]} ;; esac
       fi
     done
     rm -f "$D/codex-args"
-    (cd "$at" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper "${shim[@]}" >/dev/null 2>&1)
-    local reported; reported=$(codex_get "$effective" transport.cwd "${verify[@]}")
+    (cd "$at" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper ${shim[@]+"${shim[@]}"} >/dev/null 2>&1)
+    local reported; reported=$(codex_get "$effective" transport.cwd ${verify[@]+"${verify[@]}"})
     python3 - "$D/codex-args" "$loaded" "$reported" <<'PY'
 import sys
 args = open(sys.argv[1]).read().split("\n")
@@ -206,11 +208,16 @@ loaded, reported = sys.argv[2] == "yes", sys.argv[3]
 settings = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-c"]
 names = {s.split(".")[1] for s in settings if s.startswith("mcp_servers.") and ".command=" in s}
 off = "mcp_servers.cmux.enabled=false" in settings
-assert (reported != "None") == loaded, f"Codex reported cwd={reported}, expected loaded={loaded}"
-want = ({"cmux_terminal"}, True) if loaded else ({"cmux"}, False)
+if reported == "":
+    # Codex refused its config (no answer): the shim's safe choice.
+    want = ({"cmux_terminal"}, False)
+else:
+    assert (reported != "None") == loaded, f"Codex reported cwd={reported}, expected loaded={loaded}"
+    want = ({"cmux_terminal"}, True) if loaded else ({"cmux"}, False)
 assert (names, off) == want, f"shim placed {names} off={off}, want {want}"
 PY
-    check "codex shim [$name]: Codex reports the layer (${reported}); the shim places its server by that answer" $?
+    local said=${reported:-no answer: $(cd "$effective" && "$CODEX" ${verify[@]+"${verify[@]}"} mcp get cmux --json 2>&1 >/dev/null | grep -v '^$' | tail -1 | cut -c1-90)}
+    check "codex shim [$name]: Codex reports the layer ($said); the shim places its server by that answer" $?
   }
   sub=$P/sub
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
