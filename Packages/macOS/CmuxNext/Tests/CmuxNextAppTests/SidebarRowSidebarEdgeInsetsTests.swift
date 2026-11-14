@@ -25,7 +25,7 @@ import Testing
         ], activeWorkspaceID: nil)
         model.layout = SidebarLayoutDocument(sections: [
             LayoutSection(id: SidebarLayoutDocument.pinnedSectionID, showsTitle: false, region: .top, look: .builtIn,
-                          items: [LayoutItem(id: pin, ref: .workspace("pinned-missing"))]),
+                          items: [LayoutItem(id: pin, ref: .workspace("pinned-missing"), label: "Pinned missing")]),
         ])
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in },
                                        adoptRef: { _ in nil })
