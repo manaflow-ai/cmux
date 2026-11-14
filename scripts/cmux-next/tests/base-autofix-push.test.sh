@@ -12,6 +12,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
+# shellcheck source=scripts/cmux-next/tests/lib/action-parity-stub.sh
+source "$here/lib/action-parity-stub.sh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # No background git: a push or a commit starts a detached `git gc --auto` / maintenance run in
 # the repository, and one still writing there made the next `rm -rf "$tmp/remote.git"` fail with
@@ -57,6 +59,19 @@ setup
 repair="$(git -C "$tmp/bot" rev-parse HEAD)"
 run > "$tmp/out" || fail "an unmoved branch did not take the repair: $(cat "$tmp/out")"
 [[ "$(remote_tip)" == "$repair" ]] || fail "the remote is not at the repair commit"
+
+# Catalog parity is checked on the exact candidate before any automatic push.
+setup
+before="$(remote_tip)"
+if STUB_ACTION_PARITY_STATUS=1 run > "$tmp/out" 2>&1; then
+  fail "a catalog parity failure published the repair"
+fi
+[[ "$(remote_tip)" == "$before" ]] || fail "the parity failure moved the remote"
+grep -q 'swift_parity' "$tmp/out" || fail "the refusal does not name the failing parity check"
+setup
+lane_push source.txt "moved before parity"
+STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
+[[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
 
 # 2. The branch moved in files the repair does not write: the repair lands on the new tip.
 setup

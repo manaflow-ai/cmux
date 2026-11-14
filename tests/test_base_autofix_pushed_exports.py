@@ -611,6 +611,15 @@ class PackScript(unittest.TestCase):
         self.assertEqual((self.repo / NAMES[0]).read_text(), "left by the checks\n")
         self.assertEqual((self.repo / NAMES[1]).read_text(), f"committed {NAMES[1]}\n")
 
+    def test_a_pack_without_the_full_catalog_dump_is_refused(self):
+        dump = "plans/cmux-next/action-catalog.json"
+        self.assertIn(dump, px.ACTION_EXPORTS, "the action pack must carry the full catalog")
+        result, out = self.run_pack([rel for rel in px.ACTION_EXPORTS if rel != dump],
+                                    [rel for rel in NAMES if rel not in px.ACTION_EXPORTS])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(dump, result.stderr)
+        self.assertNotIn("name=", result.stdout)
+
     def test_an_export_a_failing_test_did_not_rewrite_makes_no_pack(self):
         actions = list(px.ACTION_EXPORTS)
         settings = [rel for rel in NAMES if rel not in actions][:-1]
