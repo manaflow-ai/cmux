@@ -287,10 +287,11 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
         // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
-        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let nativeTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let shownTitle = shown.displayedTitle(nativeTitle)
         title.stringValue = shownTitle
         lastTitle = shownTitle
-        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
+        hiddenWorkspaceName = ws.namesWorkspace(nativeTitle) ? nil : ws.title
         isArchived = ws.isArchived
         icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.

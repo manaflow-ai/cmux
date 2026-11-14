@@ -25,7 +25,7 @@ extension WorkspaceRowView {
         return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
-    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+    var hasMeta: Bool { !metaLabel.stringValue.isEmpty }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {

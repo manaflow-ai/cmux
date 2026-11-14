@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
+  The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
+  the settings watcher. The existing title, detail and metadata slots move together using
+  current density metrics; absent layouts preserve the current look. Quiet, by-kind and
+  by-agent variants share the native gallery, with light and dark captures. Regression:
+  `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
+  `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
+
 - 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
   The first customization slices keep the document as placement owner while allowing
   bounded cmux-next.json section/workspace hide, order and same-section grouping.

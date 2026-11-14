@@ -54,10 +54,13 @@ public nonisolated struct WorkspaceRowOverride: Hashable, Sendable {
 public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
     public var base: WorkspaceRowElements
     public var overrides: [WorkspaceRowKind: WorkspaceRowOverride]
+    public var layouts: WorkspaceRowLayouts
 
-    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]) {
+    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:],
+                layouts: WorkspaceRowLayouts = WorkspaceRowLayouts()) {
         self.base = base
         self.overrides = overrides
+        self.layouts = layouts
     }
 
     public static let defaults = Self()
@@ -74,6 +77,6 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
 
     /// Whether a row of some kind shows `element`, with that kind's override.
     public func showsAnywhere(_ element: WorkspaceRowElement) -> Bool {
-        WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
+        layouts.elements.contains(element) || WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
     }
 }

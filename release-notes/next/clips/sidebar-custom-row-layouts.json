@@ -1,0 +1,13 @@
+{
+  "caption": "Change sidebar row lines and see the workspace list update live.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A workspace for the preview", "rpc": {"method": "action.run", "params": {"action": "workspace new", "origin": "script", "args": {"name": "Project notes", "cwd": "/tmp", "focus": true}}}, "wait": 1},
+    {"title": "Quiet rows", "cmux": ["settings", "set", "sidebar.workspaceRow.lines", "[[\"name\"]]"], "wait": 1.5, "clip": true},
+    {"title": "Directory below the name", "cmux": ["settings", "set", "sidebar.workspaceRow.lines", "[[\"icon\",\"name\"],[\"directory\"]]"], "wait": 1.5, "clip": true},
+    {"title": "Tab count beside the name", "cmux": ["settings", "set", "sidebar.workspaceRow.lines", "[[\"name\",\"tabCount\"],[\"directory\"]]"], "wait": 1.5, "clip": true},
+    {"title": "Restore existing row settings", "cmux": ["settings", "reset", "sidebar.workspaceRow.lines"], "wait": 0.5}
+  ],
+  "crop": [0, 0.05, 0.3, 0.7]
+}
