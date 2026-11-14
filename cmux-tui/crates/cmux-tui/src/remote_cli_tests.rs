@@ -2834,7 +2834,7 @@ fn upload_assembly_refuses_a_directory_destination() {
     assert_eq!(fs::read_to_string(dest.join("assembled")).unwrap(), "keep");
     let names: Vec<_> =
         fs::read_dir(&dest).unwrap().map(|entry| entry.unwrap().file_name()).collect();
-    assert_eq!(names, vec![std::ffi::OsString::from("assembled")], "wrote into the directory");
+    assert_eq!(names, vec![OsString::from("assembled")], "wrote into the directory");
     assert!(!staging.exists(), "staging dir left behind");
 }
 
