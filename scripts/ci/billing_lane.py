@@ -45,12 +45,15 @@ WEB_PATTERNS = (
     "web/app/api/admin/subscriptions/**",
     "web/app/api/cron/apple-notifications/**",
     "web/app/api/cron/billing-*/**",
+    "web/app/api/cron/team-seats/**",
     "web/app/app-pricing/**",
+    "web/app/components/pro-plan-card.tsx",
     "web/dashboard-app/screens/billing/**",
     "web/orpc/server/dashboard/schemas/billing*",
     # Billing tables live in the shared schema; every migration can touch them.
     "web/db/schema*.ts",
     "web/db/migrations/**",
+    "web/scripts/stripe/**",
     "web/tests/apple-iap-*",
     "web/tests/billing-*",
     "web/tests/stripe-*",
@@ -61,22 +64,55 @@ WEB_PATTERNS = (
     "web/tests/*entitlement*",
     "web/tests/helpers/apple-*",
     "web/tests/helpers/*billing*",
+    # Billing code outside those directories, by name: team billing and seat
+    # procedures, the billing gateway, checkout and pricing UI, Stripe
+    # analytics, billing alerts, entitlement overrides.
+    "web/**/*billing*",
+    "web/**/*billing*/**",
+    "web/**/*Billing*",
+    "web/**/*Billing*/**",
+    "web/**/*stripe*",
+    "web/**/*stripe*/**",
+    "web/**/*Stripe*",
+    "web/**/*entitlement*",
+    "web/**/*Entitlement*",
+    "web/**/*subscription*",
+    "web/**/*subscription*/**",
+    "web/**/*Subscription*",
+    "web/**/*pricing*",
+    "web/**/*pricing*/**",
+    "web/**/*Pricing*",
+    "web/**/*checkout*",
+    "web/**/*checkout*/**",
+    "web/**/*Checkout*",
+    "web/**/*seats*",
+    "web/**/*Seats*",
+    "web/**/*apple-iap*",
 )
 
-# The SwiftPM billing packages ios-billing runs `swift test` for. Any future
-# billing package under Packages/iOS (a directory named *Billing*) counts.
+# The SwiftPM billing packages ios-billing runs `swift test` for (any
+# Packages/iOS/*Billing* package), their dependencies, and the classic app's
+# billing composition and StoreKit config, whose closest test is that package.
 IOS_PACKAGE_PATTERNS = (
     "Packages/iOS/CmuxMobileBilling/**",
     "Packages/iOS/*Billing*/**",
+    "Packages/Shared/CMUXMobileCore/**",
+    "Packages/iOS/CmuxMobileSupport/**",
+    "Packages/iOS/**/*Billing*",
+    "ios/**/*Billing*",
+    "ios/**/*.storekit",
 )
 
 # The cmux-next iPhone app's billing client (being rewritten) and its StoreKit
-# configuration files. These route only the StoreKit Testing job; the rest of
+# configuration files. These route only the StoreKit Testing slot; the rest of
 # CmuxMobileKit is tested by cmux-next-ios-kit.yml.
 IOS_APP_PATTERNS = (
     "cmux-next-ios/CmuxMobileKit/Sources/**/Billing*",
     "cmux-next-ios/**/*Billing*/**",
     "cmux-next-ios/**/*.storekit",
+    # Where a BillingStoreKitTests target gets declared.
+    "cmux-next-ios/project.yml",
+    "cmux-next-ios/*/Package.swift",
 )
 
 IOS_PATTERNS = (*IOS_PACKAGE_PATTERNS, *IOS_APP_PATTERNS)
@@ -85,7 +121,7 @@ IOS_PATTERNS = (*IOS_PACKAGE_PATTERNS, *IOS_APP_PATTERNS)
 # SKTestSession suite backed by a .storekit file as a target named
 # BillingStoreKitTests: either a SwiftPM test directory
 # (cmux-next-ios/<Package>/Tests/BillingStoreKitTests) or an xcodegen target in
-# cmux-next-ios/project.yml. Until one exists the job skips cleanly.
+# cmux-next-ios/project.yml. Until one exists the slot skips cleanly.
 STOREKIT_TARGET = "BillingStoreKitTests"
 
 # Billing test files by name. Tests that exercise billing under another name
@@ -108,21 +144,14 @@ TEST_NAME_GLOBS = (
 )
 
 # A test that names a billing module in any string (an import, a dynamic
-# import or a mock.module path) is a billing test.
+# import or a mock.module path) is a billing test: a relative or `@/` module
+# path with a billing word in it.
 BILLING_IMPORT = re.compile(
-    r"""["'][^"'\n]*(?:"""
-    r"services/billing(?:/|[\"'])"
-    r"|services/vms/entitlements"
-    r"|services/vms/planUsage"
-    r"|app/api/billing/"
-    r"|app/api/stripe/"
-    r"|app/api/admin/subscriptions/"
-    r"|app/api/cron/apple-notifications/"
-    r"|app/api/cron/billing-"
-    r"|app/app-pricing/"
-    r"|dashboard-app/screens/billing/"
-    r"|orpc/server/dashboard/schemas/billing"
-    r""")[^"'\n]*["']"""
+    r"""["'](?:\.{1,2}/|@/)[^"'\n]*(?:"""
+    r"billing|stripe|entitlement|seats|checkout|pricing|subscription"
+    r"|apple-iap|apple-notifications|planUsage|pro-plan-card"
+    r""")[^"'\n]*["']""",
+    re.IGNORECASE,
 )
 TEST_FILE = re.compile(r"(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$")
 DB_GATE = "process.env.CMUX_DB_TEST"
@@ -135,6 +164,10 @@ def workflow_paths() -> list[str]:
 
 @lru_cache(maxsize=None)
 def _compiled(pattern: str) -> re.Pattern[str]:
+    # Only `*` and `**` mean the same here as in GitHub's filter syntax, where
+    # `?`, `+`, `[]` and `!` are operators; refuse them rather than guess.
+    if any(char in pattern for char in "?+[]!"):
+        raise ValueError(f"unsupported path filter syntax in {pattern!r}")
     out = []
     i = 0
     while i < len(pattern):
@@ -146,9 +179,6 @@ def _compiled(pattern: str) -> re.Pattern[str]:
             i += 2
         elif pattern[i] == "*":
             out.append("[^/]*")
-            i += 1
-        elif pattern[i] == "?":
-            out.append("[^/]")
             i += 1
         else:
             out.append(re.escape(pattern[i]))
@@ -185,15 +215,18 @@ def storekit_target(root: Path = ROOT) -> tuple[str, str]:
                 break
     project = app / "project.yml"
     if project.is_file() and re.search(
-        rf"^\s+{STOREKIT_TARGET}:\s*$", project.read_text(encoding="utf-8"), re.MULTILINE
+        rf"^[ \t]+[\"']?{STOREKIT_TARGET}[\"']?[ \t]*:", project.read_text(encoding="utf-8"), re.MULTILINE
     ):
         return "project", "cmux-next-ios"
     return "", ""
 
 
 def changed_paths() -> list[str] | None:
+    # A push routes from its `before` (the workflow fetches it); a pull
+    # request from HEAD^1, the base its merge commit sits on.
+    base = os.environ.get("PUSH_BASE", "").strip() or "HEAD^1"
     parent = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", "HEAD^1"],
+        ["git", "rev-parse", "-q", "--verify", f"{base}^{{commit}}"],
         cwd=ROOT, text=True, capture_output=True,
     )
     if parent.returncode != 0:
@@ -219,6 +252,11 @@ def route() -> int:
             areas = every
         else:
             areas = classify(paths)
+            if os.environ.get("EVENT_NAME") in ("pull_request", "push") and not any(areas.values()):
+                # GitHub's path filter started this run, so some billing path
+                # changed even though these patterns disagree: run everything.
+                print("GitHub's path filter matched but no billing route did; running every billing job")
+                areas = every
             touched = [path for path in paths if matches(path, workflow_paths())]
             print(f"{len(touched)} of {len(paths)} changed path(s) are billing paths:")
             for path in touched:
@@ -226,7 +264,7 @@ def route() -> int:
     lines = "".join(f"{name}={'true' if value else 'false'}\n" for name, value in areas.items())
     kind, path = storekit_target() if areas["storekit"] else ("", "")
     if areas["storekit"] and not kind:
-        print(f"no {STOREKIT_TARGET} target under cmux-next-ios; the StoreKit job skips")
+        print(f"no {STOREKIT_TARGET} target under cmux-next-ios; the StoreKit slot skips")
     lines += f"storekit_kind={kind}\nstorekit_path={path}\n"
     print(lines, end="")
     output = os.environ.get("GITHUB_OUTPUT")

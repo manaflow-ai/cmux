@@ -58,7 +58,29 @@ BILLING_PATHS = (
     "web/tests/plan-tier-entitlements.test.ts",
     "web/tests/helpers/apple-memory-store.ts",
     "web/tests/helpers/billing-team-fixtures.ts",
+    # Billing code outside the billing directories (review of #42863).
+    "web/app/api/cron/team-seats/route.ts",
+    "web/orpc/server/dashboard/billing.ts",
+    "web/orpc/server/dashboard/team-billing.ts",
+    "web/services/teams/seats.ts",
+    "web/services/vms/billingGateway.ts",
+    "web/services/vms/teamEntitlementOverride.ts",
+    "web/services/admin/teamEntitlements.ts",
+    "web/app/lib/billing.ts",
+    "web/app/billing/success/page.tsx",
+    "web/app/[locale]/dashboard/billing/page.tsx",
+    "web/app/components/pricing-checkout.tsx",
+    "web/app/components/pro-plan-card.tsx",
+    "web/dashboard-app/queries/billing.ts",
+    "web/dashboard-app/screens/teams/team-billing.tsx",
+    "web/services/analytics/stripeBilling.ts",
+    "web/services/analytics/checkoutAttribution.ts",
+    "web/services/observability/billingAlerts.ts",
+    "web/scripts/stripe/backfill-subscriptions-from-stripe.ts",
     "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/BillingModel.swift",
+    "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/Wire.swift",
+    "ios/Config/cmux-dev.storekit",
+    "ios/cmuxPackage/Sources/cmuxFeature/MobileBillingComposition.swift",
     "Packages/iOS/CmuxStoreBilling/Package.swift",
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/BillingDemo.swift",
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBilling/Purchase.swift",
@@ -70,11 +92,10 @@ NOT_BILLING = (
     "web/services/vms/limits.ts",
     "web/db/client.ts",
     "web/tests/vm-route-auth.test.ts",
-    "web/app/api/cron/team-seats/route.ts",
+    "web/app/api/cron/vm-idle/route.ts",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ShellModel.swift",
     "Sources/AppDelegate.swift",
     "docs/billing.md",
-    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ShellModel.swift",
-    "Packages/iOS/CmuxMobileSupport/Sources/x.swift",
 )
 
 # Test files that must be selected by name alone (no billing import needed).
@@ -150,6 +171,33 @@ class Routing(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(set(lane.classify([path]).values()), {True})
 
+    def route_outputs(self, event: str, paths: list[str] | None) -> dict[str, str]:
+        import contextlib, io, os
+        from unittest import mock
+        with tempfile.NamedTemporaryFile("r", suffix=".out") as output, \
+                mock.patch.dict(os.environ, {"EVENT_NAME": event, "GITHUB_OUTPUT": output.name}), \
+                mock.patch.object(lane, "changed_paths", return_value=paths), \
+                contextlib.redirect_stdout(io.StringIO()):
+            lane.route()
+            return dict(line.split("=", 1) for line in output.read().splitlines())
+
+    def test_route_fails_open(self) -> None:
+        # No diff, or a filter match these patterns disagree with, runs everything.
+        for event, paths in (("pull_request", None), ("pull_request", ["web/unrelated.ts"]),
+                             ("workflow_dispatch", ["web/unrelated.ts"])):
+            with self.subTest(event=event, paths=paths):
+                outputs = self.route_outputs(event, paths)
+                self.assertEqual(outputs["web"], "true")
+                self.assertEqual(outputs["ios"], "true")
+
+    def test_route_narrows_a_billing_diff(self) -> None:
+        outputs = self.route_outputs("pull_request", ["web/services/billing/stripe.ts"])
+        self.assertEqual((outputs["web"], outputs["ios"]), ("true", "false"))
+
+    def test_unsupported_glob_syntax_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            lane.matches("web/a.ts", ["web/[ab].ts"])
+
     def test_unrelated_change_runs_nothing(self) -> None:
         self.assertEqual(set(lane.classify(list(NOT_BILLING)).values()), {False})
 
@@ -165,9 +213,15 @@ class StoreKitSlot(unittest.TestCase):
     def tearDown(self) -> None:
         self.dir.cleanup()
 
-    def test_real_tree_has_no_target_yet_so_the_job_skips(self) -> None:
-        # Flip this when the rewrite lands BillingStoreKitTests.
-        self.assertEqual(lane.storekit_target(), ("", ""))
+    def test_real_tree_target_is_found_when_declared(self) -> None:
+        # Holds before and after the rewrite lands BillingStoreKitTests: whatever
+        # declares the target, the slot must see it rather than skip.
+        app = ROOT / "cmux-next-ios"
+        declared = any(path.is_dir() for path in app.rglob(lane.STOREKIT_TARGET)
+                       if ".build" not in path.parts and "target" not in path.parts)
+        project = app / "project.yml"
+        declared = declared or (project.is_file() and lane.STOREKIT_TARGET in project.read_text(encoding="utf-8"))
+        self.assertEqual(lane.storekit_target() != ("", ""), declared)
 
     def test_absent_target_skips(self) -> None:
         self.assertEqual(lane.storekit_target(self.root), ("", ""))
@@ -176,11 +230,66 @@ class StoreKitSlot(unittest.TestCase):
         (self.root / "cmux-next-ios/CmuxMobileKit/Tests/BillingStoreKitTests").mkdir()
         self.assertEqual(lane.storekit_target(self.root), ("package", "cmux-next-ios/CmuxMobileKit"))
 
+    def test_quoted_or_inline_project_target(self) -> None:
+        for line in ('  "BillingStoreKitTests": {type: bundle.unit-test}', "  BillingStoreKitTests:  # StoreKit"):
+            with self.subTest(line=line):
+                (self.root / "cmux-next-ios/project.yml").write_text(f"targets:\n{line}\n", encoding="utf-8")
+                self.assertEqual(lane.storekit_target(self.root), ("project", "cmux-next-ios"))
+
     def test_project_target_runs_the_app_project(self) -> None:
         (self.root / "cmux-next-ios/project.yml").write_text(
             "targets:\n  CmuxMobileApp:\n    type: application\n  BillingStoreKitTests:\n    type: bundle.unit-test\n",
             encoding="utf-8")
         self.assertEqual(lane.storekit_target(self.root), ("project", "cmux-next-ios"))
+
+
+def jobs_text() -> dict[str, str]:
+    """billing.yml's jobs by id, as raw text blocks."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    body = text[text.index("\njobs:\n") + len("\njobs:\n"):]
+    blocks: dict[str, str] = {}
+    current = None
+    for line in body.splitlines():
+        header = re.fullmatch(r"  ([a-z][a-z0-9-]*):", line)
+        if header:
+            current = header.group(1)
+            blocks[current] = ""
+        elif current:
+            blocks[current] += line + "\n"
+    return blocks
+
+
+class Wiring(unittest.TestCase):
+    """The two jobs, their routes and the script agree with each other."""
+
+    def setUp(self) -> None:
+        self.jobs = jobs_text()
+
+    def test_two_jobs(self) -> None:
+        # feat-cmux-next counts every job a pull request can start (ci/steps.toml [budget]).
+        self.assertEqual(set(self.jobs), {"billing", "ios-billing"})
+
+    def test_route_outputs_match_the_script(self) -> None:
+        outputs = set(re.findall(r"^      ([a-z_]+): \$\{\{ steps\.route\.outputs\.\1 \}\}",
+                                 self.jobs["billing"], re.MULTILINE))
+        self.assertEqual(outputs, set(lane.classify([])) | {"storekit_kind", "storekit_path"})
+
+    def test_web_steps_run_on_the_web_route(self) -> None:
+        block = self.jobs["billing"]
+        for step in ("Install dependencies", "Billing tests", "Apply migrations",
+                     "Billing database tests", "Typecheck"):
+            with self.subTest(step=step):
+                body = block[block.index(f"- name: {step}"):]
+                condition = body.splitlines()[1]
+                self.assertIn("steps.route.outputs.web == 'true'", condition)
+        self.assertIn("billing_lane.py web-tests >", block)
+        self.assertIn("billing_lane.py web-tests --db >", block)
+
+    def test_ios_job_runs_on_its_routes(self) -> None:
+        block = self.jobs["ios-billing"]
+        self.assertIn("needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != ''", block)
+        self.assertIn("IOS: ${{ needs.billing.outputs.ios }}", block)
+        self.assertIn("STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}", block)
 
 
 class Selection(unittest.TestCase):
