@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43585594144",
+  "recorded_at": "2026-11-14T10:40:00Z",
+  "reason": "cmux-tui 8e9d2bc0ecd2 changes the image's cmux-tui (pinned e2d500ad9412)",
+  "dry_run": false,
+  "cmux_tui": "8e9d2bc0ecd2964105bde8660dc1fbd4853e4706",
+  "fixes": [
+    {
+      "sha": "8e9d2bc0ecd2964105bde8660dc1fbd4853e4706",
+      "mergedAt": "2026-11-14T02:10:26-08:00",
+      "subject": "fix(next): CMUX-383 reconcile published action catalog exports (#42963)"
+    },
+    {
+      "sha": "4d2ca87a7d91d3119b759ad0910dfa99e6ed315b",
+      "mergedAt": "2026-11-14T02:07:37-08:00",
+      "subject": "acpmux: a streaming turn adopted after a restart with a gap is live within seconds (#34699)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T10:40:00Z",
+    "snapshot_id": "sh-112d06d7011e49c08c20022c40cf7303",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43585594144): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e29bcc78ad514bbd88dac241bc06b72d0d180b28",
+    "image": "cloud-native-auto-8e9d2bc0-43585594144-1",
+    "revision": "ci-43585594144-1",
+    "at": "2026-11-14T10:40:00Z"
+  },
+  "rolled_back": false
+}
