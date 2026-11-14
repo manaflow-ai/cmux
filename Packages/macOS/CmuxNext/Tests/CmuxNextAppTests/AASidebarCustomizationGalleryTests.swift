@@ -22,7 +22,8 @@ import Testing
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
     ]
 
-    private static func workspace(_ id: String, _ title: String = "Workspace \(id)") -> SidebarWorkspace {
+    private static func workspace(_ id: String, _ title: String? = nil) -> SidebarWorkspace {
+        let title = title ?? "Workspace \(id)"
         SidebarWorkspace(id: WorkspaceID(id), title: title, directory: "~/cmux", branch: "main",
                          rowKind: .terminal, kind: .terminal, activity: .idle)
     }
@@ -81,25 +82,25 @@ import Testing
     }
 
     @Test func projectionVariantsKeepTheDocumentRowsDeterministic() {
-        let base = sections()
+        let base = Self.sections()
         let model = SidebarModel(sections: base)
-        model.sectionCustomization = variants[1].settings
+        model.sectionCustomization = Self.variants[1].settings
         model.setSections(base)
-        #expect(model.sections.map(\.id) == [.machine(.local)])
-        model.sectionCustomization = variants[0].settings
+        #expect(model.sections.map(\.id) == [SectionID.machine(.local)])
+        model.sectionCustomization = Self.variants[0].settings
         #expect(model.sections.map(\.id) == base.map(\.id))
     }
 
     @Test func selectingAHiddenWorkspaceKeepsItsSectionVisible() {
-        let model = SidebarModel(sections: sections())
-        model.sectionCustomization = variants[1].settings
-        model.setSections(sections())
-        #expect(model.sections.map(\.id) == [.machine(.local)])
+        let model = SidebarModel(sections: Self.sections())
+        model.sectionCustomization = Self.variants[1].settings
+        model.setSections(Self.sections())
+        #expect(model.sections.map(\.id) == [SectionID.machine(.local)])
         model.activeWorkspaceID = WorkspaceID("ws-3")
-        #expect(model.sections.map(\.id) == baseSectionIDs)
+        #expect(model.sections.map(\.id) == Self.baseSectionIDs)
     }
 
-    private var baseSectionIDs: [SectionID] { Self.sections().map(\.id) }
+    private static var baseSectionIDs: [SectionID] { Self.sections().map(\.id) }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
