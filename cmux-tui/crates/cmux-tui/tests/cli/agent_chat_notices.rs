@@ -1,5 +1,5 @@
 //! Agent chat notifications (cx-sg1qz): the daemon follows this machine's
-//! acpmux chats and posts a notification on every agent tab bound to a chat
+//! acpmux chats and posts one notification on one agent tab bound to a chat
 //! when its turn ends (done or failed) and when it starts waiting for the
 //! person. The app turns those into banners, the Dock badge and a click that
 //! opens the tab, as for any notification on a tab; the daemon reads them
