@@ -169,7 +169,7 @@ fn assert_independent_kin_oracle(index: &SummaryIndex) {
                 ReadSide::After,
                 false,
                 expected.len() + 1,
-                usize::MAX,
+                snapshot::PAGE_BYTES,
                 Some(&ListFilter::family(root.clone())),
             )
             .unwrap()
@@ -192,7 +192,7 @@ fn assert_independent_kin_oracle(index: &SummaryIndex) {
                 ReadSide::After,
                 false,
                 expected_forks.len() + 1,
-                usize::MAX,
+                snapshot::PAGE_BYTES,
                 Some(&ListFilter::forks(root.clone())),
             )
             .unwrap()
@@ -386,10 +386,8 @@ fn child_before_parent_and_parent_cycle_keep_child_handles_bounded() {
     assert_kin(&index, 0, &empty_parents, &empty_forks, &empty_folders);
     index = index.apply(2, root.clone());
     assert_kin(&index, 1, &empty_parents, &empty_forks, &empty_folders);
-    assert_eq!(
-        index.kin().child_set(&root.key(), &child.key()),
-        index.kin().children(&child.key()),
-    );
+    assert!(index.kin().child_set(&root.key(), &child.key()).is_some_and(ChildSet::is_empty));
+    assert!(index.kin().children(&child.key()).is_none());
 
     let mut first = row("cycle-a", 3);
     let mut second = row("cycle-b", 4);
