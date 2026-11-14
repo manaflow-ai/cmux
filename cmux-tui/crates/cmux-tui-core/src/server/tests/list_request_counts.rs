@@ -11,7 +11,8 @@
 //!   was older than 2 seconds: one file-system walk for each directory. A `list-workspaces`
 //!   request with `known`, and each walk that is not a `list-workspaces` request, now take the
 //!   cached value and leave the read to one background refresh. A request with no `known` reads
-//!   them in its reply as before: its client holds no tree and asks no second time.
+//!   them in its reply as before: its client holds no tree and asks no second time. A branch
+//!   that it finds changed goes to each other client, as one that the refresh finds does.
 //! - `list-workspaces` built the nodes of its tree with the mux state lock held: each request
 //!   that needs the state waited for the whole build.
 //!

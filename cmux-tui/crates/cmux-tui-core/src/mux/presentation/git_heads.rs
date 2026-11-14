@@ -6,9 +6,10 @@
 //! some hundred terminals that was half of a `list-workspaces` reply's time.
 //!
 //! A walk of the tree now uses the cached value of a directory whatever its age. A value older
-//! than [`GIT_HEAD_TTL`] goes to one background refresh, and the refresh sends `tab-changed` for
-//! the tabs whose value changed, so a client that takes events gets the new branch. A directory
-//! with no cached value is read in the walk.
+//! than [`GIT_HEAD_TTL`] goes to one background refresh. Whoever finds a changed value first
+//! (the refresh, or a request that reads its stale directories itself) stores it, moves the tree
+//! revision and sends `tab-changed` for the tabs of that directory, so a client that takes
+//! events gets the new branch. A directory with no cached value is read in the walk.
 //!
 //! Who gets a value of which age:
 //!
@@ -16,7 +17,8 @@
 //!   command that prints the tree one time): its reply is all that it gets. Before its tree is
 //!   read, the request reads each stale directory that a tab shows, on its own thread
 //!   ([`Mux::read_stale_git_heads`]), as each reply did before the refresh existed. Its reply
-//!   has no value older than [`GIT_HEAD_TTL`] plus the time of its own reads.
+//!   has no value older than [`GIT_HEAD_TTL`] plus the time of its own reads. The refresh finds
+//!   no change after it, so the request sends the `tab-changed` of a branch that it found.
 //! - A request with `known` comes from a client that asks again: it gets the cached value, and
 //!   its stale directories go to the refresh (below).
 //! - Each other walk (the delta of a mutation, the launch snapshot, the cloud replica) gets the
@@ -215,9 +217,12 @@ impl Mux {
     /// thread of the request, the HEAD of each directory that a tab shows and whose cached
     /// value is older than [`GIT_HEAD_TTL`]. The client of such a request holds no tree and asks
     /// no second time, so the refresh would come too late for it: a branch switched with no
-    /// event must be in this reply. A HEAD that changed moves the tree revision, as a first read
-    /// that differs does. The tree that the request reads next finds each value fresh, so the
-    /// request queues nothing for the refresh.
+    /// event must be in this reply. The tree that the request reads next finds each value fresh,
+    /// so the request queues nothing for the refresh.
+    ///
+    /// A HEAD that changed is stored here, so the refresh would find the file system equal to
+    /// the cache and tell no client. The request tells them itself, as the refresh does: it
+    /// moves the tree revision and sends `tab-changed` for the tabs of that directory.
     ///
     /// The cache also holds directories that no tab shows now; none of them is read here. The
     /// state lock is taken one time, for the directories of the tabs, and only when the cache
@@ -243,15 +248,24 @@ impl Mux {
                 .filter(|cwd| stale.contains(cwd))
                 .collect()
         });
-        let mut moved = false;
+        let mut changed = HashSet::new();
         for cwd in shown {
+            // Another request, or the refresh, can have read this directory since the list
+            // above was made: requests that come at the same moment then do not each read it.
+            let fresh = |entry: &Entry| entry.checked.elapsed() < GIT_HEAD_TTL;
+            if self.git_heads.inner.lock().recover_poison().heads.get(&cwd).is_none_or(fresh) {
+                continue;
+            }
             // No lock is held while the file system is read.
             let head = read_git_head(Path::new(&cwd));
-            let mut cache = self.git_heads.inner.lock().recover_poison();
-            moved |= cache.store_read(&cwd, Instant::now(), head);
+            let moved =
+                self.git_heads.inner.lock().recover_poison().store_read(&cwd, Instant::now(), head);
+            if moved {
+                changed.insert(cwd);
+            }
         }
-        if moved {
-            self.tree_revision.bump();
+        if !changed.is_empty() {
+            self.emit_git_head_changes(&changed);
         }
     }
 
