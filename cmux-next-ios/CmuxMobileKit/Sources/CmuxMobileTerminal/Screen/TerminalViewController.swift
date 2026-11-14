@@ -333,6 +333,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         : nil
     /// `-CmuxMobileTerminalFlickerTrace` (TerminalKeyboardToggleFlickerUITests).
     private var flickerTrace: TerminalFlickerTrace?
+    /// The held still is committed (on screen), so a present under it shows nothing.
+    private var heldCommitted = false
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -747,6 +749,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The page as drawn this frame, for `TerminalFlickerTrace`.
     private func flickerSample() -> TerminalFlickerTrace.Sample? {
         guard cell.height > 0 else { return nil }
+        // Sampled after UIKit's commit: a still up now is on screen.
+        if freezeView != nil { heldCommitted = true }
         let probe = MobileKeyboardProbe()
         var sample = TerminalFlickerTrace.Sample(demo: model.demoNote, isTUI: model.isTUI, held: freezeView != nil,
                                                  stackTop: probe.onScreen(bottomStack, in: view).minY, resizes: model.ptyResizesSent,
@@ -2055,6 +2059,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func unfreeze() {
+        endSwapFitWait()
+        #if DEBUG
+        heldCommitted = false
+        #endif
         // The new grid is presented: the area takes its rows in this pass,
         // with the still's removal (one commit).
         if areaSwapPending { swapArea() }
@@ -2412,6 +2420,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         TerminalBenchProbe.shared?.presented()
         devProbe?.presented()
         #endif
+        #if DEBUG
+        // What Ghostty just presented against what covers it: a grid of other
+        // rows than the area's with no committed still over it is a torn frame.
+        if model.isTUI, let fed = feedHostRows, fed != tuiGridHold.rows(page: tuiRows), !(freezeView != nil && heldCommitted) {
+            flickerTrace?.countTorn(fed: fed, area: tuiGridHold.rows(page: tuiRows))
+        }
+        #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
         guard !model.isTUI, cell.height > 0 else { return }
@@ -2484,6 +2499,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                                    visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
                                                    documentRows: (document?.originRow ?? 0)..<(document?.endRow ?? 0))
     }
+
+    /// The area's rows after the swap fit between the toolbar and the
+    /// composer as drawn now. A grid taller than that space, pinned to a
+    /// composer still on its way down (a hide), puts its first rows under the
+    /// toolbar until the keyboard stops; the still stays until the grid fits.
+    private func swapFits() -> Bool {
+        guard cell.height > 0, let rows = appliedHostRows ?? model.session.remoteRows else { return true }
+        let drawnStackTop = MobileKeyboardProbe().onScreen(bottomStack, in: view).minY
+        let room = drawnStackTop - chromeTop
+        return CGFloat(min(rows, tuiRows)) * cell.height <= room + 0.5
+    }
+
+    /// Asks again every display frame until the swap fits (the composer
+    /// reaches the grid's bottom) or the held frame goes another way.
+    private func awaitSwapFit() {
+        guard swapFitToken == nil else { return }
+        swapFitToken = FrameClock.shared.subscribe { [weak self] _ in
+            guard let self else { return }
+            guard self.freezeView != nil, self.areaSwapPending else { return self.endSwapFitWait() }
+            if self.swapFits(), self.heldFrameMayGo() {
+                self.endSwapFitWait()
+                self.unfreeze()
+            }
+        }
+    }
+
+    private func endSwapFitWait() {
+        if let swapFitToken { FrameClock.shared.unsubscribe(swapFitToken) }
+        swapFitToken = nil
+    }
+
+    private var swapFitToken: FrameClock.Token?
 
     /// While following, a present reads only the rows on screen and 16 rows
     /// on each side (round 7: the full 151-row read cost p99 3.36 ms a

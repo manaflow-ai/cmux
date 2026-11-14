@@ -247,6 +247,17 @@ final class TerminalFlickerTrace: NSObject {
             // a band above it, or its top rows under the toolbar.
             count("late")
         }
+        if !now.isTUI, now.cellHeight > 0, now.following {
+            // Following, the last row stays on the composer every frame: at
+            // most the one row a stream writes ahead of the follow scroll
+            // (`gapoff`: frames past that; `gapmax`: the largest distance).
+            let gap = abs(value - reference)
+            largestGap = max(largestGap, gap)
+            if gap > now.cellHeight + 1 {
+                count("gapoff")
+                if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:gap%.1f", t, now.demo, value - reference)) }
+            }
+        }
         if !now.isTUI, now.cellHeight > 0 {
             // Streaming adds up to a row a frame ahead of the follow scroll,
             // and the keyboard moves the composer meanwhile: two rows off.
@@ -309,6 +320,12 @@ final class TerminalFlickerTrace: NSObject {
         let topRest = shownTopRest ?? topGap
         shownPinRest = pinRest
         shownTopRest = topRest
+        // The grid's first row under the toolbar (its top above the clip's).
+        if top < now.clipTop - 1 {
+            count("clipped")
+            largestClip = max(largestClip, now.clipTop - top)
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:clip%.1f%@", t, now.demo, now.clipTop - top, now.held ? "h" : "")) }
+        }
         if abs(pin - pinRest) > 2 {
             count("off2")
             largestOff = max(largestOff, abs(pin - pinRest))
@@ -334,18 +351,30 @@ final class TerminalFlickerTrace: NSObject {
         return uncovered >= now.cellHeight
     }
 
+    /// Ghostty presented a grid of `fed` rows in an area of `area` rows with no
+    /// committed still over it (TerminalViewController.surfacePresented).
+    func countTorn(fed: Int, area: Int) {
+        guard measuring else { return }
+        count("torn")
+        if offLog.count < 24 { offLog.append("torn:\(fed)in\(area)") }
+    }
+
     private var shownPinRest: CGFloat?
     private var shownTopRest: CGFloat?
     private var largestOff: CGFloat = 0
     private var largestBand: CGFloat = 0
+    private var largestClip: CGFloat = 0
+    private var largestGap: CGFloat = 0
     private var offLog: [String] = []
 
     private func summary(demo: String) -> String {
-        let keys = ["frames", "off2", "bandf", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "off2", "clipped", "torn", "gapoff", "bandf", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
         parts.append(String(format: "off2max=%.1f", largestOff))
         parts.append(String(format: "bandpx=%.1f", largestBand))
+        parts.append(String(format: "clipmax=%.1f", largestClip))
+        parts.append(String(format: "gapmax=%.1f", largestGap))
         parts.append("offlog=" + (offLog.isEmpty ? "-" : offLog.joined(separator: ",")))
         parts.append("demo=\(demo)")
         parts.append("rz=" + (stepResizes.isEmpty ? "-" : stepResizes.joined(separator: ",")))

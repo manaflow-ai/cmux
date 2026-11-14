@@ -60,8 +60,11 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
     func testStreamingOutputRidesTheKeyboard() throws {
         let values = try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"])
         checkShell(values, motion: false)
-        // Following the stream, the last row rides the composer through the
-        // keyboard's movement: never a row or more off for two frames.
+        // The stream's own scrolling is not the toggle's motion: what is
+        // checked is the last row against the composer, every frame. It rides
+        // the composer through the keyboard's movement, off by at most the
+        // one row a stream writes ahead of the follow scroll.
+        XCTAssertEqual(values["gapoff"], "0", "frames the last row left the composer while following the stream: largest \(values["gapmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(values["drift"], "0", "frames the last row left the composer while following the stream")
     }
 
@@ -76,9 +79,9 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     private func checkFullScreenApp(_ values: [String: String]) throws {
         let steps = resizeSteps(values)
-        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["rz"] ?? "-"))")
+        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
         for (step, resizes) in steps {
-            XCTAssertEqual(resizes, 1, "one resize for the settled toggle \(step) (\(values["rz"] ?? "-"))")
+            XCTAssertEqual(resizes, 1, "one resize for the settled toggle \(step) (\(values["demo"] ?? "-"))")
         }
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
@@ -87,6 +90,11 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         // bottom row stays within 2 pt of where it rests on the composer.
         XCTAssertEqual(values["off2"], "0", "frames with the grid's bottom off the composer: largest \(values["off2max"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
+        // The grid's first row is never under the toolbar.
+        XCTAssertEqual(values["clipped"], "0", "frames with the grid's top under the toolbar: largest \(values["clipmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
+        // Ghostty never presents a grid of other rows than the area's without
+        // a committed still over it (a torn frame).
+        XCTAssertEqual(values["torn"], "0", "frames with the new grid in the old area: \(values["offlog"] ?? "?")")
         // Measured, not asserted (the hide's band lasts the Mac's round trip).
         XCTContext.runActivity(named: "band: \(values["bandf"] ?? "?") frames, largest \(values["bandpx"] ?? "?") pt") { _ in }
         // The Mac's redraw lands about when the keyboard stops: no frame with
@@ -97,13 +105,14 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {
         let steps = resizeSteps(values)
-        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["rz"] ?? "-"))")
-        XCTAssertTrue(steps.allSatisfy { $0.1 == 0 }, "the primary screen never resizes for the keyboard (\(values["rz"] ?? "-"))")
+        XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
+        XCTAssertTrue(steps.allSatisfy { $0.1 == 0 }, "the primary screen never resizes for the keyboard (\(values["demo"] ?? "-"))")
         XCTAssertEqual(values["blank"], "0", "frames with blank rows")
         guard motion else { return }
         XCTAssertEqual(values["rev"], "0", "frames where the rows moved against the keyboard")
         XCTAssertEqual(values["snap"], "0", "frames where the rows moved while the composer stood still")
         if following {
+            XCTAssertEqual(values["gapoff"], "0", "frames the last row left the composer: largest \(values["gapmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
             XCTAssertEqual(values["jump"], "0", "frames where the last row left the composer: largest \(values["jmax"] ?? "?") pt at \(values["jlog"] ?? "?")")
         }
     }
@@ -160,9 +169,12 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         return values
     }
 
-    /// `rz=show0:1,hide0:1,...` as (step, resizes), toggles only.
+    /// Each toggle step and its PTY resizes, from the demo's cumulative log
+    /// (`demo=done....steps=show0:1,hide0:1,...`): a label the probe missed
+    /// under load is still in it.
     private func resizeSteps(_ values: [String: String]) -> [(String, Int)] {
-        (values["rz"] ?? "").split(separator: ",").compactMap { item -> (String, Int)? in
+        let log = (values["demo"] ?? "").components(separatedBy: ".steps=").dropFirst().first ?? ""
+        return log.split(separator: ",").compactMap { item -> (String, Int)? in
             let kv = item.split(separator: ":")
             guard kv.count == 2, let count = Int(kv[1]), kv[0].hasPrefix("show") || kv[0].hasPrefix("hide") else { return nil }
             return (String(kv[0]), count)

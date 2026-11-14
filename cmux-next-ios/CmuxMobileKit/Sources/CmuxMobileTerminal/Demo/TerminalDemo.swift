@@ -71,8 +71,12 @@ public struct TerminalDemoRoot: View {
 }
 
 @MainActor
-struct TerminalDemoDriver {
+final class TerminalDemoDriver {
     let model: TerminalModel
+    private var stepLog: [String] = []
+    private var stepResizes = 0
+
+    init(model: TerminalModel) { self.model = model }
     let clock = ContinuousClock()
 
     private func wait(_ seconds: Double) async {
@@ -311,7 +315,17 @@ struct TerminalDemoDriver {
 
     private func note(_ label: String) {
         mark(label)
-        model.demoNote = label
+        // Each toggle step's PTY resizes, kept as a cumulative log: a UI test
+        // that misses a label (its probe reads the latest one) still reads
+        // every step at the end (`done...steps=show0:1,hide0:1,...`).
+        if let last = stepLog.last, last.hasSuffix(":") {
+            stepLog[stepLog.count - 1] += "\(model.ptyResizesSent - stepResizes)"
+        }
+        if label.range(of: #"^(show|hide)\d+$"#, options: .regularExpression) != nil {
+            stepLog.append(label + ":")
+            stepResizes = model.ptyResizesSent
+        }
+        model.demoNote = label.hasPrefix("done.") ? label + ".steps=" + stepLog.joined(separator: ",") : label
     }
 
     private func keyboardInterrupt() async {
