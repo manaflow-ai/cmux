@@ -741,6 +741,9 @@ class InventoryContractTests(unittest.TestCase):
     fn fixture() {
         let _ = r###" } #[cfg(test)] mod fake { "###;
         let _ = '}';
+        let _ = '"';
+        let _ = '\'';
+        let _ = '\\';
         /* } /* nested comment */ } */
         json!({"event": "fixture-only", "nested": {"value": "}"}});
     }
