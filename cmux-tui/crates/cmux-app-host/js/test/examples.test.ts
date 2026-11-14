@@ -1,7 +1,7 @@
 // The example extensions (examples/extensions/*) in the fake host, and the moved github-prs
 // sample's budget: timers and upstream reads before (hand-rolled cmux.timer.every) and after
 // (cmux.watch), counted the same way.
-import { describe, expect, test } from "bun:test"
+import { beforeAll, describe, expect, test } from "bun:test"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { FakeHost } from "./fake-host.ts"
@@ -138,8 +138,15 @@ describe("local/activity (cmux-extension-sdk only)", () => {
     return out
   }
 
+  // Built the way `cmux ext dev` builds it (dist/ is build output, never committed).
+  let built: string | undefined
+  beforeAll(async () => {
+    const { pack } = await import("../../tools/pack.ts")
+    built = await pack(join(root, dir))
+  })
+
   function activity() {
-    const host = new FakeHost(load(dir), { app: { id: "local/activity", version: "1.0.0" }, settings: {} })
+    const host = new FakeHost(built!, { app: { id: "local/activity", version: "1.0.0" }, settings: {} })
     const state = {
       workspaces: [{ id: "ws_1", session_id: "s", name: "api", index: 0, focused: true }, { id: "ws_2", session_id: "s", name: "web", index: 1, focused: false }],
       agents: [{ id: "a1", state: "working" }, { id: "a2", state: "idle" }],
@@ -152,12 +159,11 @@ describe("local/activity (cmux-extension-sdk only)", () => {
     return { host, state }
   }
 
-  test("imports nothing but cmux-extension-sdk, and dist/main.js is built from src", async () => {
+  test("imports nothing but cmux-extension-sdk, and builds to one script that sets its exports", () => {
     const src = readFileSync(join(root, dir, "src/main.ts"), "utf8")
     expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
     expect(src).not.toContain("<reference")
-    const { pack } = await import("../../tools/pack.ts")
-    expect(await pack(join(root, dir))).toBe(load(dir))
+    expect(built).toContain("__cmuxAppExports")
   })
 
   test("the section lists each workspace with the chats waiting in it, and redraws on agent_chat.changed", async () => {
@@ -227,12 +233,13 @@ describe("cmux-extension-sdk", () => {
     expect(error).toContain("workspace.changed")
   })
 
-  test("versions and the event table come from the generated api.json", async () => {
+  test("versions and the event table are the runtime's own (no copies)", async () => {
     const host = await sdkHost("")
-    const api = JSON.parse(readFileSync(join(root, "cmux-tui/crates/cmux-extension-sdk/typescript/api.json"), "utf8"))
-    expect(host.eval("__sdk.API_VERSION")).toBe(api.apiVersion)
+    const json = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "..", "..", path), "utf8"))
+    expect(host.eval("__sdk.API_VERSION")).toBe(json("generated/scopes.json").apiVersion)
     expect(host.eval("__sdk.RUNTIME_VERSION")).toBe(host.eval("__cmuxAppRuntimeVersion"))
-    expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(api.events))
+    expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
+    expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
     expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
   })
 })

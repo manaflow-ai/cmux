@@ -4,7 +4,7 @@ Change cmux to fit how you work: add a sidebar section, open your own pane, reac
 workspace, an agent or a chat changes, and share it as an extension. cmux reloads it on every
 save while you work on it.
 
-One SDK, two languages, one version (1.0.0), made from one table (`api.json`):
+One SDK, two languages, one version (1.0.0), made from the runtime's own tables (no copies):
 
 | | TypeScript (`typescript/`, package `cmux-extension-sdk`) | Rust (this crate, `cmux-extension-sdk`) |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ Until the package is on npm, point at a cmux checkout:
 
 ```json
 {
-  "$schema": "./node_modules/cmux-extension-sdk/cmux-app.schema.json",
+  "$schema": "<cmux>/cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
   "manifestVersion": 2,
   "id": "local/my-ext",
   "name": { "en": "My extension" },
@@ -78,7 +78,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `VStack`, `HStack`, `Row`, `Text`, `Panel`, `ForEach`, `Button`, `Toggle`, ... | The scene DSL cmux draws natively. Colors are theme tones (`cmux.theme.success`), never raw values. |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
 
-Events (from `api.json`; each is an invalidation with no payload):
+Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with no payload):
 
 | Stream | Scope | Fires when |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ assert!(check_package(std::path::Path::new(".")).is_valid());
 ```
 
 `EVENTS`, `SIGNALS`, `event(name)` and `signal(name)` are the same tables the TypeScript package
-ships, as constants.
+reads, as constants.
 
 ## Versions
 
@@ -111,15 +111,17 @@ ships, as constants.
   same one. A removed or narrowed export is a new major.
 - `API_VERSION` is the app API (`cmux app API` in `cmux-app.d.ts`). Ops are only added; an op the
   running cmux lacks answers `operation.unsupported`.
-- `RUNTIME_VERSION` is the extension runtime the SDK was generated against (`1.2.0` added
-  `cmux.watch`). A manifest's `engines.cmux` says which cmux it needs.
+- `RUNTIME_VERSION` is the extension runtime: in TypeScript the one the extension runs in, in Rust
+  the one the crate was built against (`1.2.0` added `cmux.watch`). A manifest's `engines.cmux` says which cmux it needs.
 - Places carry their own major (`cmux.section/1`); a breaking change is `/2`, served beside `/1`.
 
 ## How it is made
 
-`cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts` writes `api.json` (both copies),
-`src/api.rs`, `typescript/cmux-app.d.ts` and `typescript/cmux-app.schema.json` from the op
-catalog, `schema/v2/signals.json` and `schema/v2/events.json`; `--check` (in
-`scripts/cmux-next/check-app-platform.sh`) fails when one is stale. The daemon's test
+Nothing generated is committed. Both languages read the runtime's sources in
+`cmux-tui/crates/cmux-app-host`: the event streams (`schema/v2/events.json`), the op scopes and
+live sources the generator already writes (`generated/scopes.json`, `generated/signals.json`,
+`generated/cmux-app.d.ts`) and the runtime's version (`js/src/index.ts`). The TypeScript package
+imports them; the crate's `build.rs` turns them into constants. `tools/gen-cmux-global.ts` checks
+each stream's `reads` op and scope against the catalog, and the daemon's test
 `every_stream_the_daemon_publishes_is_in_the_sdks_event_table` fails when cmux sends a stream the
-table does not list. Edit those sources, never the generated files.
+table does not list. Publishing either package bundles these files into it.

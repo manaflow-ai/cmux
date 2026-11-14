@@ -13,10 +13,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
-    "./api.json": "./api.json",
-    "./cmux-app.schema.json": "./cmux-app.schema.json"
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" }
   },
-  "files": ["src/", "api.json", "cmux-app.d.ts", "cmux-app.schema.json", "README.md"],
+  "files": ["src/", "README.md"],
   "engines": { "cmux": "^2.0" }
 }

@@ -15,22 +15,25 @@ fn json(path: PathBuf) -> Value {
 }
 
 #[test]
-fn the_rust_table_is_the_json_table_both_sdks_ship() {
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let api = json(crate_dir.join("api.json"));
-    assert_eq!(api, json(crate_dir.join("typescript/api.json")));
-    assert_eq!(api["apiVersion"], API_VERSION);
-    assert_eq!(api["runtimeVersion"], RUNTIME_VERSION);
-    let events = api["events"].as_object().expect("events");
+fn the_rust_table_is_the_runtimes_own_tables() {
+    let host = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../cmux-app-host");
+    let scopes = json(host.join("generated/scopes.json"));
+    assert_eq!(scopes["apiVersion"], API_VERSION);
+    let runtime = std::fs::read_to_string(host.join("js/src/index.ts")).expect("index.ts");
+    assert!(runtime.contains(&format!("export const RUNTIME_VERSION = \"{RUNTIME_VERSION}\"")));
+    let events = json(host.join("schema/v2/events.json"));
+    let events = events["events"].as_object().expect("events");
     assert_eq!(
         events.keys().collect::<Vec<_>>(),
         EVENTS.iter().map(|e| e.name).collect::<Vec<_>>()
     );
     for e in EVENTS {
-        assert_eq!(events[e.name]["scope"], e.scope, "{}", e.name);
         assert_eq!(events[e.name]["reads"], e.reads, "{}", e.name);
+        assert_eq!(scopes["ops"][e.reads]["scope"], e.scope, "{}", e.name);
     }
-    let signals = api["signals"].as_object().expect("signals");
+    assert_eq!(event("workspace.changed").map(|e| e.scope), Some("workspace:read"));
+    let signals = json(host.join("generated/signals.json"));
+    let signals = signals["signals"].as_object().expect("signals");
     assert_eq!(
         signals.keys().collect::<Vec<_>>(),
         SIGNALS.iter().map(|s| s.name).collect::<Vec<_>>()

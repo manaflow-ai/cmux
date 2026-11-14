@@ -1,4 +1,4 @@
-/// <reference path="../cmux-app.d.ts" />
+/// <reference path="../../../cmux-app-host/generated/cmux-app.d.ts" />
 // cmux-extension-sdk: the public API for code cmux runs in its extension sandbox.
 //
 // An extension is a folder with a manifest (cmux-app.json) and a script. The manifest says which
@@ -10,14 +10,15 @@
 // (cmux-app.d.ts), plus a few helpers built only on it, so a bundle that imports this package
 // adds a few hundred bytes and no runtime of its own.
 
-import api from "../api.json" with { type: "json" }
+// The tables are the runtime's own (cmux-app-host): the event streams, and the op scopes the
+// generator checks them against. Nothing here is a copy that could drift from them.
+import eventTable from "../../../cmux-app-host/schema/v2/events.json" with { type: "json" }
+import scopeTable from "../../../cmux-app-host/generated/scopes.json" with { type: "json" }
 
 /** This package's version. */
 export const SDK_VERSION = "1.0.0"
 /** The app API this package types (`cmux app API` in cmux-app.d.ts). */
-export const API_VERSION: string = api.apiVersion
-/** The extension runtime this package was built against; an older cmux answers `operation.unsupported` for newer ops. */
-export const RUNTIME_VERSION: string = api.runtimeVersion
+export const API_VERSION: string = scopeTable.apiVersion
 
 // ---------------------------------------------------------------------------------------------
 // The runtime's globals, as imports.
@@ -31,6 +32,9 @@ type Globals = Omit<typeof globalThis, "Text" | "Image"> & {
   Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 }
 const g = globalThis as unknown as Globals
+
+/** The runtime this extension runs in (it sets the global before the extension loads); an older cmux answers `operation.unsupported` for newer ops. */
+export const RUNTIME_VERSION: string = String((globalThis as { __cmuxAppRuntimeVersion?: unknown }).__cmuxAppRuntimeVersion ?? "")
 
 export const cmux: CmuxGlobal = g.cmux
 
@@ -78,12 +82,13 @@ export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: strin
 // Events. An event is an invalidation with no payload; the live lists below re-read on it.
 
 /** The streams an extension can subscribe to, with the read op (and so the scope) each needs. */
-export type EventStream = keyof typeof api.events
-export const EVENT_STREAMS = Object.keys(api.events) as EventStream[]
+export type EventStream = keyof typeof eventTable.events
+export const EVENT_STREAMS = Object.keys(eventTable.events) as EventStream[]
 
 /** The scope the manifest must ask for to hear `stream` (`workspace:read` for `workspace.changed`). */
 export function scopeFor(stream: EventStream): string {
-  return api.events[stream].scope
+  const reads = eventTable.events[stream].reads as keyof typeof scopeTable.ops
+  return scopeTable.ops[reads].scope
 }
 
 /**
@@ -92,7 +97,7 @@ export function scopeFor(stream: EventStream): string {
  * fails at load instead of never firing.
  */
 export function on(stream: EventStream, fn: () => void): () => void {
-  if (!Object.hasOwn(api.events, stream)) {
+  if (!Object.hasOwn(eventTable.events, stream)) {
     throw new Error(`cmux-extension-sdk: unknown event stream ${JSON.stringify(stream)}; known: ${EVENT_STREAMS.join(", ")}`)
   }
   const off = cmux.events.on(stream, () => fn())

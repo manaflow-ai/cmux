@@ -2,7 +2,8 @@
 //!
 //! An extension is a folder with a manifest (`cmux-app.json`) and a script cmux runs in its
 //! sandbox (written with the TypeScript package `cmux-extension-sdk`, next to this crate). This
-//! crate is the Rust side of the same SDK, generated from the same table (`api.json`):
+//! crate is the Rust side of the same SDK, built from the same tables the runtime and the
+//! TypeScript package read (`build.rs`):
 //!
 //! - the versions ([`API_VERSION`], [`RUNTIME_VERSION`]), the event streams ([`EVENTS`]) and the
 //!   live sources ([`SIGNALS`]) an extension can use, with the scope each needs;
@@ -11,7 +12,11 @@
 //! - [`validate`] and [`check_package`], the validator cmux itself runs before it loads an
 //!   extension, so a tool or a test can refuse what cmux would refuse.
 
-mod api;
+/// The table `build.rs` writes from the runtime's sources: nothing generated is committed.
+mod api {
+    use crate::{Event, Signal};
+    include!(concat!(env!("OUT_DIR"), "/api.rs"));
+}
 
 pub use api::{API_VERSION, EVENTS, RUNTIME_VERSION, SIGNALS};
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
