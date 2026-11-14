@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
@@ -202,8 +202,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(selector).toContain("id -u cmux");
     expect(selector).toContain("command -v setpriv");
     expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux");
-    // Passwordless sudo is part of the promise: a session that cannot escalate
-    // is worse than a root session, so a broken sudoers picks the root layout.
+    // Passwordless sudo decides between two installed layouts. It cannot send
+    // the daemon to a root install that does not exist.
     expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true");
     // No PAM session per probe: the supervisor evaluates this on every restart.
     expect(selector).not.toContain("runuser");
@@ -249,6 +249,47 @@ describe("cmux-tui install and daemon commands", () => {
       setpriv: "#!/bin/sh\nexit 0\n",
     });
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
+  });
+
+  /**
+   * Runs the selector with its two homes moved under a temp dir, with `installed`
+   * holding an executable daemon, and with `sudo -n` refused as a password policy does.
+   */
+  async function selectWithSudoPassword(installed: readonly ("work" | "root")[]): Promise<string> {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-homes-"));
+    try {
+      const homes = { work: join(root, "work"), root: join(root, "root") };
+      for (const kind of installed) {
+        const binary = join(homes[kind], ".cmux", "bin", "cmux-tui");
+        mkdirSync(dirname(binary), { recursive: true });
+        writeFileSync(binary, "#!/bin/sh\n");
+        chmodSync(binary, 0o755);
+      }
+      const selector = cmuxTuiLayoutSelector()
+        .replaceAll("/home/cmux", homes.work)
+        .replaceAll("/root", homes.root);
+      const out = await runWithStubs(`${selector}; printf %s "$CMUX_TUI_LAYOUT"`, {
+        id: "#!/bin/sh\nexit 0\n",
+        setpriv: '#!/bin/sh\ncase "$*" in *sudo*) echo "sudo: a password is required" >&2; exit 1;; esac\nexit 0\n',
+        sudo: "#!/bin/sh\nexit 1\n",
+      });
+      return out;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("a sudo password policy keeps the work user when only its home has the daemon", async () => {
+    expect(await selectWithSudoPassword(["work"])).toBe("user");
+  });
+
+  test("a sudo password policy keeps an existing root install on root", async () => {
+    expect(await selectWithSudoPassword(["root"])).toBe("root");
+    expect(await selectWithSudoPassword(["work", "root"])).toBe("root");
+  });
+
+  test("a machine with no daemon installed yet still waits on the root layout", async () => {
+    expect(await selectWithSudoPassword([])).toBe("root");
   });
 
   test("a work user without passwordless sudo falls back to root rather than trapping the session", async () => {

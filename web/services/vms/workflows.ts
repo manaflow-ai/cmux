@@ -1607,6 +1607,8 @@ function scheduleGuestAgentUpdates(
     providers.exec(row.provider, providerVmId, guestAgentUpdatesCommand(setting), {
       timeoutMs: 10_000,
       providerMetadata: row.providerMetadata,
+      // Agent installs are root-owned, and the owner may require a sudo password.
+      asRoot: true,
     })
   ).pipe(
     Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`agent updates exec exited ${result.exitCode}`))),

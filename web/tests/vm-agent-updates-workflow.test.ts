@@ -41,6 +41,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 
 function harness(options: { vm?: CloudVmRow; exec?: () => Effect.Effect<{ exitCode: number; stdout: string; stderr: string }, Error> } = {}) {
   const execs: string[] = [];
+  const execOptions: ({ asRoot?: boolean } | undefined)[] = [];
   const settings: Array<{ id: string; agentUpdates: string }> = [];
   const begun: Array<Record<string, unknown>> = [];
   const vm = options.vm ?? row();
@@ -73,8 +74,9 @@ function harness(options: { vm?: CloudVmRow; exec?: () => Effect.Effect<{ exitCo
     }),
     create: () => Effect.succeed({ provider: "freestyle" as const, providerVmId: "vm-agents", status: "running" as const, image: "snapshot-test", createdAt: NOW.getTime() }),
     destroy: () => Effect.void,
-    exec: (_provider: string, _vmId: string, command: string) => {
+    exec: (_provider: string, _vmId: string, command: string, execOption?: { asRoot?: boolean }) => {
       execs.push(command);
+      execOptions.push(execOption);
       return options.exec?.() ?? Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
     },
     getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
@@ -90,7 +92,7 @@ function harness(options: { vm?: CloudVmRow; exec?: () => Effect.Effect<{ exitCo
   // test can run it after the response and see that attach never waited.
   const deferred: Array<Effect.Effect<void>> = [];
   const deferAfterResponse = (work: Effect.Effect<void>) => { deferred.push(work); };
-  return { layer, execs, settings, begun, deferred, deferAfterResponse };
+  return { layer, execs, execOptions, settings, begun, deferred, deferAfterResponse };
 }
 
 const access = { userId: "user-agents", billingTeamId: "team-agents", teamIds: ["team-agents"], providerVmId: "vm-agents", callerPlanId: "pro" };
@@ -111,6 +113,8 @@ describe("agent updates workflows", () => {
     expect(h.deferred).toHaveLength(1);
     await Effect.runPromise(h.deferred[0]!);
     expect(h.execs).toEqual([guestAgentUpdatesCommand("latest")]);
+    // A machine whose owner requires a sudo password must still get its updates.
+    expect(h.execOptions[0]?.asRoot).toBe(true);
   });
 
   test("a failing or non-zero guest exec never fails the attach", async () => {
