@@ -234,8 +234,11 @@ public final class ScreenSharingViewer: Identifiable {
         session.reconnectLimit = 0
         // A drop goes straight to the reattach (no failed card first, over the last frame).
         session.onDropped = { [weak self, weak session] in
-            guard let self, let session, self.screen === session, let id = self.sessionID else { return }
+            // Taken only while this viewer streams this screen's session: then it reattaches.
+            guard let self, let session, self.screen === session, let id = self.sessionID,
+                  case let .streaming(current, _) = self.phase, current == id else { return false }
             self.streamDropped(id)
+            return true
         }
         stopStream()
         screen = session

@@ -190,9 +190,10 @@ public final class ScreenSession {
     public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
     @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
     /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
-    /// `reconnectLimit` is 0): a drop calls it and the session stays reconnecting, over its
-    /// last frame, instead of showing the failed card first.
-    @ObservationIgnored public var onDropped: (@MainActor () -> Void)?
+    /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
+    /// session stays reconnecting over its last frame instead of showing the failed card first.
+    /// Not taken (false): the failed card, as without an owner.
+    @ObservationIgnored public var onDropped: (@MainActor () -> Bool)?
     /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
     /// the screen does not jump while it comes back.
     public var keepsLiveLayout: Bool {
@@ -471,8 +472,7 @@ public final class ScreenSession {
                 // The owner reattaches with a new ticket: still reconnecting, never the failed card.
                 isReconnecting = true
                 phase = .connecting
-                onDropped()
-                return
+                if onDropped() { return }
             }
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)

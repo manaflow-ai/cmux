@@ -147,7 +147,7 @@ import Testing
         viewer.reattachSession = { _, _ in throw CancellationError() }
         // The session's own give-up path hands the drop to the viewer at once.
         let dropped = try #require(screen.onDropped)
-        dropped()
+        #expect(dropped(), "the viewer takes the drop")
         #expect(viewer.phase == .reconnecting(sessionID: "s8", scope: .full))
         #expect(screen.phase == .connecting)
         #expect(screen.isReconnecting)
