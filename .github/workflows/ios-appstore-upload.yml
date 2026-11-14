@@ -153,10 +153,7 @@ jobs:
               if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
                   return True
               if path.startswith(".github/workflows/"):
-                  return path not in {
-                      ".github/workflows/ios-appstore-upload.yml",
-                      ".github/workflows/ios-testflight.yml",
-                  }
+                  return path != ".github/workflows/ios-appstore-upload.yml"
               return False
 
           try:

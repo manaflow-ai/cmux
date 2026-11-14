@@ -77,7 +77,7 @@ require_empty() {
 
 bundle_id="$(read_plist CFBundleIdentifier)"
 case "$bundle_id" in
-  com.cmux.app|com.cmuxterm.app.nightly|dev.cmux.app.beta|dev.cmux.app.internal|dev.cmux.app.demo|dev.cmux.app.classic) ;;
+  com.cmux.app|com.cmuxterm.app.nightly|dev.cmux.app.beta|dev.cmux.app.internal|dev.cmux.app.classic) ;;
   *)
     echo "error: production iOS artifact has unexpected release bundle identifier '${bundle_id:-<absent>}'" >&2
     exit 1

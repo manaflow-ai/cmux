@@ -34,7 +34,6 @@ import Testing
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
             "dev.cmux.app.classic",
         ]
         for bundleIdentifier in bundleIdentifiers {

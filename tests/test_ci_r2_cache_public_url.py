@@ -19,7 +19,7 @@ DECLARES_URL = re.compile(r"^\s*CI_CACHE_R2_PUBLIC_URL:\s*\S", re.M)
 class R2CachePublicUrlTests(unittest.TestCase):
     def test_every_r2_cache_workflow_declares_the_public_url(self):
         users = [p for p in sorted(WORKFLOWS.glob("*.y*ml")) if USES_R2_CACHE.search(p.read_text())]
-        self.assertIn(WORKFLOWS / "ios-testflight.yml", users)
+        self.assertIn(WORKFLOWS / "ios-appstore-upload.yml", users)
         missing = [p.name for p in users if not DECLARES_URL.search(p.read_text())]
         self.assertEqual(missing, [], "workflows using the R2 cache actions without CI_CACHE_R2_PUBLIC_URL")
 

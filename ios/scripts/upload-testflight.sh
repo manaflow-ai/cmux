@@ -1547,7 +1547,7 @@ fi
 
 # The archive's dSYMs are the source of both symbol paths for this build: the
 # Symbols/ files the export embeds in the IPA for App Store Connect crash
-# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# symbolication, and the dSYM run artifact the upload workflow persists for
 # local symbolication after ASC's copy is unavailable. An archive without
 # dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
 # download) would ship a build whose crashes can never be symbolicated by
@@ -2000,12 +2000,12 @@ else
   # with no aps-environment), so an automatic export almost certainly drops it too.
   #
   # Rather than upload a known-push-broken build with only a warning (CI warnings
-  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # are effectively silent, and a CI lane that drove the PRIMARY beta cut used
   # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
   # aps-environment, and refuse the upload if it does not. If automatic ever does
   # preserve it, the gate passes and upload proceeds.
   #
-  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # To make CI cut a push-WORKING beta, the upload workflow must import the iOS
   # distribution cert and call this script with --signing manual (nightly.yml /
   # release.yml already import a signing cert on ephemeral runners, so the pattern
   # exists). That is a security-relevant workflow + secrets decision, deliberately

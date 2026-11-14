@@ -1576,7 +1576,7 @@ def test_guard_only_tests_skip_macos() -> None:
     # Referenced only by Linux jobs in the CI caller or reusable guard workflow.
     assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
     assert_areas(
-        [".github/workflows/ios-testflight.yml", "tests/test_ios_testflight_main_push_filter.py"],
+        [".github/workflows/ios-appstore-upload.yml", "tests/test_ios_appstore_upload_marker.py"],
         macos=False,
         web=False,
     )

@@ -178,10 +178,7 @@ def public_path_relevant(path: str) -> bool:
     if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
         return False
     if path.startswith(".github/workflows/"):
-        return path in {
-            ".github/workflows/ios-appstore-upload.yml",
-            ".github/workflows/ios-testflight.yml",
-        }
+        return path == ".github/workflows/ios-appstore-upload.yml"
     return True
 
 

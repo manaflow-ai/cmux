@@ -2050,10 +2050,6 @@
     "class": "brand",
     "source": "cmux CLASSIC"
   },
-  "mobile.pairing.target.demo": {
-    "class": "brand",
-    "source": "cmux DEMO"
-  },
   "mobile.pairing.target.dev": {
     "class": "brand",
     "source": "cmux DEV %@"

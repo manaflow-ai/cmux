@@ -44,7 +44,6 @@ struct MobileHostIdentityTests {
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
             "dev.cmux.app.classic",
         ])
         #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
@@ -77,7 +76,6 @@ struct MobileHostIdentityTests {
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
             "dev.cmux.app.classic",
         ])
         #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
@@ -92,7 +90,7 @@ struct MobileHostIdentityTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(
-            "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
             forKey: MobileIOSPairingTargetStore.defaultsKey
         )
         let store = MobileIOSPairingTargetStore(
@@ -107,13 +105,13 @@ struct MobileHostIdentityTests {
             store.selectedNamespace?.bundleIdentifier
                 == "dev.cmux.ios.future-one"
         )
-        let demoNamespace = try #require(MobileIOSAppNamespace(
-            bundleIdentifier: "dev.cmux.app.demo"
+        let classicNamespace = try #require(MobileIOSAppNamespace(
+            bundleIdentifier: "dev.cmux.app.classic"
         ))
-        #expect(!store.select(demoNamespace))
+        #expect(!store.select(classicNamespace))
         #expect(
             defaults.string(forKey: MobileIOSPairingTargetStore.defaultsKey)
-                == "dev.cmux.app.demo"
+                == "dev.cmux.app.classic"
         )
     }
 

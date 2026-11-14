@@ -298,11 +298,6 @@ final class MobilePairingModel {
                 localized: "mobile.pairing.target.internal",
                 defaultValue: "cmux INTERNAL"
             )
-        case "dev.cmux.app.demo":
-            return String(
-                localized: "mobile.pairing.target.demo",
-                defaultValue: "cmux DEMO"
-            )
         case "dev.cmux.app.classic":
             return String(
                 localized: "mobile.pairing.target.classic",

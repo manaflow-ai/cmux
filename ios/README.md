@@ -119,16 +119,14 @@ reinstall, or operators need to cut an internal-only build on the higher version
 
 ## TestFlight GitHub Actions signing
 
-`.github/workflows/ios-testflight.yml` uses manual export signing because Xcode's
-automatic App Store Connect export has produced IPAs whose signed app
-entitlements omit `aps-environment=production`. That upload is intentionally
-blocked because TestFlight push would silently fail. Scheduled `main` uploads
-ship only to the internal TestFlight group. A manual run with
-`marketing_version_override` switches to the external beta bundle, installs its
-provisioning profile, and assigns the processed build to both the Founder's
-Edition and Pro groups. That external override reuses an already approved
-marketing version and auto-submits the first build when Apple reports that Beta
-App Review is required.
+The classic app's only TestFlight lane is cmux CLASSIC
+(`.github/workflows/ios-appstore-upload.yml`, below). The former
+`ios-testflight.yml` (cmux INTERNAL every 20 minutes, cmux DEMO twice a day,
+and the manual BETA override) is retired: cmux INTERNAL ships cmux-next, and
+cmux DEMO (`dev.cmux.app.demo`) is no longer used. Uploads use manual export
+signing because Xcode's automatic App Store Connect export has produced IPAs
+whose signed app entitlements omit `aps-environment=production`, and the
+upload script refuses those because TestFlight push would silently fail.
 
 Required GitHub secrets:
 
@@ -137,7 +135,6 @@ Required GitHub secrets:
 - `ASC_API_KEY_P8_BASE64`
 - `IOS_DISTRIBUTION_CERTIFICATE_BASE64` (base64-encoded `.p12` for an Apple Distribution certificate on team `7WLXT3NR37`)
 - `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD`
-- `IOS_BETA_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `dev.cmux.app.beta`, with `aps-environment=production`)
 
 ## cmux CLASSIC TestFlight lane
 

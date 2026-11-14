@@ -88,7 +88,6 @@ public struct CmxPairingURLScheme {
         "cmux-ios-com.cmux.app",
         "cmux-ios-dev.cmux.app.beta",
         "cmux-ios-dev.cmux.app.internal",
-        "cmux-ios-dev.cmux.app.demo",
         "cmux-ios-dev.cmux.app.classic",
     ]
 }

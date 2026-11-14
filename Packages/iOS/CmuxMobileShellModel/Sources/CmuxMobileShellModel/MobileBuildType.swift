@@ -15,7 +15,9 @@ public enum MobileBuildType: String, Equatable, Sendable {
     case beta
     /// A Release build distributed to the internal team.
     case `internal`
-    /// A Release build distributed for controlled demos.
+    /// A Release build distributed for controlled demos. No bundle resolves to
+    /// it since cmux DEMO (dev.cmux.app.demo) was retired; the case stays
+    /// because its token is part of the What's New channel contract.
     case demo
     /// A Release build distributed to production (App Store).
     case prod
@@ -24,8 +26,8 @@ public enum MobileBuildType: String, Equatable, Sendable {
     ///
     /// `#if DEBUG` short-circuits to ``dev`` so a local build is never mistaken
     /// for a distribution build. In Release the bundle id decides: the beta
-    /// TestFlight bundle is `dev.cmux.app.beta`; Internal and Demo have their
-    /// own exact bundle identifiers; cmux CLASSIC (`dev.cmux.app.classic`), the
+    /// TestFlight bundle is `dev.cmux.app.beta`; Internal has its own exact
+    /// bundle identifier; cmux CLASSIC (`dev.cmux.app.classic`), the
     /// classic app's internal TestFlight home, is an internal build; the public
     /// App Store bundle is `com.cmux.app`. Unknown Release identifiers are
     /// treated as ``prod``.
@@ -45,8 +47,6 @@ public enum MobileBuildType: String, Equatable, Sendable {
             return .beta
         case "dev.cmux.app.internal", "dev.cmux.app.classic":
             return .internal
-        case "dev.cmux.app.demo":
-            return .demo
         default:
             return .prod
         }

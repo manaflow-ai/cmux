@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Pin the lean macOS checkout of the two iOS TestFlight upload workflows.
+"""Pin the lean macOS checkout of the iOS TestFlight upload workflow.
 
-ios-testflight.yml (CMUX INTERNAL, every 20 min) and ios-appstore-upload.yml
-(cmux CLASSIC, hourly) used to clone with fetch-depth 0 + recursive submodules
+ios-appstore-upload.yml (cmux CLASSIC, hourly; its INTERNAL sibling
+ios-testflight.yml is retired) used to clone with fetch-depth 0 + recursive submodules
 (~12 min) and install zig unconditionally (~6 min) on the constrained macOS
 pool. The policy now is:
 
@@ -29,7 +29,6 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = {
-    "ios-testflight.yml": "upload",
     "ios-appstore-upload.yml": "upload",
 }
 FETCH_SCRIPT = ROOT / "ios/scripts/fetch-testflight-notes-history.sh"
@@ -294,28 +293,9 @@ class WorkflowPolicyTests(unittest.TestCase):
                     [ghostty_sha, "3", "300"],
                 )
 
-    def test_testflight_fetches_only_the_notes_range(self):
-        steps = load("ios-testflight.yml")["jobs"]["upload"]["steps"]
-        distribution = step_index(steps, "Resolve TestFlight distribution")
-        history = step_index(steps, "Fetch TestFlight notes history")
-        upload = step_index(steps, "Archive, export, and upload to TestFlight")
-        self.assertLess(distribution, history)
-        self.assertLess(history, upload)
-        step = steps[history]
-        self.assertIn("needs.decide.outputs.last_uploaded_sha != ''", step["if"])
-        self.assertIn("marketing_version_override", step["if"])
-        self.assertEqual(
-            step["env"]["LAST_UPLOADED_SHA"], "${{ needs.decide.outputs.last_uploaded_sha }}"
-        )
-        self.assertIn("./ios/scripts/fetch-testflight-notes-history.sh", run_text(step))
-        # Best effort and bounded: a slow or failed fetch never blocks the upload.
-        self.assertLessEqual(int(step["timeout-minutes"]), 5)
-        self.assertIs(step["continue-on-error"], True)
-        self.assertIn('--notes-from-range "$LAST_UPLOADED_SHA"', run_text(steps[upload]))
-
     def test_appstore_lane_fetches_only_the_notes_range(self):
-        # The official lane mirrors the INTERNAL lane's generated "What to
-        # Test" notes: the only history it reads is the notes range, fetched
+        # The cmux CLASSIC lane generates "What to Test" notes from the
+        # commit range: the only history it reads is the notes range, fetched
         # bounded and best effort so it can never hold or fail an upload.
         steps = load("ios-appstore-upload.yml")["jobs"]["upload"]["steps"]
         checkout = step_index(steps, "Checkout")

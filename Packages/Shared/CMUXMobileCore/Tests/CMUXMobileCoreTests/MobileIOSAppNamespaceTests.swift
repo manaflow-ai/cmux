@@ -8,7 +8,7 @@ import Testing
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
             "dev.cmux.ios.feature-a",
             "dev.cmux.ios.feature-b",
         ]
@@ -38,7 +38,7 @@ import Testing
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
             "dev.cmux.ios.feature-a",
             "dev.cmux.ios.feature-b",
         ]
@@ -93,7 +93,6 @@ import Testing
         for bundleIdentifier in [
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
             "dev.cmux.app.classic",
         ] {
             #expect(

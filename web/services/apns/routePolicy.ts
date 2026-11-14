@@ -88,17 +88,15 @@ export type JsonObjectResult =
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-// Every TestFlight lane (beta, internal, demo and classic) uses the production
-// APNs environment; the internal lane's bundle id is set in
-// .github/workflows/ios-testflight.yml (IOS_BETA_BUNDLE_ID), and cmux CLASSIC
-// (dev.cmux.app.classic, the classic app's internal TestFlight home) in
-// .github/workflows/ios-appstore-upload.yml.
+// Every TestFlight app uses the production APNs environment: cmux BETA,
+// cmux INTERNAL (cmux-next's TestFlight build) and cmux CLASSIC
+// (dev.cmux.app.classic, the classic app's internal TestFlight home, uploaded
+// by .github/workflows/ios-appstore-upload.yml). cmux DEMO is retired.
 const PROD_BUNDLE_IDS = new Set([
   "com.cmux.app",
   "com.cmuxterm.app",
   "dev.cmux.app.beta",
   "dev.cmux.app.internal",
-  "dev.cmux.app.demo",
   "dev.cmux.app.classic",
 ]);
 

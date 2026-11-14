@@ -266657,29 +266657,6 @@
         }
       }
     },
-    "mobile.pairing.target.demo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        }
-      }
-    },
     "mobile.pairing.target.dev": {
       "extractionState": "manual",
       "localizations": {

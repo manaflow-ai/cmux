@@ -32,7 +32,7 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 
 **c. Duplicates and overlaps**
 
-- `ios-testflight.yml` (every 20 minutes, CMUX INTERNAL) and `ios-appstore-upload.yml` (hourly, then cmux.app; since 2026-11-13 cmux CLASSIC, `dev.cmux.app.classic`) both run scheduled TestFlight uploads. About half of each one's runs fail (251 of 507 and 79 of 161). Together they use about 250 runner-hours a week.
+- `ios-testflight.yml` (every 20 minutes, CMUX INTERNAL; retired 2026-11-13 with cmux DEMO) and `ios-appstore-upload.yml` (hourly, then cmux.app; since 2026-11-13 cmux CLASSIC, `dev.cmux.app.classic`) both run scheduled TestFlight uploads. About half of each one's runs fail (251 of 507 and 79 of 161). Together they use about 250 runner-hours a week.
 - `testbox-broker-guard.yml` used to run on every PR and every push to main (6,275 runs) because its header said "The main CI suite is dispatch-only right now". Its checks now run in the routed `ci-guards.yml` group; the standalone workflow is dispatch-only for diagnostics.
 - `web-complexity-trusted.yml` and `cla-policy-guard.yml` together ran about 27,000 times. That is roughly 3x the PR events, because `pull_request_target` also fires on `edited`. Do not drop `edited` blindly: it also carries base-branch changes.
 - `web-complexity.yml` and `web-complexity-trusted.yml` are an intentional pair: an untrusted diagnostic plus the trusted required check. Not a duplicate.

@@ -70,8 +70,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'app-store-upload'}),
     'ios-streamed-validate.yml': ('not yet on a pool; moves in its own PR',
      {'validate'}),
-    'ios-testflight.yml': ('TestFlight upload with signing keys',
-     {'upload', 'set-testflight-notes', 'assign-internal-group'}),
     'iroh-release-gate.yml': ('not yet on a pool; moves in its own PR',
      {'simulator-e2e'}),
     'stable-next-rollback.yml': ('holds the stable feed R2 token: an ephemeral label the secret-runner rule (test_ci_fork_runner_routing) checks literally',

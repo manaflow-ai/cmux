@@ -3,7 +3,6 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
   "com.cmuxterm.app",
   "dev.cmux.app.beta",
   "dev.cmux.app.internal",
-  "dev.cmux.app.demo",
   "dev.cmux.app.classic",
 ]);
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";

@@ -339,7 +339,7 @@ jobs:
 
       # The archive used to resolve every Swift package from the network
       # (about 129 s of the 592 s archive step in run 36522549397). Restore
-      # the ios-spm- package checkouts that ios-testflight.yml's upload lane
+      # the ios-spm- package checkouts that ios-appstore-upload.yml's upload lane
       # saves from main (and test-ios.yml's seed_cache dispatch), under the
       # same key, through the same CMUX_IOS_SPM_CACHE_DIR hook in
       # upload-testflight.sh. Restore only: this release job never writes a
@@ -352,7 +352,7 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           # r2-cache.sh reads through this public URL; without it every R2
-          # restore is a miss (ios-testflight.yml sets it workflow-wide).
+          # restore is a miss (ios-appstore-upload.yml sets it workflow-wide).
           CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
