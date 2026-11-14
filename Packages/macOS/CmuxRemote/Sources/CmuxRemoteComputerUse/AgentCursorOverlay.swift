@@ -69,13 +69,15 @@ final class AgentCursorOverlay {
             return
         }
         guard enabled else { return }
-        let isNew = cursors[event.session] == nil
-        let cursor = cursors[event.session] ?? SessionCursor()
+        let cursor = cursors[event.session] ?? SessionCursor(session: event.session)
         cursors[event.session] = cursor
         cursor.label = event.label
         let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
-        cursor.apply(event, geometry: geometry, animated: animates, speed: motion.speed)
-        if isNew { cursor.startIdleWag(animated: animates, speed: motion.speed) }
+        let animated = animates
+        cursor.apply(event, geometry: geometry, animated: animated, speed: motion.speed)
+        // The living tail runs while the cursor shows and motion is allowed; every event
+        // re-checks the switches and Reduce Motion, so a change applies on the next step.
+        cursor.runTail(animated: animated, speed: motion.speed)
         if let tip = cursor.currentTip { lastSeen[event.session] = (tip, event.label) }
         armIdleHide(cursor, session: event.session)
     }
@@ -96,7 +98,7 @@ final class AgentCursorOverlay {
         if let shown = cursors[session] {
             cursor = shown
         } else if let last = lastSeen[session] {
-            cursor = SessionCursor()
+            cursor = SessionCursor(session: session)
             cursor.label = last.label
             cursor.glide(to: last.tip, animated: false, speed: motion.speed)
             cursors[session] = cursor
@@ -104,6 +106,7 @@ final class AgentCursorOverlay {
             return false
         }
         cursor.spotlight(animated: animates, speed: motion.speed)
+        cursor.runTail(animated: animates, speed: motion.speed)
         armIdleHide(cursor, session: session)
         return true
     }
@@ -159,6 +162,140 @@ final class AgentCursorOverlay {
                scale: scale, backdrop: backdrop) { cursor in
             let geometry = AgentCursorGeometry(primaryHeight: size.height)
             cursor.stillTrail(to: geometry.appKit(to))
+        }
+    }
+
+    /// One scripted cursor for ``renderFrames``: its session (the tail's seed), name, where it
+    /// starts (desktop points, top-left origin) and its steps, each at a time in seconds.
+    struct ScriptedCursor {
+        enum Step {
+            case move(CGPoint)
+            case click
+            case typing(String)
+            case keys(String)
+            case drag(to: CGPoint)
+            case paused
+            case resume
+        }
+
+        var session: String
+        var label: String
+        var start: CGPoint
+        var steps: [(time: Double, step: Step)]
+    }
+
+    /// Scripted cursors drawn offscreen frame by frame at `fps`, with the living tail stepped
+    /// every frame exactly as the overlay steps it (the same model, the same path): moves follow
+    /// the overlay's glide plan sample by sample, clicks, keys and typing reach the tail and the
+    /// chip. Deterministic: the same script gives the same frames. `animated` false draws what
+    /// Reduce Motion shows (jumps, the tail still at rest). Calls `frame` with each image.
+    static func renderFrames(_ cursors: [ScriptedCursor], size: CGSize, scale: CGFloat, fps: Double, seconds: Double,
+                             animated: Bool = true, speed: Double = 1, backdrop: [(CGRect, NSColor)] = [],
+                             frame: (Int, CGImage) -> Void) {
+        let geometry = AgentCursorGeometry(primaryHeight: size.height)
+        struct Glide {
+            var from: CGPoint
+            var plan: GlidePlan?
+            var start: Double
+            var end: CGPoint
+            var linear: Double
+        }
+        struct Live {
+            let script: ScriptedCursor
+            let cursor: SessionCursor
+            var next = 0
+            var glide: Glide?
+            var at: CGPoint
+        }
+        var live: [Live] = []
+        for script in cursors {
+            let cursor = SessionCursor(offscreen: CGRect(origin: .zero, size: size), scale: scale, session: script.session)
+            cursor.label = script.label
+            let at = geometry.appKit(script.start)
+            cursor.glide(to: at, animated: false, speed: 1)
+            cursor.prepareTail(animated: animated, speed: speed)
+            live.append(Live(script: script, cursor: cursor, glide: nil, at: at))
+        }
+        let dt = 1 / fps
+        let count = Int((seconds * fps).rounded())
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+        let width = Int(size.width * scale), height = Int(size.height * scale)
+        for index in 0..<count {
+            let t = Double(index) * dt
+            for c in live.indices {
+                while live[c].next < live[c].script.steps.count, live[c].script.steps[live[c].next].time <= t + dt / 2 {
+                    let step = live[c].script.steps[live[c].next].step
+                    live[c].next += 1
+                    let cursor = live[c].cursor
+                    switch step {
+                    case .move(let p), .drag(to: let p):
+                        let to = geometry.appKit(p)
+                        let from = live[c].at
+                        if !animated {
+                            live[c].glide = nil
+                            live[c].at = to
+                        } else if case .drag = step {
+                            live[c].glide = Glide(from: from, plan: nil, start: t, end: to, linear: 0.35 / max(speed, 0.25))
+                        } else {
+                            let plan = GlideMotion().plan(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, endHeading: 0)
+                            live[c].glide = Glide(from: from, plan: plan, start: t, end: to, linear: 0)
+                        }
+                        cursor.noteTailEvent(.move)
+                        if case .drag = step { cursor.chip(.text(ComputerUseText.t("computerUse.cursor.drag", "Drag"))) }
+                    case .click:
+                        cursor.noteTailEvent(.click)
+                        cursor.chip(.text(AgentCursorEvent.clickTitle(button: "left", count: 1)))
+                    case .typing(let text):
+                        cursor.noteTailEvent(.typing)
+                        cursor.chip(.typing(AgentCursorEvent.caption(text)))
+                    case .keys(let text):
+                        cursor.noteTailEvent(.keys)
+                        cursor.chip(.keys(AgentCursorEvent.keyCaps(text)))
+                    case .paused:
+                        cursor.noteTailEvent(.paused)
+                        cursor.chip(.alert(ComputerUseText.t("computerUse.cursor.paused", "Paused \u{00B7} you\u{2019}re in control"), .paused))
+                    case .resume:
+                        cursor.clearChip()
+                    }
+                }
+                // Where the pointer is this frame: the glide's samples (the overlay's keyframes,
+                // linear between samples), or a drag's eased line.
+                if let glide = live[c].glide {
+                    let elapsed = t - glide.start
+                    if let plan = glide.plan {
+                        // The overlay divides the glide's duration by the speed.
+                        let position = elapsed * max(speed, 0.25) / plan.dt
+                        let k = Int(position)
+                        if k >= plan.samples.count {
+                            live[c].at = glide.end
+                            live[c].glide = nil
+                        } else {
+                            let a = k == 0 ? glide.from : CGPoint(x: plan.samples[k - 1].x, y: plan.samples[k - 1].y)
+                            let b = CGPoint(x: plan.samples[k].x, y: plan.samples[k].y)
+                            let f = position - Double(k)
+                            live[c].at = CGPoint(x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f)
+                        }
+                    } else {
+                        let u = min(elapsed / glide.linear, 1)
+                        let eased = u * u * (3 - 2 * u)
+                        live[c].at = CGPoint(x: glide.from.x + (glide.end.x - glide.from.x) * eased,
+                                             y: glide.from.y + (glide.end.y - glide.from.y) * eased)
+                        if u >= 1 { live[c].glide = nil }
+                    }
+                }
+                live[c].cursor.glide(to: live[c].at, animated: false, speed: 1)
+                live[c].cursor.stepTail(dt: dt, pointer: live[c].cursor.bodyPosition)
+            }
+            guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return }
+            context.scaleBy(x: scale, y: scale)
+            for (rect, color) in backdrop {
+                context.setFillColor(color.cgColor)
+                context.fill(CGRect(x: rect.minX, y: size.height - rect.maxY, width: rect.width, height: rect.height))
+            }
+            for c in live.indices { live[c].cursor.draw(in: context) }
+            if let image = context.makeImage() { frame(index, image) }
         }
     }
 
@@ -220,8 +357,14 @@ private final class SessionCursor {
     /// The tip, in AppKit screen points.
     private var tip: CGPoint?
     private var hideTimer: Timer?
-    private var idleTimer: Timer?
     private var scale: CGFloat = 2
+    /// The living tail's motion (``AgentCursorTail``), stepped once per display frame by
+    /// `tailLink` while the cursor shows and motion is allowed.
+    private var tailMotion: AgentCursorTail
+    private var tailLink: CADisplayLink?
+    private var tailTicker: FrameTicker?
+    private var lastTailFrame: CFTimeInterval?
+    private var tailSpeed = 1.0
     /// Drawn into an image instead of a panel (``AgentCursorOverlay/render``): this frame stands
     /// for the screen.
     private let offscreen: CGRect?
@@ -240,13 +383,14 @@ private final class SessionCursor {
     /// The pointer's tip inside its bounds (y up).
     static let tipPoint = CGPoint(x: 2.5 * k, y: 26 * k)
     /// Where the tail leaves the pointer: the middle of the stem's end (design grid, y up).
-    static let tailRoot = CGPoint(x: 12.8, y: 5.0)
+    static let tailRoot = AgentCursorTail.root
     static var captionSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption1).pointSize }
     static var smallSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption2).pointSize }
 
-    init(offscreen: CGRect? = nil, scale: CGFloat = 2) {
+    init(offscreen: CGRect? = nil, scale: CGFloat = 2, session: String = "") {
         self.offscreen = offscreen
         self.scale = scale
+        tailMotion = AgentCursorTail(session: session, animates: false)
         let path = Self.pointerPath()
         root.masksToBounds = false
         body.anchorPoint = .zero
@@ -344,10 +488,7 @@ private final class SessionCursor {
 
     /// The cursor's pointer: a chubby arrow with soft, rounded corners, tip at (2.5, 26) (y up).
     static func pointerPath() -> CGPath {
-        let points = [
-            CGPoint(x: 2.5, y: 26), CGPoint(x: 2.5, y: 6.5), CGPoint(x: 7.6, y: 11.2), CGPoint(x: 11.0, y: 3.4),
-            CGPoint(x: 15.0, y: 5.2), CGPoint(x: 11.9, y: 12.8), CGPoint(x: 19.0, y: 12.8),
-        ]
+        let points = AgentCursorTail.pointerOutline
         let radii: [CGFloat] = [2.0, 2.4, 1.4, 1.6, 1.6, 1.4, 2.4]
         let path = CGMutablePath()
         let first = points[0], last = points[points.count - 1]
@@ -360,14 +501,12 @@ private final class SessionCursor {
         return path.copy(using: &grid) ?? path
     }
 
-    /// How the tail lies.
+    /// How the tail lies when it is drawn still (no animation, and the offscreen stills).
     enum TailPose: Equatable {
         /// At rest: a soft S below the pointer.
         case rest
         /// Trailing behind a move in direction (dx, dy) (unit vector, y up).
         case trailing(CGFloat, CGFloat)
-        /// A wag to one side (+1 or -1).
-        case wag(CGFloat)
     }
 
     /// The tail as a curve from the stem's end.
@@ -376,9 +515,7 @@ private final class SessionCursor {
         let (c1, c2, end): (CGPoint, CGPoint, CGPoint)
         switch pose {
         case .rest:
-            c1 = CGPoint(x: a.x + 0.5, y: a.y - 6)
-            c2 = CGPoint(x: a.x + 8.5, y: a.y - 1.5)
-            end = CGPoint(x: a.x + 9, y: a.y - 8)
+            (c1, c2, end) = (AgentCursorTail.restCurve[1], AgentCursorTail.restCurve[2], AgentCursorTail.restCurve[3])
         case .trailing(let dx, let dy):
             // Behind the move, with a little curl to the side.
             let (bx, by) = (-dx, -dy)
@@ -386,10 +523,6 @@ private final class SessionCursor {
             c1 = CGPoint(x: a.x + bx * 4, y: a.y + by * 4)
             c2 = CGPoint(x: a.x + bx * 8 + px * 3, y: a.y + by * 8 + py * 3)
             end = CGPoint(x: a.x + bx * 13 - px * 1.5, y: a.y + by * 13 - py * 1.5)
-        case .wag(let side):
-            c1 = CGPoint(x: a.x + 0.5 + side * 2, y: a.y - 6)
-            c2 = CGPoint(x: a.x + 8.5 + side * 3, y: a.y - 1.5 + side * 2)
-            end = CGPoint(x: a.x + 9 + side * 4, y: a.y - 8 + side * 4)
         }
         let path = CGMutablePath()
         path.move(to: a)
@@ -398,19 +531,8 @@ private final class SessionCursor {
         return path.copy(using: &grid) ?? path
     }
 
-    /// Animates the tail through `poses` (from rest, back to rest).
-    private func swish(_ poses: [TailPose], keyTimes: [NSNumber], duration: CFTimeInterval) {
-        // motion: allow called only from gated, animated motion (cursor switches, Reduce Motion, ui.animationSpeed).
-        let swing = CAKeyframeAnimation(keyPath: "path")
-        swing.values = poses.map { Self.tailPath($0) }
-        swing.keyTimes = keyTimes
-        swing.duration = duration
-        swing.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: max(poses.count - 1, 1))
-        tail.add(swing, forKey: "swish")
-        tailEdge.add(swing, forKey: "swish")
-    }
-
-    /// A happy squish around the tip (the tip stays on its point) and a wag of the tail.
+    /// A happy squish around the tip (the tip stays on its point); the living tail flicks with
+    /// it (``AgentCursorTail/click()``).
     private func squish(speed: Double) {
         // motion: allow called only from gated, animated motion (cursor switches, Reduce Motion, ui.animationSpeed).
         let squash = CAKeyframeAnimation(keyPath: "transform")
@@ -419,7 +541,6 @@ private final class SessionCursor {
         squash.keyTimes = [0, 0.3, 0.65, 1]
         squash.duration = 0.3 / max(speed, 0.25)
         figure.add(squash, forKey: "squish")
-        swish([.rest, .wag(1), .wag(-1), .rest], keyTimes: [0, 0.3, 0.65, 1], duration: 0.42 / max(speed, 0.25))
     }
 
     /// The tail and pointer follow the alert color (amber, red), else cmux blue.
@@ -428,6 +549,8 @@ private final class SessionCursor {
         let deep = color?.blended(withFraction: 0.25, of: .black) ?? AgentCursorOverlay.deepBlue
         tail.strokeColor = deep.cgColor
         rim.strokeColor = deep.withAlphaComponent(0.55).cgColor
+        // Paused or refused: the tail droops until the next step.
+        tailMotion.drooping = color != nil
     }
 
     /// Every layer under `layer` draws at `scale` (vector paths, text, shadows stay sharp).
@@ -453,6 +576,7 @@ private final class SessionCursor {
     /// Shows one event (AppKit points through `geometry`).
     func apply(_ event: AgentCursorEvent, geometry: AgentCursorGeometry, animated: Bool, speed: Double) {
         let point = event.at.map { geometry.appKit($0) }
+        noteTailEvent(event.kind)
         switch event.kind {
         case .move:
             if let point { glide(to: point, animated: animated, speed: speed) }
@@ -492,6 +616,28 @@ private final class SessionCursor {
         }
     }
 
+    /// What a step means to the living tail: a click flicks it, a key flicks it less, typing
+    /// makes it wiggle, anything else wakes it from calm. (Paused and refused droop it through
+    /// the alert tint.)
+    func noteTailEvent(_ kind: AgentCursorEvent.Kind) {
+        switch kind {
+        case .click: tailMotion.click()
+        case .typing: tailMotion.typing()
+        case .keys: tailMotion.key()
+        default: tailMotion.activity()
+        }
+    }
+
+    /// The offscreen frames' version of ``runTail``: no display link, the renderer steps it.
+    func prepareTail(animated: Bool, speed: Double) {
+        tailSpeed = speed
+        tailMotion.animates = animated
+        setTailPath(animated ? tailMotion.path(scale: Self.k) : Self.tailPath(.rest))
+    }
+
+    /// The pointer's tip in the cursor's own layer space (its model position).
+    var bodyPosition: CGPoint { body.position }
+
     /// Draws the cursor's layers (their model state) into `context` (offscreen rendering).
     func draw(in context: CGContext) {
         root.render(in: context)
@@ -527,6 +673,8 @@ private final class SessionCursor {
         }
         let to = local(point)
         let from = tip.flatMap { movedScreen ? nil : local($0) }
+        // A jump (a new screen, or the first placement) is not motion the tail should follow.
+        if from == nil { tailMotion.teleport() }
         tip = point
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -539,12 +687,7 @@ private final class SessionCursor {
             let move = plan.positionAnimation(from: from)
             move.duration /= max(speed, 0.25)
             body.add(move, forKey: "glide")
-            let length = max(hypot(to.x - from.x, to.y - from.y), 1)
-            let way = TailPose.trailing((to.x - from.x) / length, (to.y - from.y) / length)
-            // The tail streams behind the move, then flicks and settles with a happy wag.
-            swish([.rest, way, way, .wag(1), .wag(-0.7), .wag(0.35), .rest],
-                  keyTimes: [0, 0.1, 0.58, 0.72, 0.84, 0.93, 1],
-                  duration: move.duration + 0.45 / max(speed, 0.25))
+            // The tail needs nothing here: it follows the glide frame by frame (runTail).
             comet(along: [from] + plan.samples.map { CGPoint(x: $0.x, y: $0.y) },
                   duration: move.duration, speed: speed)
         }
@@ -630,23 +773,61 @@ private final class SessionCursor {
         tailEdge.path = tail.path
     }
 
-    /// A small wag of the tail now and then while the cursor waits, so it feels alive.
-    private func idleWag(speed: Double) {
-        swish([.rest, .wag(0.8), .wag(-0.5), .wag(0.25), .rest], keyTimes: [0, 0.25, 0.55, 0.8, 1],
-              duration: 0.7 / max(speed, 0.25))
+    // MARK: The living tail
+
+    /// Runs the living tail while the cursor shows: a display link on the cursor panel's view
+    /// (the display's own refresh, 120 Hz on ProMotion) steps ``AgentCursorTail`` with the
+    /// pointer's on-screen position and redraws the tail's path, with implicit animations off.
+    /// Without animation (the app's cursor switches or Reduce Motion) the link stops and the tail
+    /// lies still in its rest pose. `speed` is ui.animationSpeed.
+    func runTail(animated: Bool, speed: Double) {
+        tailSpeed = speed
+        tailMotion.animates = animated
+        guard animated, offscreen == nil, let view = panel?.contentView else {
+            stopTail()
+            setTailPath(Self.tailPath(.rest))
+            return
+        }
+        guard tailLink == nil else { return }
+        // motion: allow the tail's frame clock: runs only while `animated` (the app's cursor switches and Reduce Motion), its time scaled by ui.animationSpeed, and stops when the cursor hides.
+        let ticker = FrameTicker { [weak self] link in self?.tailFrame(link) }
+        let link = view.displayLink(target: ticker, selector: #selector(FrameTicker.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        tailTicker = ticker
+        tailLink = link
+        lastTailFrame = nil
     }
 
-    /// Wags the tail every 1.4 s while the cursor is shown and nothing else moves it.
-    func startIdleWag(animated: Bool, speed: Double) {
-        idleTimer?.invalidate()
-        guard animated else { return }
-        // A bounded, repeating cosmetic wag; it stops with the cursor (close) and never synchronizes anything.
-        idleTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.tail.animation(forKey: "swish") == nil else { return }
-                self.idleWag(speed: speed)
-            }
-        }
+    private func stopTail() {
+        tailLink?.invalidate()
+        tailLink = nil
+        tailTicker = nil
+        lastTailFrame = nil
+    }
+
+    /// One display frame: where the pointer is on screen now (mid-glide too), one step of the
+    /// tail, one new path.
+    private func tailFrame(_ link: CADisplayLink) {
+        let now = link.timestamp
+        let dt = lastTailFrame.map { now - $0 } ?? 0
+        lastTailFrame = now
+        let pointer = (body.presentation() ?? body).position
+        stepTail(dt: dt, pointer: pointer)
+    }
+
+    /// Steps the tail model and draws its path (the overlay's frames and the offscreen frames).
+    fileprivate func stepTail(dt: Double, pointer: CGPoint) {
+        tailMotion.step(dt: dt, pointer: pointer, speed: tailSpeed, pointScale: Double(Self.k))
+        // Still, the tail is exactly the cursor's drawn S, not the spline through its points.
+        setTailPath(tailMotion.animates ? tailMotion.path(scale: Self.k) : Self.tailPath(.rest))
+    }
+
+    private func setTailPath(_ path: CGPath) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        tail.path = path
+        tailEdge.path = path
+        CATransaction.commit()
     }
 
     /// A drag: a trail from `start` to `end` and the pointer gliding along it.
@@ -878,6 +1059,7 @@ private final class SessionCursor {
         }
         chip(.text(ComputerUseText.t("computerUse.cursor.here", "Here")))
         if animated { squish(speed: speed) }
+        tailMotion.click()
     }
 
     func pulse(speed: Double) {
@@ -992,18 +1174,20 @@ private final class SessionCursor {
         default: 1.6
         }
         chipTimer = Timer.scheduledTimer(withTimeInterval: hold, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                self.chipLayer.isHidden = true
-                self.tint(nil)
-                self.nameTag.backgroundColor = AgentCursorOverlay.blue.cgColor
-                self.name.foregroundColor = NSColor.white.cgColor
-                self.dot.backgroundColor = NSColor.white.cgColor
-                CATransaction.commit()
-            }
+            MainActor.assumeIsolated { self?.clearChip() }
         }
+    }
+
+    /// The chip hides and the cursor takes cmux blue again (and the tail stops drooping).
+    func clearChip() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chipLayer.isHidden = true
+        tint(nil)
+        nameTag.backgroundColor = AgentCursorOverlay.blue.cgColor
+        name.foregroundColor = NSColor.white.cgColor
+        dot.backgroundColor = NSColor.white.cgColor
+        CATransaction.commit()
     }
 
     /// The name tag right of and below the tip, the chip under it.
@@ -1048,8 +1232,7 @@ private final class SessionCursor {
     func close(animated: Bool, speed: Double) {
         hideTimer?.invalidate()
         hideTimer = nil
-        idleTimer?.invalidate()
-        idleTimer = nil
+        stopTail()
         chipTimer?.invalidate()
         chipTimer = nil
         // A cursor shown again later makes a new panel and sizes it to its screen.
@@ -1119,6 +1302,22 @@ private final class SessionCursor {
         view.wantsLayer = true
         panel.contentView = view
         return panel
+    }
+}
+
+/// The display link's target: CADisplayLink calls an Objective-C selector, and SessionCursor is
+/// not an NSObject. Holds the callback weakly (through it) so the link never keeps a closed
+/// cursor alive.
+@MainActor
+private final class FrameTicker: NSObject {
+    private let onFrame: @MainActor (CADisplayLink) -> Void
+
+    init(_ onFrame: @escaping @MainActor (CADisplayLink) -> Void) {
+        self.onFrame = onFrame
+    }
+
+    @objc(tick:) func tick(_ link: CADisplayLink) {
+        onFrame(link)
     }
 }
 
