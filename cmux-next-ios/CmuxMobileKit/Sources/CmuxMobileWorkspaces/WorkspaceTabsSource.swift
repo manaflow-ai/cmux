@@ -39,6 +39,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let sessions: AgentSessionDirectory
     /// Opens and closes tabs on the workspace's Mac (nil: nothing to open them on).
     @ObservationIgnored let creator: WorkspaceCreator?
+    /// The grid's own timers sleep on this (tests advance a test clock).
+    @ObservationIgnored let clock: any Clock<Duration>
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
@@ -64,8 +66,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared) {
+                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.store = store
+        self.clock = clock
         self.native = native
         self.streamed = streamed
         self.creator = creator
@@ -90,6 +94,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // body); later ones only when an input changes (`refreshTabs`).
         refreshTabs(preparingCards: false)
         Task { @MainActor [weak self] in self?.prepareTerminalCards(self?.workspaceSnapshot?.tabs ?? []) }
+        terminal.observeOutput(self) { [weak self] tab, macID in self?.terminalOutput(tab, macID: macID) }
     }
 
     public var workspace: Workspace? { store.workspace(id: workspaceID) }
@@ -659,36 +664,76 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
-    /// Programs per terminal tab, read while the grid shows (D7).
+    /// Programs per terminal tab, read when the grid opens and again after
+    /// the Mac says a terminal drew output (D7).
     @ObservationIgnored private var programCache = TabProgramCache()
     @ObservationIgnored private var programPrefetch: Task<Void, Never>?
-    /// How often the grid reads its terminals' programs (within the cache's age).
+    /// Terminals whose programs are read again (they drew output since their read).
+    @ObservationIgnored private var programsToRead: Set<String> = []
+    /// At most this often the grid reads a busy terminal's programs again.
     static let programPrefetchInterval: Duration = .milliseconds(2500)
     static var uptime: Double { ProcessInfo.processInfo.systemUptime }
+    /// The app is in the foreground (`sceneActiveChanged`).
+    @ObservationIgnored private var sceneActive = true
+    /// Whether the grid shows to a person (and so may ask the Mac anything).
+    private var gridLive: Bool { gridShown && sceneActive }
 
-    /// The grid shows: its terminals' foreground programs are read now and
-    /// every `programPrefetchInterval` (one bounded `process-info` per terminal).
+    /// The grid shows: its terminals' foreground programs are read now (one
+    /// bounded `process-info` per terminal), and after that only a terminal
+    /// the Mac says drew output (`terminalOutput`): a program starts or ends
+    /// with output (its command echoed, the next prompt). The close itself
+    /// always asks the Mac; the cache only lets a busy tab ask at once. An
+    /// idle grid asked 8 terminals every 2.5 s before (Leo 2026-11-14).
     private func prefetchPrograms(_ visible: Bool) {
         programPrefetch?.cancel()
         programPrefetch = nil
-        guard visible, let creator else { return }
+        programsToRead = []
+        guard visible, sceneActive, let workspace else { return }
+        programsToRead = Set(TabCloseGuard().terminalsToAsk(workspace.tabs).map(\.id))
+        readPrograms(after: nil)
+    }
+
+    /// The Mac said `tabID` (nil: any terminal of `macID`) drew output.
+    private func terminalOutput(_ tabID: String?, macID: String) {
+        guard let workspace = workspaceSnapshot, workspace.macID == macID else { return }
+        let asked = TabCloseGuard().terminalsToAsk(workspace.tabs).map(\.id)
+        let changed = tabID.map { id in asked.filter { $0 == id } } ?? asked
+        guard !changed.isEmpty else { return }
+        for id in changed { programCache.outputSince(tabID: id) }
+        guard gridLive else { return }
+        programsToRead.formUnion(changed)
+        readPrograms(after: Self.programPrefetchInterval)
+    }
+
+    /// Reads the programs of `programsToRead` (after `delay`, so a streaming
+    /// terminal is read at most once per interval), then stops.
+    private func readPrograms(after delay: Duration?) {
+        guard programPrefetch == nil, !programsToRead.isEmpty, let creator else { return }
         programPrefetch = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard self != nil else { return }
-                await self?.prefetchProgramsOnce(creator)
-                try? await Task.sleep(for: WorkspaceTabsSource.programPrefetchInterval)
-            }
+            if let delay, let clock = self?.clock { try? await clock.sleep(for: delay) }
+            guard let self, !Task.isCancelled else { return }
+            await self.prefetchProgramsOnce(creator)
+            guard !Task.isCancelled else { return }
+            self.programPrefetch = nil
+            // Output while reading: once more, an interval later.
+            self.readPrograms(after: Self.programPrefetchInterval)
         }
     }
 
     private func prefetchProgramsOnce(_ creator: WorkspaceCreator) async {
         guard let workspace else { return }
         let backend = creator.backend
-        for tab in TabCloseGuard().terminalsToAsk(workspace.tabs) {
+        for tab in TabCloseGuard().terminalsToAsk(workspace.tabs) where programsToRead.contains(tab.id) {
             guard !Task.isCancelled else { return }
+            programsToRead.remove(tab.id)
             let programs = await backend.runningPrograms(of: [tab], in: workspace)
             programCache.record(tabID: tab.id, programs: programs, at: Self.uptime)
+            // Output during the read: the answer may be older than it (read again).
+            if programsToRead.contains(tab.id) { programCache.outputSince(tabID: tab.id) }
         }
+        // Tabs no longer listed are not read.
+        let listed = Set(TabCloseGuard().terminalsToAsk(self.workspace?.tabs ?? []).map(\.id))
+        programsToRead.formIntersection(listed)
     }
 
     /// The workspace's toast (a tab that could not be opened or closed): one short line
@@ -847,7 +892,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 
     // MARK: Per-tab state
@@ -860,6 +905,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
         case .agent:
             let surface = surface(tabID)
             surface.composerFocused = true
+            // The Mac's tab replaced the placeholder's: what the person wrote in the placeholder's
+            // composer while the chat was starting (it said "send again in a moment") comes along.
+            if !store.isPending(workspaceID), let early = surfaces[Self.placeholderTabID(of: workspaceID)], early !== surface,
+               !early.text.isEmpty || !early.attachments.isEmpty {
+                if surface.text.isEmpty { surface.text = early.text }
+                surface.attachments = early.attachments + surface.attachments
+                early.text = ""
+                early.attachments = []
+            }
             // New Agent Chat from Shortcuts with a prompt: it waits in this new chat's composer,
             // once the Mac made the chat (not the placeholder's page).
             if !store.isPending(workspaceID), surface.text.isEmpty,
@@ -871,6 +925,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         if !store.isPending(workspaceID) { focusOnOpen = false }
     }
+
+    /// The opening tab of a workspace this phone is creating (`WorkspaceCreator.placeholder`).
+    nonisolated static func placeholderTabID(of workspaceID: String) -> String { "\(workspaceID)-t1" }
 
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
@@ -1044,26 +1101,44 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// While the grid rests, stale agent cards catch up once per interval.
     static let cardFollowInterval: Duration = .seconds(1)
     @ObservationIgnored private var followTask: Task<Void, Never>?
+    /// Times the cards woke to catch up (tests: an idle grid wakes for nothing).
+    @ObservationIgnored private(set) var followWakeups = 0
 
     /// Stale cards catch up one per frame (each re-renders its card), so a
     /// grid that comes to rest with many stale cards never stalls a frame.
     @ObservationIgnored private lazy var catchUpStepper = FrameStepper { [weak self] in self?.catchUpOneCard() ?? false }
 
+    /// The grid comes to rest (true): what changed while it moved catches up
+    /// now, one card per frame. After that cards follow their chats only when
+    /// one changes (`chatChanged`), never on a timer: an idle grid woke a
+    /// display link every second for nothing (Leo 2026-11-14).
     private func followCards(_ on: Bool) {
         followTask?.cancel()
         followTask = nil
-        guard on else {
+        guard on, sceneActive else {
             catchUpStepper.stop()
             return
         }
         catchUpStepper.start()
+        if let id = heldTranscriptTab, surfaces[id]?.heldChangePending == true { surfaces[id]?.refreshHeldTranscript() }
+    }
+
+    /// A card's chat changed, or the held transcript skipped a change: they
+    /// catch up once, `cardFollowInterval` later (every change in between
+    /// rides along), so a streaming chat's card is a still at most a second old.
+    private func chatChanged() {
+        guard cardsFollowChats, sceneActive, followTask == nil else { return }
         followTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                // A UI refresh cadence for still cards, not synchronization.
-                try? await ContinuousClock().sleep(for: WorkspaceTabsSource.cardFollowInterval)
-                guard let self, !Task.isCancelled, self.cardsFollowChats else { return }
-                self.catchUpStepper.start()
-                if let id = self.heldTranscriptTab { self.surfaces[id]?.refreshHeldTranscript() }
+            // A UI refresh cadence for still cards, not synchronization.
+            guard let clock = self?.clock else { return }
+            try? await clock.sleep(for: WorkspaceTabsSource.cardFollowInterval)
+            guard let self, !Task.isCancelled else { return }
+            self.followTask = nil
+            guard self.cardsFollowChats, self.sceneActive else { return }
+            self.followWakeups += 1
+            self.catchUpStepper.start()
+            if let id = self.heldTranscriptTab, self.surfaces[id]?.heldChangePending == true {
+                self.surfaces[id]?.refreshHeldTranscript()
             }
         }
     }
@@ -1085,6 +1160,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let store = chatStore(tab, workspace)
         if let feed = cardFeeds[tab.id], feed.store === store { return feed }
         let feed = AgentCardFeed(store: store)
+        feed.onStale = { [weak self] in self?.chatChanged() }
         cardFeeds[tab.id] = feed
         return feed
     }
@@ -1170,8 +1246,28 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return nil
     }
 
+    /// The app went to the background (false) or came back (true): `WorkspaceScreen`'s
+    /// scene phase. The grid's view stays "visible" while the app is in the background.
+    public func sceneActiveChanged(_ active: Bool) {
+        guard active != sceneActive else { return }
+        sceneActive = active
+        terminal.sceneActiveChanged(active)
+        if active {
+            // Output in the background was not read: the grid reads as it opens.
+            prefetchPrograms(gridShown)
+            followCards(cardsFollowChats)
+        } else {
+            prefetchPrograms(false)
+            // Programs may change unheard while away: only the Mac's answer counts after.
+            programCache = TabProgramCache()
+            followCards(false)
+        }
+    }
+
     public func overviewScrollingChanged(_ scrolling: Bool) {
         setCardsFollow(scrolling: scrolling)
+        // Chats that changed during the scroll catch up when it ends.
+        if !scrolling, cardsFollowChats { followCards(true) }
         terminal.overviewScrollingChanged(scrolling)
     }
 
@@ -1191,15 +1287,18 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored private var heldTranscriptTab: String?
 
     /// While the grid shows, the active chat's live page (drawn as its card)
-    /// holds its rows: no layout per streamed token. It refreshes once a
-    /// second while the grid rests (`followCards`) and on leaving the grid.
+    /// holds its rows: no layout per streamed token. It refreshes at most once
+    /// a second after a change while the grid rests (`chatChanged`) and on
+    /// leaving the grid.
     private func holdActiveTranscript(_ hold: Bool) {
         if let id = heldTranscriptTab, !hold || id != activeTabID {
             surfaces[id]?.holdsTranscript = false
+            surfaces[id]?.onHeldChange = nil
             heldTranscriptTab = nil
         }
         guard hold, let id = activeTabID, workspaceTab(id)?.kind == .agent else { return }
         surface(id).holdsTranscript = true
+        surface(id).onHeldChange = { [weak self] in self?.chatChanged() }
         heldTranscriptTab = id
     }
 
@@ -1359,13 +1458,18 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
-    /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
-    /// beside the terminal on the Mac, shown here once the Mac lists it.
+    /// Opens a web link on this iPhone (Safari); tests watch it.
+    @ObservationIgnored public var openOnPhone: @MainActor (URL) async -> Void = { await UIApplication.shared.open($0) }
+
+    /// A web link tapped in a terminal tab. A public page (github.com) opens here, on the
+    /// phone, where the person signs in (`WebLinkPlace`). A page only the Mac reaches (its
+    /// dev server on `localhost`, a LAN or tailnet host) is the Mac's Cmd-click: a cmux
+    /// browser tab at `url` beside the terminal on the Mac, shown here once the Mac lists it.
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
-        // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let
-        // this iPhone open tabs): Safari, never nothing.
-        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
-            await UIApplication.shared.open(url)
+        // A public page, or no Mac to open it on (the workspace went away, the Mac is
+        // offline or doesn't let this iPhone open tabs): Safari, never nothing.
+        guard WebLinkPlace(url) == .mac, canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
+            await openOnPhone(url)
             return
         }
         if let pending = pendingTabTitle {
@@ -2251,6 +2355,7 @@ struct WorkspaceTabPage: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
+                    .environment(\.colorScheme, .dark)
             }
         }
     }
@@ -2445,6 +2550,8 @@ final class AgentCardFeed {
     @ObservationIgnored private var generation = 0
     /// Copies made (tests).
     @ObservationIgnored private(set) var pulls = 0
+    /// The chat went stale (once per copy): the source schedules a catch-up.
+    @ObservationIgnored var onStale: (@MainActor () -> Void)?
 
     init(store: AgentChatStore) {
         self.store = store
@@ -2452,8 +2559,8 @@ final class AgentCardFeed {
     }
 
     /// Copies the chat's turns if they changed since the last copy. The
-    /// source calls this at most once a second while the grid rests
-    /// (`WorkspaceTabsSource.followCards`): a card is a still of its page,
+    /// source calls this at most once a second after a change while the grid
+    /// rests (`WorkspaceTabsSource.chatChanged`): a card is a still of its page,
     /// like a terminal's, not a live view of a streaming chat.
     func catchUp() {
         if stale { pull() }
@@ -2469,8 +2576,9 @@ final class AgentCardFeed {
         } onChange: { [weak self] in
             // Only a flag: no work per streamed token.
             MainActor.assumeIsolated {
-                guard let self, self.generation == generation else { return }
+                guard let self, self.generation == generation, !self.stale else { return }
                 self.stale = true
+                self.onStale?()
             }
         }
         if latest != turns { turns = latest }

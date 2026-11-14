@@ -77,6 +77,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
+        result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
         return result
     }
 

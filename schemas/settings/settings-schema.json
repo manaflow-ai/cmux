@@ -1368,7 +1368,7 @@
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
-              "remote.ultraMode"
+              "remote.ultra"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -1876,8 +1876,6 @@
           {
             "key" : "settings.group.phone",
             "rows" : [
-              "phone.allowConnections",
-              "phone.startSessions",
               "phone.keepAwake",
               "phone.cloudReplica",
               "phone.cloudDesktop"
@@ -5326,7 +5324,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5414,7 +5412,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -12392,273 +12390,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.allowConnections",
-      "keywords" : [
-        "iphone",
-        "ios",
-        "mobile",
-        "remote",
-        "phone",
-        "pair",
-        "privacy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "allowConnections"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.allowConnections"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.allowConnections",
-        "text" : "Let Your Phone Use This Mac"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.startSessions.help",
-        "text" : "Off, your phone can still follow, type into and answer what's already running."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.startSessions",
-      "keywords" : [
-        "iphone",
-        "mobile",
-        "remote",
-        "workspace",
-        "terminal",
-        "start"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "startSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:phone.startSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.phone.startSessions",
-        "text" : "Let Your Phone Start New Workspaces"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "pluggedIn",
         "always"
@@ -19414,7 +19145,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -102194,7 +101925,7 @@
       },
       "help" : {
         "key" : "settings.diagnostics.usagePatterns.help",
-        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."
+        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."
       },
       "kept_on_reset_all" : false,
       "key" : "diagnostics.usagePatterns",
@@ -102998,28 +102729,53 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "auto",
+        "always"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remote.ultra.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
         "text" : "cmux Remote"
       },
       "help" : {
-        "key" : "settings.remote.ultraMode.help",
-        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+        "key" : "settings.remote.ultra.help",
+        "text" : "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
       },
       "kept_on_reset_all" : false,
-      "key" : "remote.ultraMode",
+      "key" : "remote.ultra",
       "keywords" : [
         "ultra",
+        "auto",
         "lossy",
         "packet loss",
         "bandwidth",
@@ -103029,21 +102785,21 @@
         "latency",
         "fec"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "remote",
-        "ultraMode"
+        "ultra"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.remote.ultraMode.summary",
+        "key" : "settings.remote.ultra.summary",
         "text" : "Uses more data to stay fast on lossy networks"
       },
       "surfaces" : {
@@ -103097,13 +102853,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:remote.ultraMode"
+          "row" : "setting:remote.ultra"
         },
         "socket" : {
           "aliases" : [
@@ -103130,7 +102886,7 @@
         }
       },
       "title" : {
-        "key" : "settings.remote.ultraMode",
+        "key" : "settings.remote.ultra",
         "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"

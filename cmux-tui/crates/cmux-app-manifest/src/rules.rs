@@ -1,8 +1,9 @@
 //! Rules the schema cannot express.
 
+use crate::capabilities::scope_info;
 use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
-use crate::scopes::{ScopeClass, scope_info};
+use crate::scopes::ScopeClass;
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
@@ -143,6 +144,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     crate::presentation::check(m, first_party, &mut out);
     crate::deploy::check(m, first_party, &mut out);
     crate::toolbar::check(m, &mut out);
+    crate::web_pane::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(
             "/icon",

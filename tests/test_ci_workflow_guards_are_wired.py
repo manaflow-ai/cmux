@@ -108,12 +108,19 @@ UNWIRED: set[str] = {
     # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
     # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
     "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
+    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
+    # by hand after changing nightly-next-one or a step it shares with the split jobs.
+    "tests/test_nightly_next_one_job.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
     # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
     # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
     "tests/test_nightly_deltas_keyless_prebuild.py",
+    # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
+    # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
+    "tests/test_nightly_deltas_yield.py",
     # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
     # checks the outputs the build and publish jobs read; run it by hand after changing that block.
     "tests/test_nightly_next_notary_full_import.py",
@@ -153,6 +160,10 @@ UNWIRED: set[str] = {
     # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
     # it by hand after changing cargo-locks.py or that step.
     "tests/test_cargo_locks.py",
+    # lane = "manual" (tests/test-execution.d/other.toml; no new CI tests, CLAUDE.md). It reads four workflows
+    # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
+    # after changing cargo-locks.py or a step that runs cargo with --locked.
+    "tests/test_cargo_locks_explain.py",
 }
 
 

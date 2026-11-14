@@ -182,6 +182,11 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// The app is leaving for the background or coming back with its claim
+    /// kept: a claimed size is reported again now, so the Mac's size lease
+    /// runs from this moment (its 45 s match the phone's background grace).
+    /// Sessions without a Mac ignore it.
+    func renewSizeClaim()
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -200,11 +205,6 @@ public protocol TerminalSession: AnyObject {
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
     /// scrolls there; the session decides. Others ignore it.
     func loadOlderHistory()
-    /// The terminal's foreground program where it runs (the Mac's
-    /// `process-info` `foreground_executable`), nil when unknown or when the
-    /// session runs no program it can name. A drag on the alternate screen
-    /// pages a pager or an editor with it (``TerminalPanRoute``).
-    func foregroundProgram() async -> String?
 }
 
 extension TerminalSession {
@@ -225,6 +225,8 @@ extension TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {}
 
+    public func renewSizeClaim() {}
+
     public func noteInteraction() {}
 
     public var clearsHistory: Bool { false }
@@ -232,8 +234,6 @@ extension TerminalSession {
     public func clearHistory() async throws {}
 
     public func loadOlderHistory() {}
-
-    public func foregroundProgram() async -> String? { nil }
 
     public var hostGridOwnerName: String? { nil }
 }

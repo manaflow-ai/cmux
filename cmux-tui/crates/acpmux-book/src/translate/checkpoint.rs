@@ -1,22 +1,98 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
-use super::{Error, MAX_STATE_BYTES, State, VERSION};
+use super::{Error, MAX_QUEUE_ENTRIES, MAX_TRANSLATOR_BYTES, QueueEntry, State, VERSION};
 use bincode::Options;
-impl State {
-    pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
-        let bytes = codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
-        if bytes.len() > MAX_STATE_BYTES {
-            return Err(Error::StateTooLarge { bytes: bytes.len() });
-        }
-        Ok(bytes)
+use std::io::Cursor;
+/// The translator's checkpoint: its serde segment, at most 32 KiB, and one fixed-width record
+/// per waiting prompt, which the book keeps in its own section (`Checkpoint::prompts`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Saved {
+    pub translator: Vec<u8>,
+    pub prompts: Vec<[u8; 32]>,
+}
+impl Saved {
+    pub fn restore(&self) -> Result<State, Error> {
+        State::restore(&self.translator, &self.prompts)
     }
-    pub fn restore(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() > MAX_STATE_BYTES {
-            return Err(Error::StateTooLarge { bytes: bytes.len() });
+}
+
+impl QueueEntry {
+    fn to_bytes(self) -> [u8; 32] {
+        let mut bytes = [0; 32];
+        for (to, from) in bytes.iter_mut().zip(
+            self.id_hash
+                .to_le_bytes()
+                .into_iter()
+                .chain(self.at_state.to_le_bytes())
+                .chain(self.place.to_le_bytes())
+                .chain(self.span.to_le_bytes())
+                .chain(self.text_len.to_le_bytes()),
+        ) {
+            *to = from;
         }
-        let (version, state): (u32, Self) =
-            codec().deserialize(bytes).map_err(|_| Error::CheckpointInvalid)?;
+        bytes
+    }
+    fn from_bytes(bytes: &[u8; 32]) -> Self {
+        let u64_at = |at: usize| {
+            u64::from_le_bytes(
+                bytes.get(at..at + 8).and_then(|b| b.try_into().ok()).unwrap_or([0; 8]),
+            )
+        };
+        let u32_at = |at: usize| {
+            u32::from_le_bytes(
+                bytes.get(at..at + 4).and_then(|b| b.try_into().ok()).unwrap_or([0; 4]),
+            )
+        };
+        Self {
+            id_hash: u64_at(0),
+            at_state: u64_at(8),
+            place: u64_at(16),
+            span: u32_at(24),
+            text_len: u32_at(28),
+        }
+    }
+}
+
+impl State {
+    pub fn checkpoint(&self) -> Result<Saved, Error> {
+        // The codec stops at its limit; a state past it is too large, not invalid.
+        let translator = codec().serialize(&(VERSION, self)).map_err(|error| match *error {
+            bincode::ErrorKind::SizeLimit => {
+                Error::StateTooLarge { bytes: MAX_TRANSLATOR_BYTES + 1 }
+            }
+            _ => Error::CheckpointInvalid,
+        })?;
+        if translator.len() > MAX_TRANSLATOR_BYTES {
+            return Err(Error::StateTooLarge { bytes: translator.len() });
+        }
+        let prompts = self.queue.iter().map(|entry| entry.to_bytes()).collect();
+        Ok(Saved { translator, prompts })
+    }
+    pub fn restore(translator: &[u8], prompts: &[[u8; 32]]) -> Result<Self, Error> {
+        if translator.len() > MAX_TRANSLATOR_BYTES {
+            return Err(Error::StateTooLarge { bytes: translator.len() });
+        }
+        if prompts.len() > MAX_QUEUE_ENTRIES {
+            return Err(Error::CheckpointInvalid);
+        }
+        let mut cursor = Cursor::new(translator);
+        let version: u32 =
+            codec().deserialize_from(&mut cursor).map_err(|_| Error::CheckpointInvalid)?;
         if version != VERSION {
             return Err(Error::CheckpointVersion);
+        }
+        let mut state: Self =
+            codec().deserialize_from(&mut cursor).map_err(|_| Error::CheckpointInvalid)?;
+        if cursor.position() as usize != translator.len() {
+            return Err(Error::CheckpointInvalid);
+        }
+        // The records' order is the queue's.
+        let mut seen = std::collections::BTreeSet::new();
+        for record in prompts {
+            let entry = QueueEntry::from_bytes(record);
+            if !seen.insert(entry.id_hash) {
+                return Err(Error::CheckpointInvalid);
+            }
+            state.queue.push(entry);
         }
         let mut ids = std::collections::BTreeSet::new();
         if state.prompts.len() > 32
@@ -67,6 +143,6 @@ pub(super) mod kind {
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()
         .with_varint_encoding()
-        .with_limit(MAX_STATE_BYTES as u64)
+        .with_limit(MAX_TRANSLATOR_BYTES as u64)
         .reject_trailing_bytes()
 }

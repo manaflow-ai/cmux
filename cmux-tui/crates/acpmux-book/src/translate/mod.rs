@@ -4,6 +4,7 @@
 mod bench;
 mod blocks;
 mod checkpoint;
+pub use checkpoint::Saved;
 mod claude;
 mod fold;
 mod input;
@@ -15,8 +16,13 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 5;
-pub const MAX_STATE_BYTES: usize = 32 * 1024;
+/// Version 7 keeps the queue's records out of the translator's segment, in the book's own
+/// prompt section; an older book rebuilds from raw.
+pub const VERSION: u32 = 7;
+/// The translator's segment and the queue's records together.
+pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
+pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
+const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +51,8 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// Add or update one bounded prompt-queue entry, or remove it by id hash.
+    Queue(QueueChange),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
     /// the actor directly into its inline body or blob. Text pieces are <=16 KiB.
     Body { id: u64, field: BodyField, append: bool, source: BodySource },
@@ -64,6 +72,65 @@ pub enum BodySource {
     Text(String),
     /// One complete JSON value within the current input, including quotes for strings.
     Input(RawRange),
+    /// Text in a previously logged raw line. The actor resolves this source.
+    Raw {
+        place: u64,
+        span: u64,
+    },
+}
+
+/// A durable queue mutation. Add is an idempotent upsert: a repeated queued line does
+/// not duplicate an entry, while a hold/release may change its packed state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueueChange {
+    Add(QueueEntry),
+    Remove(u64),
+    /// The entries' order changed (`queue_order`); no entry did.
+    Order,
+}
+
+/// The compact queue checkpoint record. Its packed representation is deliberately 32 bytes:
+/// id hash (8), timestamp/state (8), raw place (8), raw span (4), decoded text length (4).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueEntry {
+    pub id_hash: u64,
+    at_state: u64,
+    pub place: u64,
+    pub span: u32,
+    pub text_len: u32,
+}
+impl QueueEntry {
+    const AT_MASK: u64 = (1 << 48) - 1;
+    const STATE_SHIFT: u32 = 48;
+    const HELD: u64 = 1;
+
+    pub fn new(id_hash: u64, at_ms: u64, held: bool, place: u64, span: u64, text_len: u64) -> Self {
+        let state = if held { Self::HELD } else { 0 };
+        Self {
+            id_hash,
+            at_state: (at_ms & Self::AT_MASK) | (state << Self::STATE_SHIFT),
+            place,
+            span: u32::try_from(span).unwrap_or(u32::MAX),
+            text_len: u32::try_from(text_len).unwrap_or(u32::MAX),
+        }
+    }
+    pub fn at_ms(self) -> u64 {
+        self.at_state & Self::AT_MASK
+    }
+    pub fn held(self) -> bool {
+        (self.at_state >> Self::STATE_SHIFT) & Self::HELD != 0
+    }
+    fn with_held(self, held: bool) -> Self {
+        Self::new(
+            self.id_hash,
+            self.at_ms(),
+            held,
+            self.place,
+            self.span as u64,
+            self.text_len as u64,
+        )
+    }
 }
 
 /// Only metadata: no body, preview, tool output or arguments live in translator state.
@@ -137,7 +204,8 @@ struct PromptEvent<'a> {
     body: Option<&'a serde_json::value::RawValue>,
     images: Option<&'a serde_json::value::RawValue>,
 }
-fn prompt_hash(key: &str) -> u64 {
+/// The key a waiting prompt's id is kept by in the queue.
+pub fn prompt_hash(key: &str) -> u64 {
     key.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +223,11 @@ pub struct State {
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
+    /// The waiting prompts in v1's order: the order its restore gives them, which runs them
+    /// first to last, skipping held ones. Its records are a checkpoint's prompt section.
+    #[serde(skip)]
+    queue: Vec<QueueEntry>,
+    queue_overflowed: u64,
     settled_prompts: Vec<u64>,
     replayed_prompts: u64,
     forced_steers: u64,
@@ -192,7 +265,13 @@ impl std::error::Error for Error {}
 
 /// A complete JSON line. Errors leave state unchanged. The actor advances its raw
 /// cursor only after successfully applying the returned operations in order.
-pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+pub fn translate(
+    state: &mut State,
+    harness: Harness,
+    place: u64,
+    span: u64,
+    bytes: &[u8],
+) -> Result<Vec<Op>, Error> {
     let mut out = input::Output::new(bytes);
     let valid = match harness {
         Harness::V1 => v1::validate(bytes),
@@ -203,7 +282,7 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         return Ok(Vec::new());
     }
     let result = match harness {
-        Harness::V1 => v1::line(state, bytes, &mut out),
+        Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
     };
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
@@ -212,6 +291,8 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
+    // The queue is counted apart from the translator's 32 KiB segment: its records go to the
+    // book's prompt section.
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {
@@ -233,8 +314,15 @@ pub struct Counters {
     pub dropped_tool_updates: u64,
     pub cut_fields: u64,
     pub line_errors: u64,
+    pub queue_overflowed: u64,
 }
 impl State {
+    /// Whether raw is currently inside a turn, independent of its open body rows.
+    /// `turn` outlives the turn so late background rows keep its id; the key ends with it.
+    pub fn in_turn(&self) -> bool {
+        !self.turn_key.is_empty()
+    }
+
     pub fn counters(&self) -> Counters {
         Counters {
             forced_rows: self.forced_rows,
@@ -246,10 +334,24 @@ impl State {
             dropped_tool_updates: self.dropped_tool_updates,
             cut_fields: self.cut_fields,
             line_errors: self.line_errors,
+            queue_overflowed: self.queue_overflowed,
         }
     }
     pub fn last_row_id(&self) -> u64 {
         self.last_id
+    }
+    /// The waiting prompts, by id hash. A checkpoint keeps them as [`Saved::prompts`].
+    pub fn queue(&self) -> impl Iterator<Item = &QueueEntry> {
+        self.queue.iter()
+    }
+    pub fn queued(&self, id_hash: u64) -> Option<QueueEntry> {
+        self.queue.iter().find(|entry| entry.id_hash == id_hash).copied()
+    }
+    fn queue_slot(&self, id_hash: u64) -> Option<usize> {
+        self.queue.iter().position(|entry| entry.id_hash == id_hash)
+    }
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
     }
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)
@@ -287,6 +389,132 @@ impl State {
             lines: 0,
             fields: BTreeMap::new(),
         })
+    }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "queue entry fields mirror the fixed raw record layout"
+    )]
+    fn queue_add(
+        &mut self,
+        id: &str,
+        at_ms: u64,
+        held: bool,
+        place: u64,
+        span: u64,
+        text_len: u64,
+        out: &mut input::Output<'_>,
+    ) {
+        if id.is_empty() {
+            return;
+        }
+        let hash = prompt_hash(id);
+        if self.settled_prompts.contains(&hash)
+            || self.prompts.get(&hash).is_some_and(|prompt| prompt.read)
+        {
+            return;
+        }
+        let entry = QueueEntry::new(hash, at_ms, held, place, span, text_len);
+        // A `queued` goes to the end, as v1's restore reads it; one queued again (a requeue
+        // after a failed turn) leaves its old place. The same record read again changes nothing.
+        if let Some(slot) = self.queue_slot(hash) {
+            if self.queue.get(slot).is_some_and(|old| old.place == place && old.span == entry.span)
+            {
+                return;
+            }
+            self.queue.remove(slot);
+        } else if self.queue.len() >= MAX_QUEUE_ENTRIES {
+            self.queue_overflowed = self.queue_overflowed.saturating_add(1);
+            return;
+        }
+        self.queue.push(entry);
+        out.emit(Change::Queue(QueueChange::Add(entry)));
+    }
+    /// `queue_order`: the entries `order` names first, in its order; the others after them in
+    /// the order they had. An id that does not wait, or is not a string, is skipped. One pass
+    /// over the queue and one over `order`; nothing moves unless the whole list was read.
+    fn queue_order(
+        &mut self,
+        order: Option<&serde_json::value::RawValue>,
+        out: &mut input::Output<'_>,
+    ) {
+        let Some(order) = order else { return };
+        let slots: std::collections::HashMap<u64, usize> =
+            self.queue.iter().enumerate().map(|(slot, entry)| (entry.id_hash, slot)).collect();
+        let mut taken = vec![false; self.queue.len()];
+        let mut placed: Vec<QueueEntry> = Vec::with_capacity(self.queue.len());
+        let listed = input::each(order, |id| {
+            if let Ok(id) = input::text(id)
+                && let Some(&slot) = slots.get(&prompt_hash(&id))
+                && let Some(seen) = taken.get_mut(slot)
+                && !*seen
+                && let Some(entry) = self.queue.get(slot)
+            {
+                *seen = true;
+                placed.push(*entry);
+            }
+            Ok(())
+        });
+        if listed.is_err() || placed.is_empty() {
+            return;
+        }
+        for (entry, seen) in self.queue.iter().zip(&taken) {
+            if !*seen {
+                placed.push(*entry);
+            }
+        }
+        if placed != self.queue {
+            self.queue = placed;
+            out.emit(Change::Queue(QueueChange::Order));
+        }
+    }
+    /// Sent now (`queue_order` with `next`): no longer held.
+    fn queue_release(&mut self, id: &str, out: &mut input::Output<'_>) {
+        let Some(slot) = self.queue_slot(prompt_hash(id)) else { return };
+        if let Some(entry) = self.queue.get_mut(slot)
+            && entry.held()
+        {
+            *entry = entry.with_held(false);
+            out.emit(Change::Queue(QueueChange::Add(*entry)));
+        }
+    }
+    fn queue_remove(&mut self, id: &str, out: &mut input::Output<'_>) {
+        if id.is_empty() {
+            return;
+        }
+        let hash = prompt_hash(id);
+        if let Some(slot) = self.queue_slot(hash) {
+            self.queue.remove(slot);
+            out.emit(Change::Queue(QueueChange::Remove(hash)));
+        }
+    }
+    fn queue_set_held(
+        &mut self,
+        raw: Option<&serde_json::value::RawValue>,
+        held: bool,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        let Some(raw) = raw else { return Ok(()) };
+        input::each(raw, |id| {
+            let id = input::text(id)?;
+            let hash = prompt_hash(&id);
+            if let Some(entry) = self.queue.iter_mut().find(|entry| entry.id_hash == hash) {
+                let next = entry.with_held(held);
+                if next != *entry {
+                    *entry = next;
+                    out.emit(Change::Queue(QueueChange::Add(next)));
+                }
+            }
+            Ok(())
+        })
+    }
+    fn queue_set_all_held(&mut self, held: bool, out: &mut input::Output<'_>) {
+        for entry in &mut self.queue {
+            let next = entry.with_held(held);
+            if next != *entry {
+                *entry = next;
+                out.emit(Change::Queue(QueueChange::Add(next)));
+            }
+        }
     }
     fn group(&mut self, out: &mut input::Output<'_>) -> Result<u64, Error> {
         if let Some(row) = &self.group {
@@ -467,6 +695,54 @@ impl State {
         if self.settled_prompts.contains(&hash) {
             return Ok(());
         }
+        if let Some(entry) = self.queued(hash) {
+            let already_steer = self
+                .prompts
+                .get(&hash)
+                .is_some_and(|prompt| prompt.row.fields.contains_key("steer"));
+            if !already_steer {
+                self.mark_steer();
+            }
+            self.queue_remove(key, out);
+            if let Some(mut prompt) = self.prompts.remove(&hash) {
+                if !prompt.read {
+                    prompt.row.turn = self.turn;
+                }
+                prompt.read = true;
+                if prompt.row.field("state", "sent") {
+                    self.cut_fields = self.cut_fields.saturating_add(1);
+                }
+                prompt.row.fields.insert("steer".into(), "true".into());
+                out.row(&prompt.row);
+                if !prompt.has_body {
+                    out.raw_body(
+                        prompt.row.id,
+                        BodyField::Content,
+                        false,
+                        entry.place,
+                        u64::from(entry.span),
+                    );
+                }
+                prompt.row.open = false;
+                out.row(&prompt.row);
+                self.fold.extra(prompt.row.id);
+                self.settled_prompt(hash);
+                return Ok(());
+            }
+            let mut row = self.row(RowKind::User, out)?;
+            row.turn = self.turn;
+            if row.field("state", "sent") {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
+            row.fields.insert("steer".into(), "true".into());
+            out.row(&row);
+            out.raw_body(row.id, BodyField::Content, false, entry.place, u64::from(entry.span));
+            row.open = false;
+            out.row(&row);
+            self.fold.extra(row.id);
+            self.settled_prompt(hash);
+            return Ok(());
+        }
         let already_steer =
             self.prompts.get(&hash).is_some_and(|p| p.row.fields.contains_key("steer"));
         if !already_steer {
@@ -474,11 +750,17 @@ impl State {
         }
         self.reserve_prompt(key, None, out)?;
         if let Some(prompt) = self.prompts.get_mut(&hash) {
+            let was_read = prompt.read;
             if !prompt.read {
                 prompt.row.turn = self.turn;
             }
             prompt.read = true;
-            prompt.row.field("state", "sent");
+            if !was_read {
+                self.fold.extra(prompt.row.id);
+            }
+            if prompt.row.field("state", "sent") {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             prompt.row.fields.insert("steer".into(), "true".into());
             out.row(&prompt.row);
             // A v1 read can precede both queued and echo. It has no body to settle yet.
@@ -505,6 +787,7 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
+        self.queue_remove(prompt_key, out);
         if steer {
             if !already_read {
                 self.mark_steer();
@@ -515,7 +798,9 @@ impl State {
         }
         let prior = self.prompts.remove(&hash);
         let mut row = if let Some(p) = prior { p.row } else { self.row(RowKind::User, out)? };
-        row.field("state", "sent");
+        if row.field("state", "sent") {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
         if notice {
             row.fields.insert("notice".into(), "true".into());
         }
@@ -524,6 +809,9 @@ impl State {
                 row.turn = self.turn;
             }
             row.fields.insert("steer".into(), "true".into());
+            if !already_read {
+                self.fold.extra(row.id);
+            }
         } else {
             row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);
@@ -599,7 +887,9 @@ impl State {
             let mut row =
                 self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, out)?;
             row.group = group;
-            row.field("messageId", key);
+            if row.field("messageId", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             out.row(&row);
             row.fields.clear();
             let mut facts = fold::Reply::default();
@@ -725,10 +1015,14 @@ impl State {
         if stream.block.take_cut_inside_line() {
             row.fields.insert("insideLine".into(), "true".into());
         }
-        if let Some(marker) = stream.block.fence_marker() {
-            row.field("fence", &marker);
+        if let Some(marker) = stream.block.fence_marker()
+            && row.field("fence", &marker)
+        {
+            self.cut_fields = self.cut_fields.saturating_add(1);
         }
-        row.field("messageId", &stream.message);
+        if row.field("messageId", &stream.message) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
         out.row(&row);
         row.fields.clear();
         stream.row = row;
@@ -832,7 +1126,9 @@ impl State {
         } else {
             // Background rows after a settled turn live outside that group.
             let mut row = self.row(RowKind::Sub, out)?;
-            row.field("book", key);
+            if row.field("book", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             row
         };
         if !status.is_empty() && row.field("status", status) {
@@ -873,7 +1169,9 @@ impl State {
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
             row.group = self.group.as_ref().map(|g| g.id);
-            row.field("callId", key);
+            if row.field("callId", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             if let Some(group) = &mut self.group {
                 let n = group.fields.get("calls").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                 group.fields.insert("calls".into(), n.saturating_add(1).to_string());

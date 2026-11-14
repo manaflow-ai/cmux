@@ -74,6 +74,10 @@ pub(super) struct BackgroundTurns {
     messages: VecDeque<String>,
     /// The tasks started and the notifications heard: a turn's `cause`.
     causes: super::background_cause::Causes,
+    /// An adopted host's replay is being read while the chat's log has an acpmux turn open
+    /// ([`Hub::hold_adopted_turn`]): its model work is that turn's, which adoption rebuilds
+    /// only once the replay is in the log, never a turn the person did not start.
+    adopted_turn: bool,
 }
 
 /// Whether a reply is quiet: at most one short line, with no question and no link.
@@ -246,12 +250,10 @@ impl Hub {
     pub(super) fn background_turn_line(&self, session: &Session, method: &str, line: &Value) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
-        let records = session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).on_line(
-            method,
-            line,
-            acpmux_turn,
-            seq,
-        );
+        let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        let acpmux_turn = acpmux_turn || state.adopted_turn;
+        let records = state.on_line(method, line, acpmux_turn, seq);
+        drop(state);
         for msg in records {
             self.append(session, "mux", RECORD_KIND, msg);
         }
@@ -261,14 +263,48 @@ impl Hub {
     pub(super) fn background_turn_update(&self, session: &Session, update: &Value) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
-        let started = session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).on_update(
-            update,
-            acpmux_turn,
-            seq,
-        );
+        let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        let acpmux_turn = acpmux_turn || state.adopted_turn;
+        let started = state.on_update(update, acpmux_turn, seq);
+        drop(state);
         if let Some(msg) = started {
             self.append(session, "mux", RECORD_KIND, msg);
         }
+    }
+
+    /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
+    /// adoption rebuilds the open turn from the complete log (`recover_work`), so until the
+    /// returned hold drops, model work counts as the turn the chat's log has open, when it has
+    /// one ([`Hub::log_turn_open`]). Before, the replayed words of the person's own streaming turn
+    /// opened a `background_turn` bracket, which the pane folds into one muted line: after a
+    /// restart the reply streamed on hidden until the turn ended (manaflow-ai/cmuxterm-hq#6338).
+    pub(super) fn hold_adopted_turn<'a>(&self, session: &'a Session) -> AdoptedTurn<'a> {
+        let open = self.log_turn_open(session);
+        session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).adopted_turn = open;
+        AdoptedTurn(session)
+    }
+
+    /// Whether the chat's log ends inside an acpmux turn: its last turn marker is a
+    /// `turn_started`, or a `turn_result` that carried into the next turn (`carried_turn.rs`).
+    /// Read from the end, as `open_work` finds the last turn.
+    fn log_turn_open(&self, session: &Session) -> bool {
+        let mut open = false;
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || !matches!(kind, b"turn_started" | b"turn_result"),
+            // A line whose head does not read reaches here unskipped.
+            &mut |e| {
+                if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "turn_result") {
+                    open = e.kind == "turn_started"
+                        || e.msg.get("carriedTo").is_some_and(|c| !c.is_null());
+                    return false;
+                }
+                true
+            },
+        );
+        open
     }
 
     /// A prompt starts an acpmux turn, or the agent exited: a running background turn ends here.
@@ -293,6 +329,15 @@ impl Hub {
         }
         let Some(id) = update.get("messageId").and_then(Value::as_str) else { return false };
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).owns_message(id)
+    }
+}
+
+/// [`Hub::hold_adopted_turn`]'s hold: model work goes by the chat's own turn again once it drops.
+pub(super) struct AdoptedTurn<'a>(&'a Session);
+
+impl Drop for AdoptedTurn<'_> {
+    fn drop(&mut self) {
+        self.0.background_turns.lock().unwrap_or_else(|e| e.into_inner()).adopted_turn = false;
     }
 }
 

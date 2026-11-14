@@ -47,6 +47,13 @@ struct Message<'a> {
     reason: Option<&'a RawValue>,
     #[serde(borrow)]
     detail: Option<&'a RawValue>,
+    #[serde(borrow)]
+    held: Option<&'a RawValue>,
+    #[serde(rename = "promptIds", borrow)]
+    prompt_ids: Option<&'a RawValue>,
+    #[serde(borrow)]
+    order: Option<&'a RawValue>,
+    next: bool,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -84,7 +91,13 @@ struct Update<'a> {
     #[serde(rename = "_meta", borrow)]
     meta: Meta<'a>,
 }
-pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
+pub(super) fn line(
+    state: &mut State,
+    place: u64,
+    span: u64,
+    bytes: &[u8],
+    out: &mut Output<'_>,
+) -> Result<(), Error> {
     let rec: Event<'_> = input::parse(bytes)?;
     if rec.seq <= state.last_v1_seq && state.last_v1_seq != 0 {
         return Ok(());
@@ -93,7 +106,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     state.at = rec.at / 1000;
     state.at_ms = rec.at;
     if rec.dir == "mux" {
-        mux(state, &rec.kind, &msg, out)?;
+        mux(state, &rec.kind, &msg, place, span, out)?;
     } else if rec.dir == "in"
         && !rec.kind.ends_with(".replay")
         && msg.method == "session/update"
@@ -148,13 +161,36 @@ fn mux(
     state: &mut State,
     kind: &str,
     msg: &Message<'_>,
+    place: u64,
+    span: u64,
     out: &mut Output<'_>,
 ) -> Result<(), Error> {
     match kind {
         "retracted" | "removed" => {
+            state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
-        "queued" => state.reserve_prompt(&msg.prompt_id, msg.text, out)?,
+        "queued" => {
+            let text_len = msg.text.map(input::decoded_len).transpose()?.unwrap_or(0);
+            state.queue_add(&msg.prompt_id, state.at_ms, false, place, span, text_len, out);
+            // An inbox digest's record holds the queue's order with it in it.
+            state.queue_order(msg.order, out);
+        }
+        "queue_order" => {
+            if msg.next {
+                state.queue_release(&msg.prompt_id, out);
+            }
+            state.queue_order(msg.order, out);
+        }
+        "queue_paused" => state.queue_set_held(msg.held, true, out)?,
+        "queue_resumed" => {
+            if let Some(ids) = msg.prompt_ids {
+                state.queue_set_held(Some(ids), false, out)?;
+            } else {
+                state.queue_set_all_held(false, out);
+            }
+        }
+        "dequeued" | "queue_removed" | "queue_declined" => state.queue_remove(&msg.prompt_id, out),
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
             let notice = matches!(
@@ -204,7 +240,9 @@ fn mux(
         "failover" | "forked" | "fork_start_failed" | "host_notice" | "policy_unenforced"
         | "recap" | "stopping" | "stopped" | "exited" => {
             let mut row = state.row(RowKind::Notice, out)?;
-            row.field("notice", kind);
+            if row.field("notice", kind) {
+                state.cut_fields = state.cut_fields.saturating_add(1);
+            }
             out.row(&row);
             if let Some(raw) = msg.text.or(msg.error).or(msg.reason).or(msg.detail) {
                 out.body(row.id, BodyField::Content, false, raw);
@@ -299,7 +337,9 @@ fn agent(
             } else {
                 state.row(RowKind::Notice, out)?
             };
-            row.field("notice", "compaction");
+            if row.field("notice", "compaction") {
+                state.cut_fields = state.cut_fields.saturating_add(1);
+            }
             let status = if !u.state.is_empty() {
                 u.state.as_ref()
             } else if !u.status.is_empty() {

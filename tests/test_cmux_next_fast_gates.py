@@ -619,6 +619,7 @@ def commit(repo: Path, files: dict[str, str], message: str) -> str:
 # was given), and fails when its gate name is in $FAKE_FAIL.
 FAKE = textwrap.dedent("""\
     import json, os, sys
+    import time
     from pathlib import Path
     name = {name!r}
     entry = {{"gate": name, "argv": sys.argv[1:], "cwd": os.getcwd()}}
@@ -627,6 +628,17 @@ FAKE = textwrap.dedent("""\
         entry["base_marker"] = (base / "scripts/cmux-next/marker.txt").read_text()
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps(entry) + "\\n")
+    barrier = os.environ.get("FAKE_BARRIER")
+    if barrier and name != "webviews checks":
+        marker = Path(barrier) / ("started-" + name.replace(" ", "-"))
+        marker.touch()
+        expected = int(os.environ.get("FAKE_BARRIER_COUNT", "1"))
+        deadline = time.monotonic() + float(os.environ.get("FAKE_BARRIER_TIMEOUT", "2"))
+        while len(list(Path(barrier).glob("started-*"))) < expected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if len(list(Path(barrier).glob("started-*"))) < expected:
+            raise SystemExit("parallel gate barrier was not reached")
+    time.sleep(float(os.environ.get("FAKE_SLEEP", "0")))
     sys.exit(1 if name in os.environ.get("FAKE_FAIL", "").split(",") else 0)
 """)
 
@@ -653,11 +665,21 @@ class ScriptBehavior(unittest.TestCase):
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
 
-    def script(self, repo: Path, *args: str, fail: str = "") -> subprocess.CompletedProcess:
+    def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0,
+               barrier: Path | None = None, budget: int | None = None,
+               summary: Path | None = None) -> subprocess.CompletedProcess:
         env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
+               "FAKE_SLEEP": str(sleep),
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
-        return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
+        if barrier is not None:
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+        extra = []
+        if budget is not None:
+            extra += ["--budget-seconds", str(budget)]
+        if summary is not None:
+            extra += ["--summary", str(summary)]
+        return subprocess.run([sys.executable, str(SCRIPT), *args, *extra, "--repo", str(repo)],
                               capture_output=True, text=True, env=env)
 
     def clone(self, shallow: bool = True) -> Path:
@@ -917,6 +939,50 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", own).split(),
                          ["pr8.txt"])
 
+    def test_pull_request_a_few_commits_from_its_base_deepens_once_by_the_first_step_without_blobs(self):
+        # 2026-11-13: runs 43473169308 and 43474564309 (heads 9 and 32 commits from their base) spent 87 to 108 s
+        # in one --deepen=200 that brought every blob of 200 commits a side; the gates needed none of them.
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(60):  # history past the first step
+            commit(seed, {"old.txt": f"old {n}\n"}, f"old base {n}")
+        for n in range(40):  # within it: each commit's blob is one a deepen with blobs would bring
+            within = commit(seed, {"old.txt": f"newer {n}\n"}, f"newer base {n}")
+            if n == 20:
+                old_commit, old = within, git(seed, "rev-parse", "HEAD:old.txt")
+        fork = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "-b", "pr10", fork)
+        heads = [commit(seed, {"pr10.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        base = commit(seed, {"tip.txt": "moved\n"}, "the base moves on")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
+            heads[-1])
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{heads[-1]}:refs/pull/10/head", "HEAD:refs/pull/10/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for key in ("uploadpack.allowReachableSHA1InWant", "uploadpack.allowFilter"):  # as GitHub allows
+            git(self.remote, "config", key, "true")
+        work = self.tmp / "work10"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", "refs/pull/10/merge")  # what actions/checkout does
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", heads[-1], "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(re.findall(r"deepened by (\d+)", result.stderr), ["32"])
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), heads)
+        # The commit is here (the base side reaches it); its blob is not, and listing never fetches it.
+        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit, "--", "old.txt").split()
+        self.assertIn(f"?{old}", listed, "the deepen brought a blob no gate read")
+        # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
+        self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
+
     def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
         # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
         # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the
@@ -1057,6 +1123,8 @@ class ScriptBehavior(unittest.TestCase):
         for name in GATE_SCRIPTS:
             self.assertIn(name, text)
         self.assertIn(base, text)
+        self.assertIn("Runner CPUs:", text)
+        self.assertIn("child CPU", text)
 
     def test_one_red_gate_fails_the_run_and_the_rest_still_run(self):
         work, out = self.prepared()
@@ -1067,6 +1135,39 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_independent_gates_run_in_parallel(self):
+        work, out = self.prepared()
+        barrier = self.tmp / "parallel-barrier"
+        barrier.mkdir()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
+                             sleep=0.2, barrier=barrier)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
+        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
+
+    def test_no_gate_started_has_a_critical_path_fallback(self):
+        work, _ = self.prepared()
+        summary = self.tmp / "summary.md"
+        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+                             budget=0, summary=summary)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+
+    def test_gate_logs_are_named_per_gate_across_batches(self):
+        module = load(SCRIPT)
+        with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
+            log_dir = Path(tmp)
+            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+                                          Path(tmp), None, log_dir)
+            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+                                           Path(tmp), None, log_dir)
+            self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
+            self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
+            self.assertTrue((log_dir / "crash-ratchet.log").read_text())
+            self.assertTrue((log_dir / "webviews-checks.log").read_text())
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()

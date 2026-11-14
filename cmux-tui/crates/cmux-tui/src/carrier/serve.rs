@@ -366,6 +366,7 @@ fn dial_plan(shared: &Shared, deadline: Instant) -> client::DialPlan {
         progress: None,
         ssh: shared.ssh.clone(),
         ssh_refusal: super::ssh::SshRefusal::default(),
+        drill: false,
     }
 }
 

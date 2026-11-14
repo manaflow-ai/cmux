@@ -81,16 +81,50 @@ public final class ConversationStore {
         set { primaryObserver = newValue }
     }
     private var primaryObserver: (@MainActor (ConversationStoreChange) -> Void)?
-    private var observers: [@MainActor (ConversationStoreChange) -> Void] = []
+    private var observers: [(id: Int, observe: @MainActor (ConversationStoreChange) -> Void)] = []
+    private var nextObserverID = 0
 
     /// Additional listeners (a sidebar preview, a window title) beside `onChange`.
-    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
-        observers.append(observer)
+    /// Returns a token for ``removeObserver(_:)``.
+    @discardableResult
+    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) -> Int {
+        nextObserverID += 1
+        observers.append((nextObserverID, observer))
+        return nextObserverID
+    }
+
+    /// Stops a listener ``addObserver(_:)`` added.
+    public func removeObserver(_ token: Int) {
+        observers.removeAll { $0.id == token }
+    }
+
+    /// Whether a screen draws this store now (it set `onChange`): a second screen over the same
+    /// store would take its updates.
+    public var hasPrimaryObserver: Bool { primaryObserver != nil }
+
+    /// Whether a screen that claimed this store (``claimPrimary(_:_:)``) is still alive. A screen
+    /// that left (Home's Chief screen popped) leaves its observer behind, but not itself.
+    public var hasLivePrimaryOwner: Bool { primaryOwner != nil }
+
+    /// The screen that set `onChange` (``claimPrimary(_:)``), so only it gives the updates back.
+    public private(set) weak var primaryOwner: AnyObject?
+
+    /// Sets `onChange` for `owner`.
+    public func claimPrimary(_ owner: AnyObject, _ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        primaryOwner = owner
+        primaryObserver = observer
+    }
+
+    /// Clears `onChange` only while `owner` still holds it (a newer screen keeps its own).
+    public func releasePrimary(_ owner: AnyObject) {
+        guard primaryOwner === owner else { return }
+        primaryOwner = nil
+        primaryObserver = nil
     }
 
     func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
-        for observer in observers { observer(change) }
+        for observer in observers { observer.observe(change) }
     }
 
     // MARK: Transcript journal

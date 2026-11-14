@@ -31,8 +31,15 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=drs
 size_gb=2 bump=1 seal=1 segments= output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
+# workspaces=N: the workspaces of the generated registry. creates_early=N, creates_late=N: after
+# each start is ready, N timed workspace.create requests at once and N after the daemon wrote its
+# after_ready laps, with the daemon's server-stats (locks, resource_projection) around them.
+workspaces=24 creates_early=0 creates_late=0
 for kv in "$@"; do
   case "$kv" in
+    workspaces=*) workspaces="${kv#*=}" ;;
+    creates_early=*) creates_early="${kv#*=}" ;;
+    creates_late=*) creates_late="${kv#*=}" ;;
     size_gb=*) size_gb="${kv#*=}" ;;
     bump=*) bump="${kv#*=}" ;;
     seal=*) seal="${kv#*=}" ;;
@@ -157,7 +164,7 @@ else
   puts=$(( size_gb * 1024 * 1024 * 1024 * 96 / 100 / 6750 ))
   events=$(( puts / 24 ))
   args=(--out "$scratch/state" --session "$session" --session-puts "$puts" --agent-events "$events"
-    --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
+    --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces "$workspaces" --quiet)
   [[ "$seal" != 1 ]] || args+=(--seal)
   [[ -z "$segments" ]] || args+=(--seal-segments "$segments")
   [[ "$bump" != 1 ]] || args+=(--roster-version-bump)
@@ -169,4 +176,5 @@ fi
 python3 "$root/scripts/measure/daemon-registry-start.py" \
   --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session "$session" \
   --socket "$socket_dir/mux.sock" --generate "$out/generate.json" \
-  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json"
+  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json" \
+  --creates-early "$creates_early" --creates-late "$creates_late"

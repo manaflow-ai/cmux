@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import plistlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -117,6 +119,22 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("metadata.missing", self.rules(lint))
         self.assertTrue(any("cmux-next-ios/AppStoreReview/metadata" in f.message for f in lint.findings))
 
+    def test_a_raw_error_dump_in_user_text_warns_but_a_log_line_does_not(self) -> None:
+        rel = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/Failing.swift"
+        write(self.root, rel,
+              'log.error("failed: \\(String(describing: error), privacy: .public)")\n'
+              'let shown = UserFacingError.message(error)\n'
+              '// was: (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        lint = self.run_lint()
+        self.assertEqual([f for f in lint.findings if f.rule == "ux.raw-error"], [])
+        write(self.root, rel, 'failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FailingTests.swift",
+              'let text = x ?? String(describing: error)\n')
+        lint = self.run_lint()
+        raw = [f for f in lint.findings if f.rule == "ux.raw-error"]
+        self.assertEqual([(f.severity, f.where) for f in raw], [("warning", f"{rel}:1")])
+        self.assertNotIn("ux.raw-error", self.rules(lint))
+
     def test_google_and_github_without_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Welcome.swift",
               'let g = "Continue with Google"; let h = "Continue with GitHub"\n')
@@ -200,6 +218,52 @@ class AppReviewGateTests(unittest.TestCase):
         lint = gate.Lint(self.root, "appstore")
         lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
         self.assertIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_privacy_api_in_a_linked_package_needs_its_purpose_string(self) -> None:
+        # The microphone lives in a shared package the kit links, not in the
+        # app's own folders; the prompt is still the app's.
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift",
+              'let p = Package(dependencies: [.package(path: "../../Packages/Shared/Voice")])\n')
+        write(self.root, "Packages/Shared/Voice/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/Shared/Voice/Sources/Voice/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertIn("privacy.purpose-string", self.rules(lint))
+        self.assertTrue(any("NSMicrophoneUsageDescription" in f.message for f in lint.findings))
+
+    def test_a_package_the_app_does_not_link_is_not_judged(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Sources/Classic/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertNotIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_biometry_locked_key_needs_the_face_id_purpose_string(self) -> None:
+        # The classic app's SSH key lock (#40636): Secure Enclave keys with
+        # biometry access control ask for Face ID with no LAContext call.
+        write(self.root, "cmux-next-ios/App/Keys.swift", "var flags: SecAccessControlCreateFlags = [.privateKeyUsage, .biometryCurrentSet]\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertTrue(any("NSFaceIDUsageDescription" in f.message and f.severity == "blocker" for f in lint.findings))
+
+    def test_a_generic_purpose_string_is_flagged(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSCameraUsageDescription": "This app uses the camera for features."}, "Info.plist")
+        self.assertIn("privacy.purpose-string-vague", {f.rule for f in lint.findings})
+
+    def test_bonjour_services_are_asked_for_only_when_bonjour_is_used(self) -> None:
+        plist = {"ITSAppUsesNonExemptEncryption": False,
+                 "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network for a faster link."}
+        write(self.root, "cmux-next-ios/App/Dial.swift", "let l = try NWListener(using: .tcp, on: 0)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Browse.swift", 'let b = NWBrowser(for: .bonjour(type: "_cmux._tcp", domain: nil), using: .tcp)\n')
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertIn("privacy.bonjour", self.rules(lint))
 
     def manifests(self, app: list[str], **extensions: list[str]) -> None:
         def body(categories: list[str]) -> str:
@@ -352,6 +416,48 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("guideline lint left no result", text)
         self.assertIn("no ipad suite result", text)
 
+    def test_a_device_job_that_left_no_result_fails_the_report(self) -> None:
+        # Each device walks in its own job: a Duo job that failed, was
+        # cancelled or uploaded nothing must fail the report, and only Duo's
+        # own skip marker (no Duo simulator on the image) stands in for it.
+        passed = {"testNodes": [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]}
+        results = []
+        for family in ("iphone", "ipad"):
+            path = self.root / f"{family}.json"
+            path.write_text(json.dumps(passed))
+            results += ["--xcresult-json", str(path)]
+        expect = ["--expect-device", "iphone", "--expect-device", "ipad", "--expect-device-or-skipped", "duo"]
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect, "--out", str(out)]), 1)
+        self.assertIn("no duo suite result", out.read_text())
+        duo_skipped = self.root / "duo.skipped.json"
+        duo_skipped.write_text(json.dumps({"family": "duo", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", *results, *expect,
+                                    "--skipped", str(duo_skipped), "--out", str(out)]), 0)
+        # A skip marker never excuses a device that must be walked.
+        ipad_skipped = self.root / "ipad.skipped.json"
+        ipad_skipped.write_text(json.dumps({"family": "ipad", "skipped": True}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", results[0], results[1], *expect,
+                                    "--skipped", str(duo_skipped), "--skipped", str(ipad_skipped),
+                                    "--out", str(out)]), 1)
+        self.assertIn("no ipad suite result", out.read_text())
+
+    def test_the_report_waits_for_and_expects_every_device_job(self) -> None:
+        # The devices walk side by side, one reviewer-path job each; the
+        # report needs them all and fails closed on any family's missing
+        # result, and each job's artifact has its own name.
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("fail-fast: false", reviewer)
+        self.assertIn("        family: [iphone, ipad, duo]\n", reviewer)
+        self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
+        self.assertNotIn("for family in", reviewer)
+        self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
+        self.assertIn("pattern: review-gate-*", report)
+        self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+        self.assertIn("find in -name '*.skipped.json'", report)
+
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
         empty.write_text(json.dumps({"testNodes": []}))
@@ -409,6 +515,86 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(text.count("XCUITest cannot fold the simulator"), 1)
 
+    def ratchet_inputs(self, failed: list[str]) -> tuple[Path, Path]:
+        suite = self.root / "iphone.json"
+        cases = [{"nodeType": "Test Case", "name": name, "result": "Failed",
+                  "children": [{"nodeType": "Failure Message", "name": f"AppReviewGateUITests.swift:{i}: on screen: {i}"}]}
+                 for i, name in enumerate(failed, 1)] or [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]
+        suite.write_text(json.dumps({"testNodes": [{"nodeType": "Unit test bundle", "name": "AppReviewGateUITests", "children": cases}]}))
+        known = self.root / "known-blockers.json"
+        known.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"}]}))
+        return suite, known
+
+    def test_a_known_blocker_alone_passes_a_change_and_still_shows(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("No new blocker", text)
+        # A submission reads no baseline: the same result refuses it.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--out", str(out)]), 1)
+
+    def test_a_new_blocker_fails_the_change_that_brought_it(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 1)
+        self.assertIn("**1 new blocking**", text)
+        self.assertIn("uitest.failed|iphone|AppReviewGateUITests/testNew()", text)
+        self.assertNotIn("`uitest.failed|iphone|AppReviewGateUITests/testOld()`: ", text)
+
+    def test_a_fixed_blocker_is_named_for_removal(self) -> None:
+        suite, known = self.ratchet_inputs([])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        self.assertEqual(code, 0)
+        self.assertIn("remove from", out.read_text())
+
+    def test_a_change_cannot_pin_its_own_regression(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        proposed = self.root / "proposed.json"
+        proposed.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"},
+                                                     {"key": "uitest.failed|iphone|AppReviewGateUITests/testNew()"}]}))
+        out = self.root / "report.md"
+        # Its own list alone would pass it; judged on the base's, it fails twice over.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                                    "--known-blockers", str(proposed), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 1)
+        self.assertIn("known-blockers.added", out.read_text())
+        # Removing a fixed entry is fine.
+        suite, known = self.ratchet_inputs([])
+        proposed.write_text(json.dumps({"blockers": []}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 0)
+
+    def test_the_key_ignores_line_numbers_and_screen_dumps(self) -> None:
+        a = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:120: on screen: a"}
+        b = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:131: on screen: b"}
+        self.assertEqual(gate.blocker_key(a), gate.blocker_key(b))
+        self.assertEqual(gate.blocker_key({"rule": "r", "where": "a/B.swift:90"}),
+                         gate.blocker_key({"rule": "r", "where": "a/B.swift:91"}))
+
+    def test_missing_results_and_the_agent_pass_are_judged_apart_from_the_baseline(self) -> None:
+        # Fail closed: a suite that never reported is new, whatever is known.
+        _, known = self.ratchet_inputs([])
+        agent = self.root / "agent-findings.json"
+        agent.write_text(json.dumps([{"rule": "agent", "guideline": "2.1(a)", "severity": "blocker",
+                                      "source": "agent reviewer pass", "message": "m", "where": "s.png"}]))
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--extra", str(agent),
+                                    "--known-blockers", str(known), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--expect-device", "ipad",
+                                    "--known-blockers", str(known), "--out", str(out)]), 1)
+        known.write_text("not json")
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 1)
+
 
 class RealTreeTests(unittest.TestCase):
     """The checked-in history, the NEXT app's UI tests and the gate agree."""
@@ -417,6 +603,18 @@ class RealTreeTests(unittest.TestCase):
         lint = gate.Lint(ROOT, "appstore")
         lint.check_history()
         self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_the_app_declares_a_specific_purpose_string_for_every_privacy_api_it_links(self) -> None:
+        # Fails CI the moment the NEXT app (or a package it links) calls a
+        # privacy API without its Info.plist purpose string, or a purpose
+        # string reads as generic: iOS kills the app at the prompt, and App
+        # Review rejects under 5.1.1 (first-user journey, permission audit).
+        lint = gate.Lint(ROOT, "appstore")
+        plist = lint.project_info()
+        self.assertTrue(plist, "project.yml's CmuxMobileApp Info.plist properties could not be read")
+        lint.check_info_plist(plist, gate.PROJECT_YML)
+        privacy = [f"{f.rule}: {f.message}" for f in lint.findings if f.rule.startswith("privacy.")]
+        self.assertEqual(privacy, [])
 
     def test_the_workflow_runs_every_gate_test_by_its_real_name(self) -> None:
         # -only-testing names resolve only when target, class and method match.
@@ -429,6 +627,184 @@ class RealTreeTests(unittest.TestCase):
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
         self.assertFalse("Billing" in tests or "StoreKit" in tests)
+
+    def test_every_known_blocker_names_something_that_still_exists(self) -> None:
+        # A renamed or deleted test would leave a pin nothing can match.
+        known = json.loads((ROOT / gate.KNOWN_BLOCKERS_FILE).read_text())
+        tests = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
+        for entry in known["blockers"]:
+            rule, where, *rest = entry["key"].split("|")
+            if rule == "uitest.failed":
+                self.assertIn(where, ("iphone", "ipad", "duo"), entry["key"])
+                name = rest[0].split("/")[-1].removesuffix("()")
+                self.assertIn(f"func {name}(", tests, entry["key"])
+            self.assertNotIn("agent", rule, "the agent pass is never pinned")
+
+    def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertNotIn("ADVISORY", workflow)
+        pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+        self.assertIn('"cmux-next-ios/**"', pull_request)
+
+
+AGENT_SPEC = importlib.util.spec_from_file_location(
+    "app_review_agent_pass", ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py")
+agent_pass = importlib.util.module_from_spec(AGENT_SPEC)
+assert AGENT_SPEC.loader
+sys.modules[AGENT_SPEC.name] = agent_pass
+AGENT_SPEC.loader.exec_module(agent_pass)
+
+# A stand-in `claude`: writes what the real agent would (a findings array to
+# the path the prompt names, one screenshot per step in its folder), or
+# nothing, as STUB_CLAUDE says.
+STUB_CLAUDE = """#!/usr/bin/env python3
+import os, re, sys
+prompt = sys.argv[sys.argv.index("-p") + 1]
+mode = os.environ.get("STUB_CLAUDE", "verdict")
+if mode in ("verdict", "no-screens"):
+    path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
+    open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
+if mode == "verdict":
+    open("step-01-launch.png", "wb").write(b"png")
+print('{"result": "done"}')
+sys.exit(1 if mode == "crash" else 0)
+"""
+
+
+class AgentReviewerPassTests(unittest.TestCase):
+    """The agent pass is a check: one that judged nothing is red, never a pass."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.app = self.root / "CmuxMobileApp.app"
+        self.app.mkdir()
+        self.out = self.root / "agent-pass"
+        self.findings = self.root / "agent-findings.json"
+        self.saved = {k: os.environ.get(k) for k in ("PATH", "STUB_CLAUDE")}
+        self.bundle_id = agent_pass.bundle_id
+        agent_pass.bundle_id = lambda app: "com.cmux.app"
+
+    def tearDown(self) -> None:
+        agent_pass.bundle_id = self.bundle_id
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self.tmp.cleanup()
+
+    def tool(self, name: str, body: str = "#!/bin/sh\nexit 0\n") -> None:
+        path = self.bin / name
+        path.write_text(body)
+        path.chmod(0o755)
+
+    def run_pass(self, mode: str = "verdict") -> tuple[int, list[dict]]:
+        os.environ["PATH"] = f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
+        os.environ["STUB_CLAUDE"] = mode
+        argv = sys.argv
+        sys.argv = ["app_review_agent_pass.py", "--udid", "UDID", "--app", str(self.app),
+                    "--setup", str(self.root / "none.md"), "--out", str(self.out), "--findings", str(self.findings)]
+        try:
+            code = agent_pass.main()
+        finally:
+            sys.argv = argv
+        return code, json.loads(self.findings.read_text())
+
+    def test_a_pass_with_no_agent_tools_is_red(self) -> None:
+        # Job 132387096997 and every run since: axe never installed, and the
+        # pass wrote one warning and exited 0 in about two seconds.
+        self.tool("xcrun")
+        code, findings = self.run_pass()
+        self.assertNotEqual(code, 0)
+        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.unavailable", "blocker")])
+
+    def test_an_agent_that_left_no_verdict_is_red(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        for mode in ("silent", "crash"):
+            code, findings = self.run_pass(mode)
+            self.assertNotEqual(code, 0, mode)
+            self.assertIn(("agent.no-verdict", "blocker"), [(f["rule"], f["severity"]) for f in findings], mode)
+
+    def test_an_agent_that_never_looked_at_the_app_is_red(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("no-screens")
+        self.assertNotEqual(code, 0)
+        self.assertIn(("agent.no-walk", "blocker"), [(f["rule"], f["severity"]) for f in findings])
+
+    def test_an_agent_verdict_passes_and_keeps_its_findings(self) -> None:
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("verdict")
+        self.assertEqual(code, 0)
+        self.assertEqual([(f["rule"], f["severity"], f["guideline"]) for f in findings],
+                         [("agent.reviewer", "warning", "4.0")])
+
+    def report(self, *extra: str) -> tuple[int, str]:
+        out = self.root / "report.md"
+        out.unlink(missing_ok=True)
+        try:
+            code = gate.main(["report", "--asc-skipped", *extra, "--out", str(out)])
+        except SystemExit as exit:  # a flag the report does not know
+            code = exit.code
+        return code, out.read_text() if out.exists() else ""
+
+    def test_the_report_blocks_when_the_expected_agent_verdict_never_arrived(self) -> None:
+        code, text = self.report("--expect-agent")
+        self.assertEqual(code, 1)
+        self.assertIn("the agent reviewer pass left no verdict", text)
+        verdict = self.root / "agent-findings.json"
+        verdict.write_text("[]")
+        self.assertEqual(self.report("--expect-agent", "--extra", str(verdict))[0], 0)
+        # A fork pull request has no token: the pass skips by name and the
+        # report says so, as a warning.
+        skipped = self.root / "agent-skipped.json"
+        skipped.write_text(json.dumps({"skipped": True, "reason": "no agent token for this event (fork pull request)"}))
+        code, text = self.report("--expect-agent", "--agent-skipped", str(skipped))
+        self.assertEqual(code, 0)
+        self.assertIn("no agent token for this event", text)
+
+    def pick(self, exit_code: int) -> tuple[int, str, list[str]]:
+        picker = self.root / "picker.py"
+        picker.write_text(f"import sys\nprint('SIM-UDID')\nsys.exit({exit_code})\n")
+        results = self.root / f"results-{exit_code}"
+        results.mkdir()
+        github_env = self.root / f"env-{exit_code}"
+        github_env.write_text("")
+        proc = subprocess.run(
+            ["bash", "-e", str(ROOT / "cmux-next-ios/scripts/app_review_pick_step.sh"), "duo"],
+            env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env), PICKER=str(picker)),
+            capture_output=True, text=True)
+        return proc.returncode, github_env.read_text(), sorted(p.name for p in results.iterdir())
+
+    def test_only_the_pickers_no_simulator_exit_skips_a_device(self) -> None:
+        # Exit 3 is "no simulator for this family on the image": the leg
+        # skips with a marker the report reads. Any other failure fails the
+        # leg, so the report blocks on its missing result (#42997 review).
+        self.assertEqual(self.pick(0), (0, "UDID=SIM-UDID\n", []))
+        code, env, files = self.pick(3)
+        self.assertEqual((code, env, files), (0, "", ["duo.skipped.json"]))
+        code, env, files = self.pick(1)
+        self.assertEqual((code, env, files), (1, "", []))
+
+    def test_the_workflow_runs_the_agent_pass_as_a_check(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        step = workflow.split("      - name: Agent reviewer pass\n", 1)[1].split("      - name: Upload results\n", 1)[0]
+        self.assertNotIn("continue-on-error", step)
+        self.assertIn("agent-skipped.json", step)
+        self.assertIn("cmux-next-ios/scripts/app_review_pick_step.sh", workflow)
+        report = workflow.split("\n  report:\n", 1)[1]
+        self.assertIn("--expect-agent", report)
+        self.assertIn("--agent-skipped", report)
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ The realistic targets, measured on the DMG:
 |---|---:|---:|
 | today | 205 MB | 1x |
 | A. safe cuts (this change + official CEF + trims below) | ~165 MB | 1.25x |
-| B. Chromium as an on-demand runtime (core app ships without CEF) | ~65 MB | 3x |
+| B. ~~Chromium as an on-demand runtime (core app ships without CEF)~~ rejected 2026-11-12 | ~65 MB | 3x |
 | C. all optional components on demand + size-tuned binaries | ~35-40 MB | 5-6x |
 | D. bootstrap DMG (core downloads too) | ~2 MB | **100x** of the download; the installed app is still C |
 
@@ -121,7 +121,7 @@ Savings are in the DMG / on disk. "Done" means pushed to feat-cmux-next.
 | 2 | Byte budget + ratchet in CI and nightly | — | — | none (non-blocking) | **done** |
 | 3 | V8 snapshot of the other arch in arm64 builds | −0.2 MB | −0.76 MB | none | already gone in today's artifact; the budget forbids it from coming back |
 | 4 | **Official CEF build** (`is_official_build=true`: ThinLTO, ICF, no debug-only paths; same feature switches) | est. −15 to −25 MB | est. −60 to −90 MB | low. It is the config Google ships. Build is much longer; A/B speed too | **building**: fork `cmux/8037-cmux28-official` af04123c56e, fleet job 70436914a38e |
-| 5 | Chromium as an on-demand runtime: notarized `cef-runtime-<ver>.tar.xz` (framework + shim + helpers + uBlock), installed to `~/Library/Application Support/cmux/cef/<sha>`, found by `CEFRuntimeLayout.locate`; WebKit until it is there; prefetch in the background after first launch | **−103 MB** | **−363 MB** | medium. Library validation (same Team ID: fine). The helper apps sit outside the app bundle. Updates are version-pinned per app build. The first Chromium tab can wait about 10 s on a fast link. The default engine is Chromium, so first-run UX needs a design | design; next agent |
+| 5 | Chromium as an on-demand runtime: notarized `cef-runtime-<ver>.tar.xz` (framework + shim + helpers + uBlock), installed to `~/Library/Application Support/cmux/cef/<sha>`, found by `CEFRuntimeLayout.locate`; WebKit until it is there; prefetch in the background after first launch | **−103 MB** | **−363 MB** | medium. Library validation (same Team ID: fine). The helper apps sit outside the app bundle. Updates are version-pinned per app build. The first Chromium tab can wait about 10 s on a fast link. The default engine is Chromium, so first-run UX needs a design | **rejected** (Leo, 2026-11-12; see [Chromium stays in the app](#chromium-stays-in-the-app)) |
 | 6 | Computer Use helper on demand (onboarding already gates it) | −4.3 MB | −13.9 MB | low | design |
 | 7 | optchat-chief on demand (Home Chief) | −3 MB | −10 MB | low | design |
 | 8 | Rust `bin/cmux` size pass: `cargo bloat --crates` on the fleet, then `opt-level="s"` for cold crates only (keep 3 for the hot render/daemon path), split rquickjs (code mode) out | est. −5 to −8 MB | −15 to −25 MB | medium: speed. Needs the perf bench (a153/a168) before and after | measure first |
@@ -155,17 +155,34 @@ What I kept, and why:
    with `bundle-size.py report` on a DEV app built against it. If the win
    holds, apply the same args to `cmux/8037-cmux29-rc` (the browser lane owns
    the CEF pin). Then lower the CEF cap.
-2. Stage B, Chromium on demand. This is the biggest single cut (−50% of the
-   DMG). It needs a design pass on first-run UX (WebKit until Chromium is
-   ready, or a progress tab), then failing-first tests. Use the
-   `CEFRuntimeLayout.locate` seam, add a runtime-pack publish to the CEF
-   release flow, and do the download and verify the way `ssh_artifacts.rs`
-   does.
+2. ~~Stage B, Chromium on demand.~~ Rejected by Leo on 2026-11-12 (below).
+   Shrink Chromium inside the app instead: the official build (#4), the
+   `resources.pak` trim (#11), and the remote browser host's small helpers
+   (cmux#42201).
+
+### Chromium stays in the app
+
+Leo, 2026-11-12, asked "Should the app ship without Chromium and fetch it the
+first time you open the browser?": "What the f***? I don't think this is the
+solution."
+
+So every cmux NEXT build, nightly and release included, ships the Chromium
+engine inside the app, and the first Chromium tab never waits for a download.
+Stage B (cut #5, section 6) is not a size plan any more:
+- Do not propose it again as a size cut, and do not set the repository
+  variable `CMUX_NEXT_CEF_ON_DEMAND` for the nightly. Its code stays as it is
+  (off by default) until Leo says what to do with it.
+- Size work on Chromium goes into the engine the app ships: the official
+  build (#4), `resources.pak` (#11), ICU (#13), and the remote browser host's
+  helpers. Each one is measured with `bundle-size.py` before and after.
 3. Measure #8 and #10 on the fleet, and run the perf bench before choosing
    any opt-level.
 4. Make the nightly budget step blocking once two nightlies pass it.
 
 ## 6. Stage B design: Chromium on demand (cut #5)
+
+**Rejected** by Leo on 2026-11-12 ([Chromium stays in the app](#chromium-stays-in-the-app)).
+The design below is kept as the record of what the off-by-default code does.
 
 Written 2026-10-20 by the Chief subagent that builds stage B (user msg 3422,
 Chief task "Chromium download on first use"). Goal: the DMG ships without the
@@ -343,3 +360,33 @@ Chromium in this process. No relaunch.
 - First Chromium tab on a slow link waits for about 100 MB. WebKit covers the
   gap; the prefetch starts 20 s after launch to make that rare.
 - Disk: two engines can be on disk for one launch after an update.
+
+## Shared first-party page graph (2026-11-12)
+
+`build-pages-web.sh` builds all page entries through `webviews/scripts/pages/bundle.mjs`
+in one esbuild graph. React, its compiler runtime, shared UI and lazy imports ship once
+under `pages/__shared/`; each page keeps its own document, CSS, bridge and origin.
+CSS uses each page's isolated build graph to preserve its cascade byte for byte; a shared
+CSS graph can reorder rules across documents. Static dependencies get modulepreload links;
+dynamic imports remain lazy. Relative URLs
+work both at `cmux-page://cmux.<page>/` and the daemon's `/pages/<page>/`.
+
+The native resource adapter mounts only build-owned JavaScript in the selected page
+root's sibling `__shared` directory. It uses the existing containment checks and the
+page's CSP. Chromium routes that prefix through the same adapter even without a live
+server. Chunks follow the page's pinned OTA tree; never fall back across build trees.
+The web ABI changes because older apps cannot serve the shared namespace.
+
+Detector: `bundle-size.py report` measures the generated Pages resource bundle;
+`webviews/scripts/pages/check-bundle.mjs PAGES RECEIPTS [scheme|daemon] [BASELINE]` renders every
+packaged document with gallery host fixtures and fails on an empty page, script error
+or missing asset. This catches packaging failures that Vite source-based gallery tests
+cannot. `PageSharedAssetsTests`, `PageChromiumCoverageTests` and `app_page_listener`
+cover the native adapter, CEF registration and the daemon file transport respectively.
+
+CEF's shim serves bundled documents outside the live web loop. Shared asset
+requests therefore bypass the tab's live provider in that mode and read from the
+same registered bundled root; an installed OTA tree must not replace only the
+imports of a bundled document. In live mode both the document and shared chunks
+continue through the existing live adapter. `PageSharedAssetsTests` covers the
+bundled response's bytes, MIME, CSP and containment.

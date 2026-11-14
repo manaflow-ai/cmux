@@ -433,6 +433,12 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
 output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
 `retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+On a sub-session whose last turn was stopped (`cancelled`; capability `subsession-resume-v1`)
+it continues it instead, in the same chat and agent session: one new turn told to carry on from
+where it stopped (provenance `{kind: "auto_resume", reason: "stopped", promptId, turnId, manual:
+true}`, prompt id `stopped-resume-<ms>`), never queued (`retry.busy`), answered once it starts
+(`hub/subsession_resume.rs`). A top-level chat's stopped turn still says `retry.nothing_failed`.
+A parent's Stop stops only the parent's own turn; its sub-sessions run on.
 With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
 `subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
 automatic retry fires now, else one more goes, as the prompt the automatic one sends
@@ -1376,6 +1382,11 @@ far side's answer reaches the lead. `--json` prints
 `{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
 peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
 `--attach` to such a target is refused. Unset (the default), nothing changes.
+
+An explicit CLI `--class` or MCP `class` is passed to the relay as `ACPMUX_SEND_CLASS`:
+`block`, `question`, `result` or `fyi` (`blocker` and `action` normalize to `block` and `result`).
+The relay must forward this value to preserve the message's class. Without an explicit class,
+the variable is removed, including an inherited value; the relay argv stays `SESSION -`.
 
 Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
