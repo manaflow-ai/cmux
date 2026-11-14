@@ -1,5 +1,6 @@
-// The Apple billing cron (`GET /api/cron/apple-notifications`): backfill
-// lost notifications, retry unfinished ones, re-check renewals, sweep lapses.
+// The Apple billing cron (`GET /api/cron/apple-notifications`): retry
+// unfinished notifications, re-check renewals, sweep lapses, then backfill
+// lost notifications until the time budget runs out.
 
 import { appleServerApiRequired, missingAppleServerApiEnv } from "./config";
 import { backfillAppleNotifications, type AppleHistoryResult } from "./history";
@@ -22,9 +23,14 @@ export type AppleIapCronResult = AppleRetryResult & {
  * failed retry, a failed lapse re-derive, a failed history read, or a
  * production deployment without the App Store Server API key.
  */
+/** The backfill stops requesting pages this long after the cron starts (maxDuration is 300 s). */
+const BACKFILL_BUDGET_MS = 200_000;
+
 export async function runAppleIapCron(
   deps: AppleIapDependencies = defaultAppleIapDependencies(),
+  options: { readonly startedAtMs?: number } = {},
 ): Promise<AppleIapCronResult> {
+  const startedAtMs = options.startedAtMs ?? Date.now();
   const env = deps.env ?? process.env;
   const configured = deps.serverApi !== null;
   const missingEnv = configured ? [] : missingAppleServerApiEnv(env);
@@ -37,9 +43,11 @@ export async function runAppleIapCron(
       production: missingInProduction,
     });
   }
-  // Backfill first, so a recovered DID_RENEW lands before the sweep looks.
-  const history = await backfillAppleNotifications(deps);
+  // The steps that keep paying users' access run first; the renewal re-check
+  // and the sweep ask Apple directly, so they do not wait on the backfill.
+  // The backfill gets whatever time is left.
   const retry = await retryAppleNotifications({}, deps);
+  const history = await backfillAppleNotifications(deps, { deadlineMs: startedAtMs + BACKFILL_BUDGET_MS });
   const ok = retry.notifications.failed === 0 &&
     retry.lapsedFailures === 0 &&
     history.failures === 0 &&

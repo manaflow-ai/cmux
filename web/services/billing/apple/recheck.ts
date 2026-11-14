@@ -39,7 +39,7 @@ export const APPLE_RECHECK_INTERVAL_MS = 25 * MINUTE;
  * end, then expires it on Apple's last signed state as before.
  */
 export const APPLE_MAX_LAPSE_DEFER_MS = 24 * HOUR;
-const RENEWAL_CHECK_LIMIT = 40;
+const RENEWAL_CHECK_LIMIT = 100;
 const LAPSE_SWEEP_LIMIT = 200;
 
 /** Status lookups left in this cron run, shared by the re-check and the sweep. */
@@ -48,8 +48,10 @@ export type AppleRecheckBudget = { remaining: number };
 type RecheckTarget = Pick<AppleSubscriptionRow, "originalTransactionId" | "bundleId" | "environment">;
 
 export type AppleRefreshOutcome =
-  /** Apple's state keeps access now; it was written and the plan re-derived. */
+  /** Apple's state keeps access now and differs from the row; it was written and the plan re-derived. */
   | { readonly kind: "granting"; readonly write: AppleSubscriptionWrite }
+  /** Apple's state keeps access and matches the row (no renewal yet); nothing was written. */
+  | { readonly kind: "unchanged" }
   /** Apple answered, and its state does not keep access (or is older than the row). */
   | { readonly kind: "not_granting" }
   /** Apple has no usable status for this transaction. */
@@ -122,6 +124,11 @@ export async function refreshSubscriptionFromApple(
     return answer.kind === "unknown" ? answer : { kind: "not_granting" };
   }
   const { state, transaction } = answer;
+  const current = await deps.store.subscription(target.originalTransactionId);
+  if (current && sameAccess(current, state)) {
+    await deps.store.markAppleChecked(target.originalTransactionId, now);
+    return { kind: "unchanged" };
+  }
   const write = await deps.store.writeSubscriptionState(state, {
     tokenOwner: await tokenOwner(state.appAccountToken, deps.store),
   });
@@ -131,6 +138,19 @@ export async function refreshSubscriptionFromApple(
   await applyEntitlements(write, deps);
   await captureEntitlementGranted(write.current, deps);
   return { kind: "granting", write };
+}
+
+/** Apple's state describes the same period and access as the row, so writing it would change nothing that matters. */
+function sameAccess(row: AppleSubscriptionRow, state: AppleSubscriptionState): boolean {
+  const time = (value: Date | null) => value?.getTime() ?? null;
+  return row.lastTransactionId === state.lastTransactionId &&
+    row.status === state.status &&
+    row.planId === state.planId &&
+    row.productId === state.productId &&
+    row.autoRenewEnabled === state.autoRenewEnabled &&
+    row.autoRenewProductId === state.autoRenewProductId &&
+    time(row.expiresAt) === time(state.expiresAt) &&
+    time(row.gracePeriodExpiresAt) === time(state.gracePeriodExpiresAt);
 }
 
 async function refreshOrError(
@@ -171,18 +191,25 @@ export async function runRenewalCheck(
 ): Promise<AppleRenewalCheckResult> {
   if (!deps.serverApi || budget.remaining <= 0) return { checked: 0, extended: 0, failures: 0 };
   const now = deps.now();
+  const limit = Math.min(RENEWAL_CHECK_LIMIT, budget.remaining);
   const rows = await deps.store.renewalCheckCandidates({
     accessEndsAfter: new Date(now.getTime() - APPLE_LAPSE_LEEWAY_MS),
     accessEndsBy: new Date(now.getTime() + APPLE_RENEWAL_LOOKAHEAD_MS),
     checkedBefore: new Date(now.getTime() - APPLE_RECHECK_INTERVAL_MS),
-    limit: Math.min(RENEWAL_CHECK_LIMIT, budget.remaining),
+    limit,
   });
+  if (rows.length >= limit) {
+    // More renewals are due than one run may ask about; raise the budget.
+    console.warn("apple_iap.renewal_check_saturated", { metric: "apple_iap.renewal_check_saturated", limit });
+  }
   let checked = 0;
   let extended = 0;
   let failures = 0;
   for (const row of rows) {
+    if (budget.remaining <= 0) break;
     const outcome = await refreshOrError(row, deps, budget);
-    if (outcome.kind === "skipped") break;
+    // An unsigned environment is never asked; it must not block the rows after it.
+    if (outcome.kind === "skipped") continue;
     checked += 1;
     if (outcome.kind === "error") failures += 1;
     if (outcome.kind === "granting" && endsLater(outcome.write.current, row)) extended += 1;
@@ -220,6 +247,7 @@ async function lapseDecision(
   const outcome = await refreshOrError(row, deps, budget);
   switch (outcome.kind) {
     case "granting":
+    case "unchanged":
       return "recovered";
     case "not_granting":
     case "unknown":

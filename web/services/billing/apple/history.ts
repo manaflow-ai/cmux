@@ -3,7 +3,8 @@
 // days only; anything it gave up on (or that never reached us) is fetched
 // here and fed through the same verify, ledger and apply path as the
 // webhook (receiveAppleNotification), so it is idempotent on
-// `notificationUUID`. Apple keeps 180 days of history.
+// `notificationUUID`. A notification already in the ledger is left to the
+// retry job (and its backoff). Apple keeps 180 days of history.
 
 import { appleNotificationHistorySources, type AppleNotificationHistorySource } from "./config";
 import { errorText } from "./effects";
@@ -23,6 +24,15 @@ const APPLE_HISTORY_LIMIT_MS = 180 * 24 * HOUR;
 const PAGES_PER_SOURCE = 5;
 
 export type AppleHistoryCounts = Record<AppleNotificationOutcome | "rejected", number>;
+
+export type AppleHistoryOptions = {
+  readonly pagesPerSource?: number;
+  /**
+   * Wall-clock time (ms) after which no further page is requested, so the
+   * cron's other steps always finish inside the function's time limit.
+   */
+  readonly deadlineMs?: number;
+};
 
 export type AppleHistorySourceResult = AppleNotificationHistorySource & {
   readonly pages: number;
@@ -52,21 +62,17 @@ function later(a: Date, b: Date): Date {
 
 /**
  * The window to read: a partly read window continues with its saved token;
- * otherwise a new one runs from the cursor (or, the first time, the newest
- * notification already in the ledger) minus the overlap, to now.
+ * otherwise a new one runs from the cursor minus the overlap (the first
+ * time, from Apple's retention limit, so everything Apple still keeps is
+ * covered once) to now.
  */
-async function historyWindow(
-  source: AppleNotificationHistorySource,
-  cursor: AppleNotificationHistoryCursor | null,
-  deps: AppleIapDependencies,
-  now: Date,
-): Promise<HistoryWindow> {
+function historyWindow(cursor: AppleNotificationHistoryCursor | null, now: Date): HistoryWindow {
   const oldest = new Date(now.getTime() - APPLE_HISTORY_RETENTION_MS);
   const resumable = new Date(now.getTime() - APPLE_HISTORY_LIMIT_MS);
   if (cursor?.paginationToken && cursor.windowStartAt && cursor.windowEndAt && cursor.windowStartAt > resumable) {
     return { startDate: cursor.windowStartAt, endDate: cursor.windowEndAt, paginationToken: cursor.paginationToken };
   }
-  const base = cursor?.nextStartAt ?? await deps.store.latestNotificationSignedDate(source.environment) ?? oldest;
+  const base = cursor?.nextStartAt ?? oldest;
   return {
     startDate: later(new Date(base.getTime() - APPLE_HISTORY_OVERLAP_MS), oldest),
     endDate: now,
@@ -78,7 +84,28 @@ function emptyCounts(): AppleHistoryCounts {
   return { processed: 0, duplicate: 0, skipped: 0, failed: 0, rejected: 0 };
 }
 
-/** Feeds one page through the webhook path. A verification failure is counted, not fatal. */
+/**
+ * The `notificationUUID` a signed payload claims, read without verifying it.
+ * Used only to skip a notification already in the ledger, which does
+ * nothing, so a forged value can at most skip a no-op.
+ */
+function claimedNotificationUuid(signedPayload: string): string | null {
+  const body = signedPayload.split(".")[1];
+  if (!body) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { notificationUUID?: unknown };
+    return typeof decoded.notificationUUID === "string" ? decoded.notificationUUID : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Feeds one page through the webhook path. A payload that fails
+ * verification for good is counted and skipped; a retryable verification
+ * failure (Apple's certificate check unreachable) throws, so the cursor stays
+ * and the page is read again.
+ */
 async function ingestPage(
   signedPayloads: readonly string[],
   source: AppleNotificationHistorySource,
@@ -86,12 +113,17 @@ async function ingestPage(
   deps: AppleIapDependencies,
 ): Promise<void> {
   for (const signedPayload of signedPayloads) {
+    const uuid = claimedNotificationUuid(signedPayload);
+    if (uuid && await deps.store.notification(uuid)) {
+      counts.duplicate += 1;
+      continue;
+    }
     try {
       counts[await receiveAppleNotification(signedPayload, deps)] += 1;
     } catch (error) {
-      if (!(error instanceof AppleVerificationError)) throw error;
+      if (!(error instanceof AppleVerificationError) || error.reason === "retryable") throw error;
       counts.rejected += 1;
-      console.warn("apple_iap.history_notification_rejected", { ...source, reason: error.message.slice(0, 200) });
+      console.warn("apple_iap.history_notification_rejected", { ...source, reason: error.reason });
     }
   }
 }
@@ -100,6 +132,7 @@ async function backfillSource(
   source: AppleNotificationHistorySource,
   deps: AppleIapDependencies,
   pagesPerSource: number,
+  deadlineMs: number,
 ): Promise<AppleHistorySourceResult> {
   const serverApi = deps.serverApi!;
   const now = deps.now();
@@ -108,12 +141,12 @@ async function backfillSource(
   const result = (complete: boolean, error: string | null): AppleHistorySourceResult =>
     ({ ...source, pages, notifications: counts, complete, error });
   const cursor = await deps.store.notificationHistoryCursor(source.bundleId, source.environment);
-  const window = await historyWindow(source, cursor, deps, now);
+  const window = historyWindow(cursor, now);
   let paginationToken = window.paginationToken;
   const save = (fields: Omit<AppleNotificationHistoryCursor, "bundleId" | "environment">) =>
     deps.store.saveNotificationHistoryCursor({ ...source, ...fields });
   try {
-    while (pages < pagesPerSource) {
+    while (pages < pagesPerSource && Date.now() < deadlineMs) {
       const page = await serverApi.notificationHistory({ ...source, ...window, paginationToken });
       pages += 1;
       await ingestPage(page.signedPayloads, source, counts, deps);
@@ -153,12 +186,14 @@ async function backfillSource(
  */
 export async function backfillAppleNotifications(
   deps: AppleIapDependencies,
-  options: { readonly pagesPerSource?: number } = {},
+  options: AppleHistoryOptions = {},
 ): Promise<AppleHistoryResult> {
   if (!deps.serverApi) return { configured: false, sources: [], failures: 0 };
   const sources: AppleHistorySourceResult[] = [];
+  const pagesPerSource = options.pagesPerSource ?? PAGES_PER_SOURCE;
+  const deadlineMs = options.deadlineMs ?? Number.POSITIVE_INFINITY;
   for (const source of appleNotificationHistorySources(deps.env ?? process.env)) {
-    sources.push(await backfillSource(source, deps, options.pagesPerSource ?? PAGES_PER_SOURCE));
+    sources.push(await backfillSource(source, deps, pagesPerSource, deadlineMs));
   }
   return { configured: true, sources, failures: sources.filter((source) => source.error !== null).length };
 }

@@ -38,7 +38,7 @@ import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVe
 
 const AUTO_RENEWABLE_TYPE = "Auto-Renewable Subscription";
 /** App Store Server API status lookups one cron run may spend on re-checks. */
-const RECHECK_CALLS_PER_RUN = 60;
+const RECHECK_CALLS_PER_RUN = 150;
 
 export type AppleIapDependencies = {
   readonly store: AppleIapStore;
@@ -129,7 +129,6 @@ async function freshAppleState(
     if (!snapshot) return fallback("no_status");
     const fresh = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
     if (fresh.originalTransactionId !== transaction.originalTransactionId) return fallback("transaction_mismatch");
-    if (isFamilySharedAppleTransaction(fresh)) return fallback("family_shared");
     const renewal = snapshot.signedRenewalInfo
       ? await deps.verifier.verifyRenewalInfo(snapshot.signedRenewalInfo, {
           environment,
@@ -147,7 +146,6 @@ export type AppleClientFallbackReason =
   | "unsigned_environment"
   | "no_status"
   | "transaction_mismatch"
-  | "family_shared"
   | "lookup_failed";
 
 /**
@@ -223,14 +221,15 @@ export async function recordClientAppleTransaction(
   if (!transaction.originalTransactionId || !transaction.transactionId) {
     throw new AppleTransactionRejectedError("invalid_transaction");
   }
-  if (isFamilySharedAppleTransaction(transaction)) {
-    // Audit only, attributed to the account that posted it; never a grant.
+  await assertTransactionOwner(transaction, input.userId, deps.store);
+  const fresh = await freshAppleState(transaction, deps);
+  if (isFamilySharedAppleTransaction(transaction) || isFamilySharedAppleTransaction(fresh.transaction)) {
+    // Audit only, attributed to the account that posted it (its token, if
+    // any, already matched); never a grant.
     await deps.store.recordTransaction(appleTransactionRowFrom(transaction, input.userId));
     reportFamilyShared(transaction, "client");
     throw new AppleTransactionRejectedError("family_shared");
   }
-  await assertTransactionOwner(transaction, input.userId, deps.store);
-  const fresh = await freshAppleState(transaction, deps);
   const state = stateOrReject(() => appleSubscriptionStateFrom({ ...fresh, now: deps.now() }));
   let write: AppleSubscriptionWrite;
   try {
@@ -426,7 +425,7 @@ async function currentSubscriptionState(
   const unchanged = { state: notified, transaction };
   if (!existing || !deps.serverApi || !isOlderAppleTransaction(notified, existing)) return unchanged;
   const fresh = await freshAppleState(transaction, deps);
-  if (fresh.transaction === transaction) return unchanged;
+  if (fresh.transaction === transaction || isFamilySharedAppleTransaction(fresh.transaction)) return unchanged;
   try {
     return { state: appleSubscriptionStateFrom({ ...fresh, now: deps.now() }), transaction: fresh.transaction };
   } catch (error) {

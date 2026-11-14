@@ -5,7 +5,7 @@
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, lt, max, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import {
@@ -231,8 +231,6 @@ export type AppleIapStore = {
   markAppleChecked(originalTransactionId: string, checkedAt: Date): Promise<void>;
   notificationHistoryCursor(bundleId: string, environment: string): Promise<AppleNotificationHistoryCursor | null>;
   saveNotificationHistoryCursor(cursor: AppleNotificationHistoryCursor): Promise<void>;
-  /** The newest `signed_date` in the ledger for the environment, or null. */
-  latestNotificationSignedDate(environment: string): Promise<Date | null>;
   /**
    * Records that a lapse was applied, so the row does not match again:
    * `active` becomes `expired`, `grace_period` becomes `billing_retry` (Apple
@@ -526,13 +524,7 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
           },
         });
     },
-    async latestNotificationSignedDate(environment) {
-      const [row] = await db()
-        .select({ latest: max(appleNotifications.signedDate) })
-        .from(appleNotifications)
-        .where(eq(appleNotifications.environment, environment));
-      return row?.latest ?? null;
-    },
+
     async markLapseSwept(originalTransactionIds, now) {
       if (originalTransactionIds.length === 0) return;
       await db().update(appleSubscriptions)

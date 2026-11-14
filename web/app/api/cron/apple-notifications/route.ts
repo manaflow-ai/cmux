@@ -2,8 +2,8 @@ import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { runAppleIapCron } from "../../../../services/billing/apple/cron";
 import { captureBillingError } from "../../../../services/errors";
 
-// Budgets in the service bound the work (60 status lookups and 5 history
-// pages per history per run); the headroom covers a slow App Store API.
+// Budgets in the service bound the work (150 status lookups, 5 history pages
+// per history, and the backfill stops requesting pages after 200 s).
 export const maxDuration = 300;
 
 /**

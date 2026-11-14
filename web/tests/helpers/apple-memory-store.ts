@@ -178,13 +178,7 @@ export function memoryAppleStore(): MemoryAppleStore {
     async saveNotificationHistoryCursor(cursor) {
       historyCursors.set(cursorKey(cursor.bundleId, cursor.environment), { ...cursor });
     },
-    async latestNotificationSignedDate(environment) {
-      let latest: Date | null = null;
-      for (const row of notifications.values()) {
-        if (row.environment === environment && (!latest || row.signedDate > latest)) latest = row.signedDate;
-      }
-      return latest;
-    },
+
     async markLapseSwept(ids, now) {
       for (const id of ids) {
         const row = subscriptions.get(id);

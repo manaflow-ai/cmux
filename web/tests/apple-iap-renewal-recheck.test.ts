@@ -77,6 +77,9 @@ describe("renewal re-check before access ends", () => {
     expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ renewalsChecked: 1, renewalsExtended: 0 });
     expect(f.subscription().appleCheckedAt?.getTime()).toBe(NOW.getTime());
     expect(f.subscription().expiresAt?.getTime()).toBe(oldExpiry);
+    // Nothing changed, so nothing was written or re-derived.
+    expect(f.subscription().stateSignedAt.getTime()).toBe(NOW.getTime() - 30 * DAY);
+    expect(f.applied).toEqual([]);
 
     f.clock = new Date(NOW.getTime() + 20 * MINUTE);
     await retryAppleNotifications({}, f.deps());
@@ -133,16 +136,25 @@ describe("renewal re-check before access ends", () => {
     expect(f.applied).toEqual([]);
   });
 
-  test("spends at most 60 status lookups per run", async () => {
-    for (let index = 0; index < 70; index += 1) {
+  test("asks about at most 100 renewals per run, soonest first", async () => {
+    for (let index = 0; index < 120; index += 1) {
       await seedSubscription(f, {
-        originalTransactionId: `otx-${index}`, expiresAt: new Date(oldExpiry + index * MINUTE),
+        originalTransactionId: `otx-${String(index).padStart(3, "0")}`, expiresAt: new Date(oldExpiry + index * MINUTE),
       });
     }
     f.serverApi = f.statusApi(async () => null);
     await retryAppleNotifications({}, f.deps());
-    expect(f.statusCalls.length).toBeLessThanOrEqual(60);
-    expect(f.statusCalls.length).toBeGreaterThan(0);
+    expect(f.statusCalls).toHaveLength(100);
+    expect(f.statusCalls[0]).toBe("otx-000");
+    expect(f.statusCalls).not.toContain("otx-119");
+  });
+
+  test("a row in an environment Apple does not sign never blocks the rows after it", async () => {
+    await seedSubscription(f, { originalTransactionId: "xcode", environment: "Xcode", expiresAt: new Date(oldExpiry - HOUR) });
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
+    f.serverApi = f.statusApi(async () => renewedSnapshot());
+    expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ renewalsChecked: 1, renewalsExtended: 1 });
+    expect(f.statusCalls).toEqual([ORIGINAL]);
   });
 });
 

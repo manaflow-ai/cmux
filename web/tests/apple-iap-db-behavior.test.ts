@@ -274,19 +274,6 @@ describe("Apple IAP store", () => {
     expect((await store.notificationHistoryCursor("com.cmux.app", "Sandbox"))?.paginationToken).toBeNull();
   });
 
-  dbTest("the newest ledger signed date is per environment", async () => {
-    expect(await store.latestNotificationSignedDate("Production")).toBeNull();
-    const ledger = {
-      notificationUuid: "n-1", notificationType: "DID_RENEW", subtype: null, environment: "Production",
-      originalTransactionId: "otx-1", signedDate: new Date(NOW - DAY), payload: { data: {} },
-    };
-    await store.insertNotification(ledger);
-    await store.insertNotification({ ...ledger, notificationUuid: "n-2", signedDate: new Date(NOW) });
-    await store.insertNotification({ ...ledger, notificationUuid: "n-3", environment: "Sandbox", signedDate: new Date(NOW + DAY) });
-    expect((await store.latestNotificationSignedDate("Production"))?.getTime()).toBe(NOW);
-    expect((await store.latestNotificationSignedDate("Sandbox"))?.getTime()).toBe(NOW + DAY);
-  });
-
   dbTest("the lapse sweep lists rows past expiry and grace, oldest lapse first, until swept", async () => {
     const write = (overrides: Partial<AppleSubscriptionState>, userId: string) =>
       store.writeSubscriptionState(state(overrides), { tokenOwner: userId });

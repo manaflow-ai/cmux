@@ -8,6 +8,7 @@ import { appleNotificationHistorySources } from "../services/billing/apple/confi
 import { APPLE_HISTORY_OVERLAP_MS, APPLE_HISTORY_RETENTION_MS, backfillAppleNotifications } from "../services/billing/apple/history";
 import { AppleHistoryPaginationError, type AppleServerApi } from "../services/billing/apple/serverApi";
 import { receiveAppleNotification } from "../services/billing/apple/service";
+import { AppleVerificationError } from "../services/billing/apple/verifier";
 import {
   BUNDLE,
   DAY,
@@ -105,17 +106,18 @@ describe("backfill", () => {
     expect(f.store.notifications.size).toBe(1);
   });
 
-  test("starts from the newest ledger notification minus the overlap, then from the cursor", async () => {
+  test("the first window covers Apple's whole retention, then each window starts at the cursor minus the overlap", async () => {
     await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
-    const latest = NOW.getTime() - 2 * DAY;
+    // A notification already in the ledger does not narrow the first window:
+    // anything Apple gave up on before it is what the backfill is for.
     await receiveAppleNotification(notification({
-      type: "DID_CHANGE_RENEWAL_PREF", status: 1, signedDate: latest, tx: transaction({ transactionId: "period-1" }, f.token),
+      type: "DID_CHANGE_RENEWAL_PREF", status: 1, signedDate: NOW.getTime() - 2 * DAY, tx: transaction({ transactionId: "period-1" }, f.token),
     }), f.deps());
     f.serverApi = historyApi([{ signedPayloads: [] }]);
 
     await backfillAppleNotifications(f.deps());
     expect(productionRequests()[0]).toMatchObject({ paginationToken: null });
-    expect(productionRequests()[0]!.startDate.getTime()).toBe(latest - APPLE_HISTORY_OVERLAP_MS);
+    expect(productionRequests()[0]!.startDate.getTime()).toBe(NOW.getTime() - APPLE_HISTORY_RETENTION_MS);
     expect(productionRequests()[0]!.endDate.getTime()).toBe(NOW.getTime());
     expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ paginationToken: null });
     expect(f.store.historyCursors.get(`Production:${BUNDLE}`)?.nextStartAt.getTime()).toBe(NOW.getTime());
@@ -126,11 +128,46 @@ describe("backfill", () => {
     expect(productionRequests()[0]!.startDate.getTime()).toBe(NOW.getTime() - APPLE_HISTORY_OVERLAP_MS);
   });
 
-  test("an empty ledger starts at Apple's 180-day retention limit", async () => {
-    f.serverApi = historyApi([{ signedPayloads: [] }]);
-    await backfillAppleNotifications(f.deps());
-    expect(productionRequests()[0]!.startDate.getTime()).toBe(NOW.getTime() - APPLE_HISTORY_RETENTION_MS);
+  test("never asks for more than Apple's 180 days", () => {
     expect(APPLE_HISTORY_RETENTION_MS).toBeLessThan(180 * DAY);
+  });
+
+  test("a retryable verification failure keeps the cursor so the page is read again", async () => {
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
+    f.serverApi = historyApi([{ signedPayloads: [missedRenewal()] }]);
+    const outage = {
+      ...f.deps().verifier,
+      verifyNotification: async () => { throw new AppleVerificationError("retryable"); },
+    };
+    const result = await backfillAppleNotifications(f.deps({ verifier: outage }));
+    expect(result.sources.find((source) => source.environment === "Production" && source.bundleId === BUNDLE))
+      .toMatchObject({ complete: false, notifications: { rejected: 0 } });
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toBeUndefined();
+
+    await backfillAppleNotifications(f.deps());
+    expect(f.subscription().lastTransactionId).toBe("period-2");
+  });
+
+  test("a notification already in the ledger is left to the retry job and its backoff", async () => {
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry) });
+    const payload = missedRenewal();
+    f.applyFailures = 1;
+    expect(await receiveAppleNotification(payload, f.deps())).toBe("failed");
+    const [row] = [...f.store.notifications.values()];
+    expect(row!.attemptCount).toBe(1);
+    f.serverApi = historyApi([{ signedPayloads: [payload] }]);
+    const result = await backfillAppleNotifications(f.deps());
+    expect(result.sources.find((source) => source.environment === "Production" && source.bundleId === BUNDLE)?.notifications)
+      .toMatchObject({ duplicate: 1, processed: 0, failed: 0 });
+    expect(f.store.notifications.get(row!.notificationUuid)).toMatchObject({ attemptCount: 1, processedAt: null });
+  });
+
+  test("stops requesting pages once the cron's time budget is spent", async () => {
+    f.serverApi = historyApi([{ signedPayloads: [] }]);
+    const result = await backfillAppleNotifications(f.deps(), { deadlineMs: Date.now() - 1 });
+    expect(requests).toEqual([]);
+    expect(result.failures).toBe(0);
+    expect(result.sources.every((source) => !source.complete && source.pages === 0)).toBe(true);
   });
 
   test("paginates within the page budget and resumes the same window on the next run", async () => {
