@@ -342,12 +342,13 @@ mod reader {
         }
         let mut procs: Vec<ProcStat> = Vec::with_capacity(pids.len());
         for pid in pids {
-            match fs::read_to_string(proc_dir.join(format!("{pid}/stat"))) {
+            // Bytes: the name of a program in the line is not always UTF-8.
+            match fs::read(proc_dir.join(format!("{pid}/stat"))) {
                 // A process that exited between the listing and the read is gone, not unknown.
                 Err(e) if gone(&e) => {}
                 // Any other failure could hide a running process: the workload is unknown.
                 Err(_) => return None,
-                Ok(text) => procs.push(parse_stat(pid, &text)?),
+                Ok(line) => procs.push(parse_stat(pid, &String::from_utf8_lossy(&line))?),
             }
         }
         if procs.is_empty() {

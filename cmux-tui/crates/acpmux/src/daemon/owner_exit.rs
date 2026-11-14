@@ -128,7 +128,8 @@ pub fn process_start(pid: u32) -> Option<u64> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         // Field 22 (`starttime`); the command name before it may hold spaces and parentheses.
-        let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let raw =
+            cmux_tui_platform::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
         let (_, fields) = raw.rsplit_once(')')?;
         fields.split_whitespace().nth(19)?.parse().ok()
     }

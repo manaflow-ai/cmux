@@ -4,9 +4,10 @@ use std::path::Path;
 
 /// The parent that the stat line in the file `path` names, or None when the
 /// line does not read. `pid (comm) state ppid ...`; comm may hold spaces and
-/// parens.
+/// parens, and is not always UTF-8: the line is read as bytes.
 pub(super) fn parent_in(path: impl AsRef<Path>) -> Option<u32> {
-    let stat = std::fs::read_to_string(path).ok()?;
+    let stat = std::fs::read(path).ok()?;
+    let stat = String::from_utf8_lossy(&stat);
     let (_, after) = stat.rsplit_once(')')?;
     after.split_whitespace().nth(1)?.parse().ok()
 }

@@ -600,7 +600,8 @@ mod imp {
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
     fn stat(pid: u32) -> Option<Vec<String>> {
-        let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let raw =
+            cmux_tui_platform::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
         let (_, fields) = raw.rsplit_once(')')?;
         Some(fields.split_whitespace().map(str::to_owned).collect())
     }

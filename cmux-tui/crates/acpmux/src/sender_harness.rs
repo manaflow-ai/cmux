@@ -544,7 +544,7 @@ fn is_terminal(app: &str) -> bool {
 /// One process, read for its pid alone (Linux `/proc/<pid>/stat`: its command name and parent).
 #[cfg(target_os = "linux")]
 fn lookup(pid: u32) -> Option<Proc> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = cmux_tui_platform::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     stat_proc(pid, &stat)
 }
 

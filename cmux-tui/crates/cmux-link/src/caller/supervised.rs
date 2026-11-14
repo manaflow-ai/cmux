@@ -107,11 +107,12 @@ pub(super) fn process_start(pid: u32) -> io::Result<ProcessStart> {
     linux_start_in(format!("/proc/{pid}/stat"))
 }
 
-/// The start that the stat line in the file `path` names.
+/// The start that the stat line in the file `path` names. The line is read
+/// as bytes: the name of a program in it is not always UTF-8.
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 fn linux_start_in(path: impl AsRef<std::path::Path>) -> io::Result<ProcessStart> {
-    let stat = std::fs::read_to_string(path)?;
-    linux_start(&stat).ok_or_else(refused)
+    let stat = std::fs::read(path)?;
+    linux_start(&String::from_utf8_lossy(&stat)).ok_or_else(refused)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", test))]

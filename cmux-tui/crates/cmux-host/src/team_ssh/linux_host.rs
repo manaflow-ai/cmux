@@ -56,8 +56,9 @@ impl LinuxHost {
 
 /// Field 22 of `/proc/<pid>/stat` (start time in clock ticks since boot).
 pub fn proc_start_time(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // comm (field 2) may hold spaces and parens; fields after it are plain.
+    let stat = fs::read(format!("/proc/{pid}/stat")).ok()?;
+    let stat = String::from_utf8_lossy(&stat);
+    // comm (field 2) may hold spaces and parens and is not always UTF-8; fields after it are plain.
     let rest = stat.get(stat.rfind(')')? + 1..)?;
     rest.split_whitespace().nth(19)?.parse().ok()
 }

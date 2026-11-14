@@ -1045,9 +1045,9 @@ fn process_name(pid: u32) -> Option<String> {
         (!argv0.is_empty()).then(|| argv0.to_string())
     });
     argv0.or_else(|| {
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-        let comm = comm.trim();
-        (!comm.is_empty()).then(|| comm.to_string())
+        let comm = std::fs::read(format!("/proc/{pid}/comm")).ok()?;
+        let comm = String::from_utf8_lossy(&comm).trim().to_string();
+        (!comm.is_empty()).then_some(comm)
     })
 }
 
