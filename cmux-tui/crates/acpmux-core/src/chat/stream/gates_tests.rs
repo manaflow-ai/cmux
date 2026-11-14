@@ -610,6 +610,78 @@ struct Appender {
     credited: u64,
     /// Bytes read by each sample, from the `page`'s send to its answer.
     read: Vec<u64>,
+    /// What each sample's drop puts out of the page cache.
+    drop: DropSet,
+    /// Each sample's parts, for the probe.
+    probes: Vec<Probe>,
+}
+
+/// The files a sample puts out of the page cache before it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DropSet {
+    /// Every segment under `rows/`: the gate's drop.
+    Rows,
+    /// Only the segments the sample touches: the first (the page reads it) and the last (the
+    /// append writes it), one file on the small side.
+    Touched,
+    /// Every file under the book.
+    Book,
+}
+
+/// One sample's parts, each from the `page`'s send: when the page was answered, when the clock
+/// started (after the raw line's write) and when the appended row reached the subscriber; the
+/// drop's own time, and what the process paid from the send to the page's answer.
+#[derive(Clone, Copy, Debug, Default)]
+struct Probe {
+    page_ns: u64,
+    start_ns: u64,
+    append_ns: u64,
+    drop_ns: u64,
+    read_bytes: u64,
+    majflt: u64,
+    minflt: u64,
+    inblock: u64,
+}
+
+fn rusage() -> (u64, u64, u64) {
+    // SAFETY: `usage` is a plain struct the call fills.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+    (usage.ru_majflt as u64, usage.ru_minflt as u64, usage.ru_inblock as u64)
+}
+
+/// Bytes this process caused to be read from the storage.
+fn read_bytes() -> u64 {
+    proc_field("/proc/self/io", "read_bytes:")
+}
+
+fn files_under(dir: &Path, into: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files_under(&path, into);
+        } else {
+            into.push(path);
+        }
+    }
+}
+
+fn drop_set(book: &Path, set: DropSet) {
+    let mut files = Vec::new();
+    match set {
+        DropSet::Rows => files_under(&book.join("rows"), &mut files),
+        DropSet::Book => files_under(book, &mut files),
+        DropSet::Touched => {
+            let mut segments = Vec::new();
+            files_under(&book.join("rows"), &mut segments);
+            segments.retain(|path| path.extension().is_some_and(|ext| ext == "seg"));
+            segments.sort();
+            files.extend(segments.first().cloned());
+            files.extend(segments.last().cloned().filter(|last| segments.first() != Some(last)));
+        }
+    }
+    drop_files(&files);
 }
 
 fn appender(rt: &Runtime, fixture: Fixture) -> Appender {
@@ -620,14 +692,22 @@ fn appender(rt: &Runtime, fixture: Fixture) -> Appender {
         client.window("s").await
     });
     let consumed = window_bytes(&window);
-    Appender { reader, edition: window.edition, consumed, credited: consumed, read: Vec::new() }
+    Appender {
+        reader,
+        edition: window.edition,
+        consumed,
+        credited: consumed,
+        read: Vec::new(),
+        drop: DropSet::Rows,
+        probes: Vec::new(),
+    }
 }
 
-/// Puts every segment of a book out of the page cache: the next read of one is from the disk.
-fn drop_cached(rows: &Path) {
+/// Puts each file out of the page cache: the next read of one is from the disk.
+fn drop_files(files: &[PathBuf]) {
     use std::os::fd::AsRawFd;
-    for entry in fs::read_dir(rows).unwrap() {
-        let file = File::open(entry.unwrap().path()).unwrap();
+    for path in files {
+        let file = File::open(path).unwrap();
         // A page not yet written back is not dropped.
         file.sync_data().unwrap();
         // SAFETY: the descriptor is open for the call, and the call takes no memory of ours.
@@ -660,8 +740,9 @@ async fn until_marker(client: &mut Client, marker: &[u8]) -> u64 {
 /// its row's delta at the live subscriber: the append's wait behind the cold read. The bytes
 /// read from the `page`'s send to its answer are kept beside it.
 fn append_sample(rt: &Runtime, side: &mut Appender) -> u64 {
-    drop_cached(&side.reader.fixture.chat.book().join("rows"));
-    let read = rchar();
+    let dropping = Instant::now();
+    drop_set(&side.reader.fixture.chat.book(), side.drop);
+    let drop_ns = dropping.elapsed().as_nanos() as u64;
     let marker = format!("append-{:08}", side.reader.n);
     side.reader.n += 1;
     let notice = side.reader.fixture.raw.notice(&marker);
@@ -672,14 +753,34 @@ fn append_sample(rt: &Runtime, side: &mut Appender) -> u64 {
     )
     .unwrap();
     let (reply, answer) = Reply::channel("page", Some("s".to_owned()), None);
+    // The page's answer is timed on a thread of its own, so the append's wait is not in it.
+    let waiter = std::thread::spawn(move || {
+        let frame = answer.recv_timeout(WAIT).expect("the page is answered");
+        (Instant::now(), rchar(), read_bytes(), rusage(), frame)
+    });
+    let (read, stored, (majflt, minflt, inblock)) = (rchar(), read_bytes(), rusage());
+    let sent = Instant::now();
     handle.page(page, person_id(None), reply);
     chat.append(&[notice]);
     let start = Instant::now();
     handle.wake().unwrap();
     let consumed = rt.block_on(until_marker(&mut side.reader.client, marker.as_bytes()));
-    let elapsed = start.elapsed().as_nanos() as u64;
-    let page = answer.recv_timeout(WAIT).expect("the page is answered");
-    side.read.push(rchar() - read);
+    let appended = Instant::now();
+    let elapsed = appended.duration_since(start).as_nanos() as u64;
+    let (answered, read_after, stored_after, (majflt_after, minflt_after, inblock_after), page) =
+        waiter.join().unwrap();
+    side.read.push(read_after - read);
+    let since = |at: Instant| at.saturating_duration_since(sent).as_nanos() as u64;
+    side.probes.push(Probe {
+        page_ns: since(answered),
+        start_ns: since(start),
+        append_ns: since(appended),
+        drop_ns,
+        read_bytes: stored_after - stored,
+        majflt: majflt_after - majflt,
+        minflt: minflt_after - minflt,
+        inblock: inblock_after - inblock,
+    });
     assert_eq!(page.kind, FrameKind::Page, "{}", String::from_utf8_lossy(page.payload()));
     side.consumed += consumed;
     if side.consumed - side.credited >= CREDIT_WINDOW_BYTES / 4 {
@@ -708,10 +809,64 @@ fn v2_pr03c_append_behind_page() {
     );
     let (small_read, god_read) = (percentile(&small.read), percentile(&god.read));
     println!("{name} mode=cold_page small_read_p95={small_read} god_read_p95={god_read}");
+    report_probes(name, "cold_page", &small.probes, &god.probes);
     emit(name, measures, "ns");
     // Each sample holds a cold read, as a row that holds a file sync does: judged on the best
     // round's p95 alone.
     measures.check(name, "cold_page", false);
+}
+
+/// The p50 and p95 of each part of the samples, small then god.
+fn report_probes(name: &str, mode: &str, small: &[Probe], god: &[Probe]) {
+    let parts: [(&str, fn(&Probe) -> u64); 9] = [
+        ("page_ns", |p| p.page_ns),
+        ("start_ns", |p| p.start_ns),
+        ("append_ns", |p| p.append_ns),
+        ("after_page_ns", |p| p.append_ns.saturating_sub(p.page_ns)),
+        ("drop_ns", |p| p.drop_ns),
+        ("read_bytes", |p| p.read_bytes),
+        ("majflt", |p| p.majflt),
+        ("minflt", |p| p.minflt),
+        ("inblock", |p| p.inblock),
+    ];
+    for (part, of) in parts {
+        let quantiles = |probes: &[Probe]| {
+            let mut values: Vec<u64> = probes.iter().map(of).collect();
+            values.sort_unstable();
+            (values[values.len() / 2], percentile(&values))
+        };
+        let ((small_50, small_95), (god_50, god_95)) = (quantiles(small), quantiles(god));
+        println!(
+            "{name} mode={mode} probe={part} small_p50={small_50} god_p50={god_50} small_p95={small_95} god_p95={god_95}"
+        );
+    }
+}
+
+/// The append gate's samples under each drop: the gate's (every segment), only the segments
+/// a sample touches, and the whole book. Prints each sample's parts; judges nothing.
+#[test]
+#[ignore]
+fn v2_pr03c_append_behind_page_probe() {
+    let rt = runtime();
+    let (god, small) = god_and_small();
+    let (mut god, mut small) = (appender(&rt, god), appender(&rt, small));
+    let name = "v2.pr03c.append_behind_page_probe";
+    for set in [DropSet::Rows, DropSet::Touched, DropSet::Book] {
+        let mode = format!("{set:?}");
+        for side in [&mut small, &mut god] {
+            side.drop = set;
+            side.probes.clear();
+        }
+        paired(
+            name,
+            &mode,
+            8,
+            100,
+            || append_sample(&rt, &mut small),
+            || append_sample(&rt, &mut god),
+        );
+        report_probes(name, &mode, &small.probes, &god.probes);
+    }
 }
 
 // ---- v2.pr03c.queue_window ----
