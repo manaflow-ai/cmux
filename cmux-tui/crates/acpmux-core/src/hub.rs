@@ -509,7 +509,15 @@ impl Hub {
         let snapshot_path = directory.join("index.snap");
         let mut rebuild = false;
         let disk = match DiskSnapshot::open(&snapshot_path) {
-            Ok(disk) => disk,
+            Ok(Some(disk)) => match disk.validate_checkpoints() {
+                Ok(()) => Some(disk),
+                Err(error) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
+                    rebuild = true;
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            },
+            Ok(None) => None,
             Err(error) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
                 rebuild = true;
                 None
@@ -589,6 +597,7 @@ impl Hub {
         let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
+        let has_disk = index.disk().is_some();
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
@@ -644,7 +653,7 @@ impl Hub {
             rebuild_requested,
             rebuild_count,
         };
-        if index.disk().is_some() {
+        if has_disk {
             writer.start_hydration();
         } else {
             writer.hydrated.send_replace(disk::HydrationState::Ready);
@@ -683,14 +692,20 @@ impl Hub {
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {
             if let Ok(mut state) = subscriber.state.lock() {
-                state.window_pending = true;
-                subscriber.notify.notify_one();
+                if !state.window_pending {
+                    state.window_pending = true;
+                    subscriber.notify.notify_one();
+                }
             }
         }
     }
 
     fn request_rebuild(&self) {
         self.rebuild_requested.store(true, Ordering::Release);
+        // A page reader can be the only activity after the writer has gone
+        // idle. Wake the one writer so it owns the quarantine and compaction
+        // turn instead of waiting for a later summary submission.
+        self.updates.notify.notify_one();
     }
 
     /// A non-blocking enqueue: actor work never waits on list size. The
@@ -1451,6 +1466,8 @@ mod kin_tests;
 mod origin_gates;
 #[cfg(test)]
 mod origin_tests;
+#[cfg(test)]
+mod rebuild_tests;
 #[cfg(test)]
 mod storage_tests;
 #[cfg(test)]

@@ -34,9 +34,16 @@ impl HubWriter {
     /// rows as the sole published view. The next compaction writes a clean
     /// snapshot, while the rebuild counter tells each source to walk again.
     pub(super) fn rebuild_if_requested(&mut self) {
-        if !self.rebuild_requested.swap(false, Ordering::AcqRel) {
+        if !self.rebuild_requested.load(Ordering::Acquire) {
             return;
         }
+        // Let an already-running compaction finish its owned snapshot before
+        // moving files aside. The flag remains set and this method owns the
+        // next writer turn, so no second rebuild task can race the first.
+        if self.compaction.is_some() || self.retirement.is_some() {
+            return;
+        }
+        self.rebuild_requested.store(false, Ordering::Release);
         let Some(directory) = self.directory.clone() else {
             // In-memory hubs have no derived files to quarantine. Still fence
             // subscribers through the same source-walk epoch.
@@ -47,8 +54,6 @@ impl HubWriter {
         let current = self.published.load_full();
         self.hydration = None;
         self.maintenance = None;
-        self.compaction = None;
-        self.retirement = None;
         self.log = None;
         if super::quarantine_index(&directory).is_err() {
             // Keep the hub alive even if the quarantine itself hits a
@@ -58,7 +63,9 @@ impl HubWriter {
         }
         match IndexLog::open_with_snapshot(directory.join("index.log"), None) {
             Ok(log) => self.log = Some(log),
-            Err(_) => self.log_errors.fetch_add(1, Ordering::Relaxed),
+            Err(_) => {
+                self.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
         }
         let next = current.empty_for_rebuild();
         self.published.store(Arc::new(next));
