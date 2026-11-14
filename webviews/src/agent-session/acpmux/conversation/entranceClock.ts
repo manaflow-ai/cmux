@@ -26,11 +26,32 @@ const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
 type Frames = {
   request: (run: () => void) => number;
   cancel: (handle: number) => void;
+  post: (run: () => void) => () => void;
 };
+
+/// Posted from a frame callback: runs after that frame's rendering, with no fixed delay.
+function postAfterFrame(run: () => void): () => void {
+  const channel = new MessageChannel();
+  const cancel = () => {
+    channel.port1.onmessage = null;
+    channel.port1.close();
+    channel.port2.close();
+  };
+  channel.port1.onmessage = () => {
+    cancel();
+    run();
+  };
+  channel.port2.postMessage(null);
+  return cancel;
+}
 
 const windowFrames = (): Frames | undefined =>
   typeof requestAnimationFrame === "function"
-    ? { request: (run) => requestAnimationFrame(() => run()), cancel: (handle) => cancelAnimationFrame(handle) }
+    ? {
+        request: (run) => requestAnimationFrame(() => run()),
+        cancel: (handle) => cancelAnimationFrame(handle),
+        post: postAfterFrame,
+      }
     : undefined;
 
 /// Whether `animation` is the row's own finite entrance.
@@ -41,7 +62,7 @@ function isEntrance(animation: Animation): boolean {
   return end !== undefined && Number.isFinite(Number(end));
 }
 
-/// Holds `row`'s entrance at its start until the next frame, then plays it from there. Called in
+/// Holds `row`'s entrance at its start through the next frame, then plays it from there. Called in
 /// the layout effect of the commit that mounts the row, before it paints. Returns the cancel.
 export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefined = windowFrames()): () => void {
   if (!frames || typeof row.getAnimations !== "function") return () => {};
@@ -51,12 +72,18 @@ export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefin
     animation.pause();
     animation.currentTime = 0;
   }
+  let cancelPosted: (() => void) | undefined;
   let handle: number | undefined = frames.request(() => {
     handle = undefined;
-    for (const animation of held) if (animation.playState === "paused") animation.play();
+    cancelPosted = frames.post(() => {
+      cancelPosted = undefined;
+      for (const animation of held) if (animation.playState === "paused") animation.play();
+    });
   });
   return () => {
     if (handle !== undefined) frames.cancel(handle);
     handle = undefined;
+    cancelPosted?.();
+    cancelPosted = undefined;
   };
 }
