@@ -54,10 +54,15 @@ extension LiveCoordinator {
             liftedStale = cloudStaleHolds.filter { $0.value <= stamp }.map(\.key)
             cloudStaleHolds = cloudStaleHolds.filter { $0.value > stamp }
         }
+        // A stale-held machine that was targeted before this read skipped its dial (and waits in
+        // `connecting`): the read says it may dial, so it dials now. Taken before this apply targets
+        // anything, so a machine this apply targets first dials once (its own dial), never twice.
+        let skippedDials = liftedStale.filter { id in
+            guard let session = sessions[id] else { return false }
+            return session.link.target != nil && !session.link.phase.isConnected
+        }
         defer {
-            // A stale-held machine that was targeted meanwhile skipped its dial (and waits in
-            // `connecting`): the read says it may dial, so it dials now.
-            for id in liftedStale {
+            for id in skippedDials {
                 guard let session = sessions[id], session.link.target != nil, !session.link.phase.isConnected,
                       !cloudDialHeld(id) else { continue }
                 session.link.send(.macSignaled)
@@ -125,6 +130,10 @@ extension LiveCoordinator {
         let name = listed?.name ?? "this Cloud machine"
         log.error("cloud carrier refused: \(error.code, privacy: .public)")
         cloudRefusals[machineID] = CloudRefusal(code: error.code, note: CloudRefusal.note(error.code, machine: name), listed: listed)
+        // A refusal that later lifts (the listing changed, a wait passed) lifts on what the phone
+        // already had, maybe not a fresh read: the machine is also held until a read begun after
+        // now says it runs, so a lifted refusal never dials on an older list.
+        holdCloudDial(machineID)
         publishCloudMachines()
         applyLinks()
         onCloudRefusal?(machineID, error.code)

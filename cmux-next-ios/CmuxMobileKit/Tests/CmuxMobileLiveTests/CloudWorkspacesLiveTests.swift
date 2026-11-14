@@ -759,7 +759,12 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         // Its state moved (it restarted: starting, then running again): dialed again.
         cloud.refuse(vm, nil)
         live.applyCloudMachines([machine(.starting)])
+        // Running again as a list that is not a fresh read: the refusal lifts, but its hold keeps
+        // it from dialing on that list (review round 19).
         live.applyCloudMachines([machine(.running)])
+        await drain()
+        #expect(cloud.dials(vm) == 1, "a lifted refusal dialed on a list that was not a fresh read")
+        live.applyCloudMachines([machine(.running)], fromRead: true)
         await settle { store.macDataPhase(vm) == .live }
         #expect(!live.isCloudRefused(vm))
     }

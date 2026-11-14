@@ -201,8 +201,10 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   since then shows it running; its retries never ask the platform on an older
   list. A carrier that keeps dropping right after it connects waits longer each
   time (up to two minutes), so a failing daemon is not kept awake; the person
-  opening the machine skips that wait, and Retry (the person's own ask)
-  dials at once. A return to the
+  opening the machine skips that wait, and Retry (shown only on a
+  machine whose carrier refused the phone, and the person's own ask) dials at
+  once. A refusal that lifts by itself (the machine's listing changed, a wait
+  passed) still waits for a read begun after the refusal. A return to the
   foreground probes a live session rather than replacing it, for the same
   reason.
 - **Which role.** The grant carries the platform's `vmk` claim; the machine's
