@@ -1,5 +1,6 @@
 import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
+import { ExtensionsCard } from "./ExtensionsCard";
 import type { ReactNode } from "react";
 import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
@@ -82,6 +83,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
   worktreeSetup: () => <WorktreeSetupCard />,
+  extensions: () => <ExtensionsCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
   personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };

@@ -18,6 +18,8 @@
 #[cfg(unix)]
 mod actions;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;

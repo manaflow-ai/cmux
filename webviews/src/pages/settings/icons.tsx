@@ -172,6 +172,9 @@ const paths: Record<string, ReactNode> = {
       <path d="M3.8 4.6h5M3.8 7.6h3.4M10 9.4l4.2 1.6-1.8.7-.7 1.8L10 9.4Z" />
     </>
   ),
+  "puzzlepiece.extension": (
+    <path d="M3 5h2.4a1.6 1.6 0 1 1 3.2 0H11v2.4a1.6 1.6 0 1 1 0 3.2V13H8.6a1.6 1.6 0 1 0-3.2 0H3v-2.4a1.6 1.6 0 1 0 0-3.2Z" />
+  ),
   "arrow.turn.down.right": <path d="M3.5 3v4.6a2.4 2.4 0 0 0 2.4 2.4h7M10 7l3 3-3 3" />,
   grip: <path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" />,
   "eye.slash": (
