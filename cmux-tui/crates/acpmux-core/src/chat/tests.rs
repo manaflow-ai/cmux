@@ -886,3 +886,28 @@ fn history_permits_are_two_in_turn_and_a_stop_never_waits_for_one() {
     assert_eq!(permits.held(), 0);
     assert!(permits.acquire(&go).is_some());
 }
+
+#[test]
+fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
+    let page: Page = serde_json::from_value(serde_json::json!({"sid": "s", "stream": "chat:c"}))
+        .expect("a page");
+    let mut keyed = page.clone();
+    keyed.keys = Some(
+        (0..1000)
+            .map(|n| {
+                crate::wire::PageKey::Summary(crate::wire::ListKey {
+                    last_activity: n,
+                    chat_id: format!("chat-{n:060}"),
+                    origin: "o".repeat(64),
+                })
+            })
+            .collect(),
+    );
+    let count = |page: Page| {
+        let (reply, _rx) = Reply::channel("page", None, None);
+        Request::Page { page: Box::new(page), person: [0; 16], reply }.bytes()
+    };
+    let (plain, keyed_len) = (count(page), count(keyed.clone()));
+    let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
+    assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
+}

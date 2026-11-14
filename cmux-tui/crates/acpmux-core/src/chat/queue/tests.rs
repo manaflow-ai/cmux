@@ -240,12 +240,12 @@ fn a_raw_body_s_text_is_read_in_pieces_with_escapes_cut_anywhere_and_nothing_pas
     for prefix in 0..4 {
         let text = format!("{}{}", "p".repeat(prefix), "\\\"🙂é".repeat(400 * 1024 / 8));
         let msg = serde_json::json!({"kind": "mux", "event": "user_message",
-            "msg": {"promptId": "p", "text": text, "after": "z".repeat(4 << 20)}});
+            "msg": {"promptId": "p", "text": text, "trailer": "z".repeat(4 << 20)}});
         let mut bytes = serde_json::to_vec(&msg).unwrap();
         bytes.push(b'\n');
         let escaped = serde_json::to_vec(&text).unwrap();
         let mut line = Line::new(bytes);
-        let read = read_text(&mut line, 0).unwrap().expect("the text begins in the head");
+        let Some(read) = read_text(&mut line, 0).unwrap() else { panic!("no text in the head") };
         assert!(read == escaped, "prefix {prefix}: the text read is not the line's");
         let decoded: String = serde_json::from_slice(&read).unwrap();
         assert_eq!(decoded, text);
@@ -260,7 +260,8 @@ fn a_raw_body_s_text_is_read_in_pieces_with_escapes_cut_anywhere_and_nothing_pas
 
 #[test]
 fn a_raw_body_s_text_past_the_head_or_cut_off_is_none_or_refused() {
-    let late = serde_json::json!({"kind": "mux", "pad": "q".repeat(2 * HEAD_READ),
+    // `json!` writes keys in order: `head` comes before `msg`.
+    let late = serde_json::json!({"kind": "mux", "head": "q".repeat(2 * HEAD_READ),
         "msg": {"text": "late"}});
     let mut line = Line::new(serde_json::to_vec(&late).unwrap());
     assert_eq!(read_text(&mut line, 0).unwrap(), None);

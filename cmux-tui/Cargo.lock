@@ -151,6 +151,7 @@ dependencies = [
  "acpmux-client",
  "arc-swap",
  "cmux-scope",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",

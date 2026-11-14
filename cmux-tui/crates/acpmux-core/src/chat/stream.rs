@@ -126,6 +126,9 @@ pub(super) struct Subscribers {
     ops: Vec<u8>,
     /// The queue changed in the batch of lines being applied.
     queue_changed: bool,
+    /// A read for a subscriber refused a record: the book is rebuilt from raw at the end of
+    /// this step, and the subscribers, kept through it, get the new edition's window.
+    refused: bool,
 }
 
 impl Drop for Subscribers {
@@ -304,6 +307,10 @@ pub(super) fn step(state: &mut ActorState) -> Result<(), ChatError> {
             at += 1;
         }
     }
+    // A record a window, a resume or a page refused: the book is rebuilt from raw (rule 16).
+    if std::mem::take(&mut state.subs.refused) {
+        return Err(ChatError::Book(log::Error::Rebuild("a read refused a record")));
+    }
     Ok(())
 }
 
@@ -372,6 +379,7 @@ pub(super) fn window(
     let open = open_rows(state)?;
     let queue = queue_head(state);
     let cursor = state.log.last_seq();
+    state.subs.refused |= !read.refused.is_empty();
     let window = ChatWindow {
         sid: sid.to_owned(),
         cursor,
@@ -533,8 +541,10 @@ fn resume_step(
         fail(state, at);
         return Ok(());
     }
-    // A refused record ends the resume: the rows before it go out, then a window, no `end`.
+    // A refused record ends the resume: the rows before it go out, then a window, no `end`;
+    // the book is rebuilt after this step, and the new edition's window holds the row.
     let stop = since.stopped_on_refusal || !refused.is_empty();
+    state.subs.refused |= stop;
     let mut ops = Vec::new();
     let mut last = cursor;
     let mut ranges = ranges.into_iter();
@@ -791,6 +801,7 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         has_after: read.has_after,
         refused: read.refused,
     };
+    state.subs.refused |= !result.refused.is_empty();
     match Frame::json(FrameKind::Page, &result) {
         Ok(frame) => reply.answer(frame),
         Err(error) => reply.error("read_failed", &error.to_string()),

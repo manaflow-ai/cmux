@@ -947,3 +947,252 @@ fn a_subscriber_its_connection_let_go_is_forgotten_at_the_idle_check() {
     prune(&mut state);
     assert!(state.subs.is_empty());
 }
+
+/// Flips one byte of `marker` where a segment of the book's rows holds it: that record's check
+/// fails, and a read refuses it.
+fn flip_in_segments(book: &Path, marker: &[u8]) {
+    for path in walk(book) {
+        if path.extension().is_none_or(|extension| extension != "seg") {
+            continue;
+        }
+        let mut bytes = fs::read(&path).unwrap();
+        if let Some(at) = bytes.windows(marker.len()).position(|window| window == marker) {
+            bytes[at] ^= 1;
+            let mut file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+            file.write_all(&bytes).unwrap();
+            return;
+        }
+    }
+    panic!("no segment of the book holds {}", String::from_utf8_lossy(marker));
+}
+
+/// A resume across a record the book refuses, 300 KB in: its first frames go out, then a window
+/// that names the record, with no replay past it and no `end`. The actor rebuilds the book from
+/// raw: the subscriber's window of the new edition holds the row, and a subscriber live when the
+/// book took the new edition gets a fresh window in place of its next delta.
+#[test]
+fn a_resume_across_a_refused_record_gets_a_window_and_the_rebuilt_book_holds_the_row() {
+    runtime().block_on(async {
+        let chat = Chat::new(&turn(1, "first"));
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
+        // 20 replies of 15 KB, then the two marked ones: the first marked record is 300 KB in.
+        let pad = "w".repeat(15 * 1024);
+        let mut more: Vec<String> = (2..=21).flat_map(|n| turn(n, &format!("{n} {pad}"))).collect();
+        more.extend((22..=23).flat_map(|n| turn(n, &format!("marker{n}q"))));
+        chat.append(&more);
+        client.booked("marker23q").await;
+        client.sub("l", json!({})).await;
+        let live = client.window("l").await;
+        flip_in_segments(&chat.book(), b"marker22q");
+        client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
+        let (mut windows, mut replayed, mut live_next) = (Vec::new(), 0, None);
+        while windows.len() < 2 || live_next.is_none() {
+            let frame = client.recv().await;
+            let Ok(value) = frame.decode_json::<Value>() else { continue };
+            if value["sid"] == "l" {
+                live_next.get_or_insert(frame.kind);
+                if frame.kind == FrameKind::Window {
+                    let fresh: ChatWindow = frame.decode_json().unwrap();
+                    assert!(fresh.edition > live.edition, "the live subscriber's fresh window");
+                }
+                continue;
+            }
+            if value["sid"] != "r" {
+                continue;
+            }
+            match frame.kind {
+                FrameKind::Window => windows.push(frame.decode_json::<ChatWindow>().unwrap()),
+                FrameKind::Delta => {
+                    let delta: ChatDelta = frame.decode_json().unwrap();
+                    assert!(windows.is_empty(), "a delta between the two windows");
+                    assert_ne!(delta.replay, Some(crate::wire::ReplayMark::End), "an `end`");
+                    let text = String::from_utf8_lossy(frame.payload()).into_owned();
+                    assert!(!text.contains("marker23q"), "a record past the refused one");
+                    replayed += 1;
+                }
+                _ => {}
+            }
+        }
+        assert!(replayed >= 1, "the frames before the refused record went out");
+        assert_eq!(live_next, Some(FrameKind::Window), "a delta in place of the fresh window");
+        let (refusing, rebuilt) = (&windows[0], &windows[1]);
+        assert!(!refusing.refused.is_empty(), "the window names the refused record");
+        assert!(rebuilt.edition > refusing.edition, "the second window is the rebuilt book's");
+        assert!(rebuilt.refused.is_empty(), "the rebuilt book refuses nothing");
+        assert!(
+            rebuilt.rows.iter().any(|row| row.get().contains("marker22q")),
+            "the rebuilt book holds the row"
+        );
+    });
+}
+
+/// A replayed record whose rev is above 1 is a `patch`, and a patch is the whole row: a client
+/// that never held the row's first record (it was outside its window) takes the patch as the
+/// row, by its rowId.
+#[test]
+fn a_replayed_patch_is_the_whole_row_for_a_client_that_never_held_its_first_record() {
+    runtime().block_on(async {
+        let mut lines = open_turn(1);
+        // Two settled rows and an open one: a window of one row holds only the second.
+        let text = format!("{}\n\n{}\n\ntail", "x".repeat(9000), "y".repeat(9000));
+        lines.push(chunk(13, &text, "old"));
+        let chat = Chat::new(&lines);
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("s", json!({"window": 1})).await;
+        let window = client.window("s").await;
+        let held: Vec<Value> = window.rows.iter().map(|row| row_value(row)["id"].clone()).collect();
+        client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
+        chat.append(&[
+            mux(14, "message_superseded", json!({"oldMessageId": "old"})),
+            chunk(15, "Replacement.", "new"),
+            mux(16, "turn_result", json!({"turnId": "t1"})),
+        ]);
+        client.booked("Replacement.").await;
+        client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
+        let mut patches = Vec::new();
+        loop {
+            let frame = client.recv().await;
+            if frame.kind != FrameKind::Delta {
+                continue;
+            }
+            let delta: ChatDelta = frame.decode_json().unwrap();
+            if delta.sid != "r" {
+                continue;
+            }
+            for op in &delta.ops {
+                if let ChatOp::Patch { row, .. } = op {
+                    patches.push(row_value(row));
+                }
+            }
+            if delta.replay == Some(crate::wire::ReplayMark::End) {
+                break;
+            }
+        }
+        let unseen: Vec<&Value> = patches.iter().filter(|row| !held.contains(&row["id"])).collect();
+        assert!(!unseen.is_empty(), "no patch of a row outside the window: {patches:?}");
+        for row in unseen {
+            assert!(row["rev"].as_u64() > Some(1), "{row}");
+            for field in ["id", "kind", "turn", "open"] {
+                assert!(row.get(field).is_some(), "a patch without `{field}`: {row}");
+            }
+        }
+    });
+}
+
+/// The state frame at its largest: open bodies inline up to 64 KB together (a larger body is
+/// left out, its length named), every open row's head, and 64 queue heads of at most 1 KB of
+/// text each. Its bound: those parts, under one frame of 256 KB. A `blob` asked for 4 GiB of
+/// the body left out gets at most 256 KB.
+#[test]
+fn the_largest_state_frame_holds_its_bound_and_a_blob_past_its_bound_is_cut() {
+    runtime().block_on(async {
+        let mut lines = open_turn(1);
+        lines.push(chunk(13, "start ", "m1"));
+        lines.push(thought(14, "thinking", "m1"));
+        // The reply is an older row than the thought, so it is never cut: one 600 KB body.
+        let piece = "r".repeat(100 * 1024);
+        lines.extend((15..21).map(|seq| chunk(seq, &piece, "m1")));
+        let prompt = "p".repeat(2048);
+        lines.extend((0..MAX_HEADS as u64).map(|n| {
+            let (id, turn) = (format!("q{n}"), format!("u{n}"));
+            mux(21 + n, "queued", json!({"promptId": id, "turnId": turn, "text": prompt}))
+        }));
+        let chat = Chat::new(&lines);
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
+        client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
+        let state = client
+            .until(&mut Vec::new(), |frame| {
+                let delta: ChatDelta = frame.decode_json().ok()?;
+                (delta.sid == "r" && delta.replay == Some(crate::wire::ReplayMark::End))
+                    .then(|| (frame.encoded_len(), delta))
+            })
+            .await;
+        let (bytes, delta) = state;
+        let head = delta.ops.iter().find_map(|op| match op {
+            ChatOp::Queue { head: Some(head), .. } => Some(head),
+            _ => None,
+        });
+        let head = head.expect("the state frame holds the queue's head");
+        assert_eq!(head.entries.len(), MAX_HEADS);
+        assert!(head.entries.iter().all(|entry| entry.text.len() <= queue::HEAD_TEXT));
+        let (row, body_len) = delta
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                ChatOp::Row { row, body_len: Some(len), .. } => Some((row_value(row), *len)),
+                _ => None,
+            })
+            .expect("the 600 KB body is left out, its length named");
+        assert!(body_len > OPEN_INLINE as u64);
+        let bound = OPEN_INLINE + MAX_HEADS * (queue::HEAD_TEXT + 256) + 16 * 1024;
+        assert!(bound <= MAX_REPLAY_FRAME_BYTES);
+        assert!(bytes <= bound, "a state frame of {bytes} bytes, past its bound of {bound}");
+        client
+            .send(json!({"method": "blob", "params": {"id": "b", "stream": "chat:chat",
+                "edition": window.edition, "rowId": row["id"], "len": u32::MAX}}))
+            .await;
+        let blob =
+            client.until(&mut Vec::new(), |f| (f.kind == FrameKind::Blob).then(|| f.clone())).await;
+        let (blob_head, bytes) = decode_blob(&blob).unwrap();
+        assert_eq!(bytes.len(), MAX_BLOB_READ, "a blob past its bound is cut to it");
+        assert!(blob_head.total > MAX_BLOB_READ as u64);
+    });
+}
+
+/// A `page` asked for 64 MiB holds at most 256 KB, and a resume of about 900 KB missed goes
+/// out in frames of at most 256 KB.
+#[test]
+fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
+    runtime().block_on(async {
+        let big = "z".repeat(14 * 1024);
+        let lines: Vec<String> = (1..=40).flat_map(|n| turn(n, &format!("a {n} {big}"))).collect();
+        let chat = Chat::new(&lines);
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("s", json!({})).await;
+        let window = client.window("s").await;
+        let first = row_value(&window.rows[0])["id"].as_u64().unwrap();
+        client
+            .send(json!({"method": "page", "params": {"sid": "s", "stream": "chat:chat",
+                "before": first + 1, "after": null, "maxBytes": 64u32 << 20,
+                "edition": window.edition}}))
+            .await;
+        let page =
+            client.until(&mut Vec::new(), |f| (f.kind == FrameKind::Page).then(|| f.clone())).await;
+        assert!(page.encoded_len() <= MAX_PAGE_BYTES + 1024, "a page of {}", page.encoded_len());
+        client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
+        // About 900 KB of records missed: under the missed bound, so a replay, not a window.
+        let more: Vec<String> = (41..=100).flat_map(|n| turn(n, &format!("b {n} {big}"))).collect();
+        chat.append(&more);
+        client.booked("b 100 ").await;
+        client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
+        let mut largest = 0;
+        loop {
+            let frame = client.recv().await;
+            let Ok(delta) = frame.decode_json::<ChatDelta>() else { continue };
+            if delta.sid != "r" {
+                continue;
+            }
+            assert_ne!(frame.kind, FrameKind::Window, "900 KB missed got a window");
+            largest = largest.max(frame.encoded_len());
+            if delta.replay == Some(crate::wire::ReplayMark::End) {
+                break;
+            }
+        }
+        assert!(largest <= MAX_REPLAY_FRAME_BYTES + 512, "a replay frame of {largest} bytes");
+    });
+}
+
+/// Row 3c's release gates, beside the tests whose chats and clients they use.
+#[cfg(target_os = "linux")]
+#[path = "gates.rs"]
+mod gates;
