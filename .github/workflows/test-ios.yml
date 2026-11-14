@@ -143,6 +143,9 @@ jobs:
       runs_on: ${{ steps.pool.outputs.runs_on }}
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
+      # The ios-simulator matrix: runs_on, or a simulator mini's sim-first label
+      # alone when the pool's simulator runners are full (ios_runner_pool.py).
+      sim_runs_on: ${{ steps.pool.outputs.sim_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
@@ -1119,7 +1122,7 @@ jobs:
           && needs.ios-simulator-build.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on) }}
     # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
     # watchdogs remain the first line of defense; this 25-minute job cap bounds
     # setup or teardown that makes no test progress.
