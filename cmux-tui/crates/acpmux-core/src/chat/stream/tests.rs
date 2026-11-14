@@ -317,11 +317,19 @@ fn three_mebibytes_of_live_text_in_one_coalesce_reach_a_subscriber_whole_in_smal
         }
         // One write: the actor reads it in a few chunks, well inside one 16 ms coalesce.
         chat.append(&appended);
+        eprintln!("DEBUG appended {} lines, full {}", appended.len(), full.len());
         let mut consumed = window_bytes(&window);
         let mut largest = 0;
         while text.len() < full.len() {
             let frame = client.recv().await;
             consumed += frame.encoded_len() as u64;
+            eprintln!(
+                "DEBUG frame {:?} {} text {} consumed {}",
+                frame.kind,
+                frame.encoded_len(),
+                text.len(),
+                consumed
+            );
             assert_ne!(frame.kind, FrameKind::Dropped, "a live subscriber was dropped");
             if frame.kind == FrameKind::Delta {
                 largest = largest.max(frame.encoded_len());

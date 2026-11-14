@@ -13,6 +13,9 @@ use std::sync::{Arc, Mutex};
 /// The chat a `chat:<id>` stream names, if the daemon has one by that id.
 pub type Resolve = Arc<dyn Fn(&str) -> Option<ChatConfig> + Send + Sync>;
 
+/// A chat subscription's chat id and its sink.
+type ChatOf = (String, Arc<dyn OfferSink>);
+
 pub struct RouteSource {
     list: Arc<dyn Source>,
     registry: Registry,
@@ -20,7 +23,7 @@ pub struct RouteSource {
     /// This connection, as the actors know its subscriptions.
     conn: u64,
     /// The chat each of this connection's chat subscriptions is of, and its sink.
-    chats: Mutex<HashMap<String, (String, Arc<dyn OfferSink>)>>,
+    chats: Mutex<HashMap<String, ChatOf>>,
 }
 
 impl RouteSource {
@@ -28,7 +31,7 @@ impl RouteSource {
         Self { list, registry, resolve, conn, chats: Mutex::new(HashMap::new()) }
     }
 
-    fn chat_of(&self, sid: &str) -> Option<(String, Arc<dyn OfferSink>)> {
+    fn chat_of(&self, sid: &str) -> Option<ChatOf> {
         self.chats.lock().ok()?.get(sid).cloned()
     }
 }
