@@ -47,7 +47,7 @@ fn mirror_and_wanted_calls_match_the_rust_window_change() {
     assert!(!handle.is_null());
     unsafe {
         let request = serde_json::json!({
-            "sub": {"sid":"m","stream":"list","view":"live"},
+            "sub": {"sid":"m","stream":"list","view":"live","rows":"v1"},
             "held": [],
             "whole": false
         });
@@ -95,7 +95,11 @@ fn mirror_and_wanted_calls_match_the_rust_window_change() {
         acpmux_client_bytes_free(sub);
         let window = Frame::json(
             FrameKind::Window,
-            &serde_json::json!({"sid":"m","cursor":4,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+            &serde_json::json!({"sid":"m","cursor":4,"rows":[{
+                "chatId":"chat","title":"Chat","harness":"claude","state":"idle",
+                "lastActivity":4,"unread":0,"workspace":null,"origin":"local","pinned":false,
+                "archived":false,"parent":null,"forkOf":null,"folder":null,"extra":{"custom":true}
+            }],"hasBefore":false,"hasAfter":false,"edition":1}),
         )
         .unwrap()
         .encode();
@@ -112,7 +116,9 @@ fn mirror_and_wanted_calls_match_the_rust_window_change() {
         .unwrap()
         .encode();
         rust.received(&hello);
-        rust.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), false).unwrap();
+        let mut rust_sub = Sub::new("m", "list");
+        rust_sub.rows = Some("v1".into());
+        rust.subscribe_mirror(rust_sub, std::iter::empty(), false).unwrap();
         rust.received(&window);
         let expected = match rust.next_change().unwrap() {
             acpmux_client::Change::Window(window) => serde_json::to_value(window).unwrap(),
