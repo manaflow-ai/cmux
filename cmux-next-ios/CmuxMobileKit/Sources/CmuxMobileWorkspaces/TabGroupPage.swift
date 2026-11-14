@@ -56,7 +56,6 @@ struct TabGroupPage: View {
                     WorkspacePicker(tab: first, workspaces: source.otherWorkspaces, title: "Move Tab Group to Workspace") { destination in
                         Task { await source.editGroup(.moveToWorkspace(destination), group: groupID) }
                     }
-                    .cmuxMobileTransientSheet()
                     .presentationDetents([.medium, .large])
                 }
             }
